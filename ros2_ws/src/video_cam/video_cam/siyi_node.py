@@ -245,6 +245,7 @@ class SIYINode(Node):
             # this call) rather than to download-completion time, which
             # can be 2-3s later -- ~40-60m of drift at airspeed.
             gps_filename = self._generate_gps_filename()
+            # self.get_logger().info(self._generate_gps_filename())
             if gps_filename is None:
                 self.get_logger().warn(
                     "No valid GPS info "
@@ -319,6 +320,7 @@ class SIYINode(Node):
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
+        # self.get_logger().info(self.latest_gps)
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -604,6 +606,7 @@ class SIYINode(Node):
         try:
             lat = float(self.latest_gps.latitude)
             lon = float(self.latest_gps.longitude)
+            self.get_logger().info(f"{self.latest_gps.latitude}, {self.latest_gps.longitude}")
         except (TypeError, ValueError) as exc:
             self.get_logger().warn(
                 f"Cached NavSatFix has invalid coordinates: {exc}")
