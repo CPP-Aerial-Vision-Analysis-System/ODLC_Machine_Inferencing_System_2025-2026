@@ -112,13 +112,16 @@ class MainController(Node):
         # since DigiCamCtrl commands don't fire WaypointReached.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
+        # if self.waypoint_reached == self.last_before_rtl - 1:
+        #     self.change_mode("GUIDED")
+
         if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat = self.detections[obj_class].lat
-            person_lon = self.detections[obj_class].long 
+            person_lat = self.detections["person"].lat
+            person_lon = self.detections["person"].long 
             person_alt = ALT
 
-            tent_lat = self.detections[obj_class].lat
-            tent_lon = self.detections[obj_class].long
+            tent_lat = self.detections["tent"].lat
+            tent_lon = self.detections["tent"].long
             tent_alt = ALT
 
             message = f"Both person and tent detected!"
@@ -139,8 +142,8 @@ class MainController(Node):
         elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
-                person_lat = self.detections[obj_class].lat
-                person_lon = self.detections[obj_class].long 
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long 
                 person_alt = ALT
                 self.human_wp = self.last_before_rtl + 1
 
@@ -158,8 +161,8 @@ class MainController(Node):
                 self.last_before_rtl = -1
 
             elif self.valid_detection("tent"):
-                tent_lat = self.detections[obj_class].lat
-                tent_lon = self.detections[obj_class].long
+                tent_lat = self.detections["tent"].lat
+                tent_lon = self.detections["tent"].long
                 tent_alt = ALT
                 self.tent_wp = self.last_before_rtl + 1
 

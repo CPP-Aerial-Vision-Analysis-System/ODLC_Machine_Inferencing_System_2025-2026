@@ -30,9 +30,6 @@ When you trigger a capture, the unified pipeline executes:
 
 **Total Time:** 3-5 seconds per capture
 
-## Where Images Are Saved
-
-
 
 ## Using the Convenience Script
 
@@ -128,54 +125,89 @@ laser_state_set supports on/off (also true/false, 1/0, enable/disable).
 laser_stream supports "", "disable", "4", or "enable,4".
 capture supports "" (defaults to 4K), or 4K / 2.7K / 1080P.
 ```
+Gimbal Control
 
-# Some info
+All gimbal commands are sent to /camera/command as a String topic. The node must be running (ros2 run video_cam siyi) before sending any command.
+Build first (run once after any code change)
 
+cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
+colcon build --packages-select video_cam
+source install/setup.bash
 
-        # Serializes phases 1+2 (fire shutter + index SD card) across
-        # concurrent threads. Phase 3 (HTTP download) deliberately runs
-        # OUTSIDE this lock so the next capture's shutter can overlap with
-        # the previous capture's download.
-        #
-        # Acquired non-blocking so a trigger that arrives while another
-        # capture is mid-shutter is dropped (with a warning) rather than
-        # queued. The node is expected to spawn one worker thread per
-        # trigger; this lock prevents those threads from stomping on the
-        # camera's UDP SDK or on _find_new_file's compare-and-claim logic.
+Terminal 1: Start the node
 
+ros2 run video_cam siyi
 
-        # Absolute path of the file written by the most recent successful
-        # execute_pipeline() call. The node uses this to publish the image
-        # on /image_raw without having to scan the mapping directory.
+Terminal 2: Send gimbal commands
 
+Continuous rotation — moves at a speed from -100 to 100 (positive yaw = right, positive pitch = up):
 
-        In pipeline_orchestrator
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_rotate 30, -20'"
 
-        execute_pipeline - is the original "capture everything in one call" API and is
-        kept for callers (e.g. the sim path) that don't care about
-        pipelining. For pipelined captures — phase 3 of call N overlapping
-        with phases 1+2 of call N+1 — call capture_and_index() and
-        download_and_save() directly instead.
+Stop rotation:
 
-        capture_and_index - is serialized via non-blocking capture_lock so that a trigger arriving
-        while another capture is mid-shutter is dropped rather than queued.
-        Phase 3 (HTTP download) runs OUTSIDE this lock, so the next
-        capture's shutter can overlap with the previous capture's download.
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_stop'"
 
-        Returns the file_info dict on success, or None on failure / lock
-        contention.
+Center gimbal (returns to forward-level position):
 
-        in download and save - Runs OUTSIDE capture_lock, so it can overlap with the NEXT call's
-        phases 1+2. The file has already been claimed in downloaded_files
-        by _find_new_file (claim-at-find-time), so concurrent captures
-        will not pick it up again even though this download is still in
-        flight.
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_center'"
 
-        Returns (absolute_saved_path, decoded_image) on success, or None
-        on failure.
+Set absolute angles — yaw range ±135°, pitch range -90° to +25°:
 
-        in find new file - Claim-at-find-time: the returned file's name is added to
-        downloaded_files *before* phase 3 runs. This is what enables
-        pipelined captures — a concurrent capture_and_index() walker will
-        see the file as claimed and skip it, even though its download has
-        not started yet.
+# Example: yaw 45° right, pitch 30° down
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_angles 45, -30'"
+
+# Straight down
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_angles 0, -90'"
+
+# Return to level forward
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_angles 0, 0'"
+
+Set a single axis — move only yaw or only pitch:
+
+# Yaw only
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_axis yaw, 90'"
+
+# Pitch only
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_axis pitch, -45'"
+
+Set gimbal mode:
+
+# Lock mode — gimbal holds its absolute position regardless of aircraft movement
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_mode_set lock'"
+
+# Follow mode — gimbal yaw follows the aircraft heading
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_mode_set follow'"
+
+# FPV mode — gimbal matches aircraft pitch and roll
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_mode_set fpv'"
+
+Command reference table
+Command 	Arguments 	Range 	Description
+gimbal_rotate 	yaw_speed, pitch_speed 	-100 to 100 	Continuous rotation at speed
+gimbal_stop 	none 	— 	Stop all rotation
+gimbal_center 	mode (optional, default 1) 	1, 2, 4 	Return to center
+gimbal_set_angles 	yaw_deg, pitch_deg 	yaw ±135°, pitch -90°..+25° 	Absolute angle
+gimbal_set_axis 	yaw|pitch, angle_deg 	same as above 	Single axis
+gimbal_mode_set 	lock|follow|fpv 	— 	Set stabilisation mode
+Monitoring Status
+
+# Watch camera status
+ros2 topic echo /camera/status
+
+# Watch live image stream
+ros2 topic hz /image_raw
+
+# Check node is running
+ros2 node list | grep siyi
+
+Quick Command Reference:
+
+# Launch camera pipeline
+ros2 run video_cam siyi
+
+# Trigger capture
+ros2 topic pub /camera/trigger std_msgs/msg/Bool "data: true" --once
+
+# Launch detection
+ros2 run detection object_detection_sahi
