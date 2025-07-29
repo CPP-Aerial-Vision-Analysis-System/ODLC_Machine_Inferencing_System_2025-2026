@@ -28,11 +28,11 @@ Once installed:
 git clone https://github.com/CPP-Aerial-Vision-Analysis-System/ODLC_Machine_Inferencing_System_2025-2026.git
 ```
 
-### 2. Download Docker Desktop
+### 2. Download Docker Desktop (on linux download docker engine)
 
 🔗 [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
-### 3. Download the image
+### 3. Download the image (can skip to step 4. will auto-download there)
 
 In the terminal of Docker Desktop, download the Docker image:
 ```bash
