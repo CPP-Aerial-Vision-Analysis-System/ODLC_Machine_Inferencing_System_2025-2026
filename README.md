@@ -21,6 +21,32 @@ Once installed:
 
 ---
 
+## Cloning DevContainer
+
+### 1. Clone Repo
+```bash
+git clone https://github.com/CPP-Aerial-Vision-Analysis-System/ODLC_Machine_Inferencing_System_2025-2026.git
+```
+
+### 2. Download Docker Desktop
+
+🔗 [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+### 3. Download the image
+
+In the terminal of Docker Desktop, download the Docker image:
+```bash
+docker pull joestrada1022/suas-sim:ros2-gazebo
+```
+
+### 4. Reopen in container
+
+In VS Code:
+- if prompted, you can press open when it asks you if you want to open the devcontainer.
+- if you miss it or something, open the command pallete using ctrl + shift + p and press Reopen in Container
+
+---
+
 ## Working Inside the Devcontainer
 
 ### 1. Source the Workspace
