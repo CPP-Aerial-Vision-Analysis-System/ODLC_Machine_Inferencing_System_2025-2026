@@ -1,0 +1,6 @@
+{
+  "package_name": "gps_mavros",
+  "non_idl_tuples": [
+    "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_mavros:srv/GetGPSData.srv"
+  ]
+}

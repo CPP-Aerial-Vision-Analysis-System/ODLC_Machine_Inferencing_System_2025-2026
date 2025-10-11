@@ -1,0 +1,21 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from gps_mavros/srv/GetGPSData.srv
+// generated code does not contain a copyright notice
+
+
+module gps_mavros {
+  module srv {
+    struct GetGPSData_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct GetGPSData_Response {
+      double latitude;
+
+      double longitude;
+
+      double altitude;
+
+      double yaw;
+    };
+  };
+};

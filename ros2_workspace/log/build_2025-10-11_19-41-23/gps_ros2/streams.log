@@ -1,0 +1,27 @@
+[48.895s] Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2': PYTHONPATH=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/gps_ros2 build --build-base /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build install --record /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log --single-version-externally-managed install_data
+[66.889s] /home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[66.895s]   warnings.warn(msg)
+[68.450s] running egg_info
+[68.851s] writing ../../build/gps_ros2/gps_ros2.egg-info/PKG-INFO
+[69.006s] writing dependency_links to ../../build/gps_ros2/gps_ros2.egg-info/dependency_links.txt
+[69.066s] writing entry points to ../../build/gps_ros2/gps_ros2.egg-info/entry_points.txt
+[69.128s] writing requirements to ../../build/gps_ros2/gps_ros2.egg-info/requires.txt
+[69.166s] writing top-level names to ../../build/gps_ros2/gps_ros2.egg-info/top_level.txt
+[70.751s] reading manifest file '../../build/gps_ros2/gps_ros2.egg-info/SOURCES.txt'
+[72.639s] writing manifest file '../../build/gps_ros2/gps_ros2.egg-info/SOURCES.txt'
+[72.682s] running build
+[72.711s] running build_py
+[72.951s] copying gps_ros2/gps.py -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build/lib/gps_ros2
+[73.261s] copying gps_ros2/__init__.py -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build/lib/gps_ros2
+[73.719s] running install
+[73.738s] running install_lib
+[76.146s] running install_data
+[76.486s] copying resource/gps_ros2 -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/ament_index/resource_index/packages
+[77.543s] copying package.xml -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2
+[77.894s] running install_egg_info
+[78.458s] removing '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages/gps_ros2-0.0.0-py3.10.egg-info' (and everything under it)
+[79.464s] Copying ../../build/gps_ros2/gps_ros2.egg-info to /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages/gps_ros2-0.0.0-py3.10.egg-info
+[88.643s] running install_scripts
+[92.321s] Installing gpstest script to /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/gps_ros2
+[92.744s] writing list of installed files to '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log'
+[92.964s] Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2' returned '0': PYTHONPATH=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/gps_ros2 build --build-base /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build install --record /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log --single-version-externally-managed install_data

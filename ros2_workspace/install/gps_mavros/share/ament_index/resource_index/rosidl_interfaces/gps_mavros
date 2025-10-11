@@ -1,0 +1,4 @@
+srv/GetGPSData.idl
+srv/GetGPSData.srv
+srv/GetGPSData_Request.msg
+srv/GetGPSData_Response.msg
