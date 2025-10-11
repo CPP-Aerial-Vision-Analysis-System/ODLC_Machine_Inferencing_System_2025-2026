@@ -1,0 +1,2 @@
+[console_scripts]
+gpstest = gps_ros2.gps:main

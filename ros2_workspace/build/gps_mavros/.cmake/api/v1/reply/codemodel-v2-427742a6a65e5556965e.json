@@ -1,0 +1,233 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1
+					],
+					"hasInstallRule" : true,
+					"jsonFile" : "directory-.-6bbc6d028638b73cd582.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17
+					]
+				},
+				{
+					"build" : "gps_mavros__py",
+					"jsonFile" : "directory-gps_mavros__py-7e695dd726d597530e1c.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.12"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros/gps_mavros__py",
+					"targetIndexes" : 
+					[
+						4
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0,
+						1
+					],
+					"name" : "gps_mavros",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15,
+						16,
+						17
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_build_gps_mavros_egg::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_build_gps_mavros_egg-43ebec6b753b71487276.json",
+					"name" : "ament_cmake_python_build_gps_mavros_egg",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ament_cmake_python_copy_gps_mavros::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ament_cmake_python_copy_gps_mavros-b612edb728077bce062b.json",
+					"name" : "ament_cmake_python_copy_gps_mavros",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros-325d845cd1e448612019.json",
+					"name" : "gps_mavros",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__cpp-39f4058c8a570be66ebe.json",
+					"name" : "gps_mavros__cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "gps_mavros__py::@e323142bc9fbbb955eaa",
+					"jsonFile" : "target-gps_mavros__py-f637f0f311741437413f.json",
+					"name" : "gps_mavros__py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_generator_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_generator_c-e0c3c512314fdf0b59c6.json",
+					"name" : "gps_mavros__rosidl_generator_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_generator_py::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_generator_py-d6d3c2b043a3f7f1e6ac.json",
+					"name" : "gps_mavros__rosidl_generator_py",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_c-6baa73d7f13705d66fd7.json",
+					"name" : "gps_mavros__rosidl_typesupport_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_c__pyext-9fbc8d4dd116fbdd9bd2.json",
+					"name" : "gps_mavros__rosidl_typesupport_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_cpp-1578a32bb8670d7169f7.json",
+					"name" : "gps_mavros__rosidl_typesupport_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_fastrtps_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_fastrtps_c-23781bdfc8ad599866a7.json",
+					"name" : "gps_mavros__rosidl_typesupport_fastrtps_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_fastrtps_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_fastrtps_c__pyext-4fc2429ae7621742df59.json",
+					"name" : "gps_mavros__rosidl_typesupport_fastrtps_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_fastrtps_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_fastrtps_cpp-4106b9732cb1f5325374.json",
+					"name" : "gps_mavros__rosidl_typesupport_fastrtps_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_introspection_c::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_introspection_c-ea744569e107c11f766f.json",
+					"name" : "gps_mavros__rosidl_typesupport_introspection_c",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_introspection_c__pyext::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_introspection_c__pyext-2cb60e2fb338a795c3cb.json",
+					"name" : "gps_mavros__rosidl_typesupport_introspection_c__pyext",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros__rosidl_typesupport_introspection_cpp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros__rosidl_typesupport_introspection_cpp-e29be97c107f4a0c58dd.json",
+					"name" : "gps_mavros__rosidl_typesupport_introspection_cpp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gps_mavros_uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gps_mavros_uninstall-51d147c5c3e7a6b5b54e.json",
+					"name" : "gps_mavros_uninstall",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "uninstall::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-uninstall-6935a24f4d1222ffca3d.json",
+					"name" : "uninstall",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros",
+		"source" : "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_mavros"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

@@ -1,0 +1,25 @@
+/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+  warnings.warn(msg)
+running egg_info
+writing ../../build/gps_ros2/gps_ros2.egg-info/PKG-INFO
+writing dependency_links to ../../build/gps_ros2/gps_ros2.egg-info/dependency_links.txt
+writing entry points to ../../build/gps_ros2/gps_ros2.egg-info/entry_points.txt
+writing requirements to ../../build/gps_ros2/gps_ros2.egg-info/requires.txt
+writing top-level names to ../../build/gps_ros2/gps_ros2.egg-info/top_level.txt
+reading manifest file '../../build/gps_ros2/gps_ros2.egg-info/SOURCES.txt'
+writing manifest file '../../build/gps_ros2/gps_ros2.egg-info/SOURCES.txt'
+running build
+running build_py
+copying gps_ros2/gps.py -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build/lib/gps_ros2
+copying gps_ros2/__init__.py -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build/lib/gps_ros2
+running install
+running install_lib
+running install_data
+copying resource/gps_ros2 -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/ament_index/resource_index/packages
+copying package.xml -> /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2
+running install_egg_info
+removing '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages/gps_ros2-0.0.0-py3.10.egg-info' (and everything under it)
+Copying ../../build/gps_ros2/gps_ros2.egg-info to /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages/gps_ros2-0.0.0-py3.10.egg-info
+running install_scripts
+Installing gpstest script to /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/gps_ros2
+writing list of installed files to '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log'

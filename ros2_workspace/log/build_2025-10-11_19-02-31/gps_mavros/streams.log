@@ -1,0 +1,234 @@
+[1.781s] Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_mavros -DCMAKE_INSTALL_PREFIX=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros
+[8.907s] -- The C compiler identification is GNU 11.4.0
+[13.100s] -- The CXX compiler identification is GNU 11.4.0
+[15.590s] -- Detecting C compiler ABI info
+[27.705s] -- Detecting C compiler ABI info - done
+[28.337s] -- Check for working C compiler: /usr/bin/cc - skipped
+[28.356s] -- Detecting C compile features
+[28.384s] -- Detecting C compile features - done
+[29.251s] -- Detecting CXX compiler ABI info
+[38.657s] -- Detecting CXX compiler ABI info - done
+[38.923s] -- Check for working CXX compiler: /usr/bin/c++ - skipped
+[38.931s] -- Detecting CXX compile features
+[38.939s] -- Detecting CXX compile features - done
+[39.995s] -- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)
+[42.293s] -- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter 
+[44.241s] -- Found rosidl_default_generators: 1.2.0 (/opt/ros/humble/share/rosidl_default_generators/cmake)
+[44.350s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[44.398s] -- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)
+[44.680s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[53.757s] -- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)
+[59.833s] -- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c
+[67.408s] -- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp
+[67.691s] -- Found PythonInterp: /usr/bin/python3 (found suitable version "3.10.12", minimum required is "3.6") 
+[67.734s] -- Found python_cmake_module: 0.10.0 (/opt/ros/humble/share/python_cmake_module/cmake)
+[67.840s] -- Found PythonLibs: /usr/lib/x86_64-linux-gnu/libpython3.10.so (found suitable version "3.10.12", minimum required is "3.5") 
+[67.869s] -- Using PYTHON_EXECUTABLE: /usr/bin/python3
+[67.880s] -- Using PYTHON_INCLUDE_DIRS: /usr/include/python3.10
+[67.886s] -- Using PYTHON_LIBRARIES: /usr/lib/x86_64-linux-gnu/libpython3.10.so
+[67.929s] -- Found PythonExtra: .so  
+[70.957s] -- Found ament_lint_auto: 0.12.14 (/opt/ros/humble/share/ament_lint_auto/cmake)
+[86.228s] -- Added test 'lint_cmake' to check CMake code style
+[94.699s] -- Added test 'xmllint' to check XML markup files
+[103.050s] -- Configuring done
+[135.822s] -- Generating done
+[147.074s] -- Build files have been written to: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros
+[147.125s] Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_mavros -DCMAKE_INSTALL_PREFIX=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros
+[147.289s] Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros -- -j12 -l12
+[150.648s] [  3%] [34m[1mGenerating C++ code for ROS interfaces[0m
+[153.720s] [  3%] Built target gps_mavros__cpp
+[155.802s] [  3%] Built target ament_cmake_python_copy_gps_mavros
+[156.512s] [  6%] [34m[1mGenerating C++ type support dispatch for ROS interfaces[0m
+[158.565s] [  9%] [32mBuilding CXX object CMakeFiles/gps_mavros__rosidl_typesupport_cpp.dir/rosidl_typesupport_cpp/gps_mavros/srv/get_gps_data__type_support.cpp.o[0m
+[164.164s] [ 12%] [32m[1mLinking CXX shared library libgps_mavros__rosidl_typesupport_cpp.so[0m
+[165.968s] [ 12%] Built target gps_mavros__rosidl_typesupport_cpp
+[168.194s] running egg_info
+[168.252s] creating gps_mavros.egg-info
+[168.305s] writing gps_mavros.egg-info/PKG-INFO
+[168.468s] writing dependency_links to gps_mavros.egg-info/dependency_links.txt
+[168.550s] writing top-level names to gps_mavros.egg-info/top_level.txt
+[168.628s] writing manifest file 'gps_mavros.egg-info/SOURCES.txt'
+[169.213s] reading manifest file 'gps_mavros.egg-info/SOURCES.txt'
+[169.643s] writing manifest file 'gps_mavros.egg-info/SOURCES.txt'
+[169.899s] [ 12%] Built target ament_cmake_python_build_gps_mavros_egg
+[170.675s] [ 16%] [34m[1mGenerating C++ introspection for ROS interfaces[0m
+[173.014s] [ 19%] [32mBuilding CXX object CMakeFiles/gps_mavros__rosidl_typesupport_introspection_cpp.dir/rosidl_typesupport_introspection_cpp/gps_mavros/srv/detail/get_gps_data__type_support.cpp.o[0m
+[183.088s] [ 22%] [32m[1mLinking CXX shared library libgps_mavros__rosidl_typesupport_introspection_cpp.so[0m
+[184.305s] [ 22%] Built target gps_mavros__rosidl_typesupport_introspection_cpp
+[185.171s] [ 25%] [34m[1mGenerating C++ type support for eProsima Fast-RTPS[0m
+[188.908s] [ 29%] [32mBuilding CXX object CMakeFiles/gps_mavros__rosidl_typesupport_fastrtps_cpp.dir/rosidl_typesupport_fastrtps_cpp/gps_mavros/srv/detail/dds_fastrtps/get_gps_data__type_support.cpp.o[0m
+[203.208s] [ 32%] [32m[1mLinking CXX shared library libgps_mavros__rosidl_typesupport_fastrtps_cpp.so[0m
+[206.282s] [ 32%] Built target gps_mavros__rosidl_typesupport_fastrtps_cpp
+[206.756s] [ 35%] [34m[1mGenerating C code for ROS interfaces[0m
+[212.178s] [ 38%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_generator_c.dir/rosidl_generator_c/gps_mavros/srv/detail/get_gps_data__functions.c.o[0m
+[217.833s] [ 41%] [32m[1mLinking C shared library libgps_mavros__rosidl_generator_c.so[0m
+[220.305s] [ 41%] Built target gps_mavros__rosidl_generator_c
+[221.240s] [ 45%] [34m[1mGenerating C type support for eProsima Fast-RTPS[0m
+[224.669s] [ 48%] [32mBuilding CXX object CMakeFiles/gps_mavros__rosidl_typesupport_fastrtps_c.dir/rosidl_typesupport_fastrtps_c/gps_mavros/srv/detail/get_gps_data__type_support_c.cpp.o[0m
+[237.975s] [ 51%] [32m[1mLinking CXX shared library libgps_mavros__rosidl_typesupport_fastrtps_c.so[0m
+[240.297s] [ 51%] Built target gps_mavros__rosidl_typesupport_fastrtps_c
+[241.383s] [ 54%] [34m[1mGenerating C type support dispatch for ROS interfaces[0m
+[243.708s] [ 58%] [32mBuilding CXX object CMakeFiles/gps_mavros__rosidl_typesupport_c.dir/rosidl_typesupport_c/gps_mavros/srv/get_gps_data__type_support.cpp.o[0m
+[247.234s] [ 61%] [32m[1mLinking CXX shared library libgps_mavros__rosidl_typesupport_c.so[0m
+[248.804s] [ 61%] Built target gps_mavros__rosidl_typesupport_c
+[249.468s] [ 64%] [34m[1mGenerating C introspection for ROS interfaces[0m
+[252.075s] [ 67%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_typesupport_introspection_c.dir/rosidl_typesupport_introspection_c/gps_mavros/srv/detail/get_gps_data__type_support.c.o[0m
+[255.105s] [ 70%] [32m[1mLinking C shared library libgps_mavros__rosidl_typesupport_introspection_c.so[0m
+[256.832s] [ 70%] Built target gps_mavros__rosidl_typesupport_introspection_c
+[257.544s] [ 70%] Built target gps_mavros
+[258.712s] [ 74%] [34m[1mGenerating Python code for ROS interfaces[0m
+[262.040s] [ 74%] Built target gps_mavros__py
+[263.474s] [ 77%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_generator_py.dir/rosidl_generator_py/gps_mavros/srv/_get_gps_data_s.c.o[0m
+[268.535s] [ 80%] [32m[1mLinking C shared library rosidl_generator_py/gps_mavros/libgps_mavros__rosidl_generator_py.so[0m
+[270.384s] [ 80%] Built target gps_mavros__rosidl_generator_py
+[272.395s] [ 83%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_typesupport_fastrtps_c__pyext.dir/rosidl_generator_py/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_fastrtps_c.c.o[0m
+[280.387s] [ 87%] [32m[1mLinking C shared library rosidl_generator_py/gps_mavros/gps_mavros_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so[0m
+[282.785s] [ 87%] Built target gps_mavros__rosidl_typesupport_fastrtps_c__pyext
+[284.158s] [ 90%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_typesupport_c__pyext.dir/rosidl_generator_py/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_c.c.o[0m
+[290.140s] [ 93%] [32m[1mLinking C shared library rosidl_generator_py/gps_mavros/gps_mavros_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so[0m
+[292.096s] [ 93%] Built target gps_mavros__rosidl_typesupport_c__pyext
+[293.842s] [ 96%] [32mBuilding C object CMakeFiles/gps_mavros__rosidl_typesupport_introspection_c__pyext.dir/rosidl_generator_py/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_introspection_c.c.o[0m
+[301.726s] [100%] [32m[1mLinking C shared library rosidl_generator_py/gps_mavros/gps_mavros_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so[0m
+[304.181s] [100%] Built target gps_mavros__rosidl_typesupport_introspection_c__pyext
+[308.009s] Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros -- -j12 -l12
+[308.640s] Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros
+[308.762s] -- Install configuration: ""
+[309.456s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/ament_index/resource_index/rosidl_interfaces/gps_mavros
+[311.191s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[311.738s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg
+[312.608s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg/rosidl_generator_c__visibility_control.h
+[314.456s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[314.987s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[316.445s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__functions.c
+[317.914s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__functions.h
+[319.536s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__struct.h
+[320.952s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__type_support.h
+[322.551s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/get_gps_data.h
+[324.476s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/library_path.sh
+[325.915s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/library_path.dsv
+[326.959s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_generator_c.so
+[328.153s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_generator_c.so" to ""
+[328.431s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[329.036s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg
+[329.486s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg/rosidl_typesupport_fastrtps_c__visibility_control.h
+[330.571s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[331.484s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[332.167s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__rosidl_typesupport_fastrtps_c.h
+[334.026s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_fastrtps_c.so
+[337.118s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_fastrtps_c.so" to ""
+[337.321s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[337.682s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg
+[338.158s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg/rosidl_typesupport_introspection_c__visibility_control.h
+[339.941s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[340.503s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[341.187s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__rosidl_typesupport_introspection_c.h
+[343.276s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__type_support.c
+[345.406s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_introspection_c.so
+[347.562s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_introspection_c.so" to ""
+[347.708s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_c.so
+[349.779s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_c.so" to ""
+[349.879s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[350.174s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg
+[350.624s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg/rosidl_generator_cpp__visibility_control.hpp
+[352.209s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[352.813s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[353.534s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__builder.hpp
+[356.253s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__struct.hpp
+[358.389s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__traits.hpp
+[360.609s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__type_support.hpp
+[362.401s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/get_gps_data.hpp
+[364.054s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[364.437s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg
+[365.432s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/msg/rosidl_typesupport_fastrtps_cpp__visibility_control.h
+[367.267s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[367.879s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[368.480s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/dds_fastrtps
+[369.318s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__rosidl_typesupport_fastrtps_cpp.hpp
+[371.826s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_fastrtps_cpp.so
+[373.896s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_fastrtps_cpp.so" to ""
+[374.149s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros
+[374.427s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv
+[374.998s] -- Up-to-date: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail
+[376.477s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__rosidl_typesupport_introspection_cpp.hpp
+[378.856s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/include/gps_mavros/gps_mavros/srv/detail/get_gps_data__type_support.cpp
+[381.369s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_introspection_cpp.so
+[383.782s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_introspection_cpp.so" to ""
+[384.185s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_cpp.so
+[387.529s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_typesupport_cpp.so" to ""
+[388.153s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/pythonpath.sh
+[389.671s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/pythonpath.dsv
+[391.057s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros-0.0.0-py3.10.egg-info
+[392.239s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros-0.0.0-py3.10.egg-info/dependency_links.txt
+[395.568s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros-0.0.0-py3.10.egg-info/PKG-INFO
+[398.667s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros-0.0.0-py3.10.egg-info/SOURCES.txt
+[402.352s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros-0.0.0-py3.10.egg-info/top_level.txt
+[403.986s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros
+[405.239s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[408.408s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[410.105s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[412.877s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/libgps_mavros__rosidl_generator_py.so
+[415.428s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv
+[417.004s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv/_get_gps_data.py
+[419.815s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv/_get_gps_data_s.c
+[421.973s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv/__init__.py
+[424.197s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_c.c
+[426.442s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_fastrtps_c.c
+[428.102s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/_gps_mavros_s.ep.rosidl_typesupport_introspection_c.c
+[429.960s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/__init__.py
+[438.077s] Listing '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros'...
+[438.092s] Compiling '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/__init__.py'...
+[438.125s] Listing '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv'...
+[438.148s] Compiling '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv/__init__.py'...
+[438.187s] Compiling '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/srv/_get_gps_data.py'...
+[439.675s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so
+[443.801s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_fastrtps_c.cpython-310-x86_64-linux-gnu.so" to ""
+[445.343s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so
+[449.790s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_introspection_c.cpython-310-x86_64-linux-gnu.so" to ""
+[451.419s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so
+[456.229s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/local/lib/python3.10/dist-packages/gps_mavros/gps_mavros_s__rosidl_typesupport_c.cpython-310-x86_64-linux-gnu.so" to ""
+[456.771s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_generator_py.so
+[460.353s] -- Set runtime path of "/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/lib/libgps_mavros__rosidl_generator_py.so" to ""
+[461.043s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/srv/GetGPSData.idl
+[463.162s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/srv/GetGPSData.srv
+[465.221s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/srv/GetGPSData_Request.msg
+[467.068s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/srv/GetGPSData_Response.msg
+[469.278s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/ament_index/resource_index/package_run_dependencies/gps_mavros
+[472.147s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/ament_index/resource_index/parent_prefix_path/gps_mavros
+[473.951s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/ament_prefix_path.sh
+[474.737s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/ament_prefix_path.dsv
+[476.709s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/path.sh
+[477.933s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/environment/path.dsv
+[479.926s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/local_setup.bash
+[482.043s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/local_setup.sh
+[484.500s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/local_setup.zsh
+[486.956s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/local_setup.dsv
+[489.216s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/package.dsv
+[491.636s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/ament_index/resource_index/packages/gps_mavros
+[494.638s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_generator_cExport.cmake
+[497.618s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_generator_cExport-noconfig.cmake
+[500.005s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_typesupport_fastrtps_cExport.cmake
+[502.823s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_typesupport_fastrtps_cExport-noconfig.cmake
+[505.340s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_introspection_cExport.cmake
+[508.601s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_introspection_cExport-noconfig.cmake
+[510.957s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_cExport.cmake
+[513.992s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_cExport-noconfig.cmake
+[517.385s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_generator_cppExport.cmake
+[523.277s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_typesupport_fastrtps_cppExport.cmake
+[527.004s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_typesupport_fastrtps_cppExport-noconfig.cmake
+[529.454s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_introspection_cppExport.cmake
+[531.772s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_introspection_cppExport-noconfig.cmake
+[533.993s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_cppExport.cmake
+[536.976s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavros__rosidl_typesupport_cppExport-noconfig.cmake
+[539.419s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_generator_pyExport.cmake
+[541.643s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/export_gps_mavros__rosidl_generator_pyExport-noconfig.cmake
+[543.868s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/rosidl_cmake-extras.cmake
+[545.324s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/ament_cmake_export_include_directories-extras.cmake
+[547.043s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/ament_cmake_export_libraries-extras.cmake
+[549.288s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/ament_cmake_export_targets-extras.cmake
+[551.002s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/rosidl_cmake_export_typesupport_targets-extras.cmake
+[552.827s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/ament_cmake_export_dependencies-extras.cmake
+[555.623s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/rosidl_cmake_export_typesupport_libraries-extras.cmake
+[557.822s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavrosConfig.cmake
+[559.930s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/cmake/gps_mavrosConfig-version.cmake
+[561.692s] -- Installing: /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_mavros/share/gps_mavros/package.xml
+[563.628s] Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_mavros

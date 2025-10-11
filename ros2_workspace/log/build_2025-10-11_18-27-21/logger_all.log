@@ -1,0 +1,186 @@
+[0.999s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[1.001s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=12, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7d46723f19f0>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7d46723f13f0>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7d46723f13f0>>, mixin_verb=('build',))
+[1.440s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[1.444s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[1.450s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[1.451s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[1.452s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[1.457s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[1.462s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace'
+[1.474s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[1.475s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[1.476s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[1.481s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[1.482s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[1.485s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[1.486s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[1.488s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[1.489s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[1.545s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[1.547s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[1.549s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[1.554s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[1.556s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[1.589s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[1.591s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[1.604s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[1.625s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[1.627s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[1.640s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[1.687s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[1.688s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[1.698s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[1.735s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['ignore', 'ignore_ament_install']
+[1.737s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'ignore'
+[1.743s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'ignore_ament_install'
+[1.758s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['colcon_pkg']
+[1.761s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'colcon_pkg'
+[1.770s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['colcon_meta']
+[1.771s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'colcon_meta'
+[1.788s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['ros']
+[1.790s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'ros'
+[1.828s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['cmake', 'python']
+[1.829s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'cmake'
+[1.845s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'python'
+[1.853s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extensions ['python_setup_py']
+[1.855s] Level 1:colcon.colcon_core.package_identification:_identify(source) by extension 'python_setup_py'
+[1.897s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extensions ['ignore', 'ignore_ament_install']
+[1.899s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extension 'ignore'
+[1.908s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extension 'ignore_ament_install'
+[1.928s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extensions ['colcon_pkg']
+[1.929s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extension 'colcon_pkg'
+[1.944s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extensions ['colcon_meta']
+[1.946s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extension 'colcon_meta'
+[1.967s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extensions ['ros']
+[1.969s] Level 1:colcon.colcon_core.package_identification:_identify(source/gps_ros2) by extension 'ros'
+[2.098s] DEBUG:colcon.colcon_core.package_identification:Package 'source/gps_ros2' with type 'ros.ament_python' and name 'gps_ros2'
+[2.130s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extensions ['ignore', 'ignore_ament_install']
+[2.132s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extension 'ignore'
+[2.147s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extension 'ignore_ament_install'
+[2.189s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extensions ['colcon_pkg']
+[2.190s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extension 'colcon_pkg'
+[2.197s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extensions ['colcon_meta']
+[2.197s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extension 'colcon_meta'
+[2.208s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extensions ['ros']
+[2.211s] Level 1:colcon.colcon_core.package_identification:_identify(source/package1) by extension 'ros'
+[2.327s] DEBUG:colcon.colcon_core.package_identification:Package 'source/package1' with type 'ros.ament_python' and name 'package1'
+[2.392s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extensions ['ignore', 'ignore_ament_install']
+[2.397s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extension 'ignore'
+[2.421s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extension 'ignore_ament_install'
+[2.456s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extensions ['colcon_pkg']
+[2.457s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extension 'colcon_pkg'
+[2.463s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extensions ['colcon_meta']
+[2.465s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extension 'colcon_meta'
+[2.498s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extensions ['ros']
+[2.499s] Level 1:colcon.colcon_core.package_identification:_identify(source/temperature_interface) by extension 'ros'
+[2.661s] DEBUG:colcon.colcon_core.package_identification:Package 'source/temperature_interface' with type 'ros.catkin' and name 'temperature_interface'
+[2.662s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[2.664s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[2.666s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[2.668s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[2.669s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[3.076s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_args' from command line to 'None'
+[3.079s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_target' from command line to 'None'
+[3.082s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[3.086s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_clean_cache' from command line to 'False'
+[3.089s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_clean_first' from command line to 'False'
+[3.092s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'cmake_force_configure' from command line to 'False'
+[3.095s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'ament_cmake_args' from command line to 'None'
+[3.097s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'catkin_cmake_args' from command line to 'None'
+[3.098s] Level 5:colcon.colcon_core.verb:set package 'gps_ros2' build argument 'catkin_skip_building_tests' from command line to 'False'
+[3.100s] DEBUG:colcon.colcon_core.verb:Building package 'gps_ros2' with the following arguments: {'ament_cmake_args': None, 'build_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2', 'merge_install': False, 'path': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2', 'symlink_install': False, 'test_result_base': None}
+[3.108s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_args' from command line to 'None'
+[3.111s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_target' from command line to 'None'
+[3.114s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[3.118s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_clean_cache' from command line to 'False'
+[3.124s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_clean_first' from command line to 'False'
+[3.126s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'cmake_force_configure' from command line to 'False'
+[3.130s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'ament_cmake_args' from command line to 'None'
+[3.134s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'catkin_cmake_args' from command line to 'None'
+[3.137s] Level 5:colcon.colcon_core.verb:set package 'temperature_interface' build argument 'catkin_skip_building_tests' from command line to 'False'
+[3.139s] DEBUG:colcon.colcon_core.verb:Building package 'temperature_interface' with the following arguments: {'ament_cmake_args': None, 'build_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/temperature_interface', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface', 'merge_install': False, 'path': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/temperature_interface', 'symlink_install': False, 'test_result_base': None}
+[3.141s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_args' from command line to 'None'
+[3.144s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_target' from command line to 'None'
+[3.147s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[3.149s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_clean_cache' from command line to 'False'
+[3.152s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_clean_first' from command line to 'False'
+[3.153s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'cmake_force_configure' from command line to 'False'
+[3.155s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'ament_cmake_args' from command line to 'None'
+[3.156s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'catkin_cmake_args' from command line to 'None'
+[3.158s] Level 5:colcon.colcon_core.verb:set package 'package1' build argument 'catkin_skip_building_tests' from command line to 'False'
+[3.162s] DEBUG:colcon.colcon_core.verb:Building package 'package1' with the following arguments: {'ament_cmake_args': None, 'build_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/package1', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/package1', 'merge_install': False, 'path': '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/package1', 'symlink_install': False, 'test_result_base': None}
+[3.164s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[3.170s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[3.172s] INFO:colcon.colcon_ros.task.catkin.build:Building ROS package in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/temperature_interface' with build type 'catkin'
+[3.177s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/temperature_interface'
+[3.188s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[3.192s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[3.209s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[3.245s] WARNING:colcon.colcon_ros.prefix_path.ament:The path '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2' in the environment variable AMENT_PREFIX_PATH doesn't exist
+[3.850s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2' with build type 'ament_python'
+[3.864s] Level 1:colcon.colcon_core.shell:create_environment_hook('gps_ros2', 'ament_prefix_path')
+[3.871s] INFO:colcon.colcon_core.shell:Creating environment hook '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/ament_prefix_path.ps1'
+[4.193s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/ament_prefix_path.dsv'
+[4.355s] INFO:colcon.colcon_core.shell:Creating environment hook '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/ament_prefix_path.sh'
+[4.568s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[4.574s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[5.553s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/temperature_interface': /usr/bin/cmake /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/temperature_interface -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCMAKE_INSTALL_PREFIX=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface
+[7.722s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2'
+[7.727s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[7.729s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[28.527s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2': PYTHONPATH=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/gps_ros2 build --build-base /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build install --record /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log --single-version-externally-managed install_data
+[61.662s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2' for CMake module files
+[61.695s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/gps_ros2' returned '0': PYTHONPATH=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/gps_ros2 build --build-base /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/build install --record /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/gps_ros2/install.log --single-version-externally-managed install_data
+[62.113s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2' for CMake config files
+[63.740s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib'
+[63.784s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/bin'
+[63.811s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/pkgconfig/gps_ros2.pc'
+[63.829s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/lib/python3.10/site-packages'
+[63.847s] Level 1:colcon.colcon_core.shell:create_environment_hook('gps_ros2', 'pythonpath')
+[63.855s] INFO:colcon.colcon_core.shell:Creating environment hook '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/pythonpath.ps1'
+[64.151s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/pythonpath.dsv'
+[64.368s] INFO:colcon.colcon_core.shell:Creating environment hook '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/hook/pythonpath.sh'
+[64.829s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/bin'
+[64.851s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(gps_ros2)
+[64.859s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/package.ps1'
+[65.090s] INFO:colcon.colcon_core.shell:Creating package descriptor '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/package.dsv'
+[65.314s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/package.sh'
+[65.440s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/package.bash'
+[65.624s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/gps_ros2/package.zsh'
+[65.730s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/gps_ros2/share/colcon-core/packages/gps_ros2)
+[67.610s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete was interrupted
+[67.626s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete again
+[67.668s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/build/temperature_interface' returned '-2': /usr/bin/cmake /ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/source/temperature_interface -DCATKIN_INSTALL_INTO_PREFIX_ROOT=0 -DCMAKE_INSTALL_PREFIX=/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface
+[67.713s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(temperature_interface)
+[67.715s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface' for CMake module files
+[67.866s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface' for CMake config files
+[67.877s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/bin'
+[67.886s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/lib/pkgconfig/temperature_interface.pc'
+[67.892s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/lib/python3.10/site-packages'
+[67.900s] Level 1:colcon.colcon_core.environment:checking '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/bin'
+[67.910s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/temperature_interface/package.ps1'
+[68.075s] INFO:colcon.colcon_core.shell:Creating package descriptor '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/temperature_interface/package.dsv'
+[68.293s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/temperature_interface/package.sh'
+[68.490s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/temperature_interface/package.bash'
+[68.641s] INFO:colcon.colcon_core.shell:Creating package script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/temperature_interface/package.zsh'
+[68.827s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/temperature_interface/share/colcon-core/packages/temperature_interface)
+[69.113s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished
+[69.119s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[69.122s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[69.131s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[69.406s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[69.410s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[69.412s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[69.415s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[69.436s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.Spawn.ExecFailed: /usr/bin/dbus-launch terminated abnormally without any error message
+[69.441s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[69.449s] INFO:colcon.colcon_core.shell:Creating prefix script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/local_setup.ps1'
+[69.529s] INFO:colcon.colcon_core.shell:Creating prefix util module '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/_local_setup_util_ps1.py'
+[69.646s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/setup.ps1'
+[70.052s] INFO:colcon.colcon_core.shell:Creating prefix script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/local_setup.sh'
+[70.262s] INFO:colcon.colcon_core.shell:Creating prefix util module '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/_local_setup_util_sh.py'
+[70.433s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/setup.sh'
+[70.804s] INFO:colcon.colcon_core.shell:Creating prefix script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/local_setup.bash'
+[70.934s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/setup.bash'
+[71.177s] INFO:colcon.colcon_core.shell:Creating prefix script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/local_setup.zsh'
+[71.244s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/ODLC_Machine_Inferencing_System_2025-2026/ros2_workspace/install/setup.zsh'
