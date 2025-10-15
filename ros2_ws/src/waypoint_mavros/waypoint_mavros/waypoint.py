@@ -30,8 +30,15 @@ class Waypoint(Node):
         # Custom Services
         self.add_srv = self.create_service(AddWaypoint, "/addWaypoint", self.handle_wp_req)
         self.del_srv = self.create_service(DelWaypoint, "/delWaypoint", self.handle_wp_del_req)
+        self.update_srv = self.create_service(UpdateMission, "/updateMission", self.handle_update_mission)
         # self.do_jump_srv = self.create_service(DoJump, "/doJump", self.handle_do_jump)
-        # self.update_srv = self.create_service(UpdateMission, "/updateMission", self.handle_update_mission)
+
+        # Node parameters   (move to a mission manager?)
+        self.declare_parameter('num_waypoints', 0)
+        self.declare_parameter('takeoff_index', -1)
+        self.declare_parameter('rtl_index', -1)
+        self.declare_parameter('next_after_takeoff', -1)
+        self.declare_parameter('last_before_rtl', -1)
 
 
     def state_callback(self, msg):
@@ -172,8 +179,16 @@ class Waypoint(Node):
             response.success = False
         return response
 
-    # def handle_update_mission(self, req):
-    #     return response
+    def handle_update_mission(self, request, response):
+        self.get_logger().info(f"Received UpdateMission request")
+        try:
+            # update mission logic 
+            # its just setting params for other nodes?
+            response = UpdateMission.Response()
+            response.success = True         # nothing coded yet
+        except Exception as e:
+            self.get_logger().error(f"Failed to udpate mission: {e}")
+        return response
     
     def main(self):
         self.get_logger().info("Waiting for connection to FCU...")
