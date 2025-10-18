@@ -6,7 +6,7 @@ from mavros_msgs.srv import WaypointPull, WaypointPush, WaypointClear, SetMode
 
 from interfaces.srv import AddWaypoint, DelWaypoint, UpdateMission
 
-class Waypoint(Node):
+class WaypointManager(Node):
     def __init__(self):
         super().__init__("waypoint_manager")
 
@@ -40,7 +40,7 @@ class Waypoint(Node):
         self.declare_parameter('next_after_takeoff', -1)
         self.declare_parameter('last_before_rtl', -1)
 
-
+       
     def state_callback(self, msg):
         """Callback function for state updates."""
         self.connected = msg.connected
@@ -48,8 +48,8 @@ class Waypoint(Node):
     def waypoints_list(self, data):
         """Callback to store and log the recieved waypoints"""
         self.waypoint_list = data
-        for i, wp in enumerate(data.waypoints):
-            self.get_logger().info(f"Waypoint {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
+        for i, wp in enumerate(self.waypoint_list.waypoints):
+            self.get_logger().info(f"Waypoint {type(wp)} {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
     
     def push_waypoints(self):
         """Push waypoints to the drone"""
@@ -60,7 +60,7 @@ class Waypoint(Node):
             waypoint_push_request = WaypointPush.Request()
             waypoint_push_request.start_index = 0
             waypoint_push_request.waypoints = self.waypoint_list.waypoints
-            push_result = self.waypoint_push_client.call_async(waypoint_push_request)
+            push_result = self.waypoint_push.call_async(waypoint_push_request)
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
     
@@ -69,13 +69,20 @@ class Waypoint(Node):
         while not self.waypoint_pull.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for waypoint pull service...")
         
+        future = self.waypoint_pull.call_async(WaypointPull.Request())
+        rclpy.spin_until_future_complete(self, future)
+        future.add_done_callback(self.pull_request)
+        self.get_logger().info("Waypoint pull request...")
+    
+
+    def pull_request(self, future):
         try:
-            pull_result = self.waypoint_pull_client.call_async()
-            if pull_result.result().success:
-                self.get_logger().info(f"Successfully pulled {pull_result.result().wp_received} waypoints.")
+            response = future.result()
+            if response.success:
+                self.get_logger().info(f"Successfully pulled {response.wp_received} from drone.")
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
-    
+
     def clear_waypoints(self):
         """Clear all waypoints from the drone."""
         while not self.waypoint_clear.wait_for_service(timeout_sec=1.0):
@@ -95,26 +102,26 @@ class Waypoint(Node):
         new_waypoint.command = 16
         new_waypoint.is_current = False
         new_waypoint.autocontinue = True
-        new_waypoint.param1 = 5  # Hold time in seconds
-        new_waypoint.param2 = 0  # Acceptance radius in meters
-        new_waypoint.param3 = 0  # Pass through waypoint
+        new_waypoint.param1 = float(5)  # Hold time in seconds
+        new_waypoint.param2 = float(0)  # Acceptance radius in meters
+        new_waypoint.param3 = float(0)  # Pass through waypoint
         new_waypoint.param4 = float('nan')  # Yaw angle
-        new_waypoint.x_lat = lat
-        new_waypoint.y_long = lon
-        new_waypoint.z_alt = alt
-        # self.pull_waypoints()
+        new_waypoint.x_lat = float(lat)
+        new_waypoint.y_long = float(lon)
+        new_waypoint.z_alt = float(alt)
+        self.pull_waypoints()
         self.get_logger().info(f"Inserting new waypoint at index {index}: Lat: {lat}, Lon: {lon}, Alt: {alt}")
         self.waypoint_list.waypoints.insert(index, new_waypoint)
-        # self.push_waypoints()
+        self.push_waypoints()
         self.get_logger().info("Waypoint inserted and pushed successfully.")
     
     def delete_waypoint(self, index):
         """Delete waypoint from the waypoint list and push the updated list"""
-        # self.pull_waypoints()
+        self.pull_waypoints()
         if 0 <= index < len(self.waypoint_list.waypoints):
             del self.waypoint_list.waypoints[index]
             self.get_logger().info(f"Deleted waypoint at index {index}.")
-            # self.push_waypoints()
+            self.push_waypoints()
             self.get_logger().info("Waypoint deleted and pushed successfully.")
         else:
             self.get_logger().info(f"Index {index} out of range. No waypoint deleted.")
@@ -198,10 +205,11 @@ class Waypoint(Node):
         message = f"Heartbeat established"
         self.get_logger().info(message)
         self.send_status(message)
-
+        # self.insert_new_waypoint(1,1,1,3)
+        # self.delete_waypoint(2)
         rclpy.spin(self)
         
 def main():
     rclpy.init()
-    manager = Waypoint()
+    manager = WaypointManager()
     manager.main()
