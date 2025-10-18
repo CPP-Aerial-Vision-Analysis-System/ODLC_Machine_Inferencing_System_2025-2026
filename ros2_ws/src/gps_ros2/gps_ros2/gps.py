@@ -11,6 +11,9 @@ from std_msgs.msg import Float64              # Heading / yaw in degrees (same t
 from mavros_msgs.srv import StreamRate        # MAVROS service for stream rate (same type name)
 from interfaces.srv import GetGPSData         # Your custom service (ROS2 module path)
 
+from rclpy.qos import qos_profile_sensor_data, QoSProfile
+
+
 # ROS2 we prefer timers for heartbeat
 
 class GPSMavrosServiceNode(Node):
@@ -39,10 +42,10 @@ class GPSMavrosServiceNode(Node):
                                     
         
         # GPS
-        self.create_subscription(NavSatFix,'/mavros/global_position/global', self.gps_cb, 10)
+        self.create_subscription(NavSatFix,'/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
         
         # Yaw / heading (Float64)
-        self.create_subscription(Float64,'/mavros/global_position/compass_hdg', self.pose_callback, 10)
+        self.create_subscription(Float64,'/mavros/global_position/compass_hdg', self.pose_callback, qos_profile_sensor_data)
 
         # (ROS1: rospy.Service → ROS2: create_service) ===
         # comment out until needed
@@ -77,15 +80,16 @@ class GPSMavrosServiceNode(Node):
 
     # callbacks (kept same names, translated to ROS2) ========
 
-    def state_cb(self, msg: State):
+    def state_cb(self, msg):
         """Callback to monitor MAVROS connection state."""
         # ROS1: global connected = msg.connected
         # ROS2: instance variable but same name
         self.connected = msg.connected
 
-    def gps_cb(self, msg: NavSatFix):
+    def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
+        self.get_logger().info(f"{self.latest_gps}")
 
     def pose_callback(self, msg: Float64):
         """Callback to store the latest yaw data (Z-axis rotation)."""
