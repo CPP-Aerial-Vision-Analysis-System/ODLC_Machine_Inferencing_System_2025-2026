@@ -1,8 +1,0 @@
-setup.py
-gps_mavros/__init__.py
-gps_mavros.egg-info/PKG-INFO
-gps_mavros.egg-info/SOURCES.txt
-gps_mavros.egg-info/dependency_links.txt
-gps_mavros.egg-info/top_level.txt
-gps_mavros/srv/__init__.py
-gps_mavros/srv/_get_gps_data.py

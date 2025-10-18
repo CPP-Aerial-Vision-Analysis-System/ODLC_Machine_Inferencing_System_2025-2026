@@ -1,5 +1,0 @@
-float64 value
-string unit   # "F" or "C"
----
-float64 converted_value
-string converted_unit
