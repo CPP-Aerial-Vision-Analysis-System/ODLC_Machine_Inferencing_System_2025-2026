@@ -9,7 +9,7 @@ from mavros_msgs.msg import State             # /mavros/state message (same type
 from sensor_msgs.msg import NavSatFix         # GPS fix message (same type name)
 from std_msgs.msg import Float64              # Heading / yaw in degrees (same type name)
 from mavros_msgs.srv import StreamRate        # MAVROS service for stream rate (same type name)
-from gps_mavros.srv import GetGPSData         # Your custom service (ROS2 module path)
+from interfaces.srv import GetGPSData         # Your custom service (ROS2 module path)
 
 # ROS2 we prefer timers for heartbeat
 
