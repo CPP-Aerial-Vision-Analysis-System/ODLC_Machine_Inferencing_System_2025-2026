@@ -18,6 +18,7 @@ class SiyiA8Publisher(Node):
         # Subscribers
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.check_altitude, 10)
+        self.create_subscription(Image, '/webcam/image_raw', self.sim_image_callback, 1)
 
         self.bridge = CvBridge()
 
@@ -42,8 +43,10 @@ class SiyiA8Publisher(Node):
         # Save photo flag
         self.capture_photo = False
 
+        self.timer = self.create_timer(0.1, self.camera_loop)
+
         # Camera setup
-        self.lastest_image_msg = None
+        self.latest_image_msg = None
         if self.use_real_camera:
             gst_pipeline = (
             'rtspsrc location=rtsp://192.168.144.25:8554/main.264 latency=0 ! '
@@ -62,12 +65,9 @@ class SiyiA8Publisher(Node):
             self.get_logger().info("Using simulation camera")
             self.capture = cv2.VideoCapture(0)
 
-            def sim_image_callback(self, msg):
-                self.lastest_image_msg = msg
-            self.create_subscription(Image, '/webcam/image_raw', self.sim_image_callback, 1)
-        
-        self.timer = self.create_timer(0.1, self.camera_loop)
-    
+    def sim_image_callback(self, msg):
+        self.latest_image_msg = msg
+
     def send_ack(self, text):
         msg = StatusText()
         msg.severity = 6  # INFO
@@ -115,12 +115,12 @@ class SiyiA8Publisher(Node):
                         self.get_logger().info(f"Photo saved to {mapping_filename}")
                         self.capture_photo = False
             else:
-                if self.lastest_image_msg is not None:
+                if self.latest_image_msg is not None:
                     self.get_logger().info("Begun Camera Frame Republishing")
-                    self.publisher.publish(self.lastest_image_msg)
+                    self.publisher.publish(self.latest_image_msg)
 
                     # Save image
-                    cv_image = self.bridge.imgmsg_to_cv2(self.lastest_image_msg, desired_encoding='bgr8')
+                    cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, desired_encoding='bgr8')
                     timestamp = time.strftime("%Y%m%d-%H%M%S")
                     filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
                     cv2.imwrite(filename, cv_image) 
