@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'camera_sensor_node = video_cam.camera_sensor_node:main'
+            'image_pub = video_cam.image_pub_siyi:main'
         ],
     },
 )
