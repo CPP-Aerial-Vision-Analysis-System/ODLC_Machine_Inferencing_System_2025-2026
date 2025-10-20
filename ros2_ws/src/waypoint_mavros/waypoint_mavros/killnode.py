@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 
-from std_msgs.msg import String
+from mavros_msgs.msg import StatusText
 
 import os
 
@@ -11,20 +11,20 @@ class KillNode(Node):
         super().__init__('Kill_node')
         #create a subscriber to listen for kill commands
         self.command_listener = self.create_subscription(
-            String,
+            StatusText,
             '/mavros/statustext/recv',
             self.listener_callback,
             10)
         self.command_listener  # prevent unused variable warning
 
         #create a publisher to send kill commands
-        self.message_sender = self.create_publisher(String, '/mavros/cmd/command', 10)
+        self.message_sender = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         self.get_logger().info('KillNode initialized and listening for shutdown commands.')     
 
 
     def listener_callback(self, msg):
-        if "shutdown" in msg.data.lower(): #shutdown command received
+        if "shutdown" in msg.text.lower(): #shutdown command received
             self.get_logger().warn('Jetson Shutdown Triggered. Shutting down...')
             self.send_back("Shutdown command received.") #send feedback to gcs
             #self.shutdown_nodes() #shutdown all nodes
@@ -33,8 +33,9 @@ class KillNode(Node):
     
     def send_back(self, text):
         # feedback to gcs (mission planner in messages tab)
-        msg = String()
-        msg.data = text
+        msg = StatusText()
+        msg.severity = 6  # INFO severity level. 6 = notice/info
+        msg.text = text
         self.message_sender.publish(msg) #publish the message
 
     
