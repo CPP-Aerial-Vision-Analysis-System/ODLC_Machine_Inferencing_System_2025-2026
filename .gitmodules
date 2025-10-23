@@ -1,4 +1,0 @@
-[submodule "ros2_ws/src/ultralytics_ros"]
-	path = ros2_ws/src/ultralytics_ros
-	url = https://github.com/CPP-Aerial-Vision-Analysis-System/ultralytics_ros.git
-	branch = jimmy
