@@ -21,7 +21,7 @@ class WaypointManager(Node):
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list, 10)
         self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)   # should this be pub??
 
-        # Service
+        # mavros Clients
         self.waypoint_pull = self.create_client(WaypointPull, "/mavros/mission/pull")
         self.waypoint_push = self.create_client(WaypointPush, "/mavros/mission/push")
         self.waypoint_clear = self.create_client(WaypointClear, "/mavros/mission/clear")
@@ -75,7 +75,7 @@ class WaypointManager(Node):
         self.get_logger().info("Waypoint pull request...")
     
 
-    def pull_request(self, future):
+    def pull_request(self, future):         # don't need this if we use rclpy.spin_unttil_future_complete
         try:
             response = future.result()
             if response.success:
