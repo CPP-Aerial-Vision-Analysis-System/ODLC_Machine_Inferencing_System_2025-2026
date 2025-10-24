@@ -33,11 +33,11 @@ class SiyiA8Publisher(Node):
             os.makedirs(self.mapping_photo_path)
         
         # Real camera flag
-        self.use_real_camera = True
+        self.use_real_camera = False
         self.get_logger().info(f"Using real camera: {self.use_real_camera}")
 
         # Altitude threshold flag
-        self.camera_enabled = False
+        self.camera_enabled = True  # Enable camera for simulation
         self.ALT_THRESHOLD = 13.716
 
         # Save photo flag
@@ -62,8 +62,8 @@ class SiyiA8Publisher(Node):
         else:
             text = "Simulation camera initialized"
             self.send_ack(text)
-            self.get_logger().info("Using simulation camera")
-            self.capture = cv2.VideoCapture(0)
+            self.get_logger().info("Using simulation camera - no physical camera needed")
+            self.capture = None  # No physical camera needed for simulation
 
     def sim_image_callback(self, msg):
         self.latest_image_msg = msg
