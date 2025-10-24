@@ -20,7 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'image_pub = video_cam.image_pub_siyi:main'
+            'image_pub = video_cam.image_pub_siyi:main',
+            'test_image_pub = video_cam.test_image_pub:main',
+            'object_detection = video_cam.object_detection:main'
         ],
     },
 )
