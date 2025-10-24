@@ -5,7 +5,7 @@ FROM joestrada1022/suas-sim:ros2-gazebo
 USER root
 
 # Install and update everything (so nothing breaks)
-RUN apt-get update && apt-get upgrade -y
+RUN apt-get update -y
 
 
 RUN apt-get install -y ros-humble-cv-bridge \
