@@ -9,6 +9,6 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/${localWorkspaceFolderBasename}",
   "mounts": [
-    "source=${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind"
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind"
   ]
 }
