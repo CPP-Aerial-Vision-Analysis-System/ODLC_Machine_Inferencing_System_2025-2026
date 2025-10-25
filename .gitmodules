@@ -1,0 +1,3 @@
+[submodule "ultralytics_ros"]
+	path = ultralytics_ros
+	url = https://github.com/CPP-Aerial-Vision-Analysis-System/ultralytics_ros.git
