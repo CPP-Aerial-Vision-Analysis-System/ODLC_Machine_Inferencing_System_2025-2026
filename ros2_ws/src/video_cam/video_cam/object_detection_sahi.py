@@ -155,7 +155,7 @@ class SAHIObjectDetectionNode(Node):
             device_count = torch.cuda.device_count()
             compute_capability = torch.cuda.get_device_capability(0)
             
-            self.get_logger().info(f"🚀 CUDA GPU Detected!")
+            self.get_logger().info(f" CUDA GPU Detected!")
             self.get_logger().info(f"   Device: {device_name}")
             self.get_logger().info(f"   GPU Count: {device_count}")
             self.get_logger().info(f"   Compute Capability: {compute_capability[0]}.{compute_capability[1]}")
@@ -174,7 +174,7 @@ class SAHIObjectDetectionNode(Node):
         
         # Try Apple Metal Performance Shaders (MPS) for Mac
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            self.get_logger().info("🍎 Apple Silicon GPU (MPS) Detected!")
+            self.get_logger().info(" Apple Silicon GPU (MPS) Detected!")
             self.get_logger().info("   Using Metal Performance Shaders for acceleration")
             
             # Check if MPS is actually built
@@ -187,9 +187,33 @@ class SAHIObjectDetectionNode(Node):
         # Fallback to CPU
         else:
             import platform
-            self.get_logger().warn("⚠️  No GPU detected, using CPU")
+            self.get_logger().warn("  No GPU detected, using CPU")
             self.get_logger().info(f"   System: {platform.system()} {platform.machine()}")
             self.get_logger().info(f"   CPU Count: {os.cpu_count()}")
+            
+            # Check if we're on Jetson but GPU not available
+            try:
+                with open('/proc/device-tree/model', 'r') as f:
+                    model = f.read()
+                    if 'jetson' in model.lower():
+                        self.get_logger().error("     JETSON DEVICE DETECTED BUT GPU NOT AVAILABLE!")
+                        self.get_logger().error("   This Jetson has a GPU but PyTorch cannot access it.")
+                        self.get_logger().error("   Possible reasons:")
+                        self.get_logger().error("   1. PyTorch installed without CUDA support (CPU-only version)")
+                        self.get_logger().error("   2. CUDA drivers not properly installed")
+                        self.get_logger().error("   3. Incompatible PyTorch/CUDA version")
+                        self.get_logger().error("")
+                        self.get_logger().error("   To fix:")
+                        self.get_logger().error("   1. Run: python3 check_gpu.py (in this directory)")
+                        self.get_logger().error("   2. Install PyTorch with CUDA for Jetson:")
+                        self.get_logger().error("      Visit: https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048")
+                        self.get_logger().error("   3. Or run: bash install_pytorch_cuda.sh")
+                        self.get_logger().error("")
+                        self.get_logger().error("   Current PyTorch version: {torch.__version__}")
+                        self.get_logger().error("   Expected: PyTorch with CUDA support (not CPU-only)")
+            except:
+                pass
+            
             self.get_logger().info("   Consider using a GPU for better performance!")
             
             return "cpu"

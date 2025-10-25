@@ -21,6 +21,13 @@ from PIL import Image as PILImage
 
 # Try to import YOLO and MobileNet dependencies
 try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("Warning: torch not available, GPU acceleration will be disabled")
+
+try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
 except ImportError:
@@ -72,6 +79,10 @@ class ObjectDetectionNode(Node):
         self.get_logger().info(f"Object Detection Node - Monitoring: {self.camera_feed_path}")
         self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
         
+        # Auto-detect and set device
+        self.device = self._get_device()
+        self.get_logger().info(f"Using device: {self.device}")
+        
         # Initialize models
         self.initialize_models()
         
@@ -83,6 +94,30 @@ class ObjectDetectionNode(Node):
         
         self.get_logger().info("Object Detection Node initialized - using YOLO and MobileNet for object detection")
     
+    def _get_device(self):
+        """Auto-detect the best available device"""
+        if not TORCH_AVAILABLE:
+            return "cpu"
+        
+        if torch.cuda.is_available():
+            self.get_logger().info(f" CUDA GPU Detected: {torch.cuda.get_device_name(0)}")
+            return "cuda:0"
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.get_logger().info(" Apple Silicon GPU (MPS) Detected")
+            return "mps"
+        else:
+            self.get_logger().warn("  No GPU detected, using CPU")
+            # Check if Jetson
+            try:
+                with open('/proc/device-tree/model', 'r') as f:
+                    if 'jetson' in f.read().lower():
+                        self.get_logger().error("     JETSON DEVICE - GPU NOT ACCESSIBLE!")
+                        self.get_logger().error("   Install PyTorch with CUDA support for GPU acceleration")
+                        self.get_logger().error("   Run: python3 check_gpu.py for diagnostics")
+            except:
+                pass
+            return "cpu"
+    
     def initialize_models(self):
         """Initialize YOLO, MobileNet, and SAHI models"""
         try:
@@ -92,17 +127,20 @@ class ObjectDetectionNode(Node):
                     model_type='yolov8',
                     model_path='yolo11s.pt',
                     confidence_threshold=0.3,
-                    device='cpu'  # Use CPU for compatibility
+                    device=self.device  # Use auto-detected device
                 )
-                self.get_logger().info("SAHI YOLOv11s model loaded successfully")
+                self.get_logger().info(f"SAHI YOLOv11s model loaded successfully on {self.device}")
             else:
                 self.sahi_model = None
                 self.get_logger().warn("SAHI not available, using direct YOLO")
             
             # Initialize YOLO model (fallback)
             if YOLO_AVAILABLE:
-                self.yolo_model = YOLO('yolo11s.pt')  # Load YOLOv11 small model
-                self.get_logger().info("YOLOv11s model loaded successfully")
+                self.yolo_model = YOLO('yolo11s.pt')
+                # Set device for YOLO
+                if self.device != "cpu":
+                    self.yolo_model.to(self.device)
+                self.get_logger().info(f"YOLOv11s model loaded successfully on {self.device}")
             else:
                 self.yolo_model = None
                 self.get_logger().warn("YOLO not available, using OpenCV fallback")
