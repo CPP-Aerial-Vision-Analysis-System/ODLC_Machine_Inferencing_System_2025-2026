@@ -17,7 +17,7 @@ import logging
 from datetime import datetime
 import os
 from ament_index_python.packages import get_package_share_directory
-from PIL import Image
+from PIL import Image as PILImage
 
 # Try to import YOLO and MobileNet dependencies
 try:
@@ -239,7 +239,7 @@ class ObjectDetectionNode(Node):
         try:
             # Convert frame to PIL Image for SAHI
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            pil_image = Image.fromarray(frame_rgb)
+            pil_image = PILImage.fromarray(frame_rgb)
             
             # Run SAHI prediction with slicing
             result = get_sliced_prediction(

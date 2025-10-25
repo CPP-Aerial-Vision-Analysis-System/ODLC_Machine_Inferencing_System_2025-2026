@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = 'video_cam'
 
@@ -10,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,7 +25,8 @@ setup(
         'console_scripts': [
             'image_pub = video_cam.image_pub_siyi:main',
             'test_image_pub = video_cam.test_image_pub:main',
-            'object_detection = video_cam.object_detection:main'
+            'object_detection = video_cam.object_detection:main',
+            'object_detection_sahi = video_cam.object_detection_sahi:main'
         ],
     },
 )
