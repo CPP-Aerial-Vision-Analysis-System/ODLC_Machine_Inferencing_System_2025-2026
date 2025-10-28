@@ -4,6 +4,18 @@
 SAHI Object Detection Node using YOLO for Small Object Detection
 Specifically optimized for detecting small tents and people in aerial imagery
 Uses Slicing Aided Hyper Inference (SAHI) for improved small object detection
+
+Current Architecture:
+- SAHI: Slices images and manages detection pipeline
+- YOLO: Performs actual object detection on each slice
+- MobileNet: NOT IMPLEMENTED (commented out for future use)
+
+Configuration:
+- Slice size: 512x512 (optimized for small object detection)
+- Overlap: 30% (ensures objects at boundaries are detected)
+- Balance: Accuracy over speed for critical small object detection
+
+TODO: Implement MobileNet validation for additional accuracy
 """
 
 import rclpy
@@ -59,10 +71,10 @@ class SAHIObjectDetectionNode(Node):
         # Declare parameters
         self.declare_parameter('model_path', 'yolo11s.pt')
         self.declare_parameter('confidence_threshold', 0.15)
-        self.declare_parameter('slice_height', 512)
-        self.declare_parameter('slice_width', 512)
-        self.declare_parameter('overlap_height_ratio', 0.3)
-        self.declare_parameter('overlap_width_ratio', 0.3)
+        self.declare_parameter('slice_height', 512)  # Reverted to original size for better accuracy
+        self.declare_parameter('slice_width', 512)   # Reverted to original size for better accuracy
+        self.declare_parameter('overlap_height_ratio', 0.3)  # Reverted to original overlap
+        self.declare_parameter('overlap_width_ratio', 0.3)   # Reverted to original overlap
         self.declare_parameter('check_interval', 2.0)
         self.declare_parameter('device', 'auto')
         
@@ -632,12 +644,13 @@ class SAHIObjectDetectionNode(Node):
                 box_color = (128, 128, 128)  # Grey
                 target_label = f"OBJECT: {class_name.upper()}"
             
-            # Draw bounding box (thicker for visibility)
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 3)
+            # Draw bounding box (thinner for cleaner look)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 2)
             
             # Prepare text labels
             offency_label = f"OFFENCY: {yolo_class} ({confidence:.2f})"
-            mobilenet_label = f"MobileNet: {yolo_class} ({confidence:.2f})"
+            # TODO: Implement actual MobileNet validation
+            # mobilenet_label = f"MobileNet: {yolo_class} ({confidence:.2f})"
             
             # Calculate text size for background
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -646,11 +659,11 @@ class SAHIObjectDetectionNode(Node):
             
             (w1, h1), _ = cv2.getTextSize(target_label, font, font_scale, thickness)
             (w2, h2), _ = cv2.getTextSize(offency_label, font, font_scale, thickness)
-            (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
+            # (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
             
             # Calculate background rectangle size
-            max_width = max(w1, w2, w3) + 10
-            total_height = h1 + h2 + h3 + 20
+            max_width = max(w1, w2) + 10  # Removed w3 for MobileNet
+            total_height = h1 + h2 + 15  # Reduced height since no MobileNet label
             
             # Draw text background (yellow for tent, green for person)
             text_y_start = max(y1 - total_height, 0)
@@ -671,9 +684,10 @@ class SAHIObjectDetectionNode(Node):
             cv2.putText(annotated_frame, offency_label, (x1 + 5, text_y),
                        font, font_scale, COLOR_TEXT_BG, 2)
             
-            text_y += h3 + 5
-            cv2.putText(annotated_frame, mobilenet_label, (x1 + 5, text_y),
-                       font, font_scale, COLOR_TEXT_BG, 2)
+            # TODO: Add MobileNet validation label when implemented
+            # text_y += h3 + 5
+            # cv2.putText(annotated_frame, mobilenet_label, (x1 + 5, text_y),
+            #            font, font_scale, COLOR_TEXT_BG, 2)
         
         # Add header with detection info
         header_text = f"SAHI Object Detection - {len(detections)} objects detected"
@@ -757,7 +771,6 @@ class SAHIObjectDetectionNode(Node):
 
 
 def main(args=None):
-    """Main entry point for the SAHI object detection node"""
     rclpy.init(args=args)
     
     # Check dependencies
