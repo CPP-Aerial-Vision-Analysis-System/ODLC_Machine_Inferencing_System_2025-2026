@@ -46,6 +46,10 @@ RUN cd ~/ultra_ws/src && \
     cd ultralytics_ros && \
     python3 -m pip install -r requirements.txt
 
+# fix for gui not working
+
+RUN python3 -m pip uninstall -y numpy
+
 
 # remove thing because its supposed to be a submodule
 RUN rm -rf ~/ultra_ws
