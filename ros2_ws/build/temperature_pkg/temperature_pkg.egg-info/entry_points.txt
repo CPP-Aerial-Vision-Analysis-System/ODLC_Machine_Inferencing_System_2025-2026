@@ -1,0 +1,5 @@
+[console_scripts]
+convert_client = temperature_pkg.convert_temp_client:main
+convert_server = temperature_pkg.convert_temp_server:main
+listener = temperature_pkg.subscriber_member_function:main
+talker = temperature_pkg.publisher_member_function:main

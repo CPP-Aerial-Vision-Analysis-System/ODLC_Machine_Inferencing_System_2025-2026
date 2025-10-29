@@ -1,0 +1,30 @@
+[1.672s] Invoking command in '/workspace/ros2_ws/src/temperature_pkg': PYTHONPATH=/workspace/ros2_ws/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/temperature_pkg build --build-base /workspace/ros2_ws/build/temperature_pkg/build install --record /workspace/ros2_ws/build/temperature_pkg/install.log --single-version-externally-managed install_data
+[2.049s] /home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[2.050s]   warnings.warn(msg)
+[2.279s] running egg_info
+[2.317s] writing ../../build/temperature_pkg/temperature_pkg.egg-info/PKG-INFO
+[2.324s] writing dependency_links to ../../build/temperature_pkg/temperature_pkg.egg-info/dependency_links.txt
+[2.327s] writing entry points to ../../build/temperature_pkg/temperature_pkg.egg-info/entry_points.txt
+[2.330s] writing requirements to ../../build/temperature_pkg/temperature_pkg.egg-info/requires.txt
+[2.333s] writing top-level names to ../../build/temperature_pkg/temperature_pkg.egg-info/top_level.txt
+[2.418s] reading manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'
+[2.423s] writing manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'
+[2.425s] running build
+[2.426s] running build_py
+[2.427s] copying temperature_pkg/__init__.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.430s] copying temperature_pkg/publisher_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.433s] copying temperature_pkg/subscriber_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.444s] running install
+[2.459s] running install_lib
+[2.500s] running install_data
+[2.502s] copying resource/temperature_pkg -> /workspace/ros2_ws/install/temperature_pkg/share/ament_index/resource_index/packages
+[2.506s] copying package.xml -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg
+[2.510s] copying launch/pub_sub_launch.py -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg/launch
+[2.515s] running install_egg_info
+[2.557s] removing '/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg-0.0.0-py3.10.egg-info' (and everything under it)
+[2.564s] Copying ../../build/temperature_pkg/temperature_pkg.egg-info to /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg-0.0.0-py3.10.egg-info
+[2.606s] running install_scripts
+[2.687s] Installing listener script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.692s] Installing talker script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.699s] writing list of installed files to '/workspace/ros2_ws/build/temperature_pkg/install.log'
+[2.752s] Invoked command in '/workspace/ros2_ws/src/temperature_pkg' returned '0': PYTHONPATH=/workspace/ros2_ws/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/temperature_pkg build --build-base /workspace/ros2_ws/build/temperature_pkg/build install --record /workspace/ros2_ws/build/temperature_pkg/install.log --single-version-externally-managed install_data

@@ -1,0 +1,29 @@
+[2.091s] Invoking command in '/workspace/ros2_ws/src/siyi_cam_node': PYTHONPATH=/workspace/ros2_ws/build/siyi_cam_node/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/siyi_cam_node build --build-base /workspace/ros2_ws/build/siyi_cam_node/build install --record /workspace/ros2_ws/build/siyi_cam_node/install.log --single-version-externally-managed install_data
+[2.476s] /home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[2.478s]   warnings.warn(msg)
+[2.782s] running egg_info
+[2.816s] writing ../../build/siyi_cam_node/siyi_cam_node.egg-info/PKG-INFO
+[2.824s] writing dependency_links to ../../build/siyi_cam_node/siyi_cam_node.egg-info/dependency_links.txt
+[2.828s] writing entry points to ../../build/siyi_cam_node/siyi_cam_node.egg-info/entry_points.txt
+[2.834s] writing requirements to ../../build/siyi_cam_node/siyi_cam_node.egg-info/requires.txt
+[2.841s] writing top-level names to ../../build/siyi_cam_node/siyi_cam_node.egg-info/top_level.txt
+[2.951s] reading manifest file '../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'
+[2.956s] writing manifest file '../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'
+[2.958s] running build
+[2.959s] running build_py
+[2.962s] copying siyi_cam_node/__init__.py -> /workspace/ros2_ws/build/siyi_cam_node/build/lib/siyi_cam_node
+[2.965s] copying siyi_cam_node/siyi_cam_node.py -> /workspace/ros2_ws/build/siyi_cam_node/build/lib/siyi_cam_node
+[2.978s] running install
+[2.989s] running install_lib
+[3.034s] copying /workspace/ros2_ws/build/siyi_cam_node/build/lib/siyi_cam_node/siyi_cam_node.py -> /workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node
+[3.044s] byte-compiling /workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node/siyi_cam_node.py to siyi_cam_node.cpython-310.pyc
+[3.054s] running install_data
+[3.057s] copying resource/siyi_cam_node -> /workspace/ros2_ws/install/siyi_cam_node/share/ament_index/resource_index/packages
+[3.059s] copying package.xml -> /workspace/ros2_ws/install/siyi_cam_node/share/siyi_cam_node
+[3.066s] running install_egg_info
+[3.109s] removing '/workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node-0.0.0-py3.10.egg-info' (and everything under it)
+[3.116s] Copying ../../build/siyi_cam_node/siyi_cam_node.egg-info to /workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node-0.0.0-py3.10.egg-info
+[3.173s] running install_scripts
+[3.263s] Installing siyi_cam_node script to /workspace/ros2_ws/install/siyi_cam_node/lib/siyi_cam_node
+[3.271s] writing list of installed files to '/workspace/ros2_ws/build/siyi_cam_node/install.log'
+[3.405s] Invoked command in '/workspace/ros2_ws/src/siyi_cam_node' returned '0': PYTHONPATH=/workspace/ros2_ws/build/siyi_cam_node/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/siyi_cam_node build --build-base /workspace/ros2_ws/build/siyi_cam_node/build install --record /workspace/ros2_ws/build/siyi_cam_node/install.log --single-version-externally-managed install_data

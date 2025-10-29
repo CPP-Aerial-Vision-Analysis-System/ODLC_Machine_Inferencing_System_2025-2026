@@ -1,0 +1,14 @@
+{
+	"backtraceGraph" : 
+	{
+		"commands" : [],
+		"files" : [],
+		"nodes" : []
+	},
+	"installers" : [],
+	"paths" : 
+	{
+		"build" : "temperature_interfaces__py",
+		"source" : "/workspace/ros2_ws/build/temperature_interfaces/temperature_interfaces__py"
+	}
+}

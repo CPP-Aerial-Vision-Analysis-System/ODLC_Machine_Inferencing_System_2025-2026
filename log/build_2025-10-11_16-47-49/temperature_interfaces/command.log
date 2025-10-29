@@ -1,0 +1,1 @@
+Invoking command in '/workspace/build/temperature_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble VIRTUAL_ENV_PROMPT=(venv) /usr/bin/cmake /workspace/ros2_ws/src/temperature_interfaces -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/workspace/install/temperature_interfaces

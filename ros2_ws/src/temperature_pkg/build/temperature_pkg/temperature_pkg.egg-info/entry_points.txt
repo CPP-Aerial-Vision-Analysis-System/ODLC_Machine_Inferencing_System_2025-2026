@@ -1,0 +1,3 @@
+[console_scripts]
+listener = temperature_pkg.subscriber_member_function:main
+talker = temperature_pkg.publisher_member_function:main

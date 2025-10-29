@@ -1,0 +1,7 @@
+/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+  warnings.warn(msg)
+  File "/workspace/ros2_ws/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node/siyi_cam_node.py", line 17
+    self.declare_parameter('image_dir', os.path.expanduser'~/captured_images')
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SyntaxError: invalid syntax. Perhaps you forgot a comma?
+

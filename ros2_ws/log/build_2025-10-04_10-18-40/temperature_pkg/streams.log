@@ -1,0 +1,32 @@
+[1.356s] Invoking command in '/workspace/ros2_ws/src/temperature_pkg': PYTHONPATH=/workspace/ros2_ws/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/temperature_pkg build --build-base /workspace/ros2_ws/build/temperature_pkg/build install --record /workspace/ros2_ws/build/temperature_pkg/install.log --single-version-externally-managed install_data
+[1.890s] running egg_info
+[1.919s] writing ../../build/temperature_pkg/temperature_pkg.egg-info/PKG-INFO
+[1.923s] writing dependency_links to ../../build/temperature_pkg/temperature_pkg.egg-info/dependency_links.txt
+[1.925s] writing entry points to ../../build/temperature_pkg/temperature_pkg.egg-info/entry_points.txt
+[1.927s] writing requirements to ../../build/temperature_pkg/temperature_pkg.egg-info/requires.txt
+[1.930s] writing top-level names to ../../build/temperature_pkg/temperature_pkg.egg-info/top_level.txt
+[2.014s] reading manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'
+[2.019s] writing manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'
+[2.021s] running build
+[2.022s] running build_py
+[2.023s] copying temperature_pkg/__init__.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.026s] copying temperature_pkg/publisher_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.033s] copying temperature_pkg/convert_temp_client.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.041s] copying temperature_pkg/convert_temp_server.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.047s] copying temperature_pkg/subscriber_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg
+[2.056s] running install
+[2.067s] running install_lib
+[2.101s] running install_data
+[2.103s] copying resource/temperature_pkg -> /workspace/ros2_ws/install/temperature_pkg/share/ament_index/resource_index/packages
+[2.106s] copying package.xml -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg
+[2.110s] copying launch/pub_sub_launch.py -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg/launch
+[2.113s] running install_egg_info
+[2.158s] removing '/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg-0.0.0-py3.10.egg-info' (and everything under it)
+[2.163s] Copying ../../build/temperature_pkg/temperature_pkg.egg-info to /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg-0.0.0-py3.10.egg-info
+[2.203s] running install_scripts
+[2.293s] Installing convert_client script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.296s] Installing convert_server script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.300s] Installing listener script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.303s] Installing talker script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg
+[2.310s] writing list of installed files to '/workspace/ros2_ws/build/temperature_pkg/install.log'
+[2.404s] Invoked command in '/workspace/ros2_ws/src/temperature_pkg' returned '0': PYTHONPATH=/workspace/ros2_ws/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/temperature_pkg build --build-base /workspace/ros2_ws/build/temperature_pkg/build install --record /workspace/ros2_ws/build/temperature_pkg/install.log --single-version-externally-managed install_data

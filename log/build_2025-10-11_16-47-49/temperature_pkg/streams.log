@@ -1,0 +1,8 @@
+[2.559s] Invoking command in '/workspace/build/temperature_pkg': PYTHONPATH=/workspace/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /workspace/build/temperature_pkg/build --no-deps symlink_data
+[3.327s] usage: setup.py [global_opts] cmd1 [cmd1_opts] [cmd2 [cmd2_opts] ...]
+[3.334s]    or: setup.py --help [cmd1 cmd2 ...]
+[3.335s]    or: setup.py --help-commands
+[3.337s]    or: setup.py cmd --help
+[3.338s] 
+[3.339s] error: option --editable not recognized
+[3.375s] Invoked command in '/workspace/build/temperature_pkg' returned '1': PYTHONPATH=/workspace/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /workspace/build/temperature_pkg/build --no-deps symlink_data

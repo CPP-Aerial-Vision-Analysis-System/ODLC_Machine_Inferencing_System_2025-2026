@@ -1,0 +1,127 @@
+[0.000000] (-) TimerEvent: {}
+[0.002226] (temperature_interfaces) JobQueued: {'identifier': 'temperature_interfaces', 'dependencies': OrderedDict()}
+[0.002600] (temperature_pkg) JobQueued: {'identifier': 'temperature_pkg', 'dependencies': OrderedDict()}
+[0.002863] (temperature_interfaces) JobStarted: {'identifier': 'temperature_interfaces'}
+[0.017583] (temperature_pkg) JobStarted: {'identifier': 'temperature_pkg'}
+[0.056583] (temperature_interfaces) JobProgress: {'identifier': 'temperature_interfaces', 'progress': 'cmake'}
+[0.072876] (temperature_interfaces) Command: {'cmd': ['/usr/bin/cmake', '/workspace/ros2_ws/src/temperature_interfaces', '-DAMENT_CMAKE_SYMLINK_INSTALL=1', '-DCMAKE_INSTALL_PREFIX=/workspace/install/temperature_interfaces'], 'cwd': '/workspace/build/temperature_interfaces', 'env': OrderedDict([('PYTHON_BASIC_REPL', '1'), ('HOSTNAME', 'docker-desktop'), ('GIT_ASKPASS', '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass.sh'), ('SHLVL', '2'), ('LD_LIBRARY_PATH', '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('BROWSER', '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/bin/helpers/browser.sh'), ('HOME', '/home/ubuntu'), ('TERM_PROGRAM_VERSION', '1.98.0'), ('VSCODE_IPC_HOOK_CLI', '/tmp/vscode-ipc-b502157f-01bc-4d77-9d29-af791fda9385.sock'), ('ROS_PYTHON_VERSION', '3'), ('VSCODE_GIT_ASKPASS_MAIN', '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass-main.js'), ('PS1', '\\[\x1b]633;A\x07\\](venv) \\[\x1b]633;A\x07\\]\\[\x1b]633;A\x07\\]\\[\x1b]633;A\x07\\]\\[\\e]0;\\u@\\h: \\w\\a\\]${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ \\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]'), ('VSCODE_GIT_ASKPASS_NODE', '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/node'), ('PYDEVD_DISABLE_FILE_VALIDATION', '1'), ('BUNDLED_DEBUGPY_PATH', '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/bundled/libs/debugpy'), ('COLORTERM', 'truecolor'), ('REMOTE_CONTAINERS', 'true'), ('ROS_DISTRO', 'humble'), ('REMOTE_CONTAINERS_IPC', '/tmp/vscode-remote-containers-ipc-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm-256color'), ('ROS_LOCALHOST_ONLY', '0'), ('PATH', '/workspace/uavf_2025/venv/bin:/vscode/vscode-server/bin/linux-x64/c306e94f98122556ca081f527b466015e1bc37b0/bin/remote-cli:/home/ubuntu/.local/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/ardu_ws/src/ardupilot/Tools/autotest'), ('REMOTE_CONTAINERS_SOCKETS', '["/tmp/vscode-ssh-auth-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock"]'), ('DISPLAY', 'host.docker.internal:0.0'), ('VSCODE_DEBUGPY_ADAPTER_ENDPOINTS', '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-c52ddf65534b7b46.txt'), ('LANG', 'C.UTF-8'), ('PYTHONSTARTUP', '/home/ubuntu/.vscode-server/data/User/workspaceStorage/07c1ebebe2a05edd22797b01c21bb63d/ms-python.python/pythonrc.py'), ('VIRTUAL_ENV_PROMPT', '(venv)'), ('LS_COLORS', 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:'), ('VSCODE_GIT_IPC_HANDLE', '/tmp/vscode-git-fa2975c2c3.sock'), ('TERM_PROGRAM', 'vscode'), ('SSH_AUTH_SOCK', '/tmp/vscode-ssh-auth-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock'), ('AMENT_PREFIX_PATH', '/opt/ros/humble'), ('SHELL', '/bin/bash'), ('GZ_VERSION', 'harmonic'), ('VIRTUAL_ENV', '/workspace/uavf_2025/venv'), ('VSCODE_GIT_ASKPASS_EXTRA_ARGS', ''), ('PWD', '/workspace/build/temperature_interfaces'), ('LC_ALL', 'C.UTF-8'), ('PYTHONPATH', '/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/opt/ros/humble')]), 'shell': False}
+[0.096650] (-) TimerEvent: {}
+[0.198140] (-) TimerEvent: {}
+[0.307473] (-) TimerEvent: {}
+[0.410162] (-) TimerEvent: {}
+[0.510999] (-) TimerEvent: {}
+[0.613766] (-) TimerEvent: {}
+[0.718664] (-) TimerEvent: {}
+[0.823078] (-) TimerEvent: {}
+[0.845560] (temperature_interfaces) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.924214] (-) TimerEvent: {}
+[1.026596] (-) TimerEvent: {}
+[1.128306] (-) TimerEvent: {}
+[1.230187] (-) TimerEvent: {}
+[1.279126] (temperature_interfaces) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[1.332027] (-) TimerEvent: {}
+[1.357171] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[1.434392] (-) TimerEvent: {}
+[1.536197] (-) TimerEvent: {}
+[1.638110] (-) TimerEvent: {}
+[1.739163] (-) TimerEvent: {}
+[1.804521] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[1.840179] (-) TimerEvent: {}
+[1.846002] (temperature_interfaces) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[1.847544] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[1.849056] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[1.866782] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[1.941134] (-) TimerEvent: {}
+[2.043283] (-) TimerEvent: {}
+[2.145238] (-) TimerEvent: {}
+[2.247103] (-) TimerEvent: {}
+[2.282159] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[2.316859] (temperature_interfaces) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[2.319771] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[2.321252] (temperature_interfaces) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[2.348067] (-) TimerEvent: {}
+[2.355898] (temperature_interfaces) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[2.448165] (-) TimerEvent: {}
+[2.548975] (-) TimerEvent: {}
+[2.567233] (temperature_pkg) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'develop', '--editable', '--build-directory', '/workspace/build/temperature_pkg/build', '--no-deps', 'symlink_data'], 'cwd': '/workspace/build/temperature_pkg', 'env': {'PYTHON_BASIC_REPL': '1', 'HOSTNAME': 'docker-desktop', 'GIT_ASKPASS': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass.sh', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'BROWSER': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/bin/helpers/browser.sh', 'HOME': '/home/ubuntu', 'TERM_PROGRAM_VERSION': '1.98.0', 'VSCODE_IPC_HOOK_CLI': '/tmp/vscode-ipc-b502157f-01bc-4d77-9d29-af791fda9385.sock', 'ROS_PYTHON_VERSION': '3', 'VSCODE_GIT_ASKPASS_MAIN': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass-main.js', 'PS1': '\\[\x1b]633;A\x07\\](venv) \\[\x1b]633;A\x07\\]\\[\x1b]633;A\x07\\]\\[\x1b]633;A\x07\\]\\[\\e]0;\\u@\\h: \\w\\a\\]${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ \\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]\\[\x1b]633;B\x07\\]', 'VSCODE_GIT_ASKPASS_NODE': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/node', 'PYDEVD_DISABLE_FILE_VALIDATION': '1', 'BUNDLED_DEBUGPY_PATH': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/bundled/libs/debugpy', 'COLORTERM': 'truecolor', 'REMOTE_CONTAINERS': 'true', 'ROS_DISTRO': 'humble', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/workspace/uavf_2025/venv/bin:/vscode/vscode-server/bin/linux-x64/c306e94f98122556ca081f527b466015e1bc37b0/bin/remote-cli:/home/ubuntu/.local/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/ardu_ws/src/ardupilot/Tools/autotest', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock"]', 'DISPLAY': 'host.docker.internal:0.0', 'VSCODE_DEBUGPY_ADAPTER_ENDPOINTS': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-c52ddf65534b7b46.txt', 'LANG': 'C.UTF-8', 'PYTHONSTARTUP': '/home/ubuntu/.vscode-server/data/User/workspaceStorage/07c1ebebe2a05edd22797b01c21bb63d/ms-python.python/pythonrc.py', 'VIRTUAL_ENV_PROMPT': '(venv)', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'VSCODE_GIT_IPC_HANDLE': '/tmp/vscode-git-fa2975c2c3.sock', 'TERM_PROGRAM': 'vscode', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-0f645008-fd36-454a-904d-fd0f3ba64e2b.sock', 'AMENT_PREFIX_PATH': '/opt/ros/humble', 'SHELL': '/bin/bash', 'GZ_VERSION': 'harmonic', 'VIRTUAL_ENV': '/workspace/uavf_2025/venv', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS': '', 'PWD': '/workspace/build/temperature_pkg', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/temperature_pkg/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[2.651127] (-) TimerEvent: {}
+[2.739328] (temperature_interfaces) StdoutLine: {'line': b'-- Found Python3: /workspace/uavf_2025/venv/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[2.752066] (-) TimerEvent: {}
+[2.853191] (-) TimerEvent: {}
+[3.047266] (-) TimerEvent: {}
+[3.078652] (temperature_interfaces) StdoutLine: {'line': b'-- Override CMake install command with custom implementation using symlinks instead of copying resources\n'}
+[3.149056] (-) TimerEvent: {}
+[3.251473] (-) TimerEvent: {}
+[3.278409] (temperature_interfaces) StdoutLine: {'line': b'-- Found rosidl_default_generators: 1.2.0 (/opt/ros/humble/share/rosidl_default_generators/cmake)\n'}
+[3.293200] (temperature_interfaces) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[3.313561] (temperature_interfaces) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[3.342626] (temperature_pkg) StderrLine: {'line': b'usage: setup.py [global_opts] cmd1 [cmd1_opts] [cmd2 [cmd2_opts] ...]\n'}
+[3.347405] (temperature_pkg) StderrLine: {'line': b'   or: setup.py --help [cmd1 cmd2 ...]\n'}
+[3.351695] (-) TimerEvent: {}
+[3.352239] (temperature_pkg) StderrLine: {'line': b'   or: setup.py --help-commands\n'}
+[3.353772] (temperature_pkg) StderrLine: {'line': b'   or: setup.py cmd --help\n'}
+[3.354791] (temperature_pkg) StderrLine: {'line': b'\n'}
+[3.356058] (temperature_pkg) StderrLine: {'line': b'error: option --editable not recognized\n'}
+[3.391890] (temperature_pkg) CommandEnded: {'returncode': 1}
+[3.393851] (temperature_pkg) JobEnded: {'identifier': 'temperature_pkg', 'rc': 1}
+[3.452025] (-) TimerEvent: {}
+[3.453403] (temperature_interfaces) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[3.553159] (-) TimerEvent: {}
+[3.656397] (-) TimerEvent: {}
+[3.758087] (-) TimerEvent: {}
+[3.816770] (temperature_interfaces) StderrLine: {'line': b'\x1b[31mCMake Error at /opt/ros/humble/share/rosidl_adapter/cmake/rosidl_adapt_interfaces.cmake:59 (message):\n'}
+[3.818246] (temperature_interfaces) StderrLine: {'line': b'  execute_process(/workspace/uavf_2025/venv/bin/python3 -m rosidl_adapter\n'}
+[3.820139] (temperature_interfaces) StderrLine: {'line': b'  --package-name temperature_interfaces --arguments-file\n'}
+[3.821619] (temperature_interfaces) StderrLine: {'line': b'  /workspace/build/temperature_interfaces/rosidl_adapter__arguments__temperature_interfaces.json\n'}
+[3.826766] (temperature_interfaces) StderrLine: {'line': b'  --output-dir\n'}
+[3.828339] (temperature_interfaces) StderrLine: {'line': b'  /workspace/build/temperature_interfaces/rosidl_adapter/temperature_interfaces\n'}
+[3.829656] (temperature_interfaces) StderrLine: {'line': b'  --output-file\n'}
+[3.831122] (temperature_interfaces) StderrLine: {'line': b'  /workspace/build/temperature_interfaces/rosidl_adapter/temperature_interfaces.idls)\n'}
+[3.836020] (temperature_interfaces) StderrLine: {'line': b'  returned error code 1:\n'}
+[3.837279] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.838409] (temperature_interfaces) StderrLine: {'line': b"  AttributeError processing template 'srv.idl.em'\n"}
+[3.839465] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.840759] (temperature_interfaces) StderrLine: {'line': b'  Traceback (most recent call last):\n'}
+[3.842138] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.847581] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/resource/__init__.py", line 51, in evaluate_template\n'}
+[3.849105] (temperature_interfaces) StderrLine: {'line': b'      em.BUFFERED_OPT: True,\n'}
+[3.850255] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.851203] (temperature_interfaces) StderrLine: {'line': b"  AttributeError: module 'em' has no attribute 'BUFFERED_OPT'\n"}
+[3.852170] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.853018] (temperature_interfaces) StderrLine: {'line': b'  \n'}
+[3.853787] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.854548] (temperature_interfaces) StderrLine: {'line': b'  During handling of the above exception, another exception occurred:\n'}
+[3.855311] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.856053] (temperature_interfaces) StderrLine: {'line': b'  \n'}
+[3.856820] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.857706] (temperature_interfaces) StderrLine: {'line': b'  Traceback (most recent call last):\n'}
+[3.858470] (-) TimerEvent: {}
+[3.858894] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.860020] (temperature_interfaces) StderrLine: {'line': b'    File "/usr/lib/python3.10/runpy.py", line 196, in _run_module_as_main\n'}
+[3.860853] (temperature_interfaces) StderrLine: {'line': b'      return _run_code(code, main_globals, None,\n'}
+[3.861747] (temperature_interfaces) StderrLine: {'line': b'    File "/usr/lib/python3.10/runpy.py", line 86, in _run_code\n'}
+[3.862580] (temperature_interfaces) StderrLine: {'line': b'      exec(code, run_globals)\n'}
+[3.863404] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/__main__.py", line 19, in <module>\n'}
+[3.864249] (temperature_interfaces) StderrLine: {'line': b'      sys.exit(main())\n'}
+[3.865203] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/main.py", line 53, in main\n'}
+[3.866178] (temperature_interfaces) StderrLine: {'line': b'      abs_idl_file = convert_to_idl(\n'}
+[3.867251] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/__init__.py", line 24, in convert_to_idl\n'}
+[3.868678] (temperature_interfaces) StderrLine: {'line': b'      return convert_srv_to_idl(\n'}
+[3.870064] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/srv/__init__.py", line 39, in convert_srv_to_idl\n'}
+[3.870977] (temperature_interfaces) StderrLine: {'line': b"      expand_template('srv.idl.em', data, output_file, encoding='iso-8859-1')\n"}
+[3.871971] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/resource/__init__.py", line 23, in expand_template\n'}
+[3.872849] (temperature_interfaces) StderrLine: {'line': b'      content = evaluate_template(template_name, data)\n'}
+[3.873650] (temperature_interfaces) StderrLine: {'line': b'    File "/opt/ros/humble/local/lib/python3.10/dist-packages/rosidl_adapter/resource/__init__.py", line 69, in evaluate_template\n'}
+[3.874801] (temperature_interfaces) StderrLine: {'line': b'      _interpreter.shutdown()\n'}
+[3.875617] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.876710] (temperature_interfaces) StderrLine: {'line': b"  AttributeError: 'NoneType' object has no attribute 'shutdown'\n"}
+[3.877590] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.878448] (temperature_interfaces) StderrLine: {'line': b'Call Stack (most recent call first):\n'}
+[3.879317] (temperature_interfaces) StderrLine: {'line': b'  /opt/ros/humble/share/rosidl_cmake/cmake/rosidl_generate_interfaces.cmake:130 (rosidl_adapt_interfaces)\n'}
+[3.880269] (temperature_interfaces) StderrLine: {'line': b'  CMakeLists.txt:13 (rosidl_generate_interfaces)\n'}
+[3.881428] (temperature_interfaces) StderrLine: {'line': b'\n'}
+[3.882296] (temperature_interfaces) StderrLine: {'line': b'\x1b[0m\n'}
+[3.883155] (temperature_interfaces) StdoutLine: {'line': b'-- Configuring incomplete, errors occurred!\n'}
+[3.884002] (temperature_interfaces) StdoutLine: {'line': b'See also "/workspace/build/temperature_interfaces/CMakeFiles/CMakeOutput.log".\n'}
+[3.884815] (temperature_interfaces) JobEnded: {'identifier': 'temperature_interfaces', 'rc': 'SIGINT'}
+[3.893202] (-) EventReactorShutdown: {}

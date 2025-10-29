@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: temperature_pkg
+Version: 0.0.0
+Summary: Publisher/Subscriber Task: SUAS 2025-2026
+Maintainer: ubuntu
+Maintainer-email: student.joshuaestrada@gmail.com
+License: Apache License 2.0
+Requires-Dist: setuptools
+Dynamic: license
+Dynamic: maintainer
+Dynamic: maintainer-email
+Dynamic: requires-dist
+Dynamic: summary

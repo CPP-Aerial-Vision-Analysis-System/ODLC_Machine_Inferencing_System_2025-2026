@@ -1,0 +1,81 @@
+[0.000000] (-) TimerEvent: {}
+[0.000980] (temperature_pkg) JobQueued: {'identifier': 'temperature_pkg', 'dependencies': OrderedDict()}
+[0.002063] (temperature_pkg) JobStarted: {'identifier': 'temperature_pkg'}
+[0.098698] (-) TimerEvent: {}
+[0.200588] (-) TimerEvent: {}
+[0.301851] (-) TimerEvent: {}
+[0.404476] (-) TimerEvent: {}
+[0.506530] (-) TimerEvent: {}
+[0.609761] (-) TimerEvent: {}
+[0.712671] (-) TimerEvent: {}
+[0.814711] (-) TimerEvent: {}
+[0.917560] (-) TimerEvent: {}
+[1.018562] (-) TimerEvent: {}
+[1.120385] (-) TimerEvent: {}
+[1.221593] (-) TimerEvent: {}
+[1.324529] (-) TimerEvent: {}
+[1.426602] (-) TimerEvent: {}
+[1.527360] (-) TimerEvent: {}
+[1.629497] (-) TimerEvent: {}
+[1.730535] (-) TimerEvent: {}
+[1.832656] (-) TimerEvent: {}
+[1.867397] (temperature_pkg) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/temperature_pkg', 'build', '--build-base', '/workspace/ros2_ws/build/temperature_pkg/build', 'install', '--record', '/workspace/ros2_ws/build/temperature_pkg/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/ros2_ws/src/temperature_pkg', 'env': {'PYTHON_BASIC_REPL': '1', 'HOSTNAME': 'docker-desktop', 'GIT_ASKPASS': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass.sh', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'BROWSER': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/bin/helpers/browser.sh', 'HOME': '/home/ubuntu', 'OLDPWD': '/workspace', 'TERM_PROGRAM_VERSION': '1.98.0', 'VSCODE_IPC_HOOK_CLI': '/tmp/vscode-ipc-8bfa8a84-fb2a-48df-9297-74aed748e3a7.sock', 'ROS_PYTHON_VERSION': '3', 'VSCODE_GIT_ASKPASS_MAIN': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass-main.js', 'VSCODE_GIT_ASKPASS_NODE': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/node', 'PYDEVD_DISABLE_FILE_VALIDATION': '1', 'BUNDLED_DEBUGPY_PATH': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/bundled/libs/debugpy', 'COLORTERM': 'truecolor', 'REMOTE_CONTAINERS': 'true', 'COLCON_PREFIX_PATH': '/workspace/install', 'ROS_DISTRO': 'humble', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-097633ec-4c94-43ff-be90-2eba25dd9d08.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/vscode/vscode-server/bin/linux-x64/c306e94f98122556ca081f527b466015e1bc37b0/bin/remote-cli:/home/ubuntu/.local/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/ardu_ws/src/ardupilot/Tools/autotest', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-097633ec-4c94-43ff-be90-2eba25dd9d08.sock"]', 'DISPLAY': 'host.docker.internal:0.0', 'VSCODE_DEBUGPY_ADAPTER_ENDPOINTS': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.10.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-c52ddf65534b7b46.txt', 'LANG': 'C.UTF-8', 'PYTHONSTARTUP': '/home/ubuntu/.vscode-server/data/User/workspaceStorage/07c1ebebe2a05edd22797b01c21bb63d/ms-python.python/pythonrc.py', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'VSCODE_GIT_IPC_HANDLE': '/tmp/vscode-git-fa2975c2c3.sock', 'TERM_PROGRAM': 'vscode', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-097633ec-4c94-43ff-be90-2eba25dd9d08.sock', 'AMENT_PREFIX_PATH': '/workspace/install/temperature_pkg:/opt/ros/humble', 'SHELL': '/bin/bash', 'GZ_VERSION': 'harmonic', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS': '', 'PWD': '/workspace/ros2_ws/build/temperature_pkg', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/ros2_ws/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages:/workspace/install/temperature_pkg/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[1.933523] (-) TimerEvent: {}
+[2.036768] (-) TimerEvent: {}
+[2.139447] (-) TimerEvent: {}
+[2.240812] (-) TimerEvent: {}
+[2.327939] (temperature_pkg) StderrLine: {'line': b"/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'\n"}
+[2.330622] (temperature_pkg) StderrLine: {'line': b'  warnings.warn(msg)\n'}
+[2.341598] (-) TimerEvent: {}
+[2.444592] (-) TimerEvent: {}
+[2.545555] (-) TimerEvent: {}
+[2.568670] (temperature_pkg) StdoutLine: {'line': b'running egg_info\n'}
+[2.610260] (temperature_pkg) StdoutLine: {'line': b'creating ../../build/temperature_pkg/temperature_pkg.egg-info\n'}
+[2.614433] (temperature_pkg) StdoutLine: {'line': b'writing ../../build/temperature_pkg/temperature_pkg.egg-info/PKG-INFO\n'}
+[2.624599] (temperature_pkg) StdoutLine: {'line': b'writing dependency_links to ../../build/temperature_pkg/temperature_pkg.egg-info/dependency_links.txt\n'}
+[2.630607] (temperature_pkg) StdoutLine: {'line': b'writing entry points to ../../build/temperature_pkg/temperature_pkg.egg-info/entry_points.txt\n'}
+[2.634591] (temperature_pkg) StdoutLine: {'line': b'writing requirements to ../../build/temperature_pkg/temperature_pkg.egg-info/requires.txt\n'}
+[2.640593] (temperature_pkg) StdoutLine: {'line': b'writing top-level names to ../../build/temperature_pkg/temperature_pkg.egg-info/top_level.txt\n'}
+[2.642473] (temperature_pkg) StdoutLine: {'line': b"writing manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'\n"}
+[2.646616] (-) TimerEvent: {}
+[2.748668] (-) TimerEvent: {}
+[2.760119] (temperature_pkg) StdoutLine: {'line': b"reading manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'\n"}
+[2.769026] (temperature_pkg) StdoutLine: {'line': b"writing manifest file '../../build/temperature_pkg/temperature_pkg.egg-info/SOURCES.txt'\n"}
+[2.773691] (temperature_pkg) StdoutLine: {'line': b'running build\n'}
+[2.776206] (temperature_pkg) StdoutLine: {'line': b'running build_py\n'}
+[2.778612] (temperature_pkg) StdoutLine: {'line': b'creating /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg\n'}
+[2.783614] (temperature_pkg) StdoutLine: {'line': b'copying temperature_pkg/__init__.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg\n'}
+[2.789386] (temperature_pkg) StdoutLine: {'line': b'copying temperature_pkg/publisher_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg\n'}
+[2.796765] (temperature_pkg) StdoutLine: {'line': b'copying temperature_pkg/subscriber_member_function.py -> /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg\n'}
+[2.820176] (temperature_pkg) StdoutLine: {'line': b'running install\n'}
+[2.838500] (temperature_pkg) StdoutLine: {'line': b'running install_lib\n'}
+[2.849978] (-) TimerEvent: {}
+[2.910940] (temperature_pkg) StdoutLine: {'line': b'creating /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg\n'}
+[2.915015] (temperature_pkg) StdoutLine: {'line': b'copying /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg/__init__.py -> /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg\n'}
+[2.925525] (temperature_pkg) StdoutLine: {'line': b'copying /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg/publisher_member_function.py -> /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg\n'}
+[2.934375] (temperature_pkg) StdoutLine: {'line': b'copying /workspace/ros2_ws/build/temperature_pkg/build/lib/temperature_pkg/subscriber_member_function.py -> /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg\n'}
+[2.949877] (temperature_pkg) StdoutLine: {'line': b'byte-compiling /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg/__init__.py to __init__.cpython-310.pyc\n'}
+[2.951629] (-) TimerEvent: {}
+[2.961668] (temperature_pkg) StdoutLine: {'line': b'byte-compiling /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg/publisher_member_function.py to publisher_member_function.cpython-310.pyc\n'}
+[2.988858] (temperature_pkg) StdoutLine: {'line': b'byte-compiling /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg/subscriber_member_function.py to subscriber_member_function.cpython-310.pyc\n'}
+[3.001988] (temperature_pkg) StdoutLine: {'line': b'running install_data\n'}
+[3.003960] (temperature_pkg) StdoutLine: {'line': b'creating /workspace/ros2_ws/install/temperature_pkg/share/ament_index/resource_index/packages\n'}
+[3.008190] (temperature_pkg) StdoutLine: {'line': b'copying resource/temperature_pkg -> /workspace/ros2_ws/install/temperature_pkg/share/ament_index/resource_index/packages\n'}
+[3.013873] (temperature_pkg) StdoutLine: {'line': b'copying package.xml -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg\n'}
+[3.020442] (temperature_pkg) StdoutLine: {'line': b'creating /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg/launch\n'}
+[3.023518] (temperature_pkg) StdoutLine: {'line': b'copying launch/pub_sub_launch.py -> /workspace/ros2_ws/install/temperature_pkg/share/temperature_pkg/launch\n'}
+[3.030569] (temperature_pkg) StdoutLine: {'line': b'running install_egg_info\n'}
+[3.052668] (-) TimerEvent: {}
+[3.151205] (temperature_pkg) StdoutLine: {'line': b'Copying ../../build/temperature_pkg/temperature_pkg.egg-info to /workspace/ros2_ws/install/temperature_pkg/lib/python3.10/site-packages/temperature_pkg-0.0.0-py3.10.egg-info\n'}
+[3.153528] (-) TimerEvent: {}
+[3.252136] (temperature_pkg) StdoutLine: {'line': b'running install_scripts\n'}
+[3.254010] (-) TimerEvent: {}
+[3.355098] (-) TimerEvent: {}
+[3.409466] (temperature_pkg) StdoutLine: {'line': b'Installing listener script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg\n'}
+[3.417967] (temperature_pkg) StdoutLine: {'line': b'Installing talker script to /workspace/ros2_ws/install/temperature_pkg/lib/temperature_pkg\n'}
+[3.434935] (temperature_pkg) StdoutLine: {'line': b"writing list of installed files to '/workspace/ros2_ws/build/temperature_pkg/install.log'\n"}
+[3.455467] (-) TimerEvent: {}
+[3.506926] (temperature_pkg) CommandEnded: {'returncode': 0}
+[3.556529] (-) TimerEvent: {}
+[3.616028] (temperature_pkg) JobEnded: {'identifier': 'temperature_pkg', 'rc': 0}
+[3.626262] (-) EventReactorShutdown: {}

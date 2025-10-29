@@ -1,0 +1,33 @@
+/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+  warnings.warn(msg)
+running egg_info
+creating ../../../build/siyi_cam_node/siyi_cam_node.egg-info
+writing ../../../build/siyi_cam_node/siyi_cam_node.egg-info/PKG-INFO
+writing dependency_links to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/dependency_links.txt
+writing entry points to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/entry_points.txt
+writing requirements to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/requires.txt
+writing top-level names to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/top_level.txt
+writing manifest file '../../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'
+reading manifest file '../../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'
+writing manifest file '../../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /workspace/build/siyi_cam_node/build/lib/siyi_cam_node
+copying siyi_cam_node/__init__.py -> /workspace/build/siyi_cam_node/build/lib/siyi_cam_node
+copying siyi_cam_node/siyi_cam_node.py -> /workspace/build/siyi_cam_node/build/lib/siyi_cam_node
+running install
+running install_lib
+creating /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node
+copying /workspace/build/siyi_cam_node/build/lib/siyi_cam_node/__init__.py -> /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node
+copying /workspace/build/siyi_cam_node/build/lib/siyi_cam_node/siyi_cam_node.py -> /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node
+byte-compiling /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node/__init__.py to __init__.cpython-310.pyc
+byte-compiling /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node/siyi_cam_node.py to siyi_cam_node.cpython-310.pyc
+running install_data
+creating /workspace/install/siyi_cam_node/share/ament_index/resource_index/packages
+copying resource/siyi_cam_node -> /workspace/install/siyi_cam_node/share/ament_index/resource_index/packages
+copying package.xml -> /workspace/install/siyi_cam_node/share/siyi_cam_node
+running install_egg_info
+Copying ../../../build/siyi_cam_node/siyi_cam_node.egg-info to /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node-0.0.0-py3.10.egg-info
+running install_scripts
+Installing siyi_cam_node script to /workspace/install/siyi_cam_node/lib/siyi_cam_node
+writing list of installed files to '/workspace/build/siyi_cam_node/install.log'

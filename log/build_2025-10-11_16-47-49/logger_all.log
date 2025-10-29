@@ -1,0 +1,664 @@
+[0.212s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build', '--symlink-install']
+[0.212s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=True, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=8, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x7f52029556f0>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x7f5202955180>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x7f5202955180>>, mixin_verb=('build',))
+[0.371s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.372s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.373s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.373s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.374s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.375s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.375s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/workspace'
+[0.377s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.377s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.378s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.379s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.380s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.380s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.381s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.382s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.382s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.416s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.417s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.417s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.418s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.418s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.420s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.420s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.421s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.423s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.424s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.424s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.427s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.427s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.427s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.429s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['ignore', 'ignore_ament_install']
+[0.429s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'ignore'
+[0.430s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'ignore_ament_install'
+[0.431s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['colcon_pkg']
+[0.431s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'colcon_pkg'
+[0.432s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['colcon_meta']
+[0.432s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'colcon_meta'
+[0.433s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['ros']
+[0.433s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'ros'
+[0.435s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['cmake', 'python']
+[0.435s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'cmake'
+[0.436s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'python'
+[0.436s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extensions ['python_setup_py']
+[0.437s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws) by extension 'python_setup_py'
+[0.439s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/build) by extensions ['ignore', 'ignore_ament_install']
+[0.440s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/build) by extension 'ignore'
+[0.440s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/build) ignored
+[0.442s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/install) by extensions ['ignore', 'ignore_ament_install']
+[0.442s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/install) by extension 'ignore'
+[0.443s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/install) ignored
+[0.445s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/log) by extensions ['ignore', 'ignore_ament_install']
+[0.446s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/log) by extension 'ignore'
+[0.446s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/log) ignored
+[0.447s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['ignore', 'ignore_ament_install']
+[0.448s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'ignore'
+[0.449s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'ignore_ament_install'
+[0.450s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['colcon_pkg']
+[0.450s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'colcon_pkg'
+[0.450s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['colcon_meta']
+[0.451s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'colcon_meta'
+[0.451s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['ros']
+[0.451s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'ros'
+[0.452s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['cmake', 'python']
+[0.453s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'cmake'
+[0.453s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'python'
+[0.454s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extensions ['python_setup_py']
+[0.454s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src) by extension 'python_setup_py'
+[0.456s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extensions ['ignore', 'ignore_ament_install']
+[0.457s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extension 'ignore'
+[0.458s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extension 'ignore_ament_install'
+[0.458s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extensions ['colcon_pkg']
+[0.459s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extension 'colcon_pkg'
+[0.459s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extensions ['colcon_meta']
+[0.459s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extension 'colcon_meta'
+[0.460s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extensions ['ros']
+[0.460s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_interfaces) by extension 'ros'
+[0.466s] DEBUG:colcon.colcon_core.package_identification:Package 'ros2_ws/src/temperature_interfaces' with type 'ros.ament_cmake' and name 'temperature_interfaces'
+[0.467s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extensions ['ignore', 'ignore_ament_install']
+[0.468s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extension 'ignore'
+[0.468s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extension 'ignore_ament_install'
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extensions ['colcon_pkg']
+[0.470s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extension 'colcon_pkg'
+[0.471s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extensions ['colcon_meta']
+[0.471s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extension 'colcon_meta'
+[0.472s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extensions ['ros']
+[0.472s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_ws/src/temperature_pkg) by extension 'ros'
+[0.475s] DEBUG:colcon.colcon_core.package_identification:Package 'ros2_ws/src/temperature_pkg' with type 'ros.ament_python' and name 'temperature_pkg'
+[0.477s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['ignore', 'ignore_ament_install']
+[0.477s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'ignore'
+[0.478s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'ignore_ament_install'
+[0.479s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['colcon_pkg']
+[0.479s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'colcon_pkg'
+[0.480s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['colcon_meta']
+[0.480s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'colcon_meta'
+[0.480s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['ros']
+[0.481s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'ros'
+[0.482s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['cmake', 'python']
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'cmake'
+[0.483s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'python'
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extensions ['python_setup_py']
+[0.484s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025) by extension 'python_setup_py'
+[0.486s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['ignore', 'ignore_ament_install']
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'ignore'
+[0.487s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'ignore_ament_install'
+[0.488s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['colcon_pkg']
+[0.488s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'colcon_pkg'
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['colcon_meta']
+[0.489s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'colcon_meta'
+[0.490s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['ros']
+[0.490s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'ros'
+[0.491s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['cmake', 'python']
+[0.491s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'cmake'
+[0.492s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'python'
+[0.492s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extensions ['python_setup_py']
+[0.492s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp) by extension 'python_setup_py'
+[0.493s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['ignore', 'ignore_ament_install']
+[0.494s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'ignore'
+[0.494s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'ignore_ament_install'
+[0.495s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['colcon_pkg']
+[0.495s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'colcon_pkg'
+[0.495s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['colcon_meta']
+[0.496s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'colcon_meta'
+[0.496s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['ros']
+[0.496s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'ros'
+[0.497s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['cmake', 'python']
+[0.498s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'cmake'
+[0.498s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'python'
+[0.499s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extensions ['python_setup_py']
+[0.499s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed) by extension 'python_setup_py'
+[0.500s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['ignore', 'ignore_ament_install']
+[0.501s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'ignore'
+[0.501s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'ignore_ament_install'
+[0.502s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['colcon_pkg']
+[0.502s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'colcon_pkg'
+[0.503s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['colcon_meta']
+[0.503s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'colcon_meta'
+[0.503s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['ros']
+[0.504s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'ros'
+[0.505s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['cmake', 'python']
+[0.505s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'cmake'
+[0.505s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'python'
+[0.506s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extensions ['python_setup_py']
+[0.506s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/camera_feed) by extension 'python_setup_py'
+[0.507s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['ignore', 'ignore_ament_install']
+[0.508s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'ignore'
+[0.508s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'ignore_ament_install'
+[0.509s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['colcon_pkg']
+[0.509s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'colcon_pkg'
+[0.509s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['colcon_meta']
+[0.510s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'colcon_meta'
+[0.510s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['ros']
+[0.510s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'ros'
+[0.511s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['cmake', 'python']
+[0.511s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'cmake'
+[0.512s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'python'
+[0.512s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extensions ['python_setup_py']
+[0.512s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/detected) by extension 'python_setup_py'
+[0.514s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['ignore', 'ignore_ament_install']
+[0.514s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'ignore'
+[0.515s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'ignore_ament_install'
+[0.516s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['colcon_pkg']
+[0.516s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'colcon_pkg'
+[0.517s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['colcon_meta']
+[0.517s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'colcon_meta'
+[0.517s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['ros']
+[0.518s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'ros'
+[0.519s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['cmake', 'python']
+[0.519s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'cmake'
+[0.520s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'python'
+[0.520s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extensions ['python_setup_py']
+[0.521s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/comp/camera_feed/mapping) by extension 'python_setup_py'
+[0.522s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['ignore', 'ignore_ament_install']
+[0.523s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'ignore'
+[0.523s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'ignore_ament_install'
+[0.524s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['colcon_pkg']
+[0.525s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'colcon_pkg'
+[0.525s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['colcon_meta']
+[0.526s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'colcon_meta'
+[0.526s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['ros']
+[0.527s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'ros'
+[0.528s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['cmake', 'python']
+[0.529s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'cmake'
+[0.530s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'python'
+[0.530s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extensions ['python_setup_py']
+[0.531s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/logs) by extension 'python_setup_py'
+[0.533s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['ignore', 'ignore_ament_install']
+[0.533s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'ignore'
+[0.534s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'ignore_ament_install'
+[0.535s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['colcon_pkg']
+[0.535s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'colcon_pkg'
+[0.535s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['colcon_meta']
+[0.536s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'colcon_meta'
+[0.536s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['ros']
+[0.536s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'ros'
+[0.537s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['cmake', 'python']
+[0.538s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'cmake'
+[0.538s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'python'
+[0.539s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extensions ['python_setup_py']
+[0.539s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests) by extension 'python_setup_py'
+[0.541s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['ignore', 'ignore_ament_install']
+[0.542s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'ignore'
+[0.543s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'ignore_ament_install'
+[0.544s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['colcon_pkg']
+[0.545s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'colcon_pkg'
+[0.545s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['colcon_meta']
+[0.546s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'colcon_meta'
+[0.546s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['ros']
+[0.546s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'ros'
+[0.548s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['cmake', 'python']
+[0.548s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'cmake'
+[0.549s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'python'
+[0.550s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extensions ['python_setup_py']
+[0.551s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception) by extension 'python_setup_py'
+[0.555s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['ignore', 'ignore_ament_install']
+[0.555s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'ignore'
+[0.558s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'ignore_ament_install'
+[0.559s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['colcon_pkg']
+[0.559s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'colcon_pkg'
+[0.560s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['colcon_meta']
+[0.560s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'colcon_meta'
+[0.561s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['ros']
+[0.561s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'ros'
+[0.563s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['cmake', 'python']
+[0.563s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'cmake'
+[0.564s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'python'
+[0.565s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extensions ['python_setup_py']
+[0.565s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/perception/camera) by extension 'python_setup_py'
+[0.567s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['ignore', 'ignore_ament_install']
+[0.568s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'ignore'
+[0.569s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'ignore_ament_install'
+[0.569s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['colcon_pkg']
+[0.570s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'colcon_pkg'
+[0.570s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['colcon_meta']
+[0.571s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'colcon_meta'
+[0.571s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['ros']
+[0.572s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'ros'
+[0.573s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['cmake', 'python']
+[0.573s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'cmake'
+[0.574s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'python'
+[0.575s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extensions ['python_setup_py']
+[0.576s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/tests/shared) by extension 'python_setup_py'
+[0.578s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['ignore', 'ignore_ament_install']
+[0.579s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'ignore'
+[0.580s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'ignore_ament_install'
+[0.581s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['colcon_pkg']
+[0.581s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'colcon_pkg'
+[0.582s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['colcon_meta']
+[0.582s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'colcon_meta'
+[0.582s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['ros']
+[0.583s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'ros'
+[0.584s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['cmake', 'python']
+[0.584s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'cmake'
+[0.585s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'python'
+[0.585s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extensions ['python_setup_py']
+[0.585s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025) by extension 'python_setup_py'
+[0.587s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['ignore', 'ignore_ament_install']
+[0.587s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'ignore'
+[0.588s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'ignore_ament_install'
+[0.589s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['colcon_pkg']
+[0.589s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'colcon_pkg'
+[0.589s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['colcon_meta']
+[0.590s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'colcon_meta'
+[0.590s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['ros']
+[0.590s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'ros'
+[0.592s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['cmake', 'python']
+[0.592s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'cmake'
+[0.593s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'python'
+[0.593s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extensions ['python_setup_py']
+[0.593s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp) by extension 'python_setup_py'
+[0.595s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['ignore', 'ignore_ament_install']
+[0.595s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'ignore'
+[0.595s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'ignore_ament_install'
+[0.596s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['colcon_pkg']
+[0.596s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'colcon_pkg'
+[0.597s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['colcon_meta']
+[0.597s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'colcon_meta'
+[0.597s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['ros']
+[0.598s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'ros'
+[0.599s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['cmake', 'python']
+[0.599s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'cmake'
+[0.600s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'python'
+[0.601s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extensions ['python_setup_py']
+[0.601s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/comp/camera_feed) by extension 'python_setup_py'
+[0.603s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['ignore', 'ignore_ament_install']
+[0.603s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'ignore'
+[0.604s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'ignore_ament_install'
+[0.604s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['colcon_pkg']
+[0.605s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'colcon_pkg'
+[0.605s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['colcon_meta']
+[0.606s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'colcon_meta'
+[0.606s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['ros']
+[0.606s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'ros'
+[0.607s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['cmake', 'python']
+[0.608s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'cmake'
+[0.609s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'python'
+[0.609s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extensions ['python_setup_py']
+[0.609s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc) by extension 'python_setup_py'
+[0.611s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['ignore', 'ignore_ament_install']
+[0.611s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'ignore'
+[0.612s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'ignore_ament_install'
+[0.613s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['colcon_pkg']
+[0.613s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'colcon_pkg'
+[0.613s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['colcon_meta']
+[0.614s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'colcon_meta'
+[0.614s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['ros']
+[0.614s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'ros'
+[0.615s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['cmake', 'python']
+[0.616s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'cmake'
+[0.616s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'python'
+[0.617s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extensions ['python_setup_py']
+[0.617s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/dev) by extension 'python_setup_py'
+[0.618s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['ignore', 'ignore_ament_install']
+[0.619s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'ignore'
+[0.619s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'ignore_ament_install'
+[0.620s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['colcon_pkg']
+[0.620s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'colcon_pkg'
+[0.621s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['colcon_meta']
+[0.621s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'colcon_meta'
+[0.621s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['ros']
+[0.622s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'ros'
+[0.623s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['cmake', 'python']
+[0.623s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'cmake'
+[0.624s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'python'
+[0.624s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extensions ['python_setup_py']
+[0.625s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs) by extension 'python_setup_py'
+[0.627s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['ignore', 'ignore_ament_install']
+[0.628s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'ignore'
+[0.629s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'ignore_ament_install'
+[0.629s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['colcon_pkg']
+[0.630s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'colcon_pkg'
+[0.630s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['colcon_meta']
+[0.630s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'colcon_meta'
+[0.630s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['ros']
+[0.631s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'ros'
+[0.632s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['cmake', 'python']
+[0.632s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'cmake'
+[0.633s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'python'
+[0.634s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extensions ['python_setup_py']
+[0.634s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/gcs/data) by extension 'python_setup_py'
+[0.636s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['ignore', 'ignore_ament_install']
+[0.636s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'ignore'
+[0.637s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'ignore_ament_install'
+[0.637s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['colcon_pkg']
+[0.637s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'colcon_pkg'
+[0.638s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['colcon_meta']
+[0.638s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'colcon_meta'
+[0.638s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['ros']
+[0.639s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'ros'
+[0.640s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['cmake', 'python']
+[0.641s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'cmake'
+[0.641s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'python'
+[0.642s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extensions ['python_setup_py']
+[0.642s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/gnc/logs) by extension 'python_setup_py'
+[0.644s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['ignore', 'ignore_ament_install']
+[0.644s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'ignore'
+[0.645s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'ignore_ament_install'
+[0.645s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['colcon_pkg']
+[0.646s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'colcon_pkg'
+[0.646s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['colcon_meta']
+[0.647s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'colcon_meta'
+[0.648s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['ros']
+[0.648s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'ros'
+[0.651s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['cmake', 'python']
+[0.652s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'cmake'
+[0.653s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'python'
+[0.654s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extensions ['python_setup_py']
+[0.654s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception) by extension 'python_setup_py'
+[0.658s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['ignore', 'ignore_ament_install']
+[0.658s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'ignore'
+[0.659s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'ignore_ament_install'
+[0.661s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['colcon_pkg']
+[0.661s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'colcon_pkg'
+[0.662s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['colcon_meta']
+[0.662s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'colcon_meta'
+[0.662s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['ros']
+[0.663s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'ros'
+[0.665s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['cmake', 'python']
+[0.665s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'cmake'
+[0.666s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'python'
+[0.667s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extensions ['python_setup_py']
+[0.667s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera) by extension 'python_setup_py'
+[0.669s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['ignore', 'ignore_ament_install']
+[0.669s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'ignore'
+[0.669s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'ignore_ament_install'
+[0.670s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['colcon_pkg']
+[0.671s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'colcon_pkg'
+[0.672s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['colcon_meta']
+[0.673s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'colcon_meta'
+[0.674s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['ros']
+[0.675s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'ros'
+[0.676s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['cmake', 'python']
+[0.677s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'cmake'
+[0.678s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'python'
+[0.678s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extensions ['python_setup_py']
+[0.678s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/arducam_libraries) by extension 'python_setup_py'
+[0.680s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['ignore', 'ignore_ament_install']
+[0.681s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'ignore'
+[0.682s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'ignore_ament_install'
+[0.683s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['colcon_pkg']
+[0.684s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'colcon_pkg'
+[0.684s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['colcon_meta']
+[0.685s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'colcon_meta'
+[0.685s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['ros']
+[0.686s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'ros'
+[0.687s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['cmake', 'python']
+[0.687s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'cmake'
+[0.688s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'python'
+[0.688s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extensions ['python_setup_py']
+[0.688s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/gazebo) by extension 'python_setup_py'
+[0.691s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['ignore', 'ignore_ament_install']
+[0.691s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'ignore'
+[0.692s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'ignore_ament_install'
+[0.693s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['colcon_pkg']
+[0.693s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'colcon_pkg'
+[0.694s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['colcon_meta']
+[0.694s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'colcon_meta'
+[0.694s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['ros']
+[0.695s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'ros'
+[0.696s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['cmake', 'python']
+[0.696s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'cmake'
+[0.696s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'python'
+[0.697s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extensions ['python_setup_py']
+[0.698s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/camera/siyi) by extension 'python_setup_py'
+[0.701s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['ignore', 'ignore_ament_install']
+[0.701s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'ignore'
+[0.702s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'ignore_ament_install'
+[0.703s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['colcon_pkg']
+[0.703s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'colcon_pkg'
+[0.704s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['colcon_meta']
+[0.705s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'colcon_meta'
+[0.706s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['ros']
+[0.707s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'ros'
+[0.708s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['cmake', 'python']
+[0.708s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'cmake'
+[0.709s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'python'
+[0.709s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extensions ['python_setup_py']
+[0.710s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev) by extension 'python_setup_py'
+[0.711s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['ignore', 'ignore_ament_install']
+[0.711s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'ignore'
+[0.712s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'ignore_ament_install'
+[0.712s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['colcon_pkg']
+[0.713s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'colcon_pkg'
+[0.713s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['colcon_meta']
+[0.713s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'colcon_meta'
+[0.714s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['ros']
+[0.714s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'ros'
+[0.716s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['cmake', 'python']
+[0.716s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'cmake'
+[0.716s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'python'
+[0.717s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extensions ['python_setup_py']
+[0.717s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/dev/visualizations) by extension 'python_setup_py'
+[0.719s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['ignore', 'ignore_ament_install']
+[0.719s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'ignore'
+[0.720s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'ignore_ament_install'
+[0.721s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['colcon_pkg']
+[0.721s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'colcon_pkg'
+[0.722s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['colcon_meta']
+[0.722s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'colcon_meta'
+[0.723s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['ros']
+[0.723s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'ros'
+[0.725s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['cmake', 'python']
+[0.725s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'cmake'
+[0.725s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'python'
+[0.726s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extensions ['python_setup_py']
+[0.726s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/lib) by extension 'python_setup_py'
+[0.727s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['ignore', 'ignore_ament_install']
+[0.728s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'ignore'
+[0.728s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'ignore_ament_install'
+[0.729s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['colcon_pkg']
+[0.729s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'colcon_pkg'
+[0.730s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['colcon_meta']
+[0.730s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'colcon_meta'
+[0.730s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['ros']
+[0.730s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'ros'
+[0.732s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['cmake', 'python']
+[0.732s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'cmake'
+[0.732s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'python'
+[0.733s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extensions ['python_setup_py']
+[0.733s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping) by extension 'python_setup_py'
+[0.734s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['ignore', 'ignore_ament_install']
+[0.735s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'ignore'
+[0.735s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'ignore_ament_install'
+[0.736s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['colcon_pkg']
+[0.736s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'colcon_pkg'
+[0.736s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['colcon_meta']
+[0.737s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'colcon_meta'
+[0.737s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['ros']
+[0.737s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'ros'
+[0.738s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['cmake', 'python']
+[0.739s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'cmake'
+[0.739s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'python'
+[0.740s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extensions ['python_setup_py']
+[0.740s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/dev) by extension 'python_setup_py'
+[0.741s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['ignore', 'ignore_ament_install']
+[0.742s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'ignore'
+[0.742s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'ignore_ament_install'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['colcon_pkg']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'colcon_pkg'
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['colcon_meta']
+[0.743s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'colcon_meta'
+[0.744s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['ros']
+[0.744s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'ros'
+[0.745s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['cmake', 'python']
+[0.746s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'cmake'
+[0.746s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'python'
+[0.746s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extensions ['python_setup_py']
+[0.747s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/mapping/proto) by extension 'python_setup_py'
+[0.748s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['ignore', 'ignore_ament_install']
+[0.749s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'ignore'
+[0.749s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'ignore_ament_install'
+[0.750s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['colcon_pkg']
+[0.750s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'colcon_pkg'
+[0.750s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['colcon_meta']
+[0.751s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'colcon_meta'
+[0.751s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['ros']
+[0.751s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'ros'
+[0.752s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['cmake', 'python']
+[0.752s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'cmake'
+[0.753s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'python'
+[0.753s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extensions ['python_setup_py']
+[0.754s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/obstacle_tracking) by extension 'python_setup_py'
+[0.756s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['ignore', 'ignore_ament_install']
+[0.756s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'ignore'
+[0.757s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'ignore_ament_install'
+[0.757s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['colcon_pkg']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'colcon_pkg'
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['colcon_meta']
+[0.758s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'colcon_meta'
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['ros']
+[0.759s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'ros'
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['cmake', 'python']
+[0.760s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'cmake'
+[0.761s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'python'
+[0.761s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extensions ['python_setup_py']
+[0.762s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc) by extension 'python_setup_py'
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['ignore', 'ignore_ament_install']
+[0.763s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'ignore'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'ignore_ament_install'
+[0.764s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['colcon_pkg']
+[0.765s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'colcon_pkg'
+[0.765s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['colcon_meta']
+[0.765s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'colcon_meta'
+[0.766s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['ros']
+[0.766s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'ros'
+[0.767s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['cmake', 'python']
+[0.767s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'cmake'
+[0.767s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'python'
+[0.768s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extensions ['python_setup_py']
+[0.768s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/perception/odlc/dev) by extension 'python_setup_py'
+[0.770s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['ignore', 'ignore_ament_install']
+[0.770s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'ignore'
+[0.770s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'ignore_ament_install'
+[0.771s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['colcon_pkg']
+[0.771s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'colcon_pkg'
+[0.772s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['colcon_meta']
+[0.772s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'colcon_meta'
+[0.772s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['ros']
+[0.772s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'ros'
+[0.773s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['cmake', 'python']
+[0.774s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'cmake'
+[0.774s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'python'
+[0.775s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extensions ['python_setup_py']
+[0.775s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared) by extension 'python_setup_py'
+[0.776s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['ignore', 'ignore_ament_install']
+[0.776s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'ignore'
+[0.777s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'ignore_ament_install'
+[0.778s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['colcon_pkg']
+[0.778s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'colcon_pkg'
+[0.778s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['colcon_meta']
+[0.779s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'colcon_meta'
+[0.779s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['ros']
+[0.779s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'ros'
+[0.780s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['cmake', 'python']
+[0.780s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'cmake'
+[0.781s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'python'
+[0.781s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extensions ['python_setup_py']
+[0.781s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/dev) by extension 'python_setup_py'
+[0.783s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['ignore', 'ignore_ament_install']
+[0.783s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'ignore'
+[0.783s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'ignore_ament_install'
+[0.784s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['colcon_pkg']
+[0.784s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'colcon_pkg'
+[0.785s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['colcon_meta']
+[0.785s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'colcon_meta'
+[0.785s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['ros']
+[0.785s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'ros'
+[0.786s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['cmake', 'python']
+[0.787s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'cmake'
+[0.787s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'python'
+[0.787s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extensions ['python_setup_py']
+[0.788s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/uavf_2025/shared/logs) by extension 'python_setup_py'
+[0.789s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/venv) by extensions ['ignore', 'ignore_ament_install']
+[0.790s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/venv) by extension 'ignore'
+[0.790s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_2025/venv) ignored
+[0.791s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_venv) by extensions ['ignore', 'ignore_ament_install']
+[0.792s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_venv) by extension 'ignore'
+[0.792s] Level 1:colcon.colcon_core.package_identification:_identify(uavf_venv) ignored
+[0.792s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.792s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.793s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.793s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.793s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.830s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_args' from command line to 'None'
+[0.830s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_target' from command line to 'None'
+[0.830s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.831s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_clean_cache' from command line to 'False'
+[0.831s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_clean_first' from command line to 'False'
+[0.831s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'cmake_force_configure' from command line to 'False'
+[0.832s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'ament_cmake_args' from command line to 'None'
+[0.832s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'catkin_cmake_args' from command line to 'None'
+[0.832s] Level 5:colcon.colcon_core.verb:set package 'temperature_interfaces' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.832s] DEBUG:colcon.colcon_core.verb:Building package 'temperature_interfaces' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/build/temperature_interfaces', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/install/temperature_interfaces', 'merge_install': False, 'path': '/workspace/ros2_ws/src/temperature_interfaces', 'symlink_install': True, 'test_result_base': None}
+[0.833s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_args' from command line to 'None'
+[0.834s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_target' from command line to 'None'
+[0.834s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.834s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_clean_cache' from command line to 'False'
+[0.834s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_clean_first' from command line to 'False'
+[0.835s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'cmake_force_configure' from command line to 'False'
+[0.835s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'ament_cmake_args' from command line to 'None'
+[0.835s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'catkin_cmake_args' from command line to 'None'
+[0.835s] Level 5:colcon.colcon_core.verb:set package 'temperature_pkg' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.836s] DEBUG:colcon.colcon_core.verb:Building package 'temperature_pkg' with the following arguments: {'ament_cmake_args': None, 'build_base': '/workspace/build/temperature_pkg', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/workspace/install/temperature_pkg', 'merge_install': False, 'path': '/workspace/ros2_ws/src/temperature_pkg', 'symlink_install': True, 'test_result_base': None}
+[0.836s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.838s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.839s] INFO:colcon.colcon_ros.task.ament_cmake.build:Building ROS package in '/workspace/ros2_ws/src/temperature_interfaces' with build type 'ament_cmake'
+[0.839s] INFO:colcon.colcon_cmake.task.cmake.build:Building CMake package in '/workspace/ros2_ws/src/temperature_interfaces'
+[0.843s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.844s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.844s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.859s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/workspace/ros2_ws/src/temperature_pkg' with build type 'ament_python'
+[0.859s] Level 1:colcon.colcon_core.shell:create_environment_hook('temperature_pkg', 'ament_prefix_path')
+[0.860s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/install/temperature_pkg/share/temperature_pkg/hook/ament_prefix_path.ps1'
+[0.869s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/workspace/install/temperature_pkg/share/temperature_pkg/hook/ament_prefix_path.dsv'
+[0.874s] INFO:colcon.colcon_core.shell:Creating environment hook '/workspace/install/temperature_pkg/share/temperature_pkg/hook/ament_prefix_path.sh'
+[0.880s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.880s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.937s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/build/temperature_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble VIRTUAL_ENV_PROMPT=(venv) /usr/bin/cmake /workspace/ros2_ws/src/temperature_interfaces -DAMENT_CMAKE_SYMLINK_INSTALL=1 -DCMAKE_INSTALL_PREFIX=/workspace/install/temperature_interfaces
+[1.804s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/workspace/ros2_ws/src/temperature_pkg'
+[1.812s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.813s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[3.419s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/workspace/build/temperature_pkg': PYTHONPATH=/workspace/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /workspace/build/temperature_pkg/build --no-deps symlink_data
+[4.235s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/workspace/build/temperature_pkg' returned '1': PYTHONPATH=/workspace/build/temperature_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/temperature_pkg/lib/python3.10/site-packages:${PYTHONPATH} VIRTUAL_ENV_PROMPT=(venv) /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /workspace/build/temperature_pkg/build --no-deps symlink_data
+[4.732s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[4.733s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[4.734s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '1'
+[4.734s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[4.754s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.notify_send': Could not find 'notify-send'
+[4.754s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[4.754s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[4.755s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[4.760s] DEBUG:colcon.colcon_notification.desktop_notification.notify2:Failed to initialize notify2: org.freedesktop.DBus.Error.Spawn.ExecFailed: /usr/bin/dbus-launch terminated abnormally without any error message
+[4.761s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[4.762s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/install/local_setup.ps1'
+[4.767s] INFO:colcon.colcon_core.shell:Creating prefix util module '/workspace/install/_local_setup_util_ps1.py'
+[4.777s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/install/setup.ps1'
+[4.783s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/install/local_setup.sh'
+[4.788s] INFO:colcon.colcon_core.shell:Creating prefix util module '/workspace/install/_local_setup_util_sh.py'
+[4.793s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/install/setup.sh'
+[4.799s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/install/local_setup.bash'
+[4.804s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/install/setup.bash'
+[4.814s] INFO:colcon.colcon_core.shell:Creating prefix script '/workspace/install/local_setup.zsh'
+[4.823s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/workspace/install/setup.zsh'

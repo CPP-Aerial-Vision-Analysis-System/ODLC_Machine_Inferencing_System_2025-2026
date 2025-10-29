@@ -1,0 +1,3 @@
+[console_scripts]
+incremental_stitcher = ros2_image_stitching_pkg.incremental_stitcher:main
+mock_camera_node = ros2_image_stitching_pkg.mock_camera_node:main

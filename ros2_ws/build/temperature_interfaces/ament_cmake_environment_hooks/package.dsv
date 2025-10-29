@@ -1,0 +1,4 @@
+source;share/temperature_interfaces/local_setup.bash
+source;share/temperature_interfaces/local_setup.dsv
+source;share/temperature_interfaces/local_setup.sh
+source;share/temperature_interfaces/local_setup.zsh
