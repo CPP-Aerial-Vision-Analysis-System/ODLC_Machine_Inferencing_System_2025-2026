@@ -66,6 +66,21 @@ Run the following command to launch everything:
 ros2 launch ardupilot_gz_bringup iris_runway.launch.py
 ```
 
+### 3. Make camera face downwards (optional)
+
+#### 3a. Open a mavproxy terminal
+```bash
+mavproxy.py --master=127.0.0.1:14550
+```
+
+#### 3b. Run the following RC overrides in the mavprxoy terminal to move gimbal in simulation
+```bash
+rc 6 1500 # neutral roll
+rc 7 1300 # pitch down
+rc 8 1500 # neutral yaw
+```
+
+
 ---
 
 ## Connecting Mission Planner
