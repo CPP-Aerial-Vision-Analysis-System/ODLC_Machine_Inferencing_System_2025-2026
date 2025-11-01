@@ -17,21 +17,24 @@ Configuration:
 
 TODO: Implement MobileNet validation for additional accuracy
 """
+# ros2 imports
+import rclpy # define ros2 nodes
+from rclpy.node import Node # define ros2 nodes 
+from ament_index_python.packages import get_package_share_directory # gets ros2's "share" dir which is used to locate camera feed folders
+from cv_bridge import CvBridge # converts between ros image messages and opencv(cv2) images
+from sensor_msgs.msg import Image # ros2 message type for sending images
 
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image
-from std_msgs.msg import String
-from cv_bridge import CvBridge
-import cv2
-import numpy as np
-import time
-from datetime import datetime
-import os
-import platform
-from ament_index_python.packages import get_package_share_directory
+# non-ros2 imports
+import cv2 # opencv computer vision library
+from std_msgs.msg import String # string message type
+import numpy as np # numerical arrays
+import time # timing
+from datetime import datetime # timing
+import os # path
+import platform # path
 
-# Import SAHI and YOLO dependencies
+# This is just to make sure that we have all the dependencies
+#SAHI
 try:
     from sahi import AutoDetectionModel
     from sahi.predict import get_sliced_prediction
@@ -40,14 +43,14 @@ try:
 except ImportError:
     SAHI_AVAILABLE = False
     print("ERROR: sahi not available. Please install with: pip install sahi")
-
+#PyTorch
 try:
     import torch
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
     print("WARNING: torch not available, will use CPU only")
-
+#YOLO
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
@@ -57,18 +60,11 @@ except ImportError:
 
 
 class SAHIObjectDetectionNode(Node):
-    """
-    ROS2 Node for SAHI-based object detection optimized for small objects.
-    
-    This node monitors a camera_feed directory for new images and processes them using
-    YOLO with SAHI (Slicing Aided Hyper Inference) to detect small objects like tents
-    and people in aerial/drone imagery.
-    """
-    
     def __init__(self):
+        # Ros2 name. Used so that other nodes can discover its topics, parameters and services
         super().__init__('sahi_object_detection_node')
         
-        # Declare parameters
+        # Params(like variables)
         self.declare_parameter('model_path', 'yolo11s.pt')
         self.declare_parameter('confidence_threshold', 0.15)
         self.declare_parameter('slice_height', 512)  # Reverted to original size for better accuracy
@@ -89,7 +85,10 @@ class SAHIObjectDetectionNode(Node):
         self.device = self.get_parameter('device').value
         
         # ROS2 setup
+        # Converts betwen ros iamge to opencv image
         self.bridge = CvBridge()
+        
+        # Topics (todo)
         self.publisher = self.create_publisher(Image, '/sahi_detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
         
@@ -111,10 +110,9 @@ class SAHIObjectDetectionNode(Node):
         self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
         self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
         
-        # Auto-detect device
+        # Auto-detect device(gpu, mps or cpu)
         if self.device == 'auto':
             self.device = self._get_device()
-        
         self.get_logger().info(f"Using device: {self.device}")
         
         # Initialize SAHI model
@@ -283,13 +281,13 @@ class SAHIObjectDetectionNode(Node):
                 device=self.device,
             )
             
-            self.get_logger().info("✓ SAHI YOLOv11 model loaded successfully!")
+            self.get_logger().info(" SAHI YOLOv11 model loaded successfully!")
             
             # Verify model is on correct device
             if TORCH_AVAILABLE and hasattr(self.detection_model, 'model'):
                 try:
                     model_device = next(self.detection_model.model.model.parameters()).device
-                    self.get_logger().info(f"✓ Model confirmed on device: {model_device}")
+                    self.get_logger().info(f" Model confirmed on device: {model_device}")
                 except:
                     pass
             
@@ -316,7 +314,7 @@ class SAHIObjectDetectionNode(Node):
                 self.get_logger().warn("SAHI model not initialized, skipping detection")
                 return
             
-            # Get all image files
+            # Get all image files and save em in a list
             image_files = []
             for file in os.listdir(self.camera_feed_path):
                 if file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
@@ -340,7 +338,7 @@ class SAHIObjectDetectionNode(Node):
                     new_images_processed += 1
             
             if new_images_processed > 0:
-                self.get_logger().info(f"✓ Processed {new_images_processed} new images")
+                self.get_logger().info(f"Processed {new_images_processed} new images")
                 self._log_statistics()
                     
         except Exception as e:
@@ -348,6 +346,7 @@ class SAHIObjectDetectionNode(Node):
     
     def process_image(self, image_path):
         """Process a single image using SAHI for small object detection"""
+        """In here we call detect_object_sahi, annotated_frame and publish_result methods"""
         try:
             start_time = time.time()
             
@@ -360,7 +359,7 @@ class SAHIObjectDetectionNode(Node):
             height, width = frame.shape[:2]
             self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
-            # Run SAHI prediction
+            # Run SAHI prediction (another function)
             detections = self.detect_objects_sahi(frame)
             
             processing_time = time.time() - start_time
@@ -405,7 +404,7 @@ class SAHIObjectDetectionNode(Node):
         detections = []
         
         try:
-            # Convert BGR to RGB for SAHI
+            # Convert BGR to RGB for SAHI (openCV loads in BGR and pytorch wants in RGB)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             self.get_logger().info(
@@ -421,10 +420,10 @@ class SAHIObjectDetectionNode(Node):
                 slice_width=self.slice_width,
                 overlap_height_ratio=self.overlap_height_ratio,
                 overlap_width_ratio=self.overlap_width_ratio,
-                postprocess_type="NMS",  # Non-Maximum Suppression
-                postprocess_match_metric="IOS",  # Intersection Over Smaller area
-                postprocess_match_threshold=0.5,  # Threshold for merging detections
-                postprocess_class_agnostic=False,  # Class-aware NMS
+                postprocess_type="NMS",  # Non-Maximum Suppression 'NMS' (when multiple boxes detect the same object, only the highest confidence one is staying)
+                postprocess_match_metric="IOS",  # Intersection Over Smaller area (decides which one of boxes that detect the object should represent the object)
+                postprocess_match_threshold=0.5,  # Threshold for merging detections( if overlap is >50% they are duplicates and merged post-processing)
+                postprocess_class_agnostic=False,  # Class-aware NMS (makes sure that person and tent boxes dont merge)
                 verbose=0
             )
             
@@ -648,7 +647,7 @@ class SAHIObjectDetectionNode(Node):
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 2)
             
             # Prepare text labels
-            offency_label = f"OFFENCY: {yolo_class} ({confidence:.2f})"
+            yolo_label = f"YOLO: {yolo_class} ({confidence:.2f})"
             # TODO: Implement actual MobileNet validation
             # mobilenet_label = f"MobileNet: {yolo_class} ({confidence:.2f})"
             
@@ -658,7 +657,7 @@ class SAHIObjectDetectionNode(Node):
             thickness = 1
             
             (w1, h1), _ = cv2.getTextSize(target_label, font, font_scale, thickness)
-            (w2, h2), _ = cv2.getTextSize(offency_label, font, font_scale, thickness)
+            (w2, h2), _ = cv2.getTextSize(yolo_label, font, font_scale, thickness)
             # (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
             
             # Calculate background rectangle size
@@ -681,7 +680,7 @@ class SAHIObjectDetectionNode(Node):
                        font, font_scale, COLOR_TEXT_BG, 2)
             
             text_y += h2 + 5
-            cv2.putText(annotated_frame, offency_label, (x1 + 5, text_y),
+            cv2.putText(annotated_frame, yolo_label, (x1 + 5, text_y),
                        font, font_scale, COLOR_TEXT_BG, 2)
             
             # TODO: Add MobileNet validation label when implemented
