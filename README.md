@@ -66,6 +66,17 @@ Run the following command to launch everything:
 ros2 launch ardupilot_gz_bringup iris_runway.launch.py
 ```
 
+### 3. Connect Mavros
+
+Run the following command to get a mavproxy client running
+```bash
+mavproxy.py --master udp:127.0.0.1:1455 --out 127.0.0.1:14555
+```
+
+Connect Mavros to the mavproxy instance
+
+```bash
+ros2 launch mavros px4.launch fcu_url:="udp://:14540@"
 ---
 
 ## Connecting Mission Planner
@@ -85,3 +96,4 @@ ros2 launch ardupilot_gz_bringup iris_runway.launch.py
   * **Port:** `5762`
 
 ---
+
