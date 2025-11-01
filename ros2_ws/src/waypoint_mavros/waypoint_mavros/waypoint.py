@@ -17,7 +17,7 @@ class WaypointManager(Node):
 
         # Subscribers
         self.create_subscription(State, "/mavros/state", self.state_callback, 10)
-        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached, 10)
+        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list, 10)
         self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)   # should this be pub??
 
@@ -126,7 +126,7 @@ class WaypointManager(Node):
         else:
             self.get_logger().info(f"Index {index} out of range. No waypoint deleted.")
     
-    def waypoint_reached(self, msg):
+    def waypoint_reached_cb(self, msg):                         # change this to match 2025-2026 mission
         """Tells us which waypoint we just reached."""
         self.waypoint_reached = msg.wp_seq
         self.get_logger().info(f"Waypoint {msg.wp_seq} reached.")
