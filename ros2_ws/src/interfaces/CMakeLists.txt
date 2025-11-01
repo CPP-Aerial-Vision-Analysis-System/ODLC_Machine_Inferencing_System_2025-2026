@@ -7,16 +7,19 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(vision_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/ImageResult.msg"
+  "msg/YoloResult.msg"
   "srv/AddWaypoint.srv"
   "srv/DelWaypoint.srv"
   "srv/UpdateMission.srv"
   "srv/GetGPSData.srv"
+  DEPENDENCIES std_msgs vision_msgs sensor_msgs
 )
 
 if(BUILD_TESTING)

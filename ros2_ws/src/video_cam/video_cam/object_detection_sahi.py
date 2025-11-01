@@ -29,6 +29,8 @@ from rclpy.node import Node # define ros2 nodes
 # Removed get_package_share_directory - now using ~/video_cam directory instead
 from cv_bridge import CvBridge # converts between ros image messages and opencv(cv2) images
 from sensor_msgs.msg import Image # ros2 message type for sending images
+from interfaces.msg import ImageResult # custom message for detection results
+from mavros_msgs.msg import WaypointReached # waypoint reached message
 
 # non-ros2 imports
 import cv2 # opencv computer vision library
@@ -143,6 +145,7 @@ class SAHIObjectDetectionNode(Node):
         # Topics (todo)
         self.publisher = self.create_publisher(Image, '/sahi_detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
+        self.detection_pub = self.create_publisher(ImageResult, '/image_detections', 10)
         
         # Use single video_cam directory in home directory
         video_cam_dir = get_video_cam_directory()
@@ -208,6 +211,13 @@ class SAHIObjectDetectionNode(Node):
         if self.use_mobilenet_validation and self.mobilenet_model is not None:
             self.get_logger().info(f"MobileNet Confidence Threshold: {self.mobilenet_confidence_threshold}")
         self.get_logger().info("="*80)
+
+        # wp subscriber
+        self.waypoint_reached = 0
+        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
+
+    def waypoint_reached_cb(self, msg):
+        self.waypoint_reached = msg.wp_seq
     
     def _get_device(self):
         """
@@ -1169,6 +1179,65 @@ class SAHIObjectDetectionNode(Node):
                     for d in detections
                 ]
             }
+
+            # create ImageResult message
+            image_result_msg = ImageResult()
+            image_result_msg.header = image_msg.header
+            image_result_msg.image_name = original_filename
+            image_result_msg.timestamp = datetime.now().isoformat()
+            image_result_msg.num_detections = len(detections)
+            image_result_msg.saved_to = output_path
+            image_result_msg.method = 'sahi+yolo11s'
+            image_result_msg.slice_size = f"{self.slice_height}x{self.slice_width}"
+            image_result_msg.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
+            image_result_msg.waypoint_index = self.waypoint_reached             # include latest wp in message (ASSUMES INSTANT DETECTION)
+
+            # Prepare Detection2DArray
+            det_array = Detection2DArray()
+            det_array.header = image_msg.header
+
+            classes = []
+            confidences = []
+            areas = []
+            descriptions = []
+            masks = []  # Empty because you aren’t generating segmentation masks
+
+            for det in detections:
+                # Create individual Detection2D
+                d2d = Detection2D()
+                d2d.header = image_msg.header
+
+                # Create bounding box
+                x1, y1, x2, y2 = det['bbox']
+                d2d.bbox.center.x = (x1 + x2) / 2.0
+                d2d.bbox.center.y = (y1 + y2) / 2.0
+                d2d.bbox.size_x = x2 - x1
+                d2d.bbox.size_y = y2 - y1
+
+                # Add hypothesis (class + confidence)
+                hypo = ObjectHypothesisWithPose()
+                hypo.hypothesis.class_id = det['class']
+                hypo.hypothesis.score = float(det['confidence'])
+                d2d.results.append(hypo)
+
+                det_array.detections.append(d2d)
+
+                # Collect object summary data
+                classes.append(det['class'])
+                confidences.append(float(det['confidence']))
+                areas.append(float(det.get('area', 0)))
+                descriptions.append(det.get('description', det['class']))
+
+            # Assign to ImageResult
+            image_result_msg.detections = det_array
+            image_result_msg.masks = masks
+            image_result_msg.classes = classes
+            image_result_msg.confidences = confidences
+            image_result_msg.areas = areas
+            image_result_msg.descriptions = descriptions
+
+            # Publish ImageResult message
+            self.detection_pub.publish(image_result_msg)
             
             # Publish detection info
             info_msg = String()
