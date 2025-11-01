@@ -38,7 +38,6 @@ import time # timing
 from datetime import datetime # timing
 import os # path
 from pathlib import Path # path
-
 # This is just to make sure that we have all the dependencies
 #SAHI
 try:
@@ -1063,7 +1062,6 @@ class SAHIObjectDetectionNode(Node):
                 mobilenet_label = f"MobileNet: {mobilenet_class} ({mobilenet_confidence:.2f}) {status_icon}"
             else:
                 mobilenet_label = "MobileNet: Not validated"
-            
             # Calculate text size for background
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.5
@@ -1072,7 +1070,7 @@ class SAHIObjectDetectionNode(Node):
             (w1, h1), _ = cv2.getTextSize(target_label, font, font_scale, thickness)
             (w2, h2), _ = cv2.getTextSize(yolo_label, font, font_scale, thickness)
             (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
-            
+
             # Calculate background rectangle size
             max_width = max(w1, w2, w3) + 10
             total_height = h1 + h2 + h3 + 20  # Added height for MobileNet label
