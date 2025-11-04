@@ -317,6 +317,7 @@ class SiyiA8Publisher(Node):
             self.capture_photo = True
     
     def check_altitude(self, msg):
+        '''enables or disables camera based on altitude'''
         current_alt = msg.data
         if current_alt >= self.ALT_THRESHOLD:
             if not self.camera_enabled:
@@ -332,6 +333,7 @@ class SiyiA8Publisher(Node):
             self.camera_enabled = False
 
     def camera_loop(self):
+        '''main camera loop that publishes images to the /image_raw topic'''
         if self.camera_enabled:
             # Use physical camera (SIYI or webcam) if available
             if self.capture is not None:

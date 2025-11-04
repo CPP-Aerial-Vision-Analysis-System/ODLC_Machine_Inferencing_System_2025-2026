@@ -34,24 +34,25 @@ class WaypointManager(Node):
         # self.do_jump_srv = self.create_service(DoJump, "/doJump", self.handle_do_jump)
 
         # Node parameters   (move to a mission manager?)
+        #Where are these used? we should create getters for these parameters, otherwise we are just sitting here 
         self.declare_parameter('num_waypoints', 0)
         self.declare_parameter('takeoff_index', -1)
         self.declare_parameter('rtl_index', -1)
         self.declare_parameter('next_after_takeoff', -1)
         self.declare_parameter('last_before_rtl', -1)
 
-       
     def state_callback(self, msg):
         """Callback function for state updates."""
         self.connected = msg.connected
     
     def waypoints_list(self, data):
-        """Callback to store and log the recieved waypoints"""
+        """receives and stores the waypoint lists from mavros"""
         self.waypoint_list = data
         for i, wp in enumerate(self.waypoint_list.waypoints):
             self.get_logger().info(f"Waypoint {type(wp)} {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
     
     def push_waypoints(self):
+        # infinite loop until the waypoint push service is available(toFix)
         """Push waypoints to the drone"""
         while not self.waypoint_push.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for waypoint push service...")
@@ -74,7 +75,6 @@ class WaypointManager(Node):
         future.add_done_callback(self.pull_request)
         self.get_logger().info("Waypoint pull request...")
     
-
     def pull_request(self, future):         # don't need this if we use rclpy.spin_unttil_future_complete
         try:
             response = future.result()
@@ -171,7 +171,6 @@ class WaypointManager(Node):
             self.get_logger().error(f"Failed to add waypoint: {e}")
             response.success = False
         return response
-
 
     def handle_wp_del_req(self, request, response):
         """Handle DelWaypoint service request"""
