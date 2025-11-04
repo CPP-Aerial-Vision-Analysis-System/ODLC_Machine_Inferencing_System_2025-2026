@@ -114,7 +114,7 @@ class SAHIObjectDetectionNode(Node):
         # Ros2 name. Used so that other nodes can discover its topics, parameters and services
         super().__init__('sahi_object_detection_node')
         
-        # Params(like variables)
+        # Params
         self.declare_parameter('model_path', 'yolo11s.pt')
         self.declare_parameter('confidence_threshold', 0.15)
         self.declare_parameter('slice_height', 512)  # Reverted to original size for better accuracy
@@ -217,6 +217,7 @@ class SAHIObjectDetectionNode(Node):
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
 
     def waypoint_reached_cb(self, msg):
+        #updates with current waypoint index
         self.waypoint_reached = msg.wp_seq
     
     def _get_device(self):
@@ -338,7 +339,7 @@ class SAHIObjectDetectionNode(Node):
             elif not os.path.exists(model_path):
                 self.get_logger().warn(f"Model file not found at {model_path}, will download from Ultralytics if needed")
             
-            self.get_logger().info("Loading SAHI YOLOv11 model for small object detection...")
+            self.get_logger().info("Loading SAHI YOLOv11s model for small object detection...")
             self.get_logger().info(f"Target device: {self.device}")
             
             # GPU memory optimization for CUDA
@@ -362,14 +363,16 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
             # Initialize SAHI AutoDetectionModel
+            # Note: SAHI uses 'yolov8' as the model_type identifier for YOLO v8+ models (including YOLO11)
+            # The actual model file is yolo11s.pt, specified in model_path
             self.detection_model = AutoDetectionModel.from_pretrained(
-                model_type='yolov8',  # Use yolov8 as model type for YOLO v8+ models
-                model_path=model_path,
+                model_type='yolov8',  # SAHI model type identifier (works for YOLO v8, v9, v10, v11)
+                model_path=model_path,  # Actual model: yolo11s.pt
                 confidence_threshold=self.confidence_threshold,
                 device=self.device,
             )
             
-            self.get_logger().info(" SAHI YOLOv11 model loaded successfully!")
+            self.get_logger().info(" SAHI YOLOv11s model loaded successfully!")
             
             # Verify model is on correct device
             if TORCH_AVAILABLE and hasattr(self.detection_model, 'model'):
@@ -655,7 +658,7 @@ class SAHIObjectDetectionNode(Node):
     
     def _categorize_detection(self, class_name, confidence, bbox, frame):
         """
-        Categorize YOLO detections into our target classes (person, tent)
+        Categorize YOLO detections into our target classes (person/mannequin, tent)
         
         Args:
             class_name: YOLO class name
@@ -668,7 +671,7 @@ class SAHIObjectDetectionNode(Node):
         """
         x1, y1, x2, y2 = bbox
         
-        # Person detection
+        # Person/Mannequin detection - direct person detection
         if class_name == 'person':
             if confidence > 0.25:  # Lower threshold for SAHI to catch more small people
                 return {
@@ -681,19 +684,38 @@ class SAHIObjectDetectionNode(Node):
                     'area': (x2 - x1) * (y2 - y1)
                 }
         
-        # Tent detection - map various YOLO classes that could be tents
-        # In aerial/drone imagery, tents might be detected as various objects
+        # Mannequin detection - map various YOLO classes that could be mannequins
+        # In aerial/drone imagery, mannequins might be detected as various objects
+        mannequin_like_classes = {
+            'doll': 0.20,           # Mannequins often detected as dolls
+        }
+        
+        if class_name in mannequin_like_classes:
+            threshold = mannequin_like_classes[class_name]
+            if confidence > threshold:
+                # Additional validation: check size and aspect ratio
+                width = x2 - x1
+                height = y2 - y1
+                aspect_ratio = width / height if height > 0 else 0
+                area = width * height
+                
+                # Mannequins should have reasonable size and aspect ratio
+                # Typically more vertical/humanoid than tents
+                if area > 300 and 0.3 < aspect_ratio < 3.0:
+                    return {
+                        'class': 'person',
+                        'yolo_class': class_name,
+                        'confidence': confidence,
+                        'bbox': bbox,
+                        'description': f'mannequin-like ({class_name})',
+                        'method': 'sahi+yolo11s',
+                        'area': area
+                    }
+        
+        # Tent detection - only kite and umbrella
         tent_like_classes = {
-            'backpack': 0.20,      # Tents often detected as backpacks
-            'suitcase': 0.20,      # Or suitcases
-            'umbrella': 0.20,      # Tent canopies might look like umbrellas
-            'handbag': 0.15,       # Small tents
-            'car': 0.15,           # Large tents might look like cars from above
-            'truck': 0.15,         # Very large tents
-            'boat': 0.20,          # Boat-shaped tents
-            'sports ball': 0.15,   # Small rounded tents
             'kite': 0.20,          # Tent fabric might look like kites
-            'surfboard': 0.15,     # Elongated tents
+            'umbrella': 0.20,      # Tent canopies might look like umbrellas
         }
         
         if class_name in tent_like_classes:
