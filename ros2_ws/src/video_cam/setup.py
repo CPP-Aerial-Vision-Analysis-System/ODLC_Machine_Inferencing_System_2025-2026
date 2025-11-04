@@ -26,7 +26,9 @@ setup(
             'image_pub = video_cam.image_pub_siyi:main',
             'test_image_pub = video_cam.test_image_pub:main',
             'object_detection = video_cam.object_detection:main',
-            'object_detection_sahi = video_cam.object_detection_sahi:main'
+            'object_detection_sahi = video_cam.object_detection_sahi:main',
+            'waypoint_detection_tracker = video_cam.waypoint_detection_tracker:main',
+            'payload_drop_planner = video_cam.payload_drop_planner:main'
         ],
     },
 )

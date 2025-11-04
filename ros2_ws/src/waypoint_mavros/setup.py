@@ -19,7 +19,7 @@ setup(
     license='TODO: License declaration',
     entry_points={
         'console_scripts': [
-            'waypoint=waypoint_mavros.waypoint:main',
+            'waypoint=waypoint_mavros.waypointv2:main',
             'killnode=waypoint_mavros.killnode:main',
         ],
     },
