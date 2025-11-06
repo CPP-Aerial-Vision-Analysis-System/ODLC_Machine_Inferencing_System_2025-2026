@@ -1,18 +1,15 @@
 {
   "name": "SUAS 2025-2026 SITL ENV",
   "dockerFile": "Dockerfile",
-
-  // Start with base args
-  "runArgs": ["--privileged"],
-
+  "runArgs": [
+    "--privileged",
+    "--env=DISPLAY=host.docker.internal:0.0",
+    "--network=host"
+  ],
   "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/${localWorkspaceFolderBasename}",
-
   "mounts": [
-    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind,consistency=cached"
+    "source=${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind"
   ],
-
-  // Runs inside the container after build
-  "updateContentCommand": "bash .devcontainer/setup_runargs.sh"
+  "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
 }
-
