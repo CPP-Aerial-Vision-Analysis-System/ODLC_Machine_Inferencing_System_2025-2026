@@ -6,3 +6,6 @@ ros2_ws/*.bin
 ros2_ws/*.parm
 ros2_ws/*.tlog
 ros2_ws/*.tlog.raw
+
+camera_feed/
+detection_results_sahi/
