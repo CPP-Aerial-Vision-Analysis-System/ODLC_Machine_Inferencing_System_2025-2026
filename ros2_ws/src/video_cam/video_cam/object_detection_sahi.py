@@ -31,7 +31,7 @@ import numpy as np # numerical arrays
 import time # timing
 from datetime import datetime # timing
 import os # path
-import platform # path
+from pathlib import Path # path
 
 # This is just to make sure that we have all the dependencies
 #SAHI
@@ -58,6 +58,11 @@ except ImportError:
     YOLO_AVAILABLE = False
     print("ERROR: ultralytics not available. Please install with: pip install ultralytics")
 
+# temporary solution cuz ros2 doesnt have the rospack find command from ros1 (fuck ros2)
+def correct_source_path(ros_share_directory_path):
+    source_dir = ros_share_directory_path.replace("/install", "/ros2_ws/src")
+    path = Path(source_dir)
+    return str(path.parent.parent)
 
 class SAHIObjectDetectionNode(Node):
     def __init__(self):
@@ -92,15 +97,18 @@ class SAHIObjectDetectionNode(Node):
         self.publisher = self.create_publisher(Image, '/sahi_detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
         
+        share_directory = get_package_share_directory("video_cam")
+        source_directory = correct_source_path(share_directory)
+        self.get_logger().error(source_directory)
         # Get camera_feed directory path
         self.camera_feed_path = os.path.join(
-            get_package_share_directory("video_cam"), 
+            source_directory, 
             "camera_feed"
         )
         
         # Get detection_results directory path
         self.detection_results_path = os.path.join(
-            get_package_share_directory("video_cam"), 
+            source_directory, 
             "detection_results_sahi"
         )
         
