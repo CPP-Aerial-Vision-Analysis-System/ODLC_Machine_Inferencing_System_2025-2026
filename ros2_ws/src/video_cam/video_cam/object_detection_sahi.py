@@ -20,7 +20,7 @@ TODO: Implement MobileNet validation for additional accuracy
 # ros2 imports
 import rclpy # define ros2 nodes
 from rclpy.node import Node # define ros2 nodes 
-from ament_index_python.packages import get_package_share_directory # gets ros2's "share" dir which is used to locate camera feed folders
+# Removed get_package_share_directory - now using ~/video_cam directory instead
 from cv_bridge import CvBridge # converts between ros image messages and opencv(cv2) images
 from sensor_msgs.msg import Image # ros2 message type for sending images
 
@@ -58,11 +58,40 @@ except ImportError:
     YOLO_AVAILABLE = False
     print("ERROR: ultralytics not available. Please install with: pip install ultralytics")
 
-# temporary solution cuz ros2 doesnt have the rospack find command from ros1 (fuck ros2)
-def correct_source_path(ros_share_directory_path):
-    source_dir = ros_share_directory_path.replace("/install", "/ros2_ws/src")
-    path = Path(source_dir)
-    return str(path.parent.parent)
+# Create video_cam directory in ros2_ws
+def get_video_cam_directory():
+    """Returns the path to video_cam directory in ros2_ws"""
+    # Try to find ros2_ws directory by looking for install/ or src/ directories
+    current_file = os.path.abspath(__file__)
+    current_dir = os.path.dirname(current_file)
+    
+    # Navigate up to find ros2_ws (look for install/ or src/ directories)
+    search_dir = current_dir
+    ros2_ws_dir = None
+    
+    for _ in range(10):  # Limit search depth
+        if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
+            # Check if this looks like ros2_ws (has both install and src, or just install)
+            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                ros2_ws_dir = search_dir
+                break
+            # Also accept if we're in install/... and find the parent
+            parent = os.path.dirname(search_dir)
+            if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
+                ros2_ws_dir = parent
+                break
+        search_dir = os.path.dirname(search_dir)
+        if search_dir == "/":  # Reached root
+            break
+    
+    # Fallback: construct path directly
+    if ros2_ws_dir is None:
+        # Default to expected location
+        ros2_ws_dir = "/home/aro/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
+    
+    video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+    os.makedirs(video_cam_dir, exist_ok=True)
+    return video_cam_dir
 
 class SAHIObjectDetectionNode(Node):
     def __init__(self):
@@ -97,22 +126,23 @@ class SAHIObjectDetectionNode(Node):
         self.publisher = self.create_publisher(Image, '/sahi_detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
         
-        share_directory = get_package_share_directory("video_cam")
-        source_directory = correct_source_path(share_directory)
-        self.get_logger().error(source_directory)
+        # Use single video_cam directory in home directory
+        video_cam_dir = get_video_cam_directory()
+        
         # Get camera_feed directory path
         self.camera_feed_path = os.path.join(
-            source_directory, 
+            video_cam_dir, 
             "camera_feed"
         )
         
         # Get detection_results directory path
         self.detection_results_path = os.path.join(
-            source_directory, 
+            video_cam_dir, 
             "detection_results_sahi"
         )
         
-        # Create detection_results directory if it doesn't exist
+        # Create directories if they don't exist
+        os.makedirs(self.camera_feed_path, exist_ok=True)
         os.makedirs(self.detection_results_path, exist_ok=True)
         
         self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
@@ -247,16 +277,28 @@ class SAHIObjectDetectionNode(Node):
                 self.get_logger().error("Ultralytics YOLO is not available. Please install: pip install ultralytics")
                 return False
             
-            # Check if model file exists, if not, check in ros2_ws directory
+            # Resolve model path - check multiple locations
             model_path = self.model_path
-            if not os.path.exists(model_path):
-                # Try ros2_ws directory
-                alt_path = os.path.join('/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws', self.model_path)
-                if os.path.exists(alt_path):
-                    model_path = alt_path
-                    self.get_logger().info(f"Using model from: {model_path}")
+            
+            # If path is relative, try different locations
+            if not os.path.isabs(model_path):
+                # 1. Try current directory (video_cam directory)
+                video_cam_dir = get_video_cam_directory()
+                video_cam_model_path = os.path.join(video_cam_dir, model_path)
+                if os.path.exists(video_cam_model_path):
+                    model_path = video_cam_model_path
+                    self.get_logger().info(f"Using model from video_cam directory: {model_path}")
+                # 2. Try source package directory (where yolo11s.pt might be)
+                elif os.path.exists(os.path.join(os.path.dirname(__file__), model_path)):
+                    model_path = os.path.join(os.path.dirname(__file__), model_path)
+                    self.get_logger().info(f"Using model from package directory: {model_path}")
+                # 3. Check if it exists as-is (current working directory)
+                elif os.path.exists(model_path):
+                    self.get_logger().info(f"Using model from current directory: {model_path}")
                 else:
-                    self.get_logger().warn(f"Model file not found at {self.model_path}, will download from Ultralytics")
+                    self.get_logger().warn(f"Model file not found at {self.model_path}, will download from Ultralytics if needed")
+            elif not os.path.exists(model_path):
+                self.get_logger().warn(f"Model file not found at {model_path}, will download from Ultralytics if needed")
             
             self.get_logger().info("Loading SAHI YOLOv11 model for small object detection...")
             self.get_logger().info(f"Target device: {self.device}")
