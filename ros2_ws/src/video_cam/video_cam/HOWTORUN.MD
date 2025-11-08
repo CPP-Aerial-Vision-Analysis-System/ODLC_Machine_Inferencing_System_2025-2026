@@ -1,3 +1,14 @@
+#if you are on Aro's linux, here are the commands(you are going to use Jazzy instead of humble)
+cd ros2_ws
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+ros2 run video_cam object_detection_sahi
+
+for starting the camera
+
+ros2 run video_cam image_pub
+
+
 # How to Run Video Camera and Object Detection System
 
 **System:** NVIDIA Jetson Orin Nano  
