@@ -4,13 +4,14 @@ from rclpy.node import Node
 from std_msgs.msg import Bool
 from mavros_msgs.msg import StatusText
 import re
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 
 class MissionCameraTrigger(Node):
 
     def __init__(self):
         super().__init__("mission_camera_trigger")
-        self.create_subscription(StatusText,'/mavros/statustext/recv', self.statustext_callback, 10)
+        self.create_subscription(StatusText,'/mavros/statustext/recv', self.statustext_callback, qos_profile_sensor_data)
         self.camera_trigger_pub = self.create_publisher(Bool, "/camera/trigger", 10) 
 
     def statustext_callback(self, msg):
