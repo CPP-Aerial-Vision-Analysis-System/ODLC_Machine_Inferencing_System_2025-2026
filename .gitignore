@@ -9,3 +9,4 @@ ros2_ws/*.tlog.raw
 
 camera_feed/
 detection_results_sahi/
+ros2_ws/video_cam/
