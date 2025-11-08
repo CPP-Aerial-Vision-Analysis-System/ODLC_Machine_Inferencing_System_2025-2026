@@ -61,19 +61,48 @@ class ObjectDetectionNode(Node):
         self.publisher = self.create_publisher(Image, '/detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/detection_info', 10)
         
+        # Use video_cam directory in ros2_ws
+        current_file = os.path.abspath(__file__)
+        current_dir = os.path.dirname(current_file)
+        
+        # Navigate up to find ros2_ws (look for install/ or src/ directories)
+        search_dir = current_dir
+        ros2_ws_dir = None
+        
+        for _ in range(10):  # Limit search depth
+            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
+                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                    ros2_ws_dir = search_dir
+                    break
+                parent = os.path.dirname(search_dir)
+                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
+                    ros2_ws_dir = parent
+                    break
+            search_dir = os.path.dirname(search_dir)
+            if search_dir == "/":
+                break
+        
+        # Fallback: construct path directly
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/home/aro/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
+        
+        video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+        os.makedirs(video_cam_dir, exist_ok=True)
+        
         # Get camera_feed directory path
         self.camera_feed_path = os.path.join(
-            get_package_share_directory("video_cam"), 
+            video_cam_dir, 
             "camera_feed"
         )
         
         # Get detection_results directory path
         self.detection_results_path = os.path.join(
-            get_package_share_directory("video_cam"), 
+            video_cam_dir, 
             "detection_results"
         )
         
-        # Create detection_results directory if it doesn't exist
+        # Create directories if they don't exist
+        os.makedirs(self.camera_feed_path, exist_ok=True)
         os.makedirs(self.detection_results_path, exist_ok=True)
         
         self.get_logger().info(f"Object Detection Node - Monitoring: {self.camera_feed_path}")
