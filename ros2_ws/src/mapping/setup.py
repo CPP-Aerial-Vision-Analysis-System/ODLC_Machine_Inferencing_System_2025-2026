@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'video_cam'
+package_name = 'mapping'
 
 setup(
     name=package_name,
@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'image_pub = video_cam.image_pub:main',
+            'mapping=mapping.mapping:main',
+            'trigger=mapping.do_digi_cam_trigger:main',
         ],
     },
 )

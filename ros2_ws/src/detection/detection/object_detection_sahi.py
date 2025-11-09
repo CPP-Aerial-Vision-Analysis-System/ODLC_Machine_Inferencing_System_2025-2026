@@ -85,20 +85,46 @@ class SAHIObjectDetectionNode(Node):
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
         self.detection_pub = self.create_publisher(ImageResult, '/image_detections', 10)
         
-        # Get camera_feed directory path
-        self.camera_feed_path = os.path.join(
-            get_package_share_directory("video_cam"), 
-            "camera_feed"
-        )
+        current_file = os.path.abspath(__file__)
+        current_dir = os.path.dirname(current_file)
         
-        # Get detection_results directory path
-        self.detection_results_path = os.path.join(
-            get_package_share_directory("video_cam"), 
-            "detection_results_sahi"
-        )
+        # Navigate up to find ros2_ws (look for install/ or src/ directories)
+        search_dir = current_dir
+        ros2_ws_dir = None
         
-        # Create detection_results directory if it doesn't exist
-        os.makedirs(self.detection_results_path, exist_ok=True)
+        for _ in range(10):  # Limit search depth
+            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
+                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                    ros2_ws_dir = search_dir
+                    break
+                parent = os.path.dirname(search_dir)
+                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
+                    ros2_ws_dir = parent
+                    break
+            search_dir = os.path.dirname(search_dir)
+            if search_dir == "/":
+                break
+
+        
+        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
+            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
+            
+        # Fallback: construct path directly
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/astra/ros2_ws/src"
+        
+        video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+        os.makedirs(video_cam_dir, exist_ok=True)
+        
+        # Directory for getting camera images
+        self.camera_feed_path = os.path.join(video_cam_dir, "mapping_photos")
+        if not os.path.exists(self.camera_feed_path):
+            os.makedirs(self.camera_feed_path)
+        
+        # Directory for saving detection results
+        self.detection_results_path = os.path.join(video_cam_dir, "detection_results")
+        if not os.path.exists(self.detection_results_path):
+            os.makedirs(self.detection_results_path)
         
         self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
         self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
