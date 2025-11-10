@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Real Object Detection Node using YOLO (MobileNetV3 validation disabled)
+Real Object Detection Node using YOLO and MobileNet
 Detects objects in images from camera_feed folder and shows results with bounding boxes
 """
 
@@ -19,7 +19,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from PIL import Image as PILImage
 
-# Try to import YOLO dependencies (MobileNetV3 validation disabled)
+# Try to import YOLO and MobileNet dependencies
 try:
     import torch
     TORCH_AVAILABLE = True
@@ -34,16 +34,15 @@ except ImportError:
     YOLO_AVAILABLE = False
     print("Warning: ultralytics not available, YOLO detection will be disabled")
 
-# try:
-#     import tensorflow as tf
-#     from tensorflow.keras.applications import MobileNetV3Large
-#     from tensorflow.keras.applications.mobilenet_v3 import preprocess_input, decode_predictions
-#     from tensorflow.keras.preprocessing import image
-#     MOBILENET_AVAILABLE = True
-# except ImportError:
-#     MOBILENET_AVAILABLE = False
-#     print("Warning: tensorflow not available, MobileNet detection will be disabled")
-MOBILENET_AVAILABLE = False  # MobileNetV3 validation disabled
+try:
+    import tensorflow as tf
+    from tensorflow.keras.applications import MobileNetV3Large
+    from tensorflow.keras.applications.mobilenet_v3 import preprocess_input, decode_predictions
+    from tensorflow.keras.preprocessing import image
+    MOBILENET_AVAILABLE = True
+except ImportError:
+    MOBILENET_AVAILABLE = False
+    print("Warning: tensorflow not available, MobileNet detection will be disabled")
 
 try:
     from sahi import AutoDetectionModel
@@ -122,7 +121,7 @@ class ObjectDetectionNode(Node):
         # Timer to check for new images
         self.timer = self.create_timer(2.0, self.check_for_new_images)
         
-        self.get_logger().info("Object Detection Node initialized - using YOLO for object detection (MobileNetV3 validation disabled)")
+        self.get_logger().info("Object Detection Node initialized - using YOLO and MobileNet for object detection")
     
     def _get_device(self):
         """Auto-detect the best available device"""
@@ -149,7 +148,7 @@ class ObjectDetectionNode(Node):
             return "cpu"
     
     def initialize_models(self):
-        """Initialize YOLO and SAHI models (MobileNetV3 validation disabled)"""
+        """Initialize YOLO, MobileNet, and SAHI models"""
         try:
             # Initialize SAHI detection model
             if SAHI_AVAILABLE and YOLO_AVAILABLE:
@@ -176,13 +175,12 @@ class ObjectDetectionNode(Node):
                 self.get_logger().warn("YOLO not available, using OpenCV fallback")
             
             # Initialize MobileNet model
-            # if MOBILENET_AVAILABLE:
-            #     self.mobilenet_model = MobileNetV3Large(weights='imagenet')
-            #     self.get_logger().info("MobileNetV3Large model loaded successfully")
-            # else:
-            #     self.mobilenet_model = None
-            #     self.get_logger().warn("MobileNet not available, using OpenCV fallback")
-            self.mobilenet_model = None  # MobileNetV3 validation disabled
+            if MOBILENET_AVAILABLE:
+                self.mobilenet_model = MobileNetV3Large(weights='imagenet')
+                self.get_logger().info("MobileNetV3Large model loaded successfully")
+            else:
+                self.mobilenet_model = None
+                self.get_logger().warn("MobileNet not available, using OpenCV fallback")
             
             # Initialize OpenCV fallback detectors
             self.hog = cv2.HOGDescriptor()
@@ -261,7 +259,7 @@ class ObjectDetectionNode(Node):
             self.get_logger().error(f"Error processing image {image_path}: {e}")
     
     def detect_objects(self, frame):
-        """Detect objects using SAHI + YOLO with OpenCV fallback (MobileNetV3 validation disabled)"""
+        """Detect objects using SAHI + YOLO + MobileNet with OpenCV fallback"""
         detections = []
         
         try:
@@ -278,9 +276,9 @@ class ObjectDetectionNode(Node):
                 self.get_logger().info(f"YOLO detected {len(yolo_detections)} objects")
             
             # Try MobileNet detection for additional validation
-            # if self.mobilenet_model is not None and len(detections) > 0:
-            #     detections = self.validate_with_mobilenet(frame, detections)
-            #     self.get_logger().info(f"After MobileNet validation: {len(detections)} objects")
+            if self.mobilenet_model is not None and len(detections) > 0:
+                detections = self.validate_with_mobilenet(frame, detections)
+                self.get_logger().info(f"After MobileNet validation: {len(detections)} objects")
             
             # If no ML detections, fall back to OpenCV
             if len(detections) == 0:
@@ -342,10 +340,8 @@ class ObjectDetectionNode(Node):
                         'confidence': float(confidence),
                         'bbox': [int(x1), int(y1), int(x2), int(y2)],
                         'description': 'person/mannequin',
-                        # 'mobilenet_class': 'person',
-                        # 'mobilenet_confidence': float(confidence),
-                        'mobilenet_class': None,  # MobileNetV3 validation disabled
-                        'mobilenet_confidence': None,
+                        'mobilenet_class': 'person',
+                        'mobilenet_confidence': float(confidence),
                         'method': 'sahi'
                     })
                 elif class_name in ['backpack', 'suitcase', 'sports ball', 'umbrella', 'handbag', 'tie'] and confidence > 0.3:
@@ -355,10 +351,8 @@ class ObjectDetectionNode(Node):
                         'confidence': float(confidence),
                         'bbox': [int(x1), int(y1), int(x2), int(y2)],
                         'description': 'tent-like object',
-                        # 'mobilenet_class': 'tent',
-                        # 'mobilenet_confidence': float(confidence),
-                        'mobilenet_class': None,  # MobileNetV3 validation disabled
-                        'mobilenet_confidence': None,
+                        'mobilenet_class': 'tent',
+                        'mobilenet_confidence': float(confidence),
                         'method': 'sahi'
                     })
             
@@ -392,10 +386,8 @@ class ObjectDetectionNode(Node):
                                 'confidence': float(confidence),
                                 'bbox': [int(x1), int(y1), int(x2), int(y2)],
                                 'description': 'person/mannequin',
-                                # 'mobilenet_class': 'person',
-                                # 'mobilenet_confidence': float(confidence),
-                                'mobilenet_class': None,  # MobileNetV3 validation disabled
-                                'mobilenet_confidence': None,
+                                'mobilenet_class': 'person',
+                                'mobilenet_confidence': float(confidence),
                                 'method': 'yolo11s'
                             })
                         elif class_name in ['backpack', 'suitcase', 'sports ball', 'umbrella', 'handbag', 'tie'] and confidence > 0.3:
@@ -405,10 +397,8 @@ class ObjectDetectionNode(Node):
                                 'confidence': float(confidence),
                                 'bbox': [int(x1), int(y1), int(x2), int(y2)],
                                 'description': 'tent-like object',
-                                # 'mobilenet_class': 'tent',
-                                # 'mobilenet_confidence': float(confidence),
-                                'mobilenet_class': None,  # MobileNetV3 validation disabled
-                                'mobilenet_confidence': None,
+                                'mobilenet_class': 'tent',
+                                'mobilenet_confidence': float(confidence),
                                 'method': 'yolo11s'
                             })
             
@@ -417,46 +407,46 @@ class ObjectDetectionNode(Node):
         
         return detections
     
-    # def validate_with_mobilenet(self, frame, detections):
-    #     """Validate detections using MobileNet"""
-    #     validated_detections = []
-    #     
-    #     try:
-    #         for detection in detections:
-    #             x1, y1, x2, y2 = detection['bbox']
-    #             
-    #             # Extract ROI
-    #             roi = frame[y1:y2, x1:x2]
-    #             if roi.size == 0:
-    #                 continue
-    #             
-    #             # Resize for MobileNetV3 (224x224 input size)
-    #             roi_resized = cv2.resize(roi, (224, 224))
-    #             roi_rgb = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2RGB)
-    #             roi_array = np.expand_dims(roi_rgb, axis=0)
-    #             roi_preprocessed = preprocess_input(roi_array)
-    #             
-    #             # Get MobileNet predictions
-    #             predictions = self.mobilenet_model.predict(roi_preprocessed)
-    #             decoded_predictions = decode_predictions(predictions, top=3)[0]
-    #             
-    #             # Check if MobileNet agrees with YOLO
-    #             mobilenet_class = decoded_predictions[0][1]
-    #             mobilenet_confidence = float(decoded_predictions[0][2])
-    #             
-    #             # Update detection with MobileNet info
-    #             detection['mobilenet_class'] = mobilenet_class
-    #             detection['mobilenet_confidence'] = mobilenet_confidence
-    #             
-    #             # Only keep if MobileNet confidence is reasonable
-    #             if mobilenet_confidence > 0.1:
-    #                 validated_detections.append(detection)
-    #         
-    #     except Exception as e:
-    #         self.get_logger().error(f"Error in MobileNet validation: {e}")
-    #         return detections  # Return original detections if validation fails
-    #     
-    #     return validated_detections
+    def validate_with_mobilenet(self, frame, detections):
+        """Validate detections using MobileNet"""
+        validated_detections = []
+        
+        try:
+            for detection in detections:
+                x1, y1, x2, y2 = detection['bbox']
+                
+                # Extract ROI
+                roi = frame[y1:y2, x1:x2]
+                if roi.size == 0:
+                    continue
+                
+                # Resize for MobileNetV3 (224x224 input size)
+                roi_resized = cv2.resize(roi, (224, 224))
+                roi_rgb = cv2.cvtColor(roi_resized, cv2.COLOR_BGR2RGB)
+                roi_array = np.expand_dims(roi_rgb, axis=0)
+                roi_preprocessed = preprocess_input(roi_array)
+                
+                # Get MobileNet predictions
+                predictions = self.mobilenet_model.predict(roi_preprocessed)
+                decoded_predictions = decode_predictions(predictions, top=3)[0]
+                
+                # Check if MobileNet agrees with YOLO
+                mobilenet_class = decoded_predictions[0][1]
+                mobilenet_confidence = float(decoded_predictions[0][2])
+                
+                # Update detection with MobileNet info
+                detection['mobilenet_class'] = mobilenet_class
+                detection['mobilenet_confidence'] = mobilenet_confidence
+                
+                # Only keep if MobileNet confidence is reasonable
+                if mobilenet_confidence > 0.1:
+                    validated_detections.append(detection)
+            
+        except Exception as e:
+            self.get_logger().error(f"Error in MobileNet validation: {e}")
+            return detections  # Return original detections if validation fails
+        
+        return validated_detections
     
     def _apply_nms(self, detections, overlap_threshold=0.3):
         """Apply Non-Maximum Suppression to remove overlapping detections"""
@@ -563,10 +553,8 @@ class ObjectDetectionNode(Node):
                                 'confidence': float(weights[i]),
                                 'bbox': [x, y, x + w, y + h],
                                 'description': 'person/mannequin',
-                                # 'mobilenet_class': 'person',
-                                # 'mobilenet_confidence': float(weights[i])
-                                'mobilenet_class': None,  # MobileNetV3 validation disabled
-                                'mobilenet_confidence': None
+                                'mobilenet_class': 'person',
+                                'mobilenet_confidence': float(weights[i])
                             })
             
         except Exception as e:
@@ -674,10 +662,8 @@ class ObjectDetectionNode(Node):
                                 'confidence': confidence,
                                 'bbox': [x, y, x + w, y + h],
                                 'description': 'tent',
-                                # 'mobilenet_class': 'tent',
-                                # 'mobilenet_confidence': confidence
-                                'mobilenet_class': None,  # MobileNetV3 validation disabled
-                                'mobilenet_confidence': None
+                                'mobilenet_class': 'tent',
+                                'mobilenet_confidence': confidence
                             })
             
         except Exception as e:
@@ -730,7 +716,7 @@ class ObjectDetectionNode(Node):
             class_name = detection['class']
             confidence = detection['confidence']
             description = detection.get('description', class_name)
-            # mobilenet_confidence = detection.get('mobilenet_confidence', confidence)
+            mobilenet_confidence = detection.get('mobilenet_confidence', confidence)
             
             # Choose color based on class
             if class_name == 'person':
@@ -752,19 +738,19 @@ class ObjectDetectionNode(Node):
             # Draw labels with background
             method = detection.get('method', 'opencv')
             yolo_label = f"{method.upper()}: {class_name} ({confidence:.2f})"
-            # mobilenet_label = f"MobileNet: {description} ({mobilenet_confidence:.2f})"
+            mobilenet_label = f"MobileNet: {description} ({mobilenet_confidence:.2f})"
             
-            # Background for text (reduced height since MobileNet label is removed)
-            text_bg_height = 50  # Reduced from 80
+            # Background for text
+            text_bg_height = 80
             cv2.rectangle(annotated_frame, (x1, y1-text_bg_height), (x2, y1), box_color, -1)
             
             # Draw text with appropriate colors
-            cv2.putText(annotated_frame, target_label, (x1+5, y1-35), 
+            cv2.putText(annotated_frame, target_label, (x1+5, y1-65), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
-            cv2.putText(annotated_frame, yolo_label, (x1+5, y1-15), 
+            cv2.putText(annotated_frame, yolo_label, (x1+5, y1-40), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
-            # cv2.putText(annotated_frame, mobilenet_label, (x1+5, y1-20), 
-            #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
+            cv2.putText(annotated_frame, mobilenet_label, (x1+5, y1-20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1)
         
         # Add title and legend
         title = f"Real Object Detection - {len(detections)} objects detected"
@@ -810,10 +796,8 @@ class ObjectDetectionNode(Node):
                     {
                         'yolo_class': d['class'], 
                         'yolo_confidence': d['confidence'],
-                        # 'mobilenet_class': d.get('mobilenet_class', d['class']),
-                        # 'mobilenet_confidence': d.get('mobilenet_confidence', d['confidence']),
-                        'mobilenet_class': None,  # MobileNetV3 validation disabled
-                        'mobilenet_confidence': None,
+                        'mobilenet_class': d.get('mobilenet_class', d['class']),
+                        'mobilenet_confidence': d.get('mobilenet_confidence', d['confidence']),
                         'description': d.get('description', d['class'])
                     } 
                     for d in detections
