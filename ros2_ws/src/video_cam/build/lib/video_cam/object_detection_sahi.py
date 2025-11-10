@@ -31,7 +31,6 @@ from cv_bridge import CvBridge # converts between ros image messages and opencv(
 from sensor_msgs.msg import Image # ros2 message type for sending images
 from interfaces.msg import ImageResult # custom message for detection results
 from mavros_msgs.msg import WaypointReached # waypoint reached message
-from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose  # vision_msgs for detection results
 
 # non-ros2 imports
 import cv2 # opencv computer vision library
@@ -66,15 +65,14 @@ except ImportError:
     YOLO_AVAILABLE = False
     print("ERROR: ultralytics not available. Please install with: pip install ultralytics")
 #MobileNetV3
-# try:
-#     import torchvision
-#     from torchvision import transforms
-#     from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
-#     MOBILENET_AVAILABLE = True
-# except ImportError:
-#     MOBILENET_AVAILABLE = False
-#     print("WARNING: torchvision not available. MobileNetV3 validation will be disabled. Install with: pip install torchvision")
-MOBILENET_AVAILABLE = False  # MobileNetV3 validation disabled
+try:
+    import torchvision
+    from torchvision import transforms
+    from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
+    MOBILENET_AVAILABLE = True
+except ImportError:
+    MOBILENET_AVAILABLE = False
+    print("WARNING: torchvision not available. MobileNetV3 validation will be disabled. Install with: pip install torchvision")
 
 # Create video_cam directory in ros2_ws
 def get_video_cam_directory():
@@ -125,8 +123,8 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('overlap_width_ratio', 0.3)   # Reverted to original overlap
         self.declare_parameter('check_interval', 2.0)
         self.declare_parameter('device', 'auto')
-        # self.declare_parameter('use_mobilenet_validation', True)  # Enable/disable MobileNet validation
-        # self.declare_parameter('mobilenet_confidence_threshold', 0.3)  # Minimum confidence for MobileNet validation
+        self.declare_parameter('use_mobilenet_validation', True)  # Enable/disable MobileNet validation
+        self.declare_parameter('mobilenet_confidence_threshold', 0.3)  # Minimum confidence for MobileNet validation
         
         # Get parameters
         self.model_path = self.get_parameter('model_path').value
@@ -137,10 +135,8 @@ class SAHIObjectDetectionNode(Node):
         self.overlap_width_ratio = self.get_parameter('overlap_width_ratio').value
         self.check_interval = self.get_parameter('check_interval').value
         self.device = self.get_parameter('device').value
-        # self.use_mobilenet_validation = self.get_parameter('use_mobilenet_validation').value
-        # self.mobilenet_confidence_threshold = self.get_parameter('mobilenet_confidence_threshold').value
-        self.use_mobilenet_validation = False  # MobileNetV3 validation disabled
-        self.mobilenet_confidence_threshold = 0.3  # Default value (not used)
+        self.use_mobilenet_validation = self.get_parameter('use_mobilenet_validation').value
+        self.mobilenet_confidence_threshold = self.get_parameter('mobilenet_confidence_threshold').value
         
         # ROS2 setup
         # Converts betwen ros iamge to opencv image
@@ -183,14 +179,11 @@ class SAHIObjectDetectionNode(Node):
         self.initialize_sahi_model()
         
         # Initialize MobileNetV3 for validation
-        # self.mobilenet_model = None
-        # self.mobilenet_transforms = None
-        # self.mobilenet_class_names = None
-        # if self.use_mobilenet_validation:
-        #     self.initialize_mobilenet_model()
-        self.mobilenet_model = None  # MobileNetV3 validation disabled
+        self.mobilenet_model = None
         self.mobilenet_transforms = None
         self.mobilenet_class_names = None
+        if self.use_mobilenet_validation:
+            self.initialize_mobilenet_model()
         
         # Processing state
         self.processed_images = set()  # Track processed images
@@ -214,10 +207,9 @@ class SAHIObjectDetectionNode(Node):
         self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
         self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
         self.get_logger().info(f"Device: {self.device}")
-        # self.get_logger().info(f"MobileNet Validation: {'Enabled' if (self.use_mobilenet_validation and self.mobilenet_model is not None) else 'Disabled'}")
-        # if self.use_mobilenet_validation and self.mobilenet_model is not None:
-        #     self.get_logger().info(f"MobileNet Confidence Threshold: {self.mobilenet_confidence_threshold}")
-        self.get_logger().info(f"MobileNet Validation: Disabled (commented out)")
+        self.get_logger().info(f"MobileNet Validation: {'Enabled' if (self.use_mobilenet_validation and self.mobilenet_model is not None) else 'Disabled'}")
+        if self.use_mobilenet_validation and self.mobilenet_model is not None:
+            self.get_logger().info(f"MobileNet Confidence Threshold: {self.mobilenet_confidence_threshold}")
         self.get_logger().info("="*80)
 
         # wp subscriber
@@ -402,109 +394,109 @@ class SAHIObjectDetectionNode(Node):
             
             return False
     
-    # def initialize_mobilenet_model(self):
-    #     """Initialize MobileNetV3 model for validation"""
-    #     try:
-    #         if not MOBILENET_AVAILABLE:
-    #             self.get_logger().warn("MobileNetV3 is not available. Install with: pip install torchvision")
-    #             return False
-    #         
-    #         if not TORCH_AVAILABLE:
-    #             self.get_logger().warn("PyTorch not available, MobileNetV3 cannot be loaded")
-    #             return False
-    #         
-    #         self.get_logger().info("Loading MobileNetV3Large for validation...")
-    #         
-    #         # Load pretrained MobileNetV3Large with ImageNet weights
-    #         weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
-    #         self.mobilenet_model = mobilenet_v3_large(weights=weights)
-    #         self.mobilenet_model.eval()  # Set to evaluation mode
-    #         
-    #         # Move to appropriate device
-    #         if self.device.startswith('cuda'):
-    #             self.mobilenet_model = self.mobilenet_model.to('cuda')
-    #         elif self.device == 'mps':
-    #             self.mobilenet_model = self.mobilenet_model.to('mps')
-    #         else:
-    #             self.mobilenet_model = self.mobilenet_model.to('cpu')
-    #         
-    #         # Get ImageNet preprocessing transforms
-    #         self.mobilenet_transforms = weights.transforms()
-    #         
-    #         # Load ImageNet class names for mapping
-    #         # ImageNet class indices can be mapped to names
-    #         # We'll create a mapping for relevant classes
-    #         self._setup_imagenet_class_mapping()
-    #         
-    #         self.get_logger().info(f"MobileNetV3Large loaded successfully on {self.device}")
-    #         return True
-    #         
-    #     except Exception as e:
-    #         self.get_logger().error(f"Failed to initialize MobileNetV3: {e}")
-    #         import traceback
-    #         self.get_logger().error(traceback.format_exc())
-    #         self.mobilenet_model = None
-    #         return False
+    def initialize_mobilenet_model(self):
+        """Initialize MobileNetV3 model for validation"""
+        try:
+            if not MOBILENET_AVAILABLE:
+                self.get_logger().warn("MobileNetV3 is not available. Install with: pip install torchvision")
+                return False
+            
+            if not TORCH_AVAILABLE:
+                self.get_logger().warn("PyTorch not available, MobileNetV3 cannot be loaded")
+                return False
+            
+            self.get_logger().info("Loading MobileNetV3Large for validation...")
+            
+            # Load pretrained MobileNetV3Large with ImageNet weights
+            weights = MobileNet_V3_Large_Weights.IMAGENET1K_V1
+            self.mobilenet_model = mobilenet_v3_large(weights=weights)
+            self.mobilenet_model.eval()  # Set to evaluation mode
+            
+            # Move to appropriate device
+            if self.device.startswith('cuda'):
+                self.mobilenet_model = self.mobilenet_model.to('cuda')
+            elif self.device == 'mps':
+                self.mobilenet_model = self.mobilenet_model.to('mps')
+            else:
+                self.mobilenet_model = self.mobilenet_model.to('cpu')
+            
+            # Get ImageNet preprocessing transforms
+            self.mobilenet_transforms = weights.transforms()
+            
+            # Load ImageNet class names for mapping
+            # ImageNet class indices can be mapped to names
+            # We'll create a mapping for relevant classes
+            self._setup_imagenet_class_mapping()
+            
+            self.get_logger().info(f"MobileNetV3Large loaded successfully on {self.device}")
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f"Failed to initialize MobileNetV3: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            self.mobilenet_model = None
+            return False
     
-    # def _setup_imagenet_class_mapping(self):
-    #     """Setup ImageNet class name mapping for person and tent-like objects"""
-    #     # ImageNet class indices for relevant classes
-    #     # These are approximate - ImageNet doesn't have exact "tent" class
-    #     # but has related objects that might be detected
-    #     
-    #     # Person-related classes (ImageNet has "person" at index around 345-365)
-    #     # Common ImageNet classes that might indicate person or tent
-    #     self.imagenet_person_indices = [
-    #         345, 346, 347, 348, 349, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360,
-    #         361, 362, 363, 364, 365, 366, 367, 368, 369, 370, 371, 372, 373, 374, 375, 376
-    #     ]  # Various person classes
-    #     
-    #     # Tent-like object classes (backpack, sleeping bag, etc.)
-    #     # These are approximate indices - we'll use top-k predictions instead
-    #     self.imagenet_tent_like_keywords = [
-    #         'backpack', 'pack', 'rucksack', 'knapsack',
-    #         'sleeping_bag', 'sleeping', 'bag',
-    #         'military_uniform', 'uniform',
-    #         'umbrella', 'parachute',
-    #         'tarp', 'canvas', 'awning',
-    #         'suitcase', 'luggage', 'baggage'
-    #     ]
-    #     
-    #     # Load full ImageNet class names if available
-    #     self.imagenet_class_names = None
-    #     try:
-    #         # Try multiple methods to load ImageNet class names
-    #         import urllib.request
-    #         import tempfile
-    #         
-    #         # Method 1: Try to download from PyTorch hub
-    #         url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
-    #         try:
-    #             with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as tmp_file:
-    #                 tmp_path = tmp_file.name
-    #             
-    #             urllib.request.urlretrieve(url, tmp_path, timeout=5)
-    #             with open(tmp_path, "r") as f:
-    #                 self.imagenet_class_names = [line.strip() for line in f.readlines()]
-    #             
-    #             # Clean up
-    #             os.unlink(tmp_path)
-    #             
-    #             if self.imagenet_class_names and len(self.imagenet_class_names) > 0:
-    #                 self.get_logger().info(f"Loaded {len(self.imagenet_class_names)} ImageNet class names from PyTorch hub")
-    #             else:
-    #                 self.imagenet_class_names = None
-    #         except Exception as e:
-    #             self.get_logger().debug(f"Could not download ImageNet class names: {e}")
-    #             self.imagenet_class_names = None
-    #         
-    #         # If download failed, we'll use keyword matching based on class indices
-    #         # This is still functional, just less descriptive
-    #         if self.imagenet_class_names is None:
-    #             self.get_logger().info("Using keyword-based class matching (ImageNet class names not loaded)")
-    #     except Exception as e:
-    #         self.get_logger().debug(f"Error setting up ImageNet class names: {e}")
-    #         self.imagenet_class_names = None
+    def _setup_imagenet_class_mapping(self):
+        """Setup ImageNet class name mapping for person and tent-like objects"""
+        # ImageNet class indices for relevant classes
+        # These are approximate - ImageNet doesn't have exact "tent" class
+        # but has related objects that might be detected
+        
+        # Person-related classes (ImageNet has "person" at index around 345-365)
+        # Common ImageNet classes that might indicate person or tent
+        self.imagenet_person_indices = [
+            345, 346, 347, 348, 349, 350, 351, 352, 353, 354, 355, 356, 357, 358, 359, 360,
+            361, 362, 363, 364, 365, 366, 367, 368, 369, 370, 371, 372, 373, 374, 375, 376
+        ]  # Various person classes
+        
+        # Tent-like object classes (backpack, sleeping bag, etc.)
+        # These are approximate indices - we'll use top-k predictions instead
+        self.imagenet_tent_like_keywords = [
+            'backpack', 'pack', 'rucksack', 'knapsack',
+            'sleeping_bag', 'sleeping', 'bag',
+            'military_uniform', 'uniform',
+            'umbrella', 'parachute',
+            'tarp', 'canvas', 'awning',
+            'suitcase', 'luggage', 'baggage'
+        ]
+        
+        # Load full ImageNet class names if available
+        self.imagenet_class_names = None
+        try:
+            # Try multiple methods to load ImageNet class names
+            import urllib.request
+            import tempfile
+            
+            # Method 1: Try to download from PyTorch hub
+            url = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
+            try:
+                with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as tmp_file:
+                    tmp_path = tmp_file.name
+                
+                urllib.request.urlretrieve(url, tmp_path, timeout=5)
+                with open(tmp_path, "r") as f:
+                    self.imagenet_class_names = [line.strip() for line in f.readlines()]
+                
+                # Clean up
+                os.unlink(tmp_path)
+                
+                if self.imagenet_class_names and len(self.imagenet_class_names) > 0:
+                    self.get_logger().info(f"Loaded {len(self.imagenet_class_names)} ImageNet class names from PyTorch hub")
+                else:
+                    self.imagenet_class_names = None
+            except Exception as e:
+                self.get_logger().debug(f"Could not download ImageNet class names: {e}")
+                self.imagenet_class_names = None
+            
+            # If download failed, we'll use keyword matching based on class indices
+            # This is still functional, just less descriptive
+            if self.imagenet_class_names is None:
+                self.get_logger().info("Using keyword-based class matching (ImageNet class names not loaded)")
+        except Exception as e:
+            self.get_logger().debug(f"Error setting up ImageNet class names: {e}")
+            self.imagenet_class_names = None
     
     def check_for_new_images(self):
         """Check for new images in camera_feed folder"""
@@ -654,8 +646,8 @@ class SAHIObjectDetectionNode(Node):
             detections = self._filter_detections(detections)
             
             # Validate with MobileNetV3 if enabled
-            # if self.use_mobilenet_validation and self.mobilenet_model is not None:
-            #     detections = self.validate_with_mobilenet(frame, detections)
+            if self.use_mobilenet_validation and self.mobilenet_model is not None:
+                detections = self.validate_with_mobilenet(frame, detections)
             
         except Exception as e:
             self.get_logger().error(f"Error in SAHI detection: {e}")
@@ -830,213 +822,213 @@ class SAHIObjectDetectionNode(Node):
         
         return intersection / union if union > 0 else 0.0
     
-    # def validate_with_mobilenet(self, frame, detections):
-    #     """
-    #     Validate YOLO+SAHI detections using MobileNetV3 classification
-    #     
-    #     For each detection, crops the region and classifies it with MobileNetV3.
-    #     Updates detection with MobileNet classification results.
-    #     
-    #     Args:
-    #         frame: Original image frame (BGR format)
-    #         detections: List of detection dicts from YOLO+SAHI
-    #         
-    #     Returns:
-    #         List of validated detections with MobileNet info
-    #     """
-    #     if self.mobilenet_model is None or len(detections) == 0:
-    #         return detections
-    #     
-    #     validated_detections = []
-    #     
-    #     try:
-    #         with torch.no_grad():  # Disable gradient computation for inference
-    #             for detection in detections:
-    #                 x1, y1, x2, y2 = detection['bbox']
-    #                 original_class = detection['class']
-    #                 
-    #                 # Add padding around bounding box (10% padding)
-    #                 height, width = frame.shape[:2]
-    #                 padding_w = int((x2 - x1) * 0.1)
-    #                 padding_h = int((y2 - y1) * 0.1)
-    #                 
-    #                 # Ensure coordinates are within image bounds
-    #                 x1_padded = max(0, x1 - padding_w)
-    #                 y1_padded = max(0, y1 - padding_h)
-    #                 x2_padded = min(width, x2 + padding_w)
-    #                 y2_padded = min(height, y2 + padding_h)
-    #                 
-    #                 # Extract ROI
-    #                 roi = frame[y1_padded:y2_padded, x1_padded:x2_padded]
-    #                 
-    #                 if roi.size == 0:
-    #                     # Keep detection but mark as not validated
-    #                     detection['mobilenet_validated'] = False
-    #                     detection['mobilenet_class'] = 'unknown'
-    #                     detection['mobilenet_confidence'] = 0.0
-    #                     validated_detections.append(detection)
-    #                     continue
-    #                 
-    #                 # Convert BGR to RGB
-    #                 roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-    #                 
-    #                 # Convert to PIL Image for transforms
-    #                 try:
-    #                     from PIL import Image
-    #                     roi_pil = Image.fromarray(roi_rgb)
-    #                 except ImportError:
-    #                     self.get_logger().error("PIL (Pillow) not available. Install with: pip install Pillow")
-    #                     detection['mobilenet_validated'] = False
-    #                     detection['mobilenet_class'] = 'error'
-    #                     detection['mobilenet_confidence'] = 0.0
-    #                     validated_detections.append(detection)
-    #                     continue
-    #                 
-    #                 # Apply MobileNet preprocessing transforms
-    #                 roi_tensor = self.mobilenet_transforms(roi_pil).unsqueeze(0)
-    #                 
-    #                 # Move to device
-    #                 if self.device.startswith('cuda'):
-    #                     roi_tensor = roi_tensor.to('cuda')
-    #                 elif self.device == 'mps':
-    #                     roi_tensor = roi_tensor.to('mps')
-    #                 
-    #                 # Run inference
-    #                 outputs = self.mobilenet_model(roi_tensor)
-    #                 
-    #                 # Get top-k predictions (top 5)
-    #                 probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
-    #                 top_k = 5
-    #                 top_probs, top_indices = torch.topk(probabilities, top_k)
-    #                 
-    #                 # Convert to CPU numpy
-    #                 top_probs = top_probs.cpu().numpy()
-    #                 top_indices = top_indices.cpu().numpy()
-    #                 
-    #                 # Get class names
-    #                 mobilenet_class, mobilenet_confidence = self._interpret_mobilenet_predictions(
-    #                     top_indices, top_probs, original_class
-    #                 )
-    #                 
-    #                 # Update detection with MobileNet results
-    #                 detection['mobilenet_validated'] = True
-    #                 detection['mobilenet_class'] = mobilenet_class
-    #                 detection['mobilenet_confidence'] = float(mobilenet_confidence)
-    #                 detection['mobilenet_top_predictions'] = [
-    #                     {
-    #                         'class': self._get_class_name(idx),
-    #                         'confidence': float(prob)
-    #                     }
-    #                     for idx, prob in zip(top_indices, top_probs)
-    #                 ]
-    #                 
-    #                 # Decide if we should keep this detection based on MobileNet validation
-    #                 # If MobileNet strongly disagrees, we might want to filter it out
-    #                 # For now, we keep all detections but mark them with MobileNet results
-    #                 keep_detection = True
-    #                 
-    #                 # If original class is person, check if MobileNet also detects person-like
-    #                 if original_class == 'person':
-    #                     if mobilenet_class == 'person' and mobilenet_confidence > self.mobilenet_confidence_threshold:
-    #                         # Strong agreement
-    #                         detection['validation_status'] = 'confirmed'
-    #                     elif mobilenet_confidence > 0.1:
-    #                         # Some confidence, but might be different class
-    #                         detection['validation_status'] = 'partial'
-    #                     else:
-    #                         detection['validation_status'] = 'disagreement'
-    #                 
-    #                 # If original class is tent, check if MobileNet detects tent-like objects
-    #                 elif original_class == 'tent':
-    #                     if mobilenet_class in ['tent', 'tent_like'] and mobilenet_confidence > self.mobilenet_confidence_threshold:
-    #                         detection['validation_status'] = 'confirmed'
-    #                     elif mobilenet_class in ['tent_like'] and mobilenet_confidence > 0.1:
-    #                         detection['validation_status'] = 'partial'
-    #                     else:
-    #                         detection['validation_status'] = 'disagreement'
-    #                 
-    #                 if keep_detection:
-    #                     validated_detections.append(detection)
-    #                 else:
-    #                     self.get_logger().debug(
-    #                         f"Filtered detection: {original_class} (MobileNet: {mobilenet_class}, "
-    #                         f"conf: {mobilenet_confidence:.2f})"
-    #                     )
-    #     
-    #     except Exception as e:
-    #         self.get_logger().error(f"Error in MobileNet validation: {e}")
-    #         import traceback
-    #         self.get_logger().error(traceback.format_exc())
-    #         # Return original detections if validation fails
-    #         return detections
-    #     
-    #     self.get_logger().info(
-    #         f"MobileNet validated {len(validated_detections)}/{len(detections)} detections"
-    #     )
-    #     
-    #     return validated_detections
+    def validate_with_mobilenet(self, frame, detections):
+        """
+        Validate YOLO+SAHI detections using MobileNetV3 classification
+        
+        For each detection, crops the region and classifies it with MobileNetV3.
+        Updates detection with MobileNet classification results.
+        
+        Args:
+            frame: Original image frame (BGR format)
+            detections: List of detection dicts from YOLO+SAHI
+            
+        Returns:
+            List of validated detections with MobileNet info
+        """
+        if self.mobilenet_model is None or len(detections) == 0:
+            return detections
+        
+        validated_detections = []
+        
+        try:
+            with torch.no_grad():  # Disable gradient computation for inference
+                for detection in detections:
+                    x1, y1, x2, y2 = detection['bbox']
+                    original_class = detection['class']
+                    
+                    # Add padding around bounding box (10% padding)
+                    height, width = frame.shape[:2]
+                    padding_w = int((x2 - x1) * 0.1)
+                    padding_h = int((y2 - y1) * 0.1)
+                    
+                    # Ensure coordinates are within image bounds
+                    x1_padded = max(0, x1 - padding_w)
+                    y1_padded = max(0, y1 - padding_h)
+                    x2_padded = min(width, x2 + padding_w)
+                    y2_padded = min(height, y2 + padding_h)
+                    
+                    # Extract ROI
+                    roi = frame[y1_padded:y2_padded, x1_padded:x2_padded]
+                    
+                    if roi.size == 0:
+                        # Keep detection but mark as not validated
+                        detection['mobilenet_validated'] = False
+                        detection['mobilenet_class'] = 'unknown'
+                        detection['mobilenet_confidence'] = 0.0
+                        validated_detections.append(detection)
+                        continue
+                    
+                    # Convert BGR to RGB
+                    roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                    
+                    # Convert to PIL Image for transforms
+                    try:
+                        from PIL import Image
+                        roi_pil = Image.fromarray(roi_rgb)
+                    except ImportError:
+                        self.get_logger().error("PIL (Pillow) not available. Install with: pip install Pillow")
+                        detection['mobilenet_validated'] = False
+                        detection['mobilenet_class'] = 'error'
+                        detection['mobilenet_confidence'] = 0.0
+                        validated_detections.append(detection)
+                        continue
+                    
+                    # Apply MobileNet preprocessing transforms
+                    roi_tensor = self.mobilenet_transforms(roi_pil).unsqueeze(0)
+                    
+                    # Move to device
+                    if self.device.startswith('cuda'):
+                        roi_tensor = roi_tensor.to('cuda')
+                    elif self.device == 'mps':
+                        roi_tensor = roi_tensor.to('mps')
+                    
+                    # Run inference
+                    outputs = self.mobilenet_model(roi_tensor)
+                    
+                    # Get top-k predictions (top 5)
+                    probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+                    top_k = 5
+                    top_probs, top_indices = torch.topk(probabilities, top_k)
+                    
+                    # Convert to CPU numpy
+                    top_probs = top_probs.cpu().numpy()
+                    top_indices = top_indices.cpu().numpy()
+                    
+                    # Get class names
+                    mobilenet_class, mobilenet_confidence = self._interpret_mobilenet_predictions(
+                        top_indices, top_probs, original_class
+                    )
+                    
+                    # Update detection with MobileNet results
+                    detection['mobilenet_validated'] = True
+                    detection['mobilenet_class'] = mobilenet_class
+                    detection['mobilenet_confidence'] = float(mobilenet_confidence)
+                    detection['mobilenet_top_predictions'] = [
+                        {
+                            'class': self._get_class_name(idx),
+                            'confidence': float(prob)
+                        }
+                        for idx, prob in zip(top_indices, top_probs)
+                    ]
+                    
+                    # Decide if we should keep this detection based on MobileNet validation
+                    # If MobileNet strongly disagrees, we might want to filter it out
+                    # For now, we keep all detections but mark them with MobileNet results
+                    keep_detection = True
+                    
+                    # If original class is person, check if MobileNet also detects person-like
+                    if original_class == 'person':
+                        if mobilenet_class == 'person' and mobilenet_confidence > self.mobilenet_confidence_threshold:
+                            # Strong agreement
+                            detection['validation_status'] = 'confirmed'
+                        elif mobilenet_confidence > 0.1:
+                            # Some confidence, but might be different class
+                            detection['validation_status'] = 'partial'
+                        else:
+                            detection['validation_status'] = 'disagreement'
+                    
+                    # If original class is tent, check if MobileNet detects tent-like objects
+                    elif original_class == 'tent':
+                        if mobilenet_class in ['tent', 'tent_like'] and mobilenet_confidence > self.mobilenet_confidence_threshold:
+                            detection['validation_status'] = 'confirmed'
+                        elif mobilenet_class in ['tent_like'] and mobilenet_confidence > 0.1:
+                            detection['validation_status'] = 'partial'
+                        else:
+                            detection['validation_status'] = 'disagreement'
+                    
+                    if keep_detection:
+                        validated_detections.append(detection)
+                    else:
+                        self.get_logger().debug(
+                            f"Filtered detection: {original_class} (MobileNet: {mobilenet_class}, "
+                            f"conf: {mobilenet_confidence:.2f})"
+                        )
+        
+        except Exception as e:
+            self.get_logger().error(f"Error in MobileNet validation: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            # Return original detections if validation fails
+            return detections
+        
+        self.get_logger().info(
+            f"MobileNet validated {len(validated_detections)}/{len(detections)} detections"
+        )
+        
+        return validated_detections
     
-    # def _interpret_mobilenet_predictions(self, top_indices, top_probs, original_class):
-    #     """
-    #     Interpret MobileNet predictions and map to our target classes (person, tent)
-    #     
-    #     Args:
-    #         top_indices: Top-k class indices from MobileNet
-    #         top_probs: Top-k probabilities from MobileNet
-    #         original_class: Original class from YOLO ('person' or 'tent')
-    #         
-    #     Returns:
-    #         tuple: (mapped_class, confidence)
-    #     """
-    #     # Get class names for top predictions
-    #     class_names = []
-    #     for idx in top_indices:
-    #         class_name = self._get_class_name(idx)
-    #         class_names.append(class_name.lower())
-    #     
-    #     # Check for person-related classes
-    #     person_keywords = ['person', 'man', 'woman', 'girl', 'boy', 'child', 'adult', 
-    #                       'human', 'people', 'pedestrian', 'walker']
-    #     
-    #     # Check for tent-like classes
-    #     tent_keywords = ['backpack', 'pack', 'rucksack', 'knapsack', 'sleeping', 'bag',
-    #                     'suitcase', 'luggage', 'baggage', 'umbrella', 'parachute',
-    #                     'tarp', 'canvas', 'awning', 'tent', 'camping']
-    #     
-    #     # Find best matching class
-    #     best_class = 'unknown'
-    #     best_confidence = 0.0
-    #     
-    #     # Check each top prediction
-    #     for idx, prob, class_name in zip(top_indices, top_probs, class_names):
-    #         # Check if it matches person
-    #         if any(keyword in class_name for keyword in person_keywords):
-    #             if prob > best_confidence:
-    #                 best_class = 'person'
-    #                 best_confidence = float(prob)
-    #         
-    #         # Check if it matches tent
-    #         elif any(keyword in class_name for keyword in tent_keywords):
-    #             if prob > best_confidence:
-    #                 best_class = 'tent_like'
-    #                 best_confidence = float(prob)
-    #     
-    #     # If no clear match, use the top prediction
-    #     if best_class == 'unknown' and len(top_probs) > 0:
-    #         best_class = class_names[0]
-    #         best_confidence = float(top_probs[0])
-    #     
-    #     # Map to our target classes
-    #     if original_class == 'person' and best_class == 'person':
-    #         return 'person', best_confidence
-    #     elif original_class == 'tent' and best_class == 'tent_like':
-    #         return 'tent_like', best_confidence
-    #     elif best_class == 'person':
-    #         return 'person', best_confidence
-    #     elif best_class == 'tent_like':
-    #         return 'tent_like', best_confidence
-    #     else:
-    #         return best_class, best_confidence
+    def _interpret_mobilenet_predictions(self, top_indices, top_probs, original_class):
+        """
+        Interpret MobileNet predictions and map to our target classes (person, tent)
+        
+        Args:
+            top_indices: Top-k class indices from MobileNet
+            top_probs: Top-k probabilities from MobileNet
+            original_class: Original class from YOLO ('person' or 'tent')
+            
+        Returns:
+            tuple: (mapped_class, confidence)
+        """
+        # Get class names for top predictions
+        class_names = []
+        for idx in top_indices:
+            class_name = self._get_class_name(idx)
+            class_names.append(class_name.lower())
+        
+        # Check for person-related classes
+        person_keywords = ['person', 'man', 'woman', 'girl', 'boy', 'child', 'adult', 
+                          'human', 'people', 'pedestrian', 'walker']
+        
+        # Check for tent-like classes
+        tent_keywords = ['backpack', 'pack', 'rucksack', 'knapsack', 'sleeping', 'bag',
+                        'suitcase', 'luggage', 'baggage', 'umbrella', 'parachute',
+                        'tarp', 'canvas', 'awning', 'tent', 'camping']
+        
+        # Find best matching class
+        best_class = 'unknown'
+        best_confidence = 0.0
+        
+        # Check each top prediction
+        for idx, prob, class_name in zip(top_indices, top_probs, class_names):
+            # Check if it matches person
+            if any(keyword in class_name for keyword in person_keywords):
+                if prob > best_confidence:
+                    best_class = 'person'
+                    best_confidence = float(prob)
+            
+            # Check if it matches tent
+            elif any(keyword in class_name for keyword in tent_keywords):
+                if prob > best_confidence:
+                    best_class = 'tent_like'
+                    best_confidence = float(prob)
+        
+        # If no clear match, use the top prediction
+        if best_class == 'unknown' and len(top_probs) > 0:
+            best_class = class_names[0]
+            best_confidence = float(top_probs[0])
+        
+        # Map to our target classes
+        if original_class == 'person' and best_class == 'person':
+            return 'person', best_confidence
+        elif original_class == 'tent' and best_class == 'tent_like':
+            return 'tent_like', best_confidence
+        elif best_class == 'person':
+            return 'person', best_confidence
+        elif best_class == 'tent_like':
+            return 'tent_like', best_confidence
+        else:
+            return best_class, best_confidence
     
     def _get_class_name(self, class_idx):
         """Get ImageNet class name from index"""
@@ -1091,17 +1083,17 @@ class SAHIObjectDetectionNode(Node):
             yolo_label = f"YOLO: {yolo_class} ({confidence:.2f})"
             
             # Get MobileNet validation results if available
-            # mobilenet_validated = detection.get('mobilenet_validated', False)
-            # if mobilenet_validated:
-            #     mobilenet_class = detection.get('mobilenet_class', 'unknown')
-            #     mobilenet_confidence = detection.get('mobilenet_confidence', 0.0)
-            #     validation_status = detection.get('validation_status', 'unknown')
-            #     
-            #     # Create MobileNet label with validation status indicator
-            #     status_icon = "✓" if validation_status == 'confirmed' else "?" if validation_status == 'partial' else "!"
-            #     mobilenet_label = f"MobileNet: {mobilenet_class} ({mobilenet_confidence:.2f}) {status_icon}"
-            # else:
-            #     mobilenet_label = "MobileNet: Not validated"
+            mobilenet_validated = detection.get('mobilenet_validated', False)
+            if mobilenet_validated:
+                mobilenet_class = detection.get('mobilenet_class', 'unknown')
+                mobilenet_confidence = detection.get('mobilenet_confidence', 0.0)
+                validation_status = detection.get('validation_status', 'unknown')
+                
+                # Create MobileNet label with validation status indicator
+                status_icon = "✓" if validation_status == 'confirmed' else "?" if validation_status == 'partial' else "!"
+                mobilenet_label = f"MobileNet: {mobilenet_class} ({mobilenet_confidence:.2f}) {status_icon}"
+            else:
+                mobilenet_label = "MobileNet: Not validated"
             # Calculate text size for background
             font = cv2.FONT_HERSHEY_SIMPLEX
             font_scale = 0.5
@@ -1109,11 +1101,11 @@ class SAHIObjectDetectionNode(Node):
             
             (w1, h1), _ = cv2.getTextSize(target_label, font, font_scale, thickness)
             (w2, h2), _ = cv2.getTextSize(yolo_label, font, font_scale, thickness)
-            # (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
+            (w3, h3), _ = cv2.getTextSize(mobilenet_label, font, font_scale, thickness)
 
             # Calculate background rectangle size
-            max_width = max(w1, w2) + 10  # Removed w3 for MobileNet
-            total_height = h1 + h2 + 10  # Removed h3 for MobileNet label
+            max_width = max(w1, w2, w3) + 10
+            total_height = h1 + h2 + h3 + 20  # Added height for MobileNet label
             
             # Draw text background (yellow for tent, green for person)
             text_y_start = max(y1 - total_height, 0)
@@ -1135,14 +1127,14 @@ class SAHIObjectDetectionNode(Node):
                        font, font_scale, COLOR_TEXT_BG, 2)
             
             # Add MobileNet validation label
-            # text_y += h3 + 5
-            # cv2.putText(annotated_frame, mobilenet_label, (x1 + 5, text_y),
-            #            font, font_scale, COLOR_TEXT_BG, 2)
+            text_y += h3 + 5
+            cv2.putText(annotated_frame, mobilenet_label, (x1 + 5, text_y),
+                       font, font_scale, COLOR_TEXT_BG, 2)
         
         # Add header with detection info
         detection_method = "SAHI + YOLO"
-        # if self.use_mobilenet_validation and self.mobilenet_model is not None:
-        #     detection_method += " + MobileNetV3"
+        if self.use_mobilenet_validation and self.mobilenet_model is not None:
+            detection_method += " + MobileNetV3"
         header_text = f"{detection_method} - {len(detections)} objects detected"
         cv2.putText(annotated_frame, header_text, (10, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_TEXT, 2)
@@ -1154,8 +1146,8 @@ class SAHIObjectDetectionNode(Node):
         
         # Add SAHI mode indicator at bottom
         sahi_text = f"SAHI Mode: {self.slice_height}x{self.slice_width} slices, {self.overlap_height_ratio:.0%} overlap"
-        # if self.use_mobilenet_validation and self.mobilenet_model is not None:
-        #     sahi_text += " | MobileNetV3 Validation: ON"
+        if self.use_mobilenet_validation and self.mobilenet_model is not None:
+            sahi_text += " | MobileNetV3 Validation: ON"
         cv2.putText(annotated_frame, sahi_text, (10, height - 20),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2)
         
@@ -1181,8 +1173,8 @@ class SAHIObjectDetectionNode(Node):
             
             # Create detection info message
             method = 'sahi+yolo11s'
-            # if self.use_mobilenet_validation and self.mobilenet_model is not None:
-            #     method += '+mobilenetv3'
+            if self.use_mobilenet_validation and self.mobilenet_model is not None:
+                method += '+mobilenetv3'
             
             detection_info = {
                 'image': os.path.basename(image_path),
@@ -1192,8 +1184,7 @@ class SAHIObjectDetectionNode(Node):
                 'method': method,
                 'slice_size': f"{self.slice_height}x{self.slice_width}",
                 'overlap': f"{self.overlap_height_ratio}x{self.overlap_width_ratio}",
-                # 'mobilenet_validation': self.use_mobilenet_validation and self.mobilenet_model is not None,
-                'mobilenet_validation': False,  # MobileNetV3 validation disabled
+                'mobilenet_validation': self.use_mobilenet_validation and self.mobilenet_model is not None,
                 'objects': [
                     {
                         'class': d['class'],
@@ -1202,14 +1193,10 @@ class SAHIObjectDetectionNode(Node):
                         'bbox': d['bbox'],
                         'description': d.get('description', d['class']),
                         'area': d.get('area', 0),
-                        # 'mobilenet_validated': d.get('mobilenet_validated', False),
-                        # 'mobilenet_class': d.get('mobilenet_class', None),
-                        # 'mobilenet_confidence': d.get('mobilenet_confidence', None),
-                        # 'validation_status': d.get('validation_status', None)
-                        'mobilenet_validated': False,  # MobileNetV3 validation disabled
-                        'mobilenet_class': None,
-                        'mobilenet_confidence': None,
-                        'validation_status': None
+                        'mobilenet_validated': d.get('mobilenet_validated', False),
+                        'mobilenet_class': d.get('mobilenet_class', None),
+                        'mobilenet_confidence': d.get('mobilenet_confidence', None),
+                        'validation_status': d.get('validation_status', None)
                     }
                     for d in detections
                 ]
@@ -1316,21 +1303,20 @@ def main(args=None):
         return
     
     # Warn about optional dependencies
-    # if not MOBILENET_AVAILABLE:
-    #     print("\n" + "="*80)
-    #     print("WARNING: MobileNetV3 validation will be disabled!")
-    #     print("="*80)
-    #     print("torchvision not found. Install with:")
-    #     print("  pip install torchvision")
-    #     print("="*80 + "\n")
-    # elif not TORCH_AVAILABLE:
-    #     print("\n" + "="*80)
-    #     print("WARNING: MobileNetV3 validation will be disabled!")
-    #     print("="*80)
-    #     print("PyTorch not found. Install with:")
-    #     print("  pip install torch")
-    #     print("="*80 + "\n")
-    # MobileNetV3 validation is commented out - no warnings needed
+    if not MOBILENET_AVAILABLE:
+        print("\n" + "="*80)
+        print("WARNING: MobileNetV3 validation will be disabled!")
+        print("="*80)
+        print("torchvision not found. Install with:")
+        print("  pip install torchvision")
+        print("="*80 + "\n")
+    elif not TORCH_AVAILABLE:
+        print("\n" + "="*80)
+        print("WARNING: MobileNetV3 validation will be disabled!")
+        print("="*80)
+        print("PyTorch not found. Install with:")
+        print("  pip install torch")
+        print("="*80 + "\n")
     
     node = SAHIObjectDetectionNode()
     

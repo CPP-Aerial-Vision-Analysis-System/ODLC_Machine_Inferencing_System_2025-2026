@@ -14,30 +14,30 @@ This document describes the complete workflow of image capture and object detect
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 1. IMAGE CAPTURE (image_pub_siyi.py)                           │
+│ 1. IMAGE CAPTURE (image_pub_siyi.py)                            │
 ├─────────────────────────────────────────────────────────────────┤
-│ • Connects to SIYI A8 camera via RTSP stream                   │
-│   (rtsp://192.168.144.25:8554/main.264)                        │
+│ • Connects to SIYI A8 camera via RTSP stream                    │
+│   (rtsp://192.168.144.25:8554/main.264)                         │
 │ • Captures frames from camera in real-time                      │
-│ • Saves images to: ros2_ws/video_cam/camera_feed/              │
-│ • Publishes frames to ROS topic: /image_raw                    │
+│ • Saves images to: ros2_ws/video_cam/camera_feed/               │
+│ • Publishes frames to ROS topic: /image_raw                     │
 └─────────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. OBJECT DETECTION (object_detection_sahi.py)                 │
+│ 2. OBJECT DETECTION (object_detection_sahi.py)                  │
 ├─────────────────────────────────────────────────────────────────┤
 │ • Timer periodically checks camera_feed/ for new images         │
 │   (default: every 2 seconds)                                    │
 │ • Processes new images using SAHI + YOLO11s model               │
 │   - Slices images into overlapping patches                      │
-│   - Detects objects in each slice                              │
-│   - Merges and filters results (NMS)                           │
-│ • Optional: Validates detections with MobileNetV3              │
-│ • Saves annotated results to:                                  │
-│   ros2_ws/video_cam/detection_results_sahi/                    │
-│ • Publishes results to ROS topics:                             │
-│   - /sahi_detection_results (annotated images)                 │
-│   - /image_detections (ImageResult messages)                   │
+│   - Detects objects in each slice                               │
+│   - Merges and filters results (NMS)                            │
+│ • Optional: Validates detections with MobileNetV3               │
+│ • Saves annotated results to:                                   │
+│   ros2_ws/video_cam/detection_results_sahi/                     │
+│ • Publishes results to ROS topics:                              │
+│   - /sahi_detection_results (annotated images)                  │
+│   - /image_detections (ImageResult messages)                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -563,23 +563,6 @@ source install/setup.bash
 
 ---
 
-## Testing Checklist
-
-- [x] NumPy version verified (< 2.0)
-- [x] Camera network connectivity confirmed
-- [x] GStreamer pipeline tested independently
-- [x] Package builds without errors
-- [x] Node initializes successfully
-- [x] Camera connection established
-- [x] Frames captured and published
-- [x] Images saved to disk
-- [x] ROS 2 topics verified
-- [x] No cv_bridge import errors
-- [x] Logging throttling working
-- [x] Manual image conversion functional
-
----
-
 ## Rollback Procedure
 
 If issues arise, revert changes:
@@ -594,10 +577,6 @@ colcon build --packages-select video_cam
 **Note:** Original code required GStreamer support and working cv_bridge
 
 ---
-
-## Support Information
-
-### Diagnostic Commands
 
 **Check node status:**
 ```bash
