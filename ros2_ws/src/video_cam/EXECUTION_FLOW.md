@@ -2,6 +2,8 @@
 
 ## Command
 ```bash
+colcon build
+source install/setup.bash
 ros2 launch video_cam video_cam_complete.launch.py
 ```
 
