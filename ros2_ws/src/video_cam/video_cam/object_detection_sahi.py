@@ -65,8 +65,19 @@ try:
 except ImportError:
     YOLO_AVAILABLE = False
     print("ERROR: ultralytics not available. Please install with: pip install ultralytics")
-# MobileNetV3 validation disabled
-MOBILENET_AVAILABLE = False
+
+#MobileNetV3
+try:
+    import torchvision
+    from torchvision import transforms
+    from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
+    MOBILENET_AVAILABLE = True
+except Exception as e:
+    # Catch any exception (ImportError or runtime errors from mismatched torch/torchvision)
+    MOBILENET_AVAILABLE = False
+    print("WARNING: torchvision could not be imported. MobileNetV3 validation will be disabled.")
+    print(f"  Reason: {e}")
+    print("  If this is due to a torch/torchvision mismatch, rebuild torchvision from source against your installed PyTorch or install a compatible wheel.")
 
 # Create video_cam directory in ros2_ws
 def get_video_cam_directory():
@@ -325,8 +336,21 @@ class SAHIObjectDetectionNode(Node):
             # GPU memory optimization for CUDA
             if self.device.startswith('cuda') and TORCH_AVAILABLE:
                 try:
-                    # Clear GPU cache before loading model
+                    # Aggressive memory cleanup before loading model
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    
+                    # Set memory allocator settings for Jetson
+                    # Use more aggressive garbage collection
+                    torch.cuda.set_per_process_memory_fraction(0.8, 0)  # Use max 80% of GPU memory
+                    
+                    # Enable cuDNN benchmarking for consistent input sizes
+                    torch.backends.cudnn.benchmark = True
+                    
+                    # Disable debug mode for better performance
+                    torch.backends.cudnn.enabled = True
                     
                     # Get GPU memory info
                     gpu_mem_total = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
@@ -337,8 +361,10 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().info(f"   GPU Memory: {gpu_mem_free:.2f}GB free / {gpu_mem_total:.2f}GB total")
                     
                     # Warn if low memory
-                    if gpu_mem_free < 1.0:
-                        self.get_logger().warn(f"   Low GPU memory ({gpu_mem_free:.2f}GB), consider using a smaller model")
+                    if gpu_mem_free < 2.0:
+                        self.get_logger().warn(f"   ⚠️  Low GPU memory ({gpu_mem_free:.2f}GB)")
+                        self.get_logger().warn(f"   Consider using a smaller model or reducing slice size")
+                        self.get_logger().warn(f"   Run: bash fix_gpu_memory.sh")
                 except Exception as e:
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
@@ -521,7 +547,12 @@ class SAHIObjectDetectionNode(Node):
             # Apply additional filtering
             detections = self._filter_detections(detections)
             
-            # MobileNetV3 validation disabled
+            # Clean up GPU memory after detection (important for Jetson)
+            if self.device.startswith('cuda') and TORCH_AVAILABLE:
+                try:
+                    torch.cuda.empty_cache()
+                except:
+                    pass
             
         except Exception as e:
             self.get_logger().error(f"Error in SAHI detection: {e}")
