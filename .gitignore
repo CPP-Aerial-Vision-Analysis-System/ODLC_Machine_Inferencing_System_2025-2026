@@ -8,7 +8,6 @@ ros2_ws/*.tlog
 ros2_ws/*.tlog.raw
 
 camera_feed/
-detection_results_sahi/
 ros2_ws/video_cam/
 .vscode/
 ros2_ws/src/video_cam/video_cam/

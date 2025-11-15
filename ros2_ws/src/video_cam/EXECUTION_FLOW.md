@@ -602,7 +602,7 @@ This launch file starts **TWO nodes simultaneously**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    EXTERNAL INPUTS                           │
+│                    EXTERNAL INPUTS                          │
 ├─────────────────────────────────────────────────────────────┤
 │  • SIYI Camera (RTSP: rtsp://192.168.144.25:8554/main.264)  │
 │  • Webcam (/dev/video0, /dev/video1, /dev/video2)           │
@@ -615,17 +615,17 @@ This launch file starts **TWO nodes simultaneously**:
 ┌─────────────────────────────────────────────────────────────┐
 │         NODE 1: Image Publisher (siyi_a8_publisher)         │
 ├─────────────────────────────────────────────────────────────┤
-│  1. Initializes camera (SIYI → Webcam → Simulation)        │
+│  1. Initializes camera (SIYI → Webcam → Simulation)         │
 │  2. Timer: Every 5 seconds                                  │
 │     ├─ Checks altitude threshold (13.716m)                  │
 │     ├─ Captures frame from camera                           │
 │     ├─ Converts to ROS Image message                        │
 │     ├─ Publishes to /image_raw topic                        │
-│     └─ Saves to camera_feed/photo_TIMESTAMP.jpg            │
+│     └─ Saves to camera_feed/photo_TIMESTAMP.jpg             │
 │  3. Subscribers:                                            │
-│     ├─ /camera/trigger → Manual photo capture              │
-│     ├─ /mavros/global_position/rel_alt → Altitude check    │
-│     └─ /webcam/image_raw → Simulation images               │
+│     ├─ /camera/trigger → Manual photo capture               │
+│     ├─ /mavros/global_position/rel_alt → Altitude check     │
+│     └─ /webcam/image_raw → Simulation images                │
 └─────────────────────────────────────────────────────────────┘
                           ↓
                     File System
@@ -639,20 +639,20 @@ This launch file starts **TWO nodes simultaneously**:
 │  2. Timer: Every 2 seconds                                  │
 │     ├─ Scans camera_feed/ directory                         │
 │     ├─ Detects new images                                   │
-│     ├─ Processes with SAHI + YOLO:                         │
-│     │  • Slice image (512x512, 30% overlap)                │
+│     ├─ Processes with SAHI + YOLO:                          │
+│     │  • Slice image (512x512, 30% overlap)                 │
 │     │  • Run YOLO on each slice                             │
-│     │  • Merge results with NMS                            │
-│     │  • Filter for person/tent classes                    │
+│     │  • Merge results with NMS                             │
+│     │  • Filter for person/tent classes                     │
 │     ├─ Annotates frame with bounding boxes                  │
-│     ├─ Publishes to ROS2 topics                            │
-│     └─ Saves to detection_results_sahi/                    │
+│     ├─ Publishes to ROS2 topics                             │
+│     └─ Saves to detection_results_sahi/                     │ 
 │  3. Subscribers:                                            │
-│     └─ /mavros/mission/reached → Waypoint tracking         │
+│     └─ /mavros/mission/reached → Waypoint tracking          │
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    OUTPUT TOPICS                             │
+│                    OUTPUT TOPICS                            │
 ├─────────────────────────────────────────────────────────────┤
 │  • /image_raw (Image) - Raw camera frames                   │
 │  • /sahi_detection_results (Image) - Annotated images       │
@@ -662,7 +662,7 @@ This launch file starts **TWO nodes simultaneously**:
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│              File System Outputs                             │
+│              File System Outputs                            │
 ├─────────────────────────────────────────────────────────────┤
 │  • camera_feed/photo_*.jpg - Raw captured images            │
 │  • mapping_photos/mapping_photo_*.jpg - Triggered photos    │
