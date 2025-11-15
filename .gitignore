@@ -11,3 +11,11 @@ camera_feed/
 detection_results_sahi/
 ros2_ws/video_cam/
 .vscode/
+ros2_ws/src/video_cam/video_cam/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
