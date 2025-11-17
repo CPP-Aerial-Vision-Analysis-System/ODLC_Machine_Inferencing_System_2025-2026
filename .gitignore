@@ -10,7 +10,6 @@ ros2_ws/*.deb
 camera_feed/
 ros2_ws/video_cam/
 .vscode/
-ros2_ws/src/video_cam/video_cam/
 
 # Python cache files
 __pycache__/
