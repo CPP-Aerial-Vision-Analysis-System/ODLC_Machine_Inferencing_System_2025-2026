@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'waypoint_mavros'
+package_name = 'mapping'
 
 setup(
     name=package_name,
@@ -17,10 +17,15 @@ setup(
     maintainer_email='student.joshuaestrada@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
+    extras_require={
+        'test': [
+            'pytest',
+        ],
+    },
     entry_points={
         'console_scripts': [
-            'waypoint=waypoint_mavros.waypoint:main',
-            'killnode=waypoint_mavros.killnode:main',
+            'mapping=mapping.mapping:main',
+            'trigger=mapping.do_digi_cam_trigger:main',
         ],
     },
 )

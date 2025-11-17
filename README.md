@@ -96,5 +96,3 @@ ros2 launch mavros px4.launch fcu_url:="udp://:14540@"
   * **Port:** `5762`
 
 ---
-
-
