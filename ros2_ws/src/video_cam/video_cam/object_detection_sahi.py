@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
 
 """
-SAHI Object Detection Node using YOLO and MobileNetV3 for Small Object Detection
+SAHI Object Detection Node using YOLO for Small Object Detection
 Specifically optimized for detecting small tents and people in aerial imagery
 Uses Slicing Aided Hyper Inference (SAHI) for improved small object detection
 
 Current Architecture:
 - SAHI: Slices images and manages detection pipeline
 - YOLO: Performs actual object detection on each slice
-- MobileNetV3: Validates detections by classifying cropped regions (PyTorch torchvision)
 
 Detection Pipeline:
 1. SAHI slices the image into overlapping patches
 2. YOLO detects objects in each slice
 3. Results are merged and filtered (NMS)
-4. MobileNetV3 validates each detection by classifying the cropped region
-5. Detections are annotated with both YOLO and MobileNet results
+4. Detections are annotated with YOLO results
 
 Configuration:
 - Slice size: 512x512 (optimized for small object detection)
 - Overlap: 30% (ensures objects at boundaries are detected)
 - Balance: Accuracy over speed for critical small object detection
-- MobileNet validation: Enabled by default, can be disabled via parameter
 """
 # ros2 imports
 import rclpy # define ros2 nodes
@@ -41,7 +38,14 @@ import time # timing
 from datetime import datetime # timing
 import os # path
 from pathlib import Path # path
+from concurrent.futures import ThreadPoolExecutor, Future # for async processing
+from typing import List, Dict, Optional, Tuple # type hints
+import gc # garbage collection
+import platform # system info
+from rclpy.parameter import Parameter # for parameter callbacks
+from rclpy.qos import QoSProfile, ReliabilityPolicy # QoS settings
 # This is just to make sure that we have all the dependencies
+
 #SAHI
 try:
     from sahi import AutoDetectionModel
@@ -50,38 +54,37 @@ try:
     SAHI_AVAILABLE = True
 except ImportError:
     SAHI_AVAILABLE = False
-    print("ERROR: sahi not available. Please install with: pip install sahi")
 #PyTorch
 try:
     import torch
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    print("WARNING: torch not available, will use CPU only")
 #YOLO
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
 except ImportError:
     YOLO_AVAILABLE = False
-    print("ERROR: ultralytics not available. Please install with: pip install ultralytics")
 
-#MobileNetV3
-try:
-    import torchvision
-    from torchvision import transforms
-    from torchvision.models import mobilenet_v3_large, MobileNet_V3_Large_Weights
-    MOBILENET_AVAILABLE = True
-except Exception as e:
-    # Catch any exception (ImportError or runtime errors from mismatched torch/torchvision)
-    MOBILENET_AVAILABLE = False
-    print("WARNING: torchvision could not be imported. MobileNetV3 validation will be disabled.")
-    print(f"  Reason: {e}")
-    print("  If this is due to a torch/torchvision mismatch, rebuild torchvision from source against your installed PyTorch or install a compatible wheel.")
+# Constants
+DEFAULT_CONFIDENCE_THRESHOLD = 0.15
+DEFAULT_SLICE_SIZE = 512
+DEFAULT_OVERLAP = 0.3
+DEFAULT_CHECK_INTERVAL = 2.0
+MAX_SEARCH_DEPTH = 10
 
 # Create video_cam directory in ros2_ws
-def get_video_cam_directory():
-    """Returns the path to video_cam directory in ros2_ws"""
+def get_video_cam_directory() -> str:
+    """
+    Returns the path to video_cam directory in ros2_ws
+    
+    Returns:
+        str: Path to video_cam directory
+        
+    Raises:
+        OSError: If directory cannot be created
+    """
     # Try to find ros2_ws directory by looking for install/ or src/ directories
     current_file = os.path.abspath(__file__)
     current_dir = os.path.dirname(current_file)
@@ -90,7 +93,7 @@ def get_video_cam_directory():
     search_dir = current_dir
     ros2_ws_dir = None
     
-    for _ in range(10):  # Limit search depth
+    for _ in range(MAX_SEARCH_DEPTH):  # Limit search depth
         if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
             # Check if this looks like ros2_ws (has both install and src, or just install)
             if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
@@ -105,30 +108,152 @@ def get_video_cam_directory():
         if search_dir == "/":  # Reached root
             break
     
-    # Fallback: construct path directly
+    # Fallback: use environment variable or default location
     if ros2_ws_dir is None:
-        # Default to expected location
-        ros2_ws_dir = "/home/aro/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
+        ros2_ws_dir = os.getenv('ROS2_WS_PATH') or os.path.expanduser('~/ros2_ws')
     
     video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
-    os.makedirs(video_cam_dir, exist_ok=True)
+    try:
+        os.makedirs(video_cam_dir, exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Failed to create video_cam directory at {video_cam_dir}: {e}")
+    
     return video_cam_dir
 
 class SAHIObjectDetectionNode(Node):
+
     def __init__(self):
-        # Ros2 name. Used so that other nodes can discover its topics, parameters and services
-        super().__init__('sahi_object_detection_node_mobilenet')
+        # ROS2 node name - matches launch file
+        super().__init__('sahi_object_detection_node')
         
-        # Params
+        # Declare parameters with defaults
         self.declare_parameter('model_path', 'yolo11s.pt')
-        self.declare_parameter('confidence_threshold', 0.15)
-        self.declare_parameter('slice_height', 512)  # Reverted to original size for better accuracy
-        self.declare_parameter('slice_width', 512)   # Reverted to original size for better accuracy
-        self.declare_parameter('overlap_height_ratio', 0.3)  # Reverted to original overlap
-        self.declare_parameter('overlap_width_ratio', 0.3)   # Reverted to original overlap
-        self.declare_parameter('check_interval', 2.0)
+        self.declare_parameter('confidence_threshold', DEFAULT_CONFIDENCE_THRESHOLD)
+        self.declare_parameter('slice_height', DEFAULT_SLICE_SIZE)
+        self.declare_parameter('slice_width', DEFAULT_SLICE_SIZE)
+        self.declare_parameter('overlap_height_ratio', DEFAULT_OVERLAP)
+        self.declare_parameter('overlap_width_ratio', DEFAULT_OVERLAP)
+        self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
+        # New parameters for improvements
+        self.declare_parameter('max_images_per_cycle', 5)  # Batch processing
+        self.declare_parameter('max_camera_feed_images', 100)  # Image cleanup
+        self.declare_parameter('min_detection_area', 100)  # Filter small detections
+        self.declare_parameter('max_detection_area', 1000000)  # Filter large detections
+        self.declare_parameter('min_aspect_ratio', 0.1)  # Aspect ratio filtering
+        self.declare_parameter('max_aspect_ratio', 10.0)  # Aspect ratio filtering
+        self.declare_parameter('enable_gpu_memory_cleanup', True)  # GPU memory management
         
+        # Get and validate parameters
+        self._load_and_validate_parameters()
+        
+        # ROS2 setup
+        self.bridge = CvBridge()
+        
+        # QoS profile for reliable messaging
+        qos_profile = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
+        
+        # Topics
+        self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos_profile)
+        self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
+        self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
+        
+        # Setup directories
+        try:
+            video_cam_dir = get_video_cam_directory()
+            self.camera_feed_path = os.path.join(video_cam_dir, "camera_feed")
+            self.detection_results_path = os.path.join(video_cam_dir, "detection_results_sahi")
+            os.makedirs(self.camera_feed_path, exist_ok=True)
+            os.makedirs(self.detection_results_path, exist_ok=True)
+        except OSError as e:
+            self.get_logger().error(f"Failed to setup directories: {e}")
+            raise
+        
+        self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
+        self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
+        
+        # Auto-detect device (GPU, MPS, or CPU)
+        if self.device == 'auto':
+            self.device = self._get_device()
+        self.get_logger().info(f"Using device: {self.device}")
+        
+        # Initialize SAHI model
+        self.detection_model = None
+        if not self.initialize_sahi_model():
+            self.get_logger().error("Failed to initialize SAHI model. Node will not function properly.")
+        
+        # Processing state
+        self.processed_images: Dict[str, float] = {}  # Track processed images with timestamps
+        self.processing_queue: List[str] = []  # Queue for images to process
+        self.processing_lock = False  # Simple lock to prevent concurrent processing
+        
+        # Thread pool for async processing
+        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sahi_worker")
+        self.active_futures: List[Future] = []
+        
+        # Statistics
+        self.stats = {
+            'total_images_processed': 0,
+            'total_detections': 0,
+            'total_tents': 0,
+            'total_people': 0,
+            'avg_processing_time': 0.0,
+            'last_processing_time': 0.0,
+            'node_start_time': time.time(),
+            'errors': 0
+        }
+        
+        # Health monitoring
+        self.health_status = {
+            'is_healthy': True,
+            'last_successful_detection': None,
+            'consecutive_errors': 0
+        }
+        
+        # Parameter callback for dynamic reconfiguration
+        self.add_on_set_parameters_callback(self._parameter_callback)
+        
+        # Services
+        from interfaces.srv import GetGPSData  # Import service type if available
+        # Statistics service (using std_msgs/String for simplicity)
+        from std_srvs.srv import Trigger
+        self.stats_service = self.create_service(
+            Trigger,
+            'sahi/get_statistics',
+            self._get_statistics_service
+        )
+        self.health_service = self.create_service(
+            Trigger,
+            'sahi/get_health',
+            self._get_health_service
+        )
+        
+        # Timer to check for new images
+        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+        
+        # GPU memory cleanup timer (if enabled)
+        if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
+            self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
+        
+        self.get_logger().info("="*80)
+        self.get_logger().info("SAHI Object Detection Node Initialized")
+        self.get_logger().info(f"Model: {self.model_path}")
+        self.get_logger().info(f"Confidence Threshold: {self.confidence_threshold}")
+        self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
+        self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
+        self.get_logger().info(f"Device: {self.device}")
+        self.get_logger().info(f"Max Images Per Cycle: {self.max_images_per_cycle}")
+        self.get_logger().info("="*80)
+
+        # Waypoint subscriber
+        self.waypoint_reached = 0
+        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
+    
+    def _load_and_validate_parameters(self) -> None:
+        """Load and validate all parameters"""
         # Get parameters
         self.model_path = self.get_parameter('model_path').value
         self.confidence_threshold = self.get_parameter('confidence_threshold').value
@@ -138,80 +263,128 @@ class SAHIObjectDetectionNode(Node):
         self.overlap_width_ratio = self.get_parameter('overlap_width_ratio').value
         self.check_interval = self.get_parameter('check_interval').value
         self.device = self.get_parameter('device').value
+        self.max_images_per_cycle = self.get_parameter('max_images_per_cycle').value
+        self.max_camera_feed_images = self.get_parameter('max_camera_feed_images').value
+        self.min_detection_area = self.get_parameter('min_detection_area').value
+        self.max_detection_area = self.get_parameter('max_detection_area').value
+        self.min_aspect_ratio = self.get_parameter('min_aspect_ratio').value
+        self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
+        self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
         
-        # ROS2 setup
-        # Converts betwen ros iamge to opencv image
-        self.bridge = CvBridge()
+        # Validate parameters
+        if not 0 < self.confidence_threshold <= 1.0:
+            self.get_logger().warn(f"Invalid confidence_threshold: {self.confidence_threshold}, using default: {DEFAULT_CONFIDENCE_THRESHOLD}")
+            self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
         
-        # Topics (todo)
-        self.publisher = self.create_publisher(Image, '/sahi_detection_results', 10)
-        self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', 10)
-        self.detection_pub = self.create_publisher(ImageResult, '/image_detections', 10)
+        if self.slice_height < 64 or self.slice_width < 64:
+            self.get_logger().warn(f"Slice size too small: {self.slice_height}x{self.slice_width}, minimum is 64x64")
+            self.slice_height = max(64, self.slice_height)
+            self.slice_width = max(64, self.slice_width)
         
-        # Use single video_cam directory in home directory
-        video_cam_dir = get_video_cam_directory()
+        if not 0 <= self.overlap_height_ratio < 1.0 or not 0 <= self.overlap_width_ratio < 1.0:
+            self.get_logger().warn(f"Invalid overlap ratio, using default: {DEFAULT_OVERLAP}")
+            self.overlap_height_ratio = DEFAULT_OVERLAP
+            self.overlap_width_ratio = DEFAULT_OVERLAP
         
-        # Get camera_feed directory path
-        self.camera_feed_path = os.path.join(
-            video_cam_dir, 
-            "camera_feed"
-        )
+        if self.check_interval < 0.1:
+            self.get_logger().warn(f"Check interval too small: {self.check_interval}, using default: {DEFAULT_CHECK_INTERVAL}")
+            self.check_interval = DEFAULT_CHECK_INTERVAL
         
-        # Get detection_results directory path
-        self.detection_results_path = os.path.join(
-            video_cam_dir, 
-            "detection_results_sahi"
-        )
-        
-        # Create directories if they don't exist
-        os.makedirs(self.camera_feed_path, exist_ok=True)
-        os.makedirs(self.detection_results_path, exist_ok=True)
-        
-        self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
-        self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
-        
-        # Auto-detect device(gpu, mps or cpu)
-        if self.device == 'auto':
-            self.device = self._get_device()
-        self.get_logger().info(f"Using device: {self.device}")
-        
-        # Initialize SAHI model
-        self.detection_model = None
-        self.initialize_sahi_model()
-        
-        # Processing state
-        self.processed_images = set()  # Track processed images
-        
-        # Statistics
-        self.stats = {
-            'total_images_processed': 0,
-            'total_detections': 0,
-            'total_tents': 0,
-            'total_people': 0,
-            'avg_processing_time': 0.0
-        }
-        
-        # Timer to check for new images
-        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
-        
-        self.get_logger().info("="*80)
-        self.get_logger().info("SAHI Object Detection Node Initialized")
-        self.get_logger().info(f"Model: {self.model_path}")
-        self.get_logger().info(f"Confidence Threshold: {self.confidence_threshold}")
-        self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
-        self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
-        self.get_logger().info(f"Device: {self.device}")
-        self.get_logger().info("="*80)
+        if self.max_images_per_cycle < 1:
+            self.get_logger().warn(f"max_images_per_cycle must be >= 1, using 1")
+            self.max_images_per_cycle = 1
 
-        # wp subscriber
-        self.waypoint_reached = 0
-        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
-
-    def waypoint_reached_cb(self, msg):
-        #updates with current waypoint index
+    def waypoint_reached_cb(self, msg: WaypointReached) -> None:
+        """Callback for waypoint reached messages"""
         self.waypoint_reached = msg.wp_seq
     
-    def _get_device(self):
+    def _parameter_callback(self, params: List[Parameter]) -> rclpy.node.SetParametersResult:
+        """
+        Handle parameter changes at runtime
+        
+        Args:
+            params: List of parameters being set
+        
+        Returns:
+            SetParametersResult indicating success or failure
+        """
+        from rclpy.node import SetParametersResult
+        for param in params:
+            try:
+                if param.name == 'confidence_threshold':
+                    if 0 < param.value <= 1.0:
+                        self.confidence_threshold = param.value
+                        self.get_logger().info(f"Updated confidence_threshold to {param.value}")
+                    else:
+                        return SetParametersResult(successful=False, reason="confidence_threshold must be between 0 and 1")
+                elif param.name == 'check_interval':
+                    if param.value >= 0.1:
+                        self.check_interval = param.value
+                        self.timer.cancel()
+                        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+                        self.get_logger().info(f"Updated check_interval to {param.value}")
+                    else:
+                        return SetParametersResult(successful=False, reason="check_interval must be >= 0.1")
+                elif param.name == 'max_images_per_cycle':
+                    if param.value >= 1:
+                        self.max_images_per_cycle = param.value
+                        self.get_logger().info(f"Updated max_images_per_cycle to {param.value}")
+                    else:
+                        return SetParametersResult(successful=False, reason="max_images_per_cycle must be >= 1")
+            except Exception as e:
+                self.get_logger().error(f"Error updating parameter {param.name}: {e}")
+                return SetParametersResult(successful=False, reason=str(e))
+        
+        return SetParametersResult(successful=True)
+    
+    def _get_statistics_service(self, request, response):
+        """Service callback to get detection statistics"""
+        from std_srvs.srv import Trigger
+        stats_str = (
+            f"SAHI Detection Statistics:\n"
+            f"  Total Images Processed: {self.stats['total_images_processed']}\n"
+            f"  Total Detections: {self.stats['total_detections']}\n"
+            f"  Total Tents: {self.stats['total_tents']}\n"
+            f"  Total People: {self.stats['total_people']}\n"
+            f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s\n"
+            f"  Last Processing Time: {self.stats['last_processing_time']:.2f}s\n"
+            f"  Errors: {self.stats['errors']}\n"
+            f"  Uptime: {time.time() - self.stats['node_start_time']:.1f}s"
+        )
+        self.get_logger().info(f"Statistics requested:\n{stats_str}")
+        response.success = True
+        response.message = stats_str
+        return response
+    
+    def _get_health_service(self, request, response):
+        """Service callback to get node health status"""
+        from std_srvs.srv import Trigger
+        health_str = (
+            f"Node Health Status:\n"
+            f"  Is Healthy: {self.health_status['is_healthy']}\n"
+            f"  Consecutive Errors: {self.health_status['consecutive_errors']}\n"
+            f"  Last Successful Detection: {self.health_status['last_successful_detection']}\n"
+            f"  Model Initialized: {self.detection_model is not None}"
+        )
+        self.get_logger().info(f"Health check requested:\n{health_str}")
+        response.success = self.health_status['is_healthy']
+        response.message = health_str
+        return response
+    
+    def _periodic_gpu_cleanup(self) -> None:
+        """Periodically clean up GPU memory"""
+        if self.device.startswith('cuda') and TORCH_AVAILABLE:
+            try:
+                gc.collect()
+                torch.cuda.empty_cache()
+                if TORCH_AVAILABLE:
+                    allocated = torch.cuda.memory_allocated(0) / 1024**3
+                    reserved = torch.cuda.memory_reserved(0) / 1024**3
+                    self.get_logger().debug(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+            except Exception as e:
+                self.get_logger().debug(f"GPU cleanup error: {e}")
+    
+    def _get_device(self) -> str:
         """
         Auto-detect the best available device (CUDA, MPS, or CPU)
         
@@ -245,8 +418,8 @@ class SAHIObjectDetectionNode(Node):
                     model = f.read()
                     if 'jetson' in model.lower():
                         self.get_logger().info(f"   Platform: NVIDIA Jetson ({model.strip()})")
-            except:
-                pass
+            except (OSError, IOError, FileNotFoundError):
+                pass  # Not a Jetson device or can't read device tree
             
             return "cuda:0"
         
@@ -287,10 +460,11 @@ class SAHIObjectDetectionNode(Node):
                         self.get_logger().error("      Visit: https://forums.developer.nvidia.com/t/pytorch-for-jetson/72048")
                         self.get_logger().error("   3. Or run: bash install_pytorch_cuda.sh")
                         self.get_logger().error("")
-                        self.get_logger().error("   Current PyTorch version: {torch.__version__}")
+                        if TORCH_AVAILABLE:
+                            self.get_logger().error(f"   Current PyTorch version: {torch.__version__}")
                         self.get_logger().error("   Expected: PyTorch with CUDA support (not CPU-only)")
-            except:
-                pass
+            except (OSError, IOError, FileNotFoundError):
+                pass  # Not a Jetson device or can't read device tree
             
             self.get_logger().info("   Consider using a GPU for better performance!")
             
@@ -385,12 +559,12 @@ class SAHIObjectDetectionNode(Node):
                 try:
                     model_device = next(self.detection_model.model.model.parameters()).device
                     self.get_logger().info(f" Model confirmed on device: {model_device}")
-                except:
-                    pass
+                except (AttributeError, StopIteration, RuntimeError) as e:
+                    self.get_logger().debug(f"Could not verify model device: {e}")
             
             return True
             
-        except Exception as e:
+        except (ImportError, FileNotFoundError, RuntimeError, OSError) as e:
             self.get_logger().error(f"Failed to initialize SAHI model: {e}")
             self.get_logger().error("Make sure you have installed: pip install sahi ultralytics torch")
             
@@ -398,10 +572,16 @@ class SAHIObjectDetectionNode(Node):
             if self.device != 'cpu':
                 self.get_logger().error(f"Try running with CPU instead: --ros-args -p device:=cpu")
             
+            self.stats['errors'] += 1
+            self.health_status['consecutive_errors'] += 1
+            self.health_status['is_healthy'] = False
             return False
     
-    def check_for_new_images(self):
-        """Check for new images in camera_feed folder"""
+    def check_for_new_images(self) -> None:
+        """
+        Check for new images in camera_feed folder and process them in batches.
+        Also performs image cleanup if configured.
+        """
         try:
             if not os.path.exists(self.camera_feed_path):
                 self.get_logger().warn(f"Camera feed path does not exist: {self.camera_feed_path}")
@@ -411,39 +591,135 @@ class SAHIObjectDetectionNode(Node):
                 self.get_logger().warn("SAHI model not initialized, skipping detection")
                 return
             
-            # Get all image files and save em in a list
-            image_files = []
+            # Clean up old images if needed
+            self._cleanup_old_images()
+            
+            # Get all image files with timestamps
+            image_files_with_time: List[Tuple[str, float]] = []
             for file in os.listdir(self.camera_feed_path):
                 if file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
-                    image_files.append(file)
+                    file_path = os.path.join(self.camera_feed_path, file)
+                    try:
+                        # Use modification time as creation time proxy
+                        mtime = os.path.getmtime(file_path)
+                        image_files_with_time.append((file, mtime))
+                    except OSError:
+                        continue
+            
+            # Sort by timestamp (oldest first)
+            image_files_with_time.sort(key=lambda x: x[1])
+            
+            # Filter out already processed images
+            new_images = [
+                (fname, mtime) for fname, mtime in image_files_with_time
+                if fname not in self.processed_images
+            ]
             
             # Log status periodically
-            if len(image_files) > 0:
-                self.get_logger().info(
-                    f"Found {len(image_files)} total images, "
-                    f"{len(self.processed_images)} already processed"
+            if len(image_files_with_time) > 0:
+                self.get_logger().debug(
+                    f"Found {len(image_files_with_time)} total images, "
+                    f"{len(self.processed_images)} already processed, "
+                    f"{len(new_images)} new"
                 )
             
-            # Process new images
-            new_images_processed = 0
-            for image_file in image_files:
-                if image_file not in self.processed_images:
-                    self.get_logger().info(f"Processing new image: {image_file}")
+            # Process new images in batches
+            if new_images and not self.processing_lock:
+                # Limit batch size
+                batch = new_images[:self.max_images_per_cycle]
+                
+                self.get_logger().info(f"Processing batch of {len(batch)} new images")
+                
+                # Process images (can be async with thread pool)
+                for image_file, mtime in batch:
                     image_path = os.path.join(self.camera_feed_path, image_file)
-                    self.process_image(image_path)
-                    self.processed_images.add(image_file)
-                    new_images_processed += 1
-            
-            if new_images_processed > 0:
-                self.get_logger().info(f"Processed {new_images_processed} new images")
-                self._log_statistics()
                     
-        except Exception as e:
+                    # Submit to thread pool for async processing
+                    future = self.executor.submit(self._process_image_safe, image_path)
+                    self.active_futures.append(future)
+                    
+                    # Track as processed immediately to avoid duplicates
+                    self.processed_images[image_file] = mtime
+                
+                # Clean up completed futures
+                self.active_futures = [f for f in self.active_futures if not f.done()]
+                
+                if len(batch) > 0:
+                    self.get_logger().info(f"Queued {len(batch)} images for processing")
+            
+        except (OSError, IOError) as e:
             self.get_logger().error(f"Error checking for new images: {e}")
+            self.stats['errors'] += 1
+            self.health_status['consecutive_errors'] += 1
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error checking for new images: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            self.stats['errors'] += 1
+            self.health_status['consecutive_errors'] += 1
     
-    def process_image(self, image_path):
-        """Process a single image using SAHI for small object detection"""
-        """In here we call detect_object_sahi, annotated_frame and publish_result methods"""
+    def _cleanup_old_images(self) -> None:
+        """Remove old images from camera_feed if limit is exceeded"""
+        if self.max_camera_feed_images <= 0:
+            return  # Disabled
+        
+        try:
+            # Get all image files with timestamps
+            image_files_with_time: List[Tuple[str, float]] = []
+            for file in os.listdir(self.camera_feed_path):
+                if file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    file_path = os.path.join(self.camera_feed_path, file)
+                    try:
+                        mtime = os.path.getmtime(file_path)
+                        image_files_with_time.append((file, mtime))
+                    except OSError:
+                        continue
+            
+            # Sort by timestamp (oldest first)
+            image_files_with_time.sort(key=lambda x: x[1])
+            
+            # Remove oldest images if over limit
+            if len(image_files_with_time) > self.max_camera_feed_images:
+                to_remove = len(image_files_with_time) - self.max_camera_feed_images
+                removed = 0
+                for file, _ in image_files_with_time[:to_remove]:
+                    file_path = os.path.join(self.camera_feed_path, file)
+                    try:
+                        os.remove(file_path)
+                        # Remove from processed set if it was there
+                        self.processed_images.pop(file, None)
+                        removed += 1
+                    except OSError as e:
+                        self.get_logger().debug(f"Could not remove {file}: {e}")
+                
+                if removed > 0:
+                    self.get_logger().info(f"Cleaned up {removed} old images from camera_feed")
+        except (OSError, IOError) as e:
+            self.get_logger().debug(f"Error during image cleanup: {e}")
+    
+    def _process_image_safe(self, image_path: str) -> None:
+        """Wrapper for process_image with error handling"""
+        try:
+            self.process_image(image_path)
+            # Update health on success
+            self.health_status['last_successful_detection'] = time.time()
+            if self.health_status['consecutive_errors'] > 0:
+                self.health_status['consecutive_errors'] = 0
+                self.health_status['is_healthy'] = True
+        except Exception as e:
+            self.get_logger().error(f"Error processing image {image_path}: {e}")
+            self.stats['errors'] += 1
+            self.health_status['consecutive_errors'] += 1
+            if self.health_status['consecutive_errors'] > 5:
+                self.health_status['is_healthy'] = False
+    
+    def process_image(self, image_path: str) -> None:
+        """
+        Process a single image using SAHI for small object detection.
+        
+        Args:
+            image_path: Path to the image file to process
+        """
         try:
             start_time = time.time()
             
@@ -456,10 +732,11 @@ class SAHIObjectDetectionNode(Node):
             height, width = frame.shape[:2]
             self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
-            # Run SAHI prediction (another function)
+            # Run SAHI prediction
             detections = self.detect_objects_sahi(frame)
             
             processing_time = time.time() - start_time
+            self.stats['last_processing_time'] = processing_time
             
             # Create annotated frame
             annotated_frame = self.annotate_frame(frame, detections, processing_time)
@@ -485,20 +762,30 @@ class SAHIObjectDetectionNode(Node):
                 f"{sum(1 for d in detections if d['class'] == 'tent')} tents"
             )
                 
-        except Exception as e:
+        except (cv2.error, OSError, IOError) as e:
             self.get_logger().error(f"Error processing image {image_path}: {e}")
+            self.stats['errors'] += 1
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error processing image {image_path}: {e}")
             import traceback
             self.get_logger().error(traceback.format_exc())
+            self.stats['errors'] += 1
     
-    def detect_objects_sahi(self, frame):
+    def detect_objects_sahi(self, frame: np.ndarray) -> List[Dict]:
         """
         Detect objects using SAHI (Slicing Aided Hyper Inference)
         
         SAHI slices the image into smaller patches with overlap, runs detection
         on each patch, then merges the results. This is highly effective for
         detecting small objects in large images (e.g., tents in aerial photos).
+        
+        Args:
+            frame: Input image as numpy array (BGR format)
+            
+        Returns:
+            List of detection dictionaries
         """
-        detections = []
+        detections: List[Dict] = []
         
         try:
             # Convert BGR to RGB for SAHI (openCV loads in BGR and pytorch wants in RGB)
@@ -548,33 +835,47 @@ class SAHIObjectDetectionNode(Node):
             detections = self._filter_detections(detections)
             
             # Clean up GPU memory after detection (important for Jetson)
-            if self.device.startswith('cuda') and TORCH_AVAILABLE:
+            if self.enable_gpu_memory_cleanup and self.device.startswith('cuda') and TORCH_AVAILABLE:
                 try:
                     torch.cuda.empty_cache()
-                except:
+                except (RuntimeError, AttributeError):
                     pass
             
-        except Exception as e:
+        except (RuntimeError, AttributeError, ImportError) as e:
             self.get_logger().error(f"Error in SAHI detection: {e}")
             import traceback
             self.get_logger().error(traceback.format_exc())
+            self.stats['errors'] += 1
         
         return detections
     
-    def _categorize_detection(self, class_name, confidence, bbox, frame):
+    def _categorize_detection(self, class_name: str, confidence: float, bbox: List[int], frame) -> Optional[Dict]:
         """
-        Categorize YOLO detections into our target classes (person/mannequin, tent)
+        Categorize YOLO detections into our target classes (person/mannequin, tent).
+        Applies area and aspect ratio filtering based on configured parameters.
         
         Args:
             class_name: YOLO class name
             confidence: Detection confidence
             bbox: Bounding box [x1, y1, x2, y2]
-            frame: Original image frame
+            frame: Original image frame (unused but kept for compatibility)
             
         Returns:
-            Detection dict or None if not a target class
+            Detection dict or None if not a target class or filtered out
         """
         x1, y1, x2, y2 = bbox
+        width = x2 - x1
+        height = y2 - y1
+        area = width * height
+        aspect_ratio = width / height if height > 0 else 0
+        
+        # Apply area filtering
+        if area < self.min_detection_area or area > self.max_detection_area:
+            return None
+        
+        # Apply aspect ratio filtering
+        if aspect_ratio < self.min_aspect_ratio or aspect_ratio > self.max_aspect_ratio:
+            return None
         
         # Person/Mannequin detection - direct person detection
         if class_name == 'person':
@@ -586,27 +887,21 @@ class SAHIObjectDetectionNode(Node):
                     'bbox': bbox,
                     'description': 'person',
                     'method': 'sahi+yolo11s',
-                    'area': (x2 - x1) * (y2 - y1)
+                    'area': area
                 }
         
         # Mannequin detection - map various YOLO classes that could be mannequins
         # In aerial/drone imagery, mannequins might be detected as various objects
         mannequin_like_classes = {
-            'doll': 0.20,           # Mannequins often detected as dolls
+            'doll': 0.20,  # Mannequins often detected as dolls
         }
         
         if class_name in mannequin_like_classes:
             threshold = mannequin_like_classes[class_name]
             if confidence > threshold:
-                # Additional validation: check size and aspect ratio
-                width = x2 - x1
-                height = y2 - y1
-                aspect_ratio = width / height if height > 0 else 0
-                area = width * height
-                
                 # Mannequins should have reasonable size and aspect ratio
                 # Typically more vertical/humanoid than tents
-                if area > 300 and 0.3 < aspect_ratio < 3.0:
+                if 0.3 < aspect_ratio < 3.0:
                     return {
                         'class': 'person',
                         'yolo_class': class_name,
@@ -619,21 +914,15 @@ class SAHIObjectDetectionNode(Node):
         
         # Tent detection - only kite and umbrella
         tent_like_classes = {
-            'kite': 0.20,          # Tent fabric might look like kites
-            'umbrella': 0.20,      # Tent canopies might look like umbrellas
+            'kite': 0.20,      # Tent fabric might look like kites
+            'umbrella': 0.20,  # Tent canopies might look like umbrellas
         }
         
         if class_name in tent_like_classes:
             threshold = tent_like_classes[class_name]
             if confidence > threshold:
-                # Additional validation: check size and aspect ratio
-                width = x2 - x1
-                height = y2 - y1
-                aspect_ratio = width / height if height > 0 else 0
-                area = width * height
-                
                 # Tents should have reasonable size and aspect ratio
-                if area > 500 and 0.2 < aspect_ratio < 5.0:
+                if 0.2 < aspect_ratio < 5.0:
                     return {
                         'class': 'tent',
                         'yolo_class': class_name,
@@ -646,7 +935,7 @@ class SAHIObjectDetectionNode(Node):
         
         return None
     
-    def _filter_detections(self, detections):
+    def _filter_detections(self, detections: List[Dict]) -> List[Dict]:
         """
         Filter detections to remove duplicates and low-quality detections
         
@@ -674,7 +963,7 @@ class SAHIObjectDetectionNode(Node):
         
         return filtered
     
-    def _apply_nms(self, detections, overlap_threshold=0.3):
+    def _apply_nms(self, detections: List[Dict], overlap_threshold: float = 0.3) -> List[Dict]:
         """Apply Non-Maximum Suppression to remove overlapping detections"""
         if len(detections) == 0:
             return detections
@@ -704,7 +993,7 @@ class SAHIObjectDetectionNode(Node):
         
         return keep
     
-    def _calculate_iou(self, bbox1, bbox2):
+    def _calculate_iou(self, bbox1: List[int], bbox2: List[int]) -> float:
         """Calculate Intersection over Union (IoU) of two bounding boxes"""
         x1_1, y1_1, x2_1, y2_1 = bbox1
         x1_2, y1_2, x2_2, y2_2 = bbox2
@@ -727,17 +1016,17 @@ class SAHIObjectDetectionNode(Node):
         
         return intersection / union if union > 0 else 0.0
     
-    def annotate_frame(self, frame, detections, processing_time):
+    def annotate_frame(self, frame: np.ndarray, detections: List[Dict], processing_time: float) -> np.ndarray:
         """
         Annotate frame with SAHI detection results in the style of the reference images
         
         Args:
-            frame: Original image
+            frame: Original image as numpy array
             detections: List of detection dicts
             processing_time: Time taken for detection
             
         Returns:
-            Annotated frame
+            Annotated frame as numpy array
         """
         annotated_frame = frame.copy()
         height, width = frame.shape[:2]
@@ -821,8 +1110,15 @@ class SAHIObjectDetectionNode(Node):
         
         return annotated_frame
     
-    def publish_results(self, annotated_frame, detections, image_path):
-        """Publish annotated image and detection info, and save to disk"""
+    def publish_results(self, annotated_frame: np.ndarray, detections: List[Dict], image_path: str) -> None:
+        """
+        Publish annotated image and detection info, and save to disk
+        
+        Args:
+            annotated_frame: Annotated image as numpy array
+            detections: List of detection dictionaries
+            image_path: Path to the original image file
+        """
         try:
             # Convert to ROS2 Image message
             image_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
@@ -850,7 +1146,6 @@ class SAHIObjectDetectionNode(Node):
                 'method': method,
                 'slice_size': f"{self.slice_height}x{self.slice_width}",
                 'overlap': f"{self.overlap_height_ratio}x{self.overlap_width_ratio}",
-                'mobilenet_validation': False,
                 'objects': [
                     {
                         'class': d['class'],
@@ -858,11 +1153,7 @@ class SAHIObjectDetectionNode(Node):
                         'confidence': d['confidence'],
                         'bbox': d['bbox'],
                         'description': d.get('description', d['class']),
-                        'area': d.get('area', 0),
-                        'mobilenet_validated': False,
-                        'mobilenet_class': None,
-                        'mobilenet_confidence': None,
-                        'validation_status': None
+                        'area': d.get('area', 0)
                     }
                     for d in detections
                 ]
@@ -936,10 +1227,16 @@ class SAHIObjectDetectionNode(Node):
                 f" Published and saved results -> {output_filename}"
             )
             
-        except Exception as e:
+        except (cv2.error, OSError, IOError) as e:
             self.get_logger().error(f"Error publishing/saving results: {e}")
+            self.stats['errors'] += 1
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error publishing/saving results: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            self.stats['errors'] += 1
     
-    def _log_statistics(self):
+    def _log_statistics(self) -> None:
         """Log detection statistics"""
         self.get_logger().info("="*80)
         self.get_logger().info("SAHI Detection Statistics:")
@@ -948,6 +1245,10 @@ class SAHIObjectDetectionNode(Node):
         self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
         self.get_logger().info(f"  Total People: {self.stats['total_people']}")
         self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
+        self.get_logger().info(f"  Last Processing Time: {self.stats['last_processing_time']:.2f}s")
+        self.get_logger().info(f"  Errors: {self.stats['errors']}")
+        uptime = time.time() - self.stats['node_start_time']
+        self.get_logger().info(f"  Uptime: {uptime:.1f}s")
         self.get_logger().info("="*80)
 
 
@@ -976,7 +1277,14 @@ def main(args=None):
         node.get_logger().info("Shutting down SAHI Object Detection Node...")
     finally:
         # Log final statistics
+        node.get_logger().info("Shutting down...")
         node._log_statistics()
+        
+        # Cleanup thread pool executor
+        if hasattr(node, 'executor'):
+            node.get_logger().info("Shutting down thread pool executor...")
+            node.executor.shutdown(wait=True, timeout=30.0)
+        
         node.destroy_node()
         rclpy.shutdown()
 
