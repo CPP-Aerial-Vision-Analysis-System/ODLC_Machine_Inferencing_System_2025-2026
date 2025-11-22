@@ -70,7 +70,7 @@ ros2 launch ardupilot_gz_bringup iris_runway.launch.py
 
 #### 3a. Open a mavproxy terminal
 ```bash
-mavproxy.py --master=127.0.0.1:14550
+mavproxy.py --master=127.0.0.1:14550 --out=127.0.0.1:14552
 ```
 
 #### 3b. Run the following RC overrides in the mavprxoy terminal to move gimbal in simulation
@@ -78,6 +78,11 @@ mavproxy.py --master=127.0.0.1:14550
 rc 6 1500 # neutral roll
 rc 7 1300 # pitch down
 rc 8 1500 # neutral yaw
+```
+
+#### 3c. Open a heartbeat terminal
+```bash
+ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552
 ```
 
 
@@ -100,3 +105,4 @@ rc 8 1500 # neutral yaw
   * **Port:** `5762`
 
 ---
+
