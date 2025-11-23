@@ -22,7 +22,7 @@ class WaypointManager(Node):
         self.create_subscription(State, "/mavros/state", self.state_callback, 10)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list_cb, 10)
-        self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)   # should this be pub??
+        self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         # mavros Clients
         self.waypoint_pull = self.create_client(WaypointPull, "/mavros/mission/pull")
@@ -84,7 +84,7 @@ class WaypointManager(Node):
         self.reset_indices()
 
         for i, wp in enumerate(self.waypoint_list.waypoints):
-            self.get_logger().info(f"Waypoint {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
+            #self.get_logger().info(f"Waypoint {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
             
             if wp.command == MAV_CMD_NAV_TAKEOFF:
                 self.takeoff_index = i
@@ -132,7 +132,7 @@ class WaypointManager(Node):
                     self.get_logger().info("Waypoints pushed successfully")
                     return True
             else:
-                self.get_logger().error("Failed to push waypoints")
+                # self.get_logger().error("Failed to push waypoints")
                 return False
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
@@ -181,7 +181,7 @@ class WaypointManager(Node):
                     new_waypoint.command = 16  # MAV_CMD_NAV_WAYPOINT
                     new_waypoint.is_current = False
                     new_waypoint.autocontinue = True
-                    new_waypoint.param1 = float(5)  # Hold time in seconds
+                    new_waypoint.param1 = float(15)  # Hold time in seconds
                     new_waypoint.param2 = float(0)  # Acceptance radius in meters
                     new_waypoint.param3 = float(0)  # Pass through waypoint
                     new_waypoint.param4 = float('nan')  # Yaw angle
@@ -237,13 +237,14 @@ class WaypointManager(Node):
         self.waypoint_reached = msg.wp_seq
         self.get_logger().info(f"Waypoint {msg.wp_seq} reached.")
 
-        # if self.waypoint_reached < len(self.waypoint_list.waypoints):
-        #     wp = self.waypoint_list.waypoints[self.waypoint_reached]
-        #     if int(wp.param1) > 0:
-        #         if int(wp.command) == 16:  # Waypoint command
-        #             self.get_logger().info("Object waypoint reached.")
-        #         else:
-        #             self.get_logger().info("Loiter finished. Continuing to next waypoint.")
+        if self.waypoint_reached < len(self.waypoint_list.waypoints):
+            wp = self.waypoint_list.waypoints[self.waypoint_reached]
+            if int(wp.param1) > 0:
+                if int(wp.command) == 16:  # Waypoint command
+                    self.get_logger().info("Object waypoint reached.")
+                    self.send_ack(f"Object waypoint reached. Holding for {int(wp.param1)} seconds.")
+                else:
+                    self.get_logger().info("Loiter finished. Continuing to next waypoint.")
     
     def change_mode(self, mode):
         """Change flight mode of the drone."""
@@ -255,15 +256,12 @@ class WaypointManager(Node):
         else:
             self.get_logger().info(f"Failed to change mode.")
     
-    def send_status(self, text, throttle=False):
-        """Send status message to the drone."""
-        now = time.time()
-        if not throttle or (now - self.last_status_time > self.status_interval):
-            status_msg = StatusText()
-            status_msg.severity = 6  # 6 = NOTICE
-            status_msg.text = text
-            self.status_pub.publish(status_msg)
-            self.last_status_time = now
+    def send_ack(self, text):
+        msg = StatusText()
+        msg.severity = 6  # INFO
+        msg.text = text
+        self.status_publisher.publish(msg)
+        self.get_logger().info(f"Status: {text}")
 
     def handle_wp_req(self, request, response):
         """Handle AddWaypoint service request"""
@@ -320,7 +318,7 @@ class WaypointManager(Node):
         
         message = f"Heartbeat established"
         self.get_logger().info(message)
-        self.send_status(message)
+        self.send_ack(message)
         self.pull_waypoints()
         rclpy.spin(self)
         
