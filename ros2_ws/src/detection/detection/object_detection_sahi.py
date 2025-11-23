@@ -118,7 +118,7 @@ class SAHIObjectDetectionNode(Node):
         os.makedirs(video_cam_dir, exist_ok=True)
         
         # Directory for getting camera images
-        self.camera_feed_path = os.path.join(video_cam_dir, "camera_feed")
+        self.camera_feed_path = os.path.join(video_cam_dir, "mapping_photos")
         if not os.path.exists(self.camera_feed_path):
             os.makedirs(self.camera_feed_path)
         
@@ -349,25 +349,25 @@ class SAHIObjectDetectionNode(Node):
                     image_files.append(file)
             
             # Log status periodically
-            if len(image_files) > 0:
-                self.get_logger().info(
-                    f"Found {len(image_files)} total images, "
-                    f"{len(self.processed_images)} already processed"
-                )
+            # if len(image_files) > 0:
+            #     self.get_logger().info(
+            #         f"Found {len(image_files)} total images, "
+            #         f"{len(self.processed_images)} already processed"
+            #     )
             
             # Process new images
             new_images_processed = 0
             for image_file in image_files:
                 if image_file not in self.processed_images:
-                    self.get_logger().info(f"Processing new image: {image_file}")
+                    # self.get_logger().info(f"Processing new image: {image_file}")
                     image_path = os.path.join(self.camera_feed_path, image_file)
                     self.process_image(image_path)
                     self.processed_images.add(image_file)
                     new_images_processed += 1
             
-            if new_images_processed > 0:
-                self.get_logger().info(f"✓ Processed {new_images_processed} new images")
-                self._log_statistics()
+            # if new_images_processed > 0:
+                # self.get_logger().info(f"✓ Processed {new_images_processed} new images")
+                # self._log_statistics()
                     
         except Exception as e:
             self.get_logger().error(f"Error checking for new images: {e}")
@@ -384,7 +384,7 @@ class SAHIObjectDetectionNode(Node):
                 return
             
             height, width = frame.shape[:2]
-            self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
+            # self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
             # Run SAHI prediction
             detections = self.detect_objects_sahi(frame)
@@ -436,10 +436,10 @@ class SAHIObjectDetectionNode(Node):
             # Convert BGR to RGB for SAHI
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            self.get_logger().info(
-                f"Running SAHI prediction with {self.slice_height}x{self.slice_width} slices, "
-                f"{self.overlap_height_ratio:.1%}x{self.overlap_width_ratio:.1%} overlap..."
-            )
+            # self.get_logger().info(
+            #     f"Running SAHI prediction with {self.slice_height}x{self.slice_width} slices, "
+            #     f"{self.overlap_height_ratio:.1%}x{self.overlap_width_ratio:.1%} overlap..."
+            # )
             
             # Run SAHI sliced prediction
             result = get_sliced_prediction(
@@ -456,7 +456,7 @@ class SAHIObjectDetectionNode(Node):
                 verbose=0
             )
             
-            self.get_logger().info(f"SAHI found {len(result.object_prediction_list)} raw detections")
+            # self.get_logger().info(f"SAHI found {len(result.object_prediction_list)} raw detections")
             
             # Convert SAHI results to our format
             for object_prediction in result.object_prediction_list:
@@ -782,7 +782,7 @@ class SAHIObjectDetectionNode(Node):
             image_result_msg.method = 'sahi+yolo11s'
             image_result_msg.slice_size = f"{self.slice_height}x{self.slice_width}"
             image_result_msg.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
-            image_result_msg.waypoint_index = 4 #self.waypoint_reached             # include latest wp in message (ASSUMES INSTANT DETECTION)
+            image_result_msg.waypoint_index = self.waypoint_reached             # include latest wp in message (ASSUMES INSTANT DETECTION)
 
             # Prepare Detection2DArray
             det_array = Detection2DArray()
@@ -839,23 +839,23 @@ class SAHIObjectDetectionNode(Node):
             info_msg.data = str(detection_info)
             self.detection_publisher.publish(info_msg)
             
-            self.get_logger().info(
-                f" Published and saved results -> {output_filename}"
-            )
+            # self.get_logger().info(
+            #     f" Published and saved results -> {output_filename}"
+            # )
             
         except Exception as e:
             self.get_logger().error(f"Error publishing/saving results: {e}")
     
-    def _log_statistics(self):
-        """Log detection statistics"""
-        self.get_logger().info("="*80)
-        self.get_logger().info("SAHI Detection Statistics:")
-        self.get_logger().info(f"  Total Images Processed: {self.stats['total_images_processed']}")
-        self.get_logger().info(f"  Total Detections: {self.stats['total_detections']}")
-        self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
-        self.get_logger().info(f"  Total People: {self.stats['total_people']}")
-        self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
-        self.get_logger().info("="*80)
+    # def _log_statistics(self):
+    #     """Log detection statistics"""
+    #     self.get_logger().info("="*80)
+    #     self.get_logger().info("SAHI Detection Statistics:")
+    #     self.get_logger().info(f"  Total Images Processed: {self.stats['total_images_processed']}")
+    #     self.get_logger().info(f"  Total Detections: {self.stats['total_detections']}")
+    #     self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
+    #     self.get_logger().info(f"  Total People: {self.stats['total_people']}")
+    #     self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
+    #     self.get_logger().info("="*80)
 
 
 def main(args=None):
