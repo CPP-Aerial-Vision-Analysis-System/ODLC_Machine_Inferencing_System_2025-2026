@@ -1,0 +1,12 @@
+{
+  "name": "SUAS 2025-2026 SITL ENV",
+  "dockerFile": "Dockerfile",
+  "runArgs": [
+    "--privileged",
+    "--env=DISPLAY=host.docker.internal:0.0",
+    "--network=host"
+  ],
+  "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
+  "workspaceFolder": "/${localWorkspaceFolderBasename}",
+  "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
+}
