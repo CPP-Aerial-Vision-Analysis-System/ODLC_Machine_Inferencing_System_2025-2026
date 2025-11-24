@@ -191,7 +191,7 @@ class SAHIObjectDetectionNode(Node):
         self.processing_lock = False  # Simple lock to prevent concurrent processing
         
         # Thread pool for async processing
-        self.executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sahi_worker")
+        self.thread_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sahi_worker")
         self.active_futures: List[Future] = []
         
         # Statistics
@@ -635,7 +635,7 @@ class SAHIObjectDetectionNode(Node):
                     image_path = os.path.join(self.camera_feed_path, image_file)
                     
                     # Submit to thread pool for async processing
-                    future = self.executor.submit(self._process_image_safe, image_path)
+                    future = self.thread_pool.submit(self._process_image_safe, image_path)
                     self.active_futures.append(future)
                     
                     # Track as processed immediately to avoid duplicates
