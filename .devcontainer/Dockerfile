@@ -38,9 +38,4 @@ RUN cd ~/ultra_ws/src && \
     git clone -b humble-devel https://github.com/CPP-Aerial-Vision-Analysis-System/ultralytics_ros.git && \
     cd ultralytics_ros && \
     python3 -m pip install --no-cache-dir -r requirements.txt
-
-
-
-
-
-
+    
