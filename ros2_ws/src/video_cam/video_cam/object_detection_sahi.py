@@ -46,6 +46,13 @@ from rclpy.parameter import Parameter # for parameter callbacks
 from rclpy.qos import QoSProfile, ReliabilityPolicy # QoS settings
 # This is just to make sure that we have all the dependencies
 
+# Progress bar
+try:
+    from tqdm import tqdm
+    TQDM_AVAILABLE = True
+except ImportError:
+    TQDM_AVAILABLE = False
+
 #SAHI
 try:
     from sahi import AutoDetectionModel
@@ -68,9 +75,10 @@ except ImportError:
     YOLO_AVAILABLE = False
 
 # Constants
-DEFAULT_CONFIDENCE_THRESHOLD = 0.15
-DEFAULT_SLICE_SIZE = 512
-DEFAULT_OVERLAP = 0.3
+# TUNED FOR MAXIMUM DETECTION - lower thresholds, smaller slices, more overlap
+DEFAULT_CONFIDENCE_THRESHOLD = 0.05  # Very low to catch everything (was 0.10)
+DEFAULT_SLICE_SIZE = 256  # Smaller slices for better small object detection (was 512)
+DEFAULT_OVERLAP = 0.45  # Higher overlap to catch objects at boundaries (was 0.3)
 DEFAULT_CHECK_INTERVAL = 2.0
 MAX_SEARCH_DEPTH = 10
 
@@ -138,7 +146,7 @@ class SAHIObjectDetectionNode(Node):
         # New parameters for improvements
         self.declare_parameter('max_images_per_cycle', 5)  # Batch processing
         self.declare_parameter('max_camera_feed_images', 100)  # Image cleanup
-        self.declare_parameter('min_detection_area', 100)  # Filter small detections
+        self.declare_parameter('min_detection_area', 25)  # Filter small detections
         self.declare_parameter('max_detection_area', 1000000)  # Filter large detections
         self.declare_parameter('min_aspect_ratio', 0.1)  # Aspect ratio filtering
         self.declare_parameter('max_aspect_ratio', 10.0)  # Aspect ratio filtering
@@ -200,6 +208,7 @@ class SAHIObjectDetectionNode(Node):
             'total_detections': 0,
             'total_tents': 0,
             'total_people': 0,
+            'total_objects': 0,  # Other detected objects
             'avg_processing_time': 0.0,
             'last_processing_time': 0.0,
             'node_start_time': time.time(),
@@ -749,6 +758,7 @@ class SAHIObjectDetectionNode(Node):
             self.stats['total_detections'] += len(detections)
             self.stats['total_tents'] += sum(1 for d in detections if d['class'] == 'tent')
             self.stats['total_people'] += sum(1 for d in detections if d['class'] == 'person')
+            self.stats['total_objects'] += sum(1 for d in detections if d['class'] == 'object')
             
             # Update average processing time
             n = self.stats['total_images_processed']
@@ -756,10 +766,14 @@ class SAHIObjectDetectionNode(Node):
                 (self.stats['avg_processing_time'] * (n - 1) + processing_time) / n
             )
             
+            # Count by class for logging
+            num_people = sum(1 for d in detections if d['class'] == 'person')
+            num_tents = sum(1 for d in detections if d['class'] == 'tent')
+            num_objects = sum(1 for d in detections if d['class'] == 'object')
+            
             self.get_logger().info(
                 f" Found {len(detections)} objects in {processing_time:.2f}s: "
-                f"{sum(1 for d in detections if d['class'] == 'person')} people, "
-                f"{sum(1 for d in detections if d['class'] == 'tent')} tents"
+                f"{num_people} people, {num_tents} tents, {num_objects} other objects"
             )
                 
         except (cv2.error, OSError, IOError) as e:
@@ -791,10 +805,27 @@ class SAHIObjectDetectionNode(Node):
             # Convert BGR to RGB for SAHI (openCV loads in BGR and pytorch wants in RGB)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
+            # Calculate estimated number of slices for progress indication
+            h, w = frame_rgb.shape[:2]
+            stride_h = int(self.slice_height * (1 - self.overlap_height_ratio))
+            stride_w = int(self.slice_width * (1 - self.overlap_width_ratio))
+            num_slices_h = max(1, (h - self.slice_height) // stride_h + 1) if stride_h > 0 else 1
+            num_slices_w = max(1, (w - self.slice_width) // stride_w + 1) if stride_w > 0 else 1
+            total_slices = num_slices_h * num_slices_w
+            
             self.get_logger().info(
                 f"Running SAHI prediction with {self.slice_height}x{self.slice_width} slices, "
                 f"{self.overlap_height_ratio:.1%}x{self.overlap_width_ratio:.1%} overlap..."
             )
+            self.get_logger().info(f"  Estimated slices: {total_slices} ({num_slices_h}x{num_slices_w} grid)")
+            
+            # Show progress bar in terminal
+            if TQDM_AVAILABLE:
+                print(f"\n Processing {w}x{h} image with ~{total_slices} slices...")
+                pbar = tqdm(total=100, desc="SAHI Detection", unit="%", ncols=80,
+                           bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]')
+            
+            start_time = time.time()
             
             # Run SAHI sliced prediction
             result = get_sliced_prediction(
@@ -810,6 +841,13 @@ class SAHIObjectDetectionNode(Node):
                 postprocess_class_agnostic=False,  # Class-aware NMS (makes sure that person and tent boxes dont merge)
                 verbose=0
             )
+            
+            # Close progress bar
+            if TQDM_AVAILABLE:
+                pbar.update(100)  # Complete the progress bar
+                pbar.close()
+                elapsed = time.time() - start_time
+                print(f" Detection complete in {elapsed:.1f}s - found {len(result.object_prediction_list)} raw detections\n")
             
             self.get_logger().info(f"SAHI found {len(result.object_prediction_list)} raw detections")
             
@@ -851,8 +889,14 @@ class SAHIObjectDetectionNode(Node):
     
     def _categorize_detection(self, class_name: str, confidence: float, bbox: List[int], frame) -> Optional[Dict]:
         """
-        Categorize YOLO detections into our target classes (person/mannequin, tent).
-        Applies area and aspect ratio filtering based on configured parameters.
+        Categorize ALL YOLO detections and classify them into target categories.
+        
+        Strategy: Detect EVERYTHING, then categorize:
+        - 'person': Direct person detections + mannequin-like objects
+        - 'tent': Objects that look like tents/tarps/shelters
+        - 'object': Everything else (still detected and shown!)
+        
+        This ensures we never miss detections - we see everything YOLO finds.
         
         Args:
             class_name: YOLO class name
@@ -861,7 +905,7 @@ class SAHIObjectDetectionNode(Node):
             frame: Original image frame (unused but kept for compatibility)
             
         Returns:
-            Detection dict or None if not a target class or filtered out
+            Detection dict or None if filtered out by area/aspect ratio
         """
         x1, y1, x2, y2 = bbox
         width = x2 - x1
@@ -869,7 +913,7 @@ class SAHIObjectDetectionNode(Node):
         area = width * height
         aspect_ratio = width / height if height > 0 else 0
         
-        # Apply area filtering
+        # Apply area filtering (still filter tiny noise and huge false positives)
         if area < self.min_detection_area or area > self.max_detection_area:
             return None
         
@@ -877,63 +921,69 @@ class SAHIObjectDetectionNode(Node):
         if aspect_ratio < self.min_aspect_ratio or aspect_ratio > self.max_aspect_ratio:
             return None
         
-        # Person/Mannequin detection - direct person detection
+        # Minimum confidence for any detection (very low to catch everything)
+        if confidence < 0.05:
+            return None
+        
+        # === CLASSIFICATION LOGIC ===
+        
+        # PERSON: Direct person detection
         if class_name == 'person':
-            if confidence > 0.25:  # Lower threshold for SAHI to catch more small people
-                return {
-                    'class': 'person',
-                    'yolo_class': class_name,
-                    'confidence': confidence,
-                    'bbox': bbox,
-                    'description': 'person',
-                    'method': 'sahi+yolo11s',
-                    'area': area
-                }
+            return {
+                'class': 'person',
+                'yolo_class': class_name,
+                'confidence': confidence,
+                'bbox': bbox,
+                'description': 'person',
+                'method': 'sahi+yolo11s',
+                'area': area,
+                'is_target': True  # Flag as primary target
+            }
         
-        # Mannequin detection - map various YOLO classes that could be mannequins
-        # In aerial/drone imagery, mannequins might be detected as various objects
-        mannequin_like_classes = {
-            'doll': 0.20,  # Mannequins often detected as dolls
-        }
+        # PERSON-LIKE: Objects that could be people/mannequins from aerial view
+        person_like_classes = ['doll', 'teddy bear']
+        if class_name in person_like_classes:
+            return {
+                'class': 'person',
+                'yolo_class': class_name,
+                'confidence': confidence,
+                'bbox': bbox,
+                'description': f'person-like ({class_name})',
+                'method': 'sahi+yolo11s',
+                'area': area,
+                'is_target': True
+            }
         
-        if class_name in mannequin_like_classes:
-            threshold = mannequin_like_classes[class_name]
-            if confidence > threshold:
-                # Mannequins should have reasonable size and aspect ratio
-                # Typically more vertical/humanoid than tents
-                if 0.3 < aspect_ratio < 3.0:
-                    return {
-                        'class': 'person',
-                        'yolo_class': class_name,
-                        'confidence': confidence,
-                        'bbox': bbox,
-                        'description': f'mannequin-like ({class_name})',
-                        'method': 'sahi+yolo11s',
-                        'area': area
-                    }
-        
-        # Tent detection - only kite and umbrella
-        tent_like_classes = {
-            'kite': 0.20,      # Tent fabric might look like kites
-            'umbrella': 0.20,  # Tent canopies might look like umbrellas
-        }
-        
+        # TENT-LIKE: Objects that commonly represent tents/tarps/shelters
+        tent_like_classes = [
+            'umbrella', 'kite', 'bed', 'couch', 'boat', 
+            'backpack', 'suitcase', 'handbag', 'surfboard', 'bench',
+            'airplane', 'truck', 'car', 'bus', 'frisbee'
+        ]
         if class_name in tent_like_classes:
-            threshold = tent_like_classes[class_name]
-            if confidence > threshold:
-                # Tents should have reasonable size and aspect ratio
-                if 0.2 < aspect_ratio < 5.0:
-                    return {
-                        'class': 'tent',
-                        'yolo_class': class_name,
-                        'confidence': confidence,
-                        'bbox': bbox,
-                        'description': f'tent-like ({class_name})',
-                        'method': 'sahi+yolo11s',
-                        'area': area
-                    }
+            return {
+                'class': 'tent',
+                'yolo_class': class_name,
+                'confidence': confidence,
+                'bbox': bbox,
+                'description': f'tent-like ({class_name})',
+                'method': 'sahi+yolo11s',
+                'area': area,
+                'is_target': True
+            }
         
-        return None
+        # EVERYTHING ELSE: Still detect it! Just classify as 'object'
+        # This ensures we never miss anything - user can see what YOLO found
+        return {
+            'class': 'object',
+            'yolo_class': class_name,
+            'confidence': confidence,
+            'bbox': bbox,
+            'description': f'detected: {class_name}',
+            'method': 'sahi+yolo11s',
+            'area': area,
+            'is_target': False  # Not a primary target, but still shown
+        }
     
     def _filter_detections(self, detections: List[Dict]) -> List[Dict]:
         """
@@ -951,9 +1001,9 @@ class SAHIObjectDetectionNode(Node):
         # Sort by confidence (highest first)
         detections = sorted(detections, key=lambda x: x['confidence'], reverse=True)
         
-        # Apply NMS within each class
+        # Apply NMS within each class (person, tent, and object)
         filtered = []
-        for target_class in ['person', 'tent']:
+        for target_class in ['person', 'tent', 'object']:
             class_detections = [d for d in detections if d['class'] == target_class]
             
             if len(class_detections) > 0:
@@ -1032,9 +1082,10 @@ class SAHIObjectDetectionNode(Node):
         height, width = frame.shape[:2]
         
         # Define colors (BGR format)
-        COLOR_TENT = (0, 255, 255)  # Yellow for tents
-        COLOR_PERSON = (0, 255, 0)  # Green for people
-        COLOR_TEXT_BG = (0, 0, 0)   # Black background
+        COLOR_TENT = (0, 255, 255)    # Yellow for tents
+        COLOR_PERSON = (0, 255, 0)    # Green for people
+        COLOR_OBJECT = (255, 0, 0)    # Blue for other objects (no labels)
+        COLOR_TEXT_BG = (0, 0, 0)     # Black background
         COLOR_TEXT = (255, 255, 255)  # White text
         
         # Annotate each detection
@@ -1043,6 +1094,7 @@ class SAHIObjectDetectionNode(Node):
             class_name = detection['class']
             confidence = detection['confidence']
             yolo_class = detection.get('yolo_class', class_name)
+            is_target = detection.get('is_target', False)
             
             # Choose color based on class
             if class_name == 'person':
@@ -1052,11 +1104,13 @@ class SAHIObjectDetectionNode(Node):
                 box_color = COLOR_TENT
                 target_label = "TARGET: TENT"
             else:
-                box_color = (128, 128, 128)  # Grey
-                target_label = f"OBJECT: {class_name.upper()}"
+                # For 'object' class: just draw blue box, no labels
+                cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), COLOR_OBJECT, 1)
+                continue  # Skip label drawing for non-target objects
             
-            # Draw bounding box (thinner for cleaner look)
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 2)
+            # Draw bounding box (50% slimmer than before)
+            # Previous thickness was 2; reduce to 1 for a slimmer frame
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 1)
             
             # Prepare text labels
             yolo_label = f"YOLO: {yolo_class} ({confidence:.2f})"
@@ -1188,10 +1242,11 @@ class SAHIObjectDetectionNode(Node):
 
                 # Create bounding box
                 x1, y1, x2, y2 = det['bbox']
-                d2d.bbox.center.x = (x1 + x2) / 2.0
-                d2d.bbox.center.y = (y1 + y2) / 2.0
-                d2d.bbox.size_x = x2 - x1
-                d2d.bbox.size_y = y2 - y1
+                # BoundingBox2D center is Pose2D with position attribute
+                d2d.bbox.center.position.x = float(x1 + x2) / 2.0
+                d2d.bbox.center.position.y = float(y1 + y2) / 2.0
+                d2d.bbox.size_x = float(x2 - x1)
+                d2d.bbox.size_y = float(y2 - y1)
 
                 # Add hypothesis (class + confidence)
                 hypo = ObjectHypothesisWithPose()
@@ -1283,7 +1338,7 @@ def main(args=None):
         # Cleanup thread pool executor
         if hasattr(node, 'executor'):
             node.get_logger().info("Shutting down thread pool executor...")
-            node.executor.shutdown(wait=True, timeout=30.0)
+            node.executor.shutdown(wait=True)
         
         node.destroy_node()
         rclpy.shutdown()

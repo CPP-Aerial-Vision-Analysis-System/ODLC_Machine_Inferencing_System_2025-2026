@@ -12,7 +12,7 @@ This package provides **two object detection systems**:
 - Good for larger objects
 - Uses YOLO + MobileNet + OpenCV
 
-### 2. SAHI Object Detection (`object_detection_sahi.py`) ⭐ **NEW!**
+### 2. SAHI Object Detection (`object_detection_sahi.py`) **NEW!**
 - **Slicing Aided Hyper Inference** for small objects
 - Excellent for detecting small tents in aerial imagery
 - 6x better detection rate for small objects
