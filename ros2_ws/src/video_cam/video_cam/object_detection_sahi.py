@@ -1082,11 +1082,17 @@ class SAHIObjectDetectionNode(Node):
         height, width = frame.shape[:2]
         
         # Define colors (BGR format)
-        COLOR_TENT = (0, 255, 255)    # Yellow for tents
-        COLOR_PERSON = (0, 255, 0)    # Green for people
-        COLOR_OBJECT = (255, 0, 0)    # Blue for other objects (no labels)
-        COLOR_TEXT_BG = (0, 0, 0)     # Black background
-        COLOR_TEXT = (255, 255, 255)  # White text
+        COLOR_TENT = (0, 200, 255)    # Orange-yellow for tents (more visible)
+        COLOR_PERSON = (0, 200, 0)    # Green for people
+        COLOR_OBJECT = (255, 100, 0)  # Blue for other objects (no labels)
+        COLOR_WHITE = (255, 255, 255) # White text
+        COLOR_BLACK = (0, 0, 0)       # Black for outlines/shadows
+        
+        # Use a cleaner font with better scaling
+        # FONT_HERSHEY_DUPLEX has better quality than SIMPLEX
+        font = cv2.FONT_HERSHEY_DUPLEX
+        font_scale = 0.45  # Slightly smaller for cleaner look
+        font_thickness = 1  # Thin strokes for clarity
         
         # Annotate each detection
         for detection in detections:
@@ -1094,75 +1100,192 @@ class SAHIObjectDetectionNode(Node):
             class_name = detection['class']
             confidence = detection['confidence']
             yolo_class = detection.get('yolo_class', class_name)
-            is_target = detection.get('is_target', False)
             
             # Choose color based on class
             if class_name == 'person':
                 box_color = COLOR_PERSON
-                target_label = "TARGET: PERSON"
+                label = f"PERSON ({confidence:.0%})"
             elif class_name == 'tent':
                 box_color = COLOR_TENT
-                target_label = "TARGET: TENT"
+                label = f"TENT ({confidence:.0%})"
             else:
                 # For 'object' class: just draw blue box, no labels
                 cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), COLOR_OBJECT, 1)
                 continue  # Skip label drawing for non-target objects
             
-            # Draw bounding box (50% slimmer than before)
-            # Previous thickness was 2; reduce to 1 for a slimmer frame
+            # Draw bounding box with 1px for slimmer look
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), box_color, 1)
             
-            # Prepare text labels
-            yolo_label = f"YOLO: {yolo_class} ({confidence:.2f})"
+            # Calculate text size
+            (text_w, text_h), baseline = cv2.getTextSize(label, font, font_scale, font_thickness)
             
-            # Calculate text size for background
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.5
-            thickness = 1
+            # Position label above the box (or inside if no room above)
+            padding = 4
+            label_h = text_h + padding * 2
             
-            (w1, h1), _ = cv2.getTextSize(target_label, font, font_scale, thickness)
-            (w2, h2), _ = cv2.getTextSize(yolo_label, font, font_scale, thickness)
-
-            # Calculate background rectangle size
-            max_width = max(w1, w2) + 10
-            total_height = h1 + h2 + 10
+            if y1 - label_h >= 0:
+                # Draw above the box
+                label_y1 = y1 - label_h
+                label_y2 = y1
+            else:
+                # Draw inside the box at top
+                label_y1 = y1
+                label_y2 = y1 + label_h
             
-            # Draw text background (yellow for tent, green for person)
-            text_y_start = max(y1 - total_height, 0)
+            # Draw filled background rectangle for label
             cv2.rectangle(
                 annotated_frame,
-                (x1, text_y_start),
-                (x1 + max_width, y1),
+                (x1, label_y1),
+                (x1 + text_w + padding * 2, label_y2),
                 box_color,
                 -1  # Filled
             )
             
-            # Draw text labels
-            text_y = text_y_start + h1 + 5
-            cv2.putText(annotated_frame, target_label, (x1 + 5, text_y),
-                       font, font_scale, COLOR_TEXT_BG, 2)
+            # Draw text with black outline for better readability
+            text_x = x1 + padding
+            text_y = label_y2 - padding
             
-            text_y += h2 + 5
-            cv2.putText(annotated_frame, yolo_label, (x1 + 5, text_y),
-                       font, font_scale, COLOR_TEXT_BG, 2)
+            # Draw black outline (shadow effect for readability)
+            cv2.putText(annotated_frame, label, (text_x, text_y),
+                       font, font_scale, COLOR_BLACK, font_thickness + 1, cv2.LINE_AA)
+            # Draw white text on top
+            cv2.putText(annotated_frame, label, (text_x, text_y),
+                       font, font_scale, COLOR_WHITE, font_thickness, cv2.LINE_AA)
         
-        # Add header with detection info
-        detection_method = "SAHI + YOLO"
-        header_text = f"{detection_method} - {len(detections)} objects detected"
-        cv2.putText(annotated_frame, header_text, (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, COLOR_TEXT, 2)
+        # Count targets
+        num_people = sum(1 for d in detections if d['class'] == 'person')
+        num_tents = sum(1 for d in detections if d['class'] == 'tent')
+        num_other = len(detections) - num_people - num_tents
         
-        # Add processing time
-        time_text = f"Processing Time: {processing_time:.2f}s"
-        cv2.putText(annotated_frame, time_text, (10, 60),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2)
+        # Add header with semi-transparent background
+        header_font_scale = 0.6
+        header_text = f"SAHI+YOLO | {num_people} people, {num_tents} tents, {num_other} other"
+        time_text = f"Time: {processing_time:.1f}s | Slices: {self.slice_height}x{self.slice_width}"
         
-        # Add SAHI mode indicator at bottom
-        sahi_text = f"SAHI Mode: {self.slice_height}x{self.slice_width} slices, {self.overlap_height_ratio:.0%} overlap"
-        cv2.putText(annotated_frame, sahi_text, (10, height - 20),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_TEXT, 2)
+        # Draw semi-transparent header background
+        overlay = annotated_frame.copy()
+        cv2.rectangle(overlay, (0, 0), (width, 50), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.6, annotated_frame, 0.4, 0, annotated_frame)
+        
+        # Draw header text with anti-aliasing
+        cv2.putText(annotated_frame, header_text, (10, 20),
+                   font, header_font_scale, COLOR_WHITE, 1, cv2.LINE_AA)
+        cv2.putText(annotated_frame, time_text, (10, 42),
+                   font, header_font_scale * 0.8, (200, 200, 200), 1, cv2.LINE_AA)
         
         return annotated_frame
+    
+    def save_top_matches_crop(self, frame: np.ndarray, detections: List[Dict], image_path: str) -> Optional[str]:
+        """
+        Find the highest confidence person and tent, crop them, 
+        combine side-by-side, and save as TM_<imagename>.
+        
+        Args:
+            frame: Original image (not annotated)
+            detections: List of detection dictionaries
+            image_path: Path to the original image file
+            
+        Returns:
+            Path to saved crop image, or None if no targets found
+        """
+        # Find highest confidence person
+        persons = [d for d in detections if d['class'] == 'person']
+        best_person = max(persons, key=lambda x: x['confidence']) if persons else None
+        
+        # Find highest confidence tent
+        tents = [d for d in detections if d['class'] == 'tent']
+        best_tent = max(tents, key=lambda x: x['confidence']) if tents else None
+        
+        if not best_person and not best_tent:
+            return None  # No targets to crop
+        
+        crops = []
+        labels = []
+        height, width = frame.shape[:2]
+        
+        # Crop best person
+        if best_person:
+            x1, y1, x2, y2 = best_person['bbox']
+            # Clamp to image bounds
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(width, x2), min(height, y2)
+            if x2 > x1 and y2 > y1:
+                person_crop = frame[y1:y2, x1:x2].copy()
+                crops.append(person_crop)
+                labels.append(f"PERSON {best_person['confidence']:.0%}")
+        
+        # Crop best tent
+        if best_tent:
+            x1, y1, x2, y2 = best_tent['bbox']
+            # Clamp to image bounds
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(width, x2), min(height, y2)
+            if x2 > x1 and y2 > y1:
+                tent_crop = frame[y1:y2, x1:x2].copy()
+                crops.append(tent_crop)
+                labels.append(f"TENT {best_tent['confidence']:.0%}")
+        
+        if not crops:
+            return None
+        
+        # Resize crops to same height for side-by-side display
+        target_height = 200
+        resized_crops = []
+        
+        for crop, label in zip(crops, labels):
+            h, w = crop.shape[:2]
+            if h > 0:
+                scale = target_height / h
+                new_w = int(w * scale)
+                resized = cv2.resize(crop, (new_w, target_height), interpolation=cv2.INTER_AREA)
+                
+                # Add label at bottom
+                font = cv2.FONT_HERSHEY_DUPLEX
+                font_scale = 0.5
+                (tw, th), _ = cv2.getTextSize(label, font, font_scale, 1)
+                
+                # Add padding at bottom for label
+                label_height = th + 10
+                padded = np.zeros((target_height + label_height, new_w, 3), dtype=np.uint8)
+                padded[:target_height, :] = resized
+                
+                # Draw label background and text
+                cv2.rectangle(padded, (0, target_height), (new_w, target_height + label_height), (40, 40, 40), -1)
+                text_x = (new_w - tw) // 2
+                cv2.putText(padded, label, (text_x, target_height + th + 3),
+                           font, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+                
+                resized_crops.append(padded)
+        
+        if not resized_crops:
+            return None
+        
+        # Combine crops horizontally with a separator
+        separator_width = 5
+        total_width = sum(c.shape[1] for c in resized_crops) + separator_width * (len(resized_crops) - 1)
+        combined_height = resized_crops[0].shape[0]
+        
+        combined = np.zeros((combined_height, total_width, 3), dtype=np.uint8)
+        x_offset = 0
+        
+        for i, crop in enumerate(resized_crops):
+            if i > 0:
+                # Draw white separator
+                combined[:, x_offset:x_offset + separator_width] = (80, 80, 80)
+                x_offset += separator_width
+            combined[:, x_offset:x_offset + crop.shape[1]] = crop
+            x_offset += crop.shape[1]
+        
+        # Save the combined crop
+        original_filename = os.path.basename(image_path)
+        name, ext = os.path.splitext(original_filename)
+        output_filename = f"TM_{name}{ext}"
+        output_path = os.path.join(self.detection_results_path, output_filename)
+        
+        cv2.imwrite(output_path, combined)
+        self.get_logger().info(f"  Saved top matches crop: {output_filename}")
+        
+        return output_path
     
     def publish_results(self, annotated_frame: np.ndarray, detections: List[Dict], image_path: str) -> None:
         """
@@ -1188,6 +1311,12 @@ class SAHIObjectDetectionNode(Node):
             output_filename = f"sahi_detected_{name}{ext}"
             output_path = os.path.join(self.detection_results_path, output_filename)
             cv2.imwrite(output_path, annotated_frame)
+            
+            # Save top matches crop (best person + best tent)
+            # Need to read original image for clean crops
+            original_frame = cv2.imread(image_path)
+            if original_frame is not None:
+                self.save_top_matches_crop(original_frame, detections, image_path)
             
             # Create detection info message
             method = 'sahi+yolo11s'
