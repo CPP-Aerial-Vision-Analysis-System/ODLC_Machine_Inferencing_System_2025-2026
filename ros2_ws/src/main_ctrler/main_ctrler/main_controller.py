@@ -34,6 +34,7 @@ class MainController(Node):
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
         # Publishers
+        self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         # Clients
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
@@ -79,13 +80,13 @@ class MainController(Node):
                 value = changed_param.value
 
                 if name in ["num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"]:
-                    self.get_logger().info(f"[Param Update] {name} changed")
+                    # self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
+        # self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
 
         # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
         if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent")):
@@ -93,36 +94,20 @@ class MainController(Node):
             tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
-                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 2}
+                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
-        
-        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")):
+        elif self.waypoint_reached == self.last_before_rtl:
             if self.valid_detection("person"):
                 person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
                 self.send_waypoint_data([
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
-            elif self.valid_detection("tent"):
+            if self.valid_detection("tent"):
                 tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
-        
-        # if self.waypoint_reached == self.last_before_rtl: # and (self.valid_detection("person") and self.valid_detection("tent")):
-        #     # Send both waypoints at once
-        #     waypoints = [
-        #         {"lat": -35.3632457, "lon": 149.165117, "alt": 4, "index": self.last_before_rtl + 1},
-        #         {"lat": -35.3631743, "lon": 149.1650885, "alt": 4, "index": self.last_before_rtl + 2}
-        #     ]
-        #     if self.send_waypoint_data(waypoints):
-        #         self.get_logger().info("Both waypoints added successfully")
-        #     else:
-        #         self.get_logger().error("Failed to add waypoints")
-        # elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")):
-        #     self.send_waypoint_data([
-        #         {"lat": -35, "lon": -125, "alt": 10, "index": self.last_before_rtl + 1}
-        #     ])
-        
+
         if self.waypoint_reached == self.rtl_index:
             self.get_logger().info("Returning to launch. Mission complete.")
 
@@ -150,14 +135,20 @@ class MainController(Node):
         if msg.detections.detections:
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
             
+            #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
                 for result in detection.results:
-                    obj_class = result.hypothesis.class_id
+                    obj_id = result.hypothesis.class_id
+                    if obj_id == "0":
+                        obj_class = "person"
+                    elif obj_id == "1":
+                        obj_class = "tent"
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
+                            self.send_ack(f"Detected {obj_class} at waypoint {msg.waypoint_index}")
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
@@ -213,8 +204,15 @@ class MainController(Node):
         except Exception as e:
             self.get_logger().error(f"Error sending waypoints: {str(e)}")
             return False
+    
+    def send_ack(self, text):
+        msg = StatusText()
+        msg.severity = 6  # INFO
+        msg.text = text
+        self.status_publisher.publish(msg)
+        self.get_logger().info(f"Status: {text}")
 
 if __name__ == "__main__":
     rclpy.init()
     node = MainController()
-    rclpy.spin(node)    
+    rclpy.spin(node)   

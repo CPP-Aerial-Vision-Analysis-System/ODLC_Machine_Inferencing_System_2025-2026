@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'start_controller = main_ctrler.main_controller:main'
         ],
     },
 )
