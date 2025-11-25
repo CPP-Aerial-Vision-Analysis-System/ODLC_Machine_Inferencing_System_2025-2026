@@ -37,13 +37,13 @@ ros2 run video_cam image_pub
 # for starting the camera
 ```bash
 cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
-colcon build --packages-select video_cam
+colcon build video_cam
 source install/setup.bash
 ros2 run video_cam object_detection_sahi
 ```
 
 ------
-# if you are on Aro's linux, here are the commands(you are going to use Jazzy instead of humble)
+# if you are on Jazzy instead of humble
 ```bash
    cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
    colcon build --packages-select video_cam --symlink-install
