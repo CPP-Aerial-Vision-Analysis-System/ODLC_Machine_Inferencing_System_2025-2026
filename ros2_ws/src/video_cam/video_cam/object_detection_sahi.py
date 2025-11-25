@@ -38,7 +38,6 @@ import time # timing
 from datetime import datetime # timing
 import os # path
 from pathlib import Path # path
-from concurrent.futures import ThreadPoolExecutor, Future # for async processing
 from typing import List, Dict, Optional, Tuple # type hints
 import gc # garbage collection
 import platform # system info
@@ -180,7 +179,6 @@ class SAHIObjectDetectionNode(Node):
             self.get_logger().error(f"Failed to setup directories: {e}")
             raise
         
-        self.get_logger().info(f"SAHI Object Detection Node - Monitoring: {self.camera_feed_path}")
         self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
         
         # Auto-detect device (GPU, MPS, or CPU)
@@ -195,12 +193,7 @@ class SAHIObjectDetectionNode(Node):
         
         # Processing state
         self.processed_images: Dict[str, float] = {}  # Track processed images with timestamps
-        self.processing_queue: List[str] = []  # Queue for images to process
-        self.processing_lock = False  # Simple lock to prevent concurrent processing
-        
-        # Thread pool for async processing
-        self.thread_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="sahi_worker")
-        self.active_futures: List[Future] = []
+        self.is_processing = False  # Flag to prevent overlapping processing
         
         # Statistics
         self.stats = {
@@ -247,15 +240,15 @@ class SAHIObjectDetectionNode(Node):
         if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
             self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
         
-        self.get_logger().info("="*80)
-        self.get_logger().info("SAHI Object Detection Node Initialized")
-        self.get_logger().info(f"Model: {self.model_path}")
-        self.get_logger().info(f"Confidence Threshold: {self.confidence_threshold}")
-        self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
-        self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
-        self.get_logger().info(f"Device: {self.device}")
-        self.get_logger().info(f"Max Images Per Cycle: {self.max_images_per_cycle}")
-        self.get_logger().info("="*80)
+        # self.get_logger().info("="*80)
+        # self.get_logger().info("SAHI Object Detection Node Initialized")
+        # self.get_logger().info(f"Model: {self.model_path}")
+        # self.get_logger().info(f"Confidence Threshold: {self.confidence_threshold}")
+        # self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
+        # self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
+        # self.get_logger().info(f"Device: {self.device}")
+        # self.get_logger().info(f"Max Images Per Cycle: {self.max_images_per_cycle}")
+        # self.get_logger().info("="*80)
 
         # Waypoint subscriber
         self.waypoint_reached = 0
@@ -416,10 +409,10 @@ class SAHIObjectDetectionNode(Node):
             compute_capability = torch.cuda.get_device_capability(0)
             
             self.get_logger().info(f" CUDA GPU Detected!")
-            self.get_logger().info(f"   Device: {device_name}")
-            self.get_logger().info(f"   GPU Count: {device_count}")
-            self.get_logger().info(f"   Compute Capability: {compute_capability[0]}.{compute_capability[1]}")
-            self.get_logger().info(f"   CUDA Version: {torch.version.cuda}")
+            # self.get_logger().info(f"   Device: {device_name}")
+            # self.get_logger().info(f"   GPU Count: {device_count}")
+            # self.get_logger().info(f"   Compute Capability: {compute_capability[0]}.{compute_capability[1]}")
+            # self.get_logger().info(f"   CUDA Version: {torch.version.cuda}")
             
             # Check if this is a Jetson device
             try:
@@ -435,7 +428,7 @@ class SAHIObjectDetectionNode(Node):
         # Try Apple Metal Performance Shaders (MPS) for Mac
         elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             self.get_logger().info(" Apple Silicon GPU (MPS) Detected!")
-            self.get_logger().info("   Using Metal Performance Shaders for acceleration")
+            # self.get_logger().info("   Using Metal Performance Shaders for acceleration")
             
             # Check if MPS is actually built
             if not torch.backends.mps.is_built():
@@ -507,14 +500,14 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().info(f"Using model from package directory: {model_path}")
                 # 3. Check if it exists as-is (current working directory)
                 elif os.path.exists(model_path):
-                    self.get_logger().info(f"Using model from current directory: {model_path}")
+                    pass  # self.get_logger().info(f"Using model from current directory: {model_path}")
                 else:
                     self.get_logger().warn(f"Model file not found at {self.model_path}, will download from Ultralytics if needed")
             elif not os.path.exists(model_path):
                 self.get_logger().warn(f"Model file not found at {model_path}, will download from Ultralytics if needed")
             
-            self.get_logger().info("Loading SAHI YOLOv11s model for small object detection...")
-            self.get_logger().info(f"Target device: {self.device}")
+            # self.get_logger().info("Loading SAHI YOLOv11s model for small object detection...")
+            # self.get_logger().info(f"Target device: {self.device}")
             
             # GPU memory optimization for CUDA
             if self.device.startswith('cuda') and TORCH_AVAILABLE:
@@ -541,7 +534,7 @@ class SAHIObjectDetectionNode(Node):
                     gpu_mem_allocated = torch.cuda.memory_allocated(0) / 1024**3
                     gpu_mem_free = gpu_mem_total - gpu_mem_allocated
                     
-                    self.get_logger().info(f"   GPU Memory: {gpu_mem_free:.2f}GB free / {gpu_mem_total:.2f}GB total")
+                    # self.get_logger().info(f"   GPU Memory: {gpu_mem_free:.2f}GB free / {gpu_mem_total:.2f}GB total")
                     
                     # Warn if low memory
                     if gpu_mem_free < 2.0:
@@ -561,13 +554,13 @@ class SAHIObjectDetectionNode(Node):
                 device=self.device,
             )
             
-            self.get_logger().info(" SAHI YOLOv11s model loaded successfully!")
+            # self.get_logger().info(" SAHI YOLOv11s model loaded successfully!")
             
             # Verify model is on correct device
             if TORCH_AVAILABLE and hasattr(self.detection_model, 'model'):
                 try:
                     model_device = next(self.detection_model.model.model.parameters()).device
-                    self.get_logger().info(f" Model confirmed on device: {model_device}")
+                    # self.get_logger().info(f" Model confirmed on device: {model_device}")
                 except (AttributeError, StopIteration, RuntimeError) as e:
                     self.get_logger().debug(f"Could not verify model device: {e}")
             
@@ -588,7 +581,7 @@ class SAHIObjectDetectionNode(Node):
     
     def check_for_new_images(self) -> None:
         """
-        Check for new images in camera_feed folder and process them in batches.
+        Check for new images in camera_feed folder and process them one by one.
         Also performs image cleanup if configured.
         """
         try:
@@ -598,6 +591,10 @@ class SAHIObjectDetectionNode(Node):
             
             if self.detection_model is None:
                 self.get_logger().warn("SAHI model not initialized, skipping detection")
+                return
+            
+            # Skip if already processing
+            if self.is_processing:
                 return
             
             # Clean up old images if needed
@@ -618,43 +615,32 @@ class SAHIObjectDetectionNode(Node):
             # Sort by timestamp (oldest first)
             image_files_with_time.sort(key=lambda x: x[1])
             
-            # Filter out already processed images
-            new_images = [
-                (fname, mtime) for fname, mtime in image_files_with_time
-                if fname not in self.processed_images
-            ]
-            
-            # Log status periodically
-            if len(image_files_with_time) > 0:
-                self.get_logger().debug(
-                    f"Found {len(image_files_with_time)} total images, "
-                    f"{len(self.processed_images)} already processed, "
-                    f"{len(new_images)} new"
-                )
-            
-            # Process new images in batches
-            if new_images and not self.processing_lock:
-                # Limit batch size
-                batch = new_images[:self.max_images_per_cycle]
-                
-                self.get_logger().info(f"Processing batch of {len(batch)} new images")
-                
-                # Process images (can be async with thread pool)
-                for image_file, mtime in batch:
-                    image_path = os.path.join(self.camera_feed_path, image_file)
+            # Find first unprocessed image
+            for fname, mtime in image_files_with_time:
+                if fname not in self.processed_images:
+                    # Process this single image
+                    image_path = os.path.join(self.camera_feed_path, fname)
+                    self.is_processing = True
                     
-                    # Submit to thread pool for async processing
-                    future = self.thread_pool.submit(self._process_image_safe, image_path)
-                    self.active_futures.append(future)
+                    try:
+                        self.process_image(image_path)
+                        # Update health on success
+                        self.health_status['last_successful_detection'] = time.time()
+                        self.health_status['consecutive_errors'] = 0
+                        self.health_status['is_healthy'] = True
+                    except Exception as e:
+                        self.get_logger().error(f"Error processing image {image_path}: {e}")
+                        import traceback
+                        self.get_logger().error(traceback.format_exc())
+                        self.stats['errors'] += 1
+                        self.health_status['consecutive_errors'] += 1
+                    finally:
+                        # Mark as processed regardless of success/failure
+                        self.processed_images[fname] = mtime
+                        self.is_processing = False
                     
-                    # Track as processed immediately to avoid duplicates
-                    self.processed_images[image_file] = mtime
-                
-                # Clean up completed futures
-                self.active_futures = [f for f in self.active_futures if not f.done()]
-                
-                if len(batch) > 0:
-                    self.get_logger().info(f"Queued {len(batch)} images for processing")
+                    # Only process one image per timer cycle
+                    break
             
         except (OSError, IOError) as e:
             self.get_logger().error(f"Error checking for new images: {e}")
@@ -705,22 +691,6 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().info(f"Cleaned up {removed} old images from camera_feed")
         except (OSError, IOError) as e:
             self.get_logger().debug(f"Error during image cleanup: {e}")
-    
-    def _process_image_safe(self, image_path: str) -> None:
-        """Wrapper for process_image with error handling"""
-        try:
-            self.process_image(image_path)
-            # Update health on success
-            self.health_status['last_successful_detection'] = time.time()
-            if self.health_status['consecutive_errors'] > 0:
-                self.health_status['consecutive_errors'] = 0
-                self.health_status['is_healthy'] = True
-        except Exception as e:
-            self.get_logger().error(f"Error processing image {image_path}: {e}")
-            self.stats['errors'] += 1
-            self.health_status['consecutive_errors'] += 1
-            if self.health_status['consecutive_errors'] > 5:
-                self.health_status['is_healthy'] = False
     
     def process_image(self, image_path: str) -> None:
         """
@@ -813,11 +783,11 @@ class SAHIObjectDetectionNode(Node):
             num_slices_w = max(1, (w - self.slice_width) // stride_w + 1) if stride_w > 0 else 1
             total_slices = num_slices_h * num_slices_w
             
-            self.get_logger().info(
-                f"Running SAHI prediction with {self.slice_height}x{self.slice_width} slices, "
-                f"{self.overlap_height_ratio:.1%}x{self.overlap_width_ratio:.1%} overlap..."
-            )
-            self.get_logger().info(f"  Estimated slices: {total_slices} ({num_slices_h}x{num_slices_w} grid)")
+            # self.get_logger().info(
+            #     f"Running SAHI prediction with {self.slice_height}x{self.slice_width} slices, "
+            #     f"{self.overlap_height_ratio:.1%}x{self.overlap_width_ratio:.1%} overlap..."
+            # )
+            # self.get_logger().info(f"  Estimated slices: {total_slices} ({num_slices_h}x{num_slices_w} grid)")
             
             # Show progress bar in terminal
             if TQDM_AVAILABLE:
@@ -849,7 +819,7 @@ class SAHIObjectDetectionNode(Node):
                 elapsed = time.time() - start_time
                 print(f" Detection complete in {elapsed:.1f}s - found {len(result.object_prediction_list)} raw detections\n")
             
-            self.get_logger().info(f"SAHI found {len(result.object_prediction_list)} raw detections")
+            # self.get_logger().info(f"SAHI found {len(result.object_prediction_list)} raw detections")
             
             # Convert SAHI results to our format
             for object_prediction in result.object_prediction_list:
@@ -1283,7 +1253,7 @@ class SAHIObjectDetectionNode(Node):
         output_path = os.path.join(self.detection_results_path, output_filename)
         
         cv2.imwrite(output_path, combined)
-        self.get_logger().info(f"  Saved top matches crop: {output_filename}")
+        # self.get_logger().info(f"  Saved top matches crop: {output_filename}")
         
         return output_path
     
@@ -1407,9 +1377,9 @@ class SAHIObjectDetectionNode(Node):
             info_msg.data = str(detection_info)
             self.detection_publisher.publish(info_msg)
             
-            self.get_logger().info(
-                f" Published and saved results -> {output_filename}"
-            )
+            # self.get_logger().info(
+            #     f\" Published and saved results -> {output_filename}\"
+            # )
             
         except (cv2.error, OSError, IOError) as e:
             self.get_logger().error(f"Error publishing/saving results: {e}")
@@ -1458,16 +1428,24 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        node.get_logger().info("Shutting down SAHI Object Detection Node...")
+        pass  # Normal shutdown via Ctrl+C
     finally:
-        # Log final statistics
-        node.get_logger().info("Shutting down...")
-        node._log_statistics()
+        # Clean shutdown
+        print("\n" + "="*60)
+        print("Shutting down SAHI Object Detection Node...")
+        print("="*60)
         
-        # Cleanup thread pool executor
-        if hasattr(node, 'executor'):
-            node.get_logger().info("Shutting down thread pool executor...")
-            node.executor.shutdown(wait=True)
+        # Print final statistics to console (not ROS logger since context may be invalid)
+        stats = node.stats
+        print(f"  Total Images Processed: {stats['total_images_processed']}")
+        print(f"  Total Detections: {stats['total_detections']}")
+        print(f"  Total People: {stats['total_people']}")
+        print(f"  Total Tents: {stats['total_tents']}")
+        print(f"  Avg Processing Time: {stats['avg_processing_time']:.2f}s")
+        print(f"  Errors: {stats['errors']}")
+        uptime = time.time() - stats['node_start_time']
+        print(f"  Uptime: {uptime:.1f}s")
+        print("="*60 + "\n")
         
         node.destroy_node()
         rclpy.shutdown()
