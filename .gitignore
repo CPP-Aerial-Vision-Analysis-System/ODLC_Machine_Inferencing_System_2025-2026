@@ -8,7 +8,7 @@ ros2_ws/*.tlog
 ros2_ws/*.tlog.raw
 ros2_ws/*.deb
 camera_feed/
-ros2_ws/video_cam/
+ros2_ws/detection
 .vscode/
 
 # Python cache files
