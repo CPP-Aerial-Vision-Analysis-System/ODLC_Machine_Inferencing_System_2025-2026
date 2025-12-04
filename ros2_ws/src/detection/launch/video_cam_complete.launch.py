@@ -6,13 +6,20 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     """
-    Launch file for SAHI Object Detection Node
+    Complete Launch file for Video Camera System
     
-    This launch file starts the SAHI-based object detection node with
-    configurable parameters optimized for small object detection in aerial imagery.
+    This launch file starts both:
+    1. Image Publisher Node (image_pub_siyi) - Captures and publishes camera frames
+    2. SAHI Object Detection Node - Processes images and detects objects
+    
+    The image publisher saves images to camera_feed/ directory, and the
+    detection node monitors that directory and processes new images.
     """
     
-    # Declare launch arguments
+    # ========================================
+    # Launch Arguments for SAHI Detection
+    # ========================================
+    
     model_path_arg = DeclareLaunchArgument(
         'model_path',
         default_value='yolo11s.pt',
@@ -61,7 +68,22 @@ def generate_launch_description():
         description='Device to use for inference (auto, cpu, cuda:0, mps)'
     )
     
-    # Create the SAHI object detection node
+    # ========================================
+    # Image Publisher Node
+    # ========================================
+    
+    image_pub_node = Node(
+        package='detection',
+        executable='image_pub',
+        name='siyi_a8_publisher',
+        output='screen',
+        emulate_tty=True,
+    )
+    
+    # ========================================
+    # SAHI Object Detection Node
+    # ========================================
+    
     sahi_detection_node = Node(
         package='detection',
         executable='object_detection_sahi',
@@ -80,7 +102,12 @@ def generate_launch_description():
         emulate_tty=True,
     )
     
+    # ========================================
+    # Return Launch Description
+    # ========================================
+    
     return LaunchDescription([
+        # Launch arguments
         model_path_arg,
         confidence_threshold_arg,
         slice_height_arg,
@@ -89,5 +116,8 @@ def generate_launch_description():
         overlap_width_ratio_arg,
         check_interval_arg,
         device_arg,
+        # Nodes
+        image_pub_node,
         sahi_detection_node,
     ])
+

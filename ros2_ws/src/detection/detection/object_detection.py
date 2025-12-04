@@ -61,17 +61,33 @@ class ObjectDetectionNode(Node):
         self.publisher = self.create_publisher(Image, '/detection_results', 10)
         self.detection_publisher = self.create_publisher(String, '/detection_info', 10)
         
-        # Get camera_feed directory path
-        self.camera_feed_path = os.path.join(
-            get_package_share_directory("video_cam"), 
-            "camera_feed"
-        )
+        # Get camera_feed directory path - use ros2_ws/detection folder
+        current_file = os.path.abspath(__file__)
+        current_dir = os.path.dirname(current_file)
+        
+        # Navigate up to find ros2_ws
+        search_dir = current_dir
+        ros2_ws_dir = None
+        
+        for _ in range(10):
+            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                ros2_ws_dir = search_dir
+                break
+            parent = os.path.dirname(search_dir)
+            if parent == search_dir:
+                break
+            search_dir = parent
+        
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/astra/ros2_ws"
+        
+        detection_dir = os.path.join(ros2_ws_dir, "detection")
+        os.makedirs(detection_dir, exist_ok=True)
+        
+        self.camera_feed_path = os.path.join(detection_dir, "camera_feed")
         
         # Get detection_results directory path
-        self.detection_results_path = os.path.join(
-            get_package_share_directory("video_cam"), 
-            "detection_results"
-        )
+        self.detection_results_path = os.path.join(detection_dir, "detection_results")
         
         # Create detection_results directory if it doesn't exist
         os.makedirs(self.detection_results_path, exist_ok=True)
