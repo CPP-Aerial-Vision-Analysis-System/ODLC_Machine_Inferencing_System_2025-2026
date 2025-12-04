@@ -313,7 +313,7 @@ class SiyiA8Publisher(Node):
     
     def camera_trigger_callback(self, msg):
         if msg.data:
-            self.get_logger().info("Canmera trigger received")
+            self.get_logger().info("Camera trigger received")
             self.capture_photo = True
     
     def check_altitude(self, msg):
@@ -349,17 +349,17 @@ class SiyiA8Publisher(Node):
                     else:
                         imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
                     
-                    self.publisher.publish(imageToTransmit)
-                    timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
-                    cv2.imwrite(filename, capturedFrame)
+                    # self.publisher.publish(imageToTransmit)
+                    # timestamp = time.strftime("%Y%m%d-%H%M%S")
+                    # filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
+                    # cv2.imwrite(filename, capturedFrame)
 
                     if self.capture_photo:
-                        self.get_logger().info("Capturing photo...")
+                        # self.get_logger().info("Capturing photo...")
                         timestamp = time.strftime("%Y%m%d-%H%M%S")
                         mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
                         cv2.imwrite(mapping_filename, capturedFrame)
-                        self.get_logger().info(f"Photo saved to {mapping_filename}")
+                        # self.get_logger().info(f"Photo saved to {mapping_filename}")
                         self.capture_photo = False
                 else:
                     camera_type = "SIYI" if self.use_real_camera else "Webcam"

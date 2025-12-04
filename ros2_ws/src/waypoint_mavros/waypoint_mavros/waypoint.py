@@ -18,8 +18,8 @@ class WaypointManager(Node):
         # Subscribers
         self.create_subscription(State, "/mavros/state", self.state_callback, 10)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
-        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list, 10)
-        self.status_pub = self.create_publisher(StatusText, "/mavros/statustext/send", 10)   # should this be pub??
+        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list_cb, 10)
+        self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         # mavros Clients
         self.waypoint_pull = self.create_client(WaypointPull, "/mavros/mission/pull")
@@ -49,8 +49,38 @@ class WaypointManager(Node):
         """receives and stores the waypoint lists from mavros"""
         self.waypoint_list = data
         for i, wp in enumerate(self.waypoint_list.waypoints):
-            self.get_logger().info(f"Waypoint {type(wp)} {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
+            #self.get_logger().info(f"Waypoint {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
+            
+            if wp.command == MAV_CMD_NAV_TAKEOFF:
+                self.takeoff_index = i
+                if i + 1 < len(self.waypoint_list.waypoints):
+                    self.next_after_takeoff = i + 1
+
+            if wp.command == MAV_CMD_NAV_RETURN_TO_LAUNCH:
+                self.rtl_index = i
+                if i - 1 > 0:
+                    self.last_before_rtl = i - 1
+
+        self.get_logger().info(f"Takeoff Index: {self.takeoff_index}, Next After Takeoff: {self.next_after_takeoff}, Last Before RTL: {self.last_before_rtl}, RTL Index: {self.rtl_index}")
+        self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, len(self.waypoint_list.waypoints))])
+        self.set_parameters([rclpy.parameter.Parameter('takeoff_index', rclpy.Parameter.Type.INTEGER, self.takeoff_index)])
+        self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, self.next_after_takeoff)])
+        self.set_parameters([rclpy.parameter.Parameter('rtl_index', rclpy.Parameter.Type.INTEGER, self.rtl_index)])
+        self.set_parameters([rclpy.parameter.Parameter('last_before_rtl', rclpy.Parameter.Type.INTEGER, self.last_before_rtl)])
     
+    def reset_indices(self):
+        self.num_waypoints = 0
+        self.takeoff_index = -1
+        self.rtl_index = -1
+        self.next_after_takeoff = -1
+        self.last_before_rtl = -1
+
+        self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, 0)])
+        self.set_parameters([rclpy.parameter.Parameter('takeoff_index', rclpy.Parameter.Type.INTEGER, -1)])
+        self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, -1)])
+        self.set_parameters([rclpy.parameter.Parameter('rtl_index', rclpy.Parameter.Type.INTEGER, -1)])
+        self.set_parameters([rclpy.parameter.Parameter('last_before_rtl', rclpy.Parameter.Type.INTEGER, -1)])
+
     def push_waypoints(self):
         # infinite loop until the waypoint push service is available(toFix)
         """Push waypoints to the drone"""
@@ -61,7 +91,15 @@ class WaypointManager(Node):
             waypoint_push_request = WaypointPush.Request()
             waypoint_push_request.start_index = 0
             waypoint_push_request.waypoints = self.waypoint_list.waypoints
-            push_result = self.waypoint_push.call_async(waypoint_push_request)
+            future = self.waypoint_push.call_async(waypoint_push_request)
+            # rclpy.spin_until_future_complete(self, future)
+            if future.result() is not None:
+                if future.result().success:
+                    self.get_logger().info("Waypoints pushed successfully")
+                    return True
+            else:
+                # self.get_logger().error("Failed to push waypoints")
+                return False
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
     
@@ -97,23 +135,63 @@ class WaypointManager(Node):
     
     def insert_new_waypoint(self, lat, lon, alt, index):
         """Insert new waypoint into the waypoint list and push the updated list"""
-        new_waypoint = Waypoint()
-        new_waypoint.frame = 3  # Global relative altitude
-        new_waypoint.command = 16
-        new_waypoint.is_current = False
-        new_waypoint.autocontinue = True
-        new_waypoint.param1 = float(5)  # Hold time in seconds
-        new_waypoint.param2 = float(0)  # Acceptance radius in meters
-        new_waypoint.param3 = float(0)  # Pass through waypoint
-        new_waypoint.param4 = float('nan')  # Yaw angle
-        new_waypoint.x_lat = float(lat)
-        new_waypoint.y_long = float(lon)
-        new_waypoint.z_alt = float(alt)
-        self.pull_waypoints()
-        self.get_logger().info(f"Inserting new waypoint at index {index}: Lat: {lat}, Lon: {lon}, Alt: {alt}")
-        self.waypoint_list.waypoints.insert(index, new_waypoint)
-        self.push_waypoints()
-        self.get_logger().info("Waypoint inserted and pushed successfully.")
+        try:
+            # First make sure we have the latest waypoint list
+           # self.get_logger().info("Pulling current waypoint list...")
+          #  self.pull_waypoints()
+            self.get_logger().info("Pulling current waypoint list...")
+            
+            if len(wp_list) > 0:
+                # Store original list in case we need to revert
+                original_waypoints = self.waypoint_list.waypoints.copy()
+                
+                # Insert all new waypoints
+                for wp in wp_list:
+                    self.get_logger().info(f"Preparing waypoint at index {wp['index']}: Lat:{wp['lat']}, Lon:{wp['lon']}, Alt:{wp['alt']}")
+                    new_waypoint = Waypoint()
+                    new_waypoint.frame = 3  # Global relative altitude
+                    new_waypoint.command = 16  # MAV_CMD_NAV_WAYPOINT
+                    new_waypoint.is_current = False
+                    new_waypoint.autocontinue = True
+                    new_waypoint.param1 = float(15)  # Hold time in seconds
+                    new_waypoint.param2 = float(0)  # Acceptance radius in meters
+                    new_waypoint.param3 = float(0)  # Pass through waypoint
+                    new_waypoint.param4 = float('nan')  # Yaw angle
+                    new_waypoint.x_lat = float(wp['lat'])
+                    new_waypoint.y_long = float(wp['lon'])
+                    new_waypoint.z_alt = float(wp['alt'])
+                    index = wp['index']
+                    
+                    # Make sure index is valid
+                    if index > len(self.waypoint_list.waypoints):
+                        self.get_logger().error(f"Index {index} is out of range")
+                        return False
+                        
+                    self.waypoint_list.waypoints.insert(index, new_waypoint)
+
+                self.push_waypoints()
+                self.get_logger().info(f"Successfully pushed {len(wp_list)} new waypoints")
+                self.set_current_waypoint(wp_list[0]['index'])
+
+                # Try to push the updated list
+                # if self.push_waypoints():
+                #     self.get_logger().info(f"Successfully pushed {len(wp_list)} new waypoints")
+                    
+                #     # Only set current waypoint if push was successful
+                #     self.set_current_waypoint(wp_list[0]['index'])
+                #     return True
+                # else:
+                #     # If push failed, restore original list
+                #     self.get_logger().warn("Push failed, reverting waypoint list")
+                #     self.waypoint_list.waypoints = original_waypoints
+                #     return False
+            else:
+                self.get_logger().warn("No waypoints to insert")
+                return False
+                
+        except Exception as e:
+            self.get_logger().error(f"Error inserting waypoints: {str(e)}")
+            return False
     
     def delete_waypoint(self, index):
         """Delete waypoint from the waypoint list and push the updated list"""
@@ -136,6 +214,7 @@ class WaypointManager(Node):
             if int(wp.param1) > 0:
                 if int(wp.command) == 16:  # Waypoint command
                     self.get_logger().info("Object waypoint reached.")
+                    self.send_ack(f"Object waypoint reached. Holding for {int(wp.param1)} seconds.")
                 else:
                     self.get_logger().info("Loiter finished. Continuing to next waypoint.")
     
@@ -149,15 +228,12 @@ class WaypointManager(Node):
         else:
             self.get_logger().info(f"Failed to change mode.")
     
-    def send_status(self, text, throttle=False):
-        """Send status message to the drone."""
-        now = time.time()
-        if not throttle or (now - self.last_status_time > self.status_interval):
-            status_msg = StatusText()
-            status_msg.severity = 6  # 6 = NOTICE
-            status_msg.text = text
-            self.status_pub.publish(status_msg)
-            self.last_status_time = now
+    def send_ack(self, text):
+        msg = StatusText()
+        msg.severity = 6  # INFO
+        msg.text = text
+        self.status_publisher.publish(msg)
+        self.get_logger().info(f"Status: {text}")
 
     def handle_wp_req(self, request, response):
         """Handle AddWaypoint service request"""
@@ -203,9 +279,8 @@ class WaypointManager(Node):
         
         message = f"Heartbeat established"
         self.get_logger().info(message)
-        self.send_status(message)
-        # self.insert_new_waypoint(1,1,1,3)
-        # self.delete_waypoint(2)
+        self.send_ack(message)
+        self.pull_waypoints()
         rclpy.spin(self)
         
 def main():

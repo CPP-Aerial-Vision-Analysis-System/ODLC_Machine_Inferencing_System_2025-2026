@@ -4,12 +4,17 @@
   <name>payload</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="arhovumyan@users.noreply.github.com">astra-dev</maintainer>
+  <maintainer email="student.joshuaestrada@gmail.com">ubuntu</maintainer>
   <license>TODO: License declaration</license>
 
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
   <exec_depend>mavros_msgs</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

@@ -709,7 +709,7 @@ class SAHIObjectDetectionNode(Node):
                 return
             
             height, width = frame.shape[:2]
-            self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
+            # self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
             # Run SAHI prediction
             detections = self.detect_objects_sahi(frame)
@@ -719,6 +719,8 @@ class SAHIObjectDetectionNode(Node):
             
             # Create annotated frame
             annotated_frame = self.annotate_frame(frame, detections, processing_time)
+            
+            self.get_logger().info(f"{self.detection_pub.publish(ImageResult())}")
             
             # Publish results
             self.publish_results(annotated_frame, detections, image_path)
@@ -1349,7 +1351,9 @@ class SAHIObjectDetectionNode(Node):
 
                 # Add hypothesis (class + confidence)
                 hypo = ObjectHypothesisWithPose()
-                hypo.hypothesis.class_id = det['class']
+                # Map class names to integer IDs (0=person, 1=tent)
+                class_id = 0 if det['class'] == 'person' else 1
+                hypo.hypothesis.class_id = str(class_id)  # class_id is a string
                 hypo.hypothesis.score = float(det['confidence'])
                 d2d.results.append(hypo)
 
@@ -1368,6 +1372,7 @@ class SAHIObjectDetectionNode(Node):
             image_result_msg.confidences = confidences
             image_result_msg.areas = areas
             image_result_msg.descriptions = descriptions
+
 
             # Publish ImageResult message
             self.detection_pub.publish(image_result_msg)

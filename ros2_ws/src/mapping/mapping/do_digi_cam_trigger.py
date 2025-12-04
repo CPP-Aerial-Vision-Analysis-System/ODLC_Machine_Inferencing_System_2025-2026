@@ -19,11 +19,11 @@ class MissionCameraTrigger(Node):
         if "DigiCamCtrl" in msg.text:
             match = re.search(r"Mission:\s*(\d+)", msg.text)
             wp = match.group(1) if match else "?"
-            self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
+            # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
             self.trigger_camera()
 
     def trigger_camera(self):
-        self.get_logger().info("Triggering Jetson-side camera")
+        self.get_logger().info("Triggering camera...")
         self.camera_trigger_pub.publish(Bool(data=True))
 
 
