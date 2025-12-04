@@ -14,7 +14,7 @@ Your Jetson has a GPU but PyTorch is using CPU only. Fix this for **5-10x perfor
 
 ```bash
 # Check GPU status
-cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/video_cam/video_cam
+cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/detection/detection
 python3 check_gpu.py
 
 # Follow GPU_SETUP_GUIDE.md for full instructions
@@ -30,7 +30,7 @@ python3 check_gpu.py
 
 ```bash
 cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
-colcon build --packages-select video_cam --symlink-install
+colcon build --packages-select detection --symlink-install
 source install/setup.bash
 ```
 
@@ -41,7 +41,7 @@ source install/setup.bash
 Terminal 1:
 ```bash
 source ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install/setup.bash
-ros2 run video_cam image_pub
+ros2 run detection image_pub
 ```
 
 **Expected Output:**
@@ -58,12 +58,12 @@ ros2 run video_cam image_pub
 Terminal 2 (with SAHI for small objects):
 ```bash
 source ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install/setup.bash
-ros2 run video_cam object_detection_sahi
+ros2 run detection object_detection_sahi
 ```
 
 **Or** basic object detection:
 ```bash
-ros2 run video_cam object_detection
+ros2 run detection object_detection
 ```
 
 **Expected Output (with GPU):**
@@ -138,7 +138,7 @@ ALT_THRESHOLD = 13.716  # Minimum altitude to enable camera (meters)
 ### SAHI Detection Parameters
 ```bash
 # Via ROS2 parameters
-ros2 run video_cam object_detection_sahi \
+ros2 run detection object_detection_sahi \
     --ros-args \
     -p model_path:=yolo11s.pt \
     -p confidence_threshold:=0.15 \
@@ -174,7 +174,7 @@ If you get "CUDA out of memory" errors:
 
 2. **Reduce slice size:**
    ```bash
-   ros2 run video_cam object_detection_sahi \
+   ros2 run detection object_detection_sahi \
        --ros-args \
        -p slice_height:=384 \
        -p slice_width:=384
@@ -285,7 +285,7 @@ pip install "numpy<2" --force-reinstall
 # Clean and rebuild
 cd ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
 rm -rf build/ install/ log/
-colcon build --packages-select video_cam --symlink-install
+colcon build --packages-select detection --symlink-install
 source install/setup.bash
 ```
 
@@ -294,8 +294,8 @@ source install/setup.bash
 ## Directory Structure
 
 ```
-video_cam/
-├── video_cam/
+detection/
+├── detection/
 │   ├── image_pub_siyi.py          # Camera publisher node
 │   ├── object_detection.py        # Standard detection node
 │   ├── object_detection_sahi.py   # SAHI detection node
@@ -311,10 +311,10 @@ video_cam/
 ```
 
 ### Output Directories
-- `install/video_cam/share/video_cam/camera_feed/` - Raw camera images
-- `install/video_cam/share/video_cam/detection_results_sahi/` - SAHI detections
-- `install/video_cam/share/video_cam/detection_results/` - Standard detections
-- `install/video_cam/share/video_cam/mapping_photos/` - Triggered photos
+- `install/detection/share/detection/camera_feed/` - Raw camera images
+- `install/detection/share/detection/detection_results_sahi/` - SAHI detections
+- `install/detection/share/detection/detection_results/` - Standard detections
+- `install/detection/share/detection/mapping_photos/` - Triggered photos
 
 ---
 
@@ -324,10 +324,10 @@ video_cam/
 
 ```bash
 # Terminal 1: Start camera
-ros2 run video_cam image_pub
+ros2 run detection image_pub
 
 # Terminal 2: Start detection
-ros2 run video_cam object_detection_sahi
+ros2 run detection object_detection_sahi
 
 # Terminal 3: Monitor performance
 ros2 topic hz /sahi_detection_results
@@ -338,10 +338,10 @@ ros2 topic hz /sahi_detection_results
 ```bash
 # 1. Copy images to camera_feed directory
 cp /path/to/images/*.jpg \
-   ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install/video_cam/share/video_cam/camera_feed/
+   ~/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install/detection/share/detection/camera_feed/
 
 # 2. Run detection
-ros2 run video_cam object_detection_sahi
+ros2 run detection object_detection_sahi
 
 # 3. Results saved to detection_results_sahi/
 ```
@@ -356,10 +356,10 @@ use_real_camera = False
 ros2 topic pub /webcam/image_raw sensor_msgs/msg/Image ...
 
 # Terminal 2: Run camera node (republishes)
-ros2 run video_cam image_pub
+ros2 run detection image_pub
 
 # Terminal 3: Run detection
-ros2 run video_cam object_detection_sahi
+ros2 run detection object_detection_sahi
 ```
 
 ---

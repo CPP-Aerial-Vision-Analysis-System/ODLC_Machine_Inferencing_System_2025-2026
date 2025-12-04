@@ -1,13 +1,107 @@
-# Image Publisher SIYI A8 Camera - Bug Fix Documentation
+# Image Publisher SIYI A8 Camera - System Documentation
 
-**Date:** October 25, 2025  
-**Modified File:** `image_pub_siyi.py`  
+**Date:** November 2025  
 **Package:** `detection`  
-**Branch:** `feature/video-cam-launch-file`
+**System:** ODLC Machine Inferencing System 2025-2026
 
 ---
 
-## Executive Summary
+## System Workflow Overview
+
+This document describes the complete workflow of image capture and object detection in the ODLC system.
+
+### Image Capture and Object Detection Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. IMAGE CAPTURE (image_pub_siyi.py)                            │
+├─────────────────────────────────────────────────────────────────┤
+│ • Connects to SIYI A8 camera via RTSP stream                    │
+│   (rtsp://192.168.144.25:8554/main.264)                         │
+│ • Captures frames from camera in real-time                      │
+│ • Saves images to: ros2_ws/detection/camera_feed/               │
+│ • Publishes frames to ROS topic: /image_raw                     │
+└─────────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. OBJECT DETECTION (object_detection_sahi.py)                  │
+├─────────────────────────────────────────────────────────────────┤
+│ • Timer periodically checks camera_feed/ for new images         │
+│   (default: every 2 seconds)                                    │
+│ • Processes new images using SAHI + YOLO11s model               │
+│   - Slices images into overlapping patches                      │
+│   - Detects objects in each slice                               │
+│   - Merges and filters results (NMS)                            │
+│ • Optional: Validates detections with MobileNetV3               │
+│ • Saves annotated results to:                                   │
+│   ros2_ws/detection/detection_results_sahi/                     │
+│ • Publishes results to ROS topics:                              │
+│   - /sahi_detection_results (annotated images)                  │
+│   - /image_detections (ImageResult messages)                    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+**Image Publisher Node (`image_pub_siyi.py`)**
+- **Function:** Captures frames from SIYI A8 camera and saves them to disk
+- **Output Directory:** `ros2_ws/detection/camera_feed/`
+- **ROS Topic:** `/image_raw` (sensor_msgs/Image)
+- **Image Format:** JPG files saved with timestamp
+
+**Object Detection Node (`object_detection_sahi.py`)**
+- **Function:** Detects objects (people/mannequins, tents) in saved images
+- **Input Directory:** `ros2_ws/detection/camera_feed/`
+- **Output Directory:** `ros2_ws/detection/detection_results_sahi/`
+- **Detection Method:** SAHI (Slicing Aided Hyper Inference) with YOLO11s
+- **ROS Topics:**
+  - `/sahi_detection_results` (sensor_msgs/Image)
+  - `/image_detections` (interfaces/ImageResult)
+- **Check Interval:** Configurable via parameter (default: 2.0 seconds)
+
+### Workflow Steps
+
+1. **Start Camera Node:**
+   ```bash
+   ros2 run detection image_pub
+   ```
+   - Camera node connects to SIYI A8 and starts capturing frames
+   - Images are saved to `camera_feed/` directory
+
+2. **Start Detection Node:**
+   ```bash
+   ros2 run detection object_detection_sahi
+   ```
+   - Detection node monitors `camera_feed/` directory
+   - Processes new images as they appear
+   - Saves annotated results to `detection_results_sahi/`
+
+3. **Processing Flow:**
+   - Camera captures frame → Saves to `camera_feed/image_001.jpg`
+   - Detection node timer fires → Checks for new images
+   - New image found → Loads image → Runs SAHI detection
+   - Detections made → Annotates image → Saves to `detection_results_sahi/`
+   - Results published to ROS topics
+
+### Directory Structure
+
+```
+ros2_ws/detection/
+├── camera_feed/              # Images captured from camera
+│   ├── image_001.jpg
+│   ├── image_002.jpg
+│   └── ...
+└── detection_results_sahi/  # Annotated detection results
+    ├── image_001_annotated.jpg
+    ├── image_001_detections.json
+    └── ...
+```
+
+---
+
+## Technical Details
+
+### Image Capture Implementation
 
 Fixed critical issues preventing the SIYI A8 camera node from initializing and capturing frames. The node was encountering NumPy/cv_bridge compatibility errors and OpenCV GStreamer support limitations. Implemented comprehensive fallback mechanisms and manual image conversion methods to ensure robust camera operation.
 
@@ -290,13 +384,13 @@ image_pub_siyi.py
    ```bash
    gst-launch-1.0 rtspsrc location=rtsp://192.168.144.25:8554/main.264 \
      latency=0 ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! fakesink
-   # Result: ✅ Successful connection
+   # Result: Successful connection
    ```
 
 4. **Test camera connectivity:**
    ```bash
    ping -c 2 192.168.144.25
-   # Result: ✅ Reachable (0% packet loss)
+   # Result: Reachable (0% packet loss)
    ```
 
 5. **Build and run node:**
@@ -469,23 +563,6 @@ source install/setup.bash
 
 ---
 
-## Testing Checklist
-
-- [x] NumPy version verified (< 2.0)
-- [x] Camera network connectivity confirmed
-- [x] GStreamer pipeline tested independently
-- [x] Package builds without errors
-- [x] Node initializes successfully
-- [x] Camera connection established
-- [x] Frames captured and published
-- [x] Images saved to disk
-- [x] ROS 2 topics verified
-- [x] No cv_bridge import errors
-- [x] Logging throttling working
-- [x] Manual image conversion functional
-
----
-
 ## Rollback Procedure
 
 If issues arise, revert changes:
@@ -500,10 +577,6 @@ colcon build --packages-select detection
 **Note:** Original code required GStreamer support and working cv_bridge
 
 ---
-
-## Support Information
-
-### Diagnostic Commands
 
 **Check node status:**
 ```bash
@@ -547,6 +620,6 @@ ros2 run detection image_pub 2>&1 | tee camera_debug.log
 
 Successfully resolved critical compatibility and connectivity issues in the SIYI A8 camera node. The implementation now features robust fallback mechanisms, graceful error handling, and compatibility with various OpenCV build configurations. The node is production-ready and capable of reliable camera operation in both real and simulated environments.
 
-**Status:** ✅ **Operational**  
+**Status:** **Operational**  
 **Last Updated:** October 25, 2025  
 **Maintainer:** CPP Aerial Vision Analysis System Team

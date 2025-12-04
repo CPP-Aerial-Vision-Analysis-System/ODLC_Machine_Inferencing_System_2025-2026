@@ -1,4 +1,6 @@
 from setuptools import find_packages, setup
+import os
+from glob import glob
 
 package_name = 'detection'
 
@@ -10,12 +12,13 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='ubuntu',
     maintainer_email='student.joshuaestrada@gmail.com',
-    description='TODO: Package description',
+    description='Detection package with SAHI+YOLO object detection and image publishing',
     license='TODO: License declaration',
     extras_require={
         'test': [
@@ -24,7 +27,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'object_detection_sahi = detection.object_detection_sahi:main'
+            'image_pub = detection.image_pub_siyi:main',
+            'object_detection = detection.object_detection:main',
+            'object_detection_sahi = detection.object_detection_sahi:main',
         ],
     },
 )
