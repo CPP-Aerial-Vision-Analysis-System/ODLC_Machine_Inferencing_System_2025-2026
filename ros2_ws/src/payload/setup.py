@@ -13,8 +13,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='astra-dev',
-    maintainer_email='arhovumyan@users.noreply.github.com',
+    maintainer='ubuntu',
+    maintainer_email='student.joshuaestrada@gmail.com',
     description='TODO: Package description',
     license='TODO: License declaration',
     extras_require={
@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'payload_node = payload.payload:main',
+            'payload=payload.payload:main'
         ],
     },
 )
