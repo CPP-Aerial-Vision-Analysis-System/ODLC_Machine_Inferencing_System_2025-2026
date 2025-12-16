@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 
 from mavros_msgs.msg import StatusText
+from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 import os
 
@@ -14,7 +15,7 @@ class KillNode(Node):
             StatusText,
             '/mavros/statustext/recv',
             self.listener_callback,
-            10)
+            qos_profile_sensor_data)
         self.command_listener  # prevent unused variable warning
 
         #create a publisher to send kill commands
@@ -24,7 +25,7 @@ class KillNode(Node):
 
 
     def listener_callback(self, msg):
-        if "shutdown" in msg.text.lower(): #shutdown command received
+        if "systemid" in msg.text.lower(): #shutdown command received
             self.get_logger().warn('Jetson Shutdown Triggered. Shutting down...')
             self.send_back("Shutdown command received.") #send feedback to gcs
             #self.shutdown_nodes() #shutdown all nodes
@@ -59,7 +60,7 @@ class KillNode(Node):
     def shutdown_jetson(self):
         self.get_logger().info('Executing Jetson shutdown command...')
         password = "UAV_Lab"
-        os.system(f"echo {password} | sudo shutdown -h now") #shutdown the jetson
+        os.system(f"echo {password} | sudo -S shutdown -h now") #shutdown the jetson
     
 def main(args=None):
     rclpy.init(args=args)
