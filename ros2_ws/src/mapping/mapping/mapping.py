@@ -8,6 +8,9 @@ import cv2
 import numpy as np
 import os
 
+from mavros_msgs.msg import StatusText
+from rclpy.qos import qos_profile_sensor_data
+
 
 def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=False):
     """
@@ -93,7 +96,7 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
         if det < 0.05 or det > 15:
             return None, f"Invalid scale: det={det:.3f}"
 
-        max_skew = 1.0
+        max_skew = 1.0   # you can increase this to 1.5 if needed
         if abs(H[0, 1]) > max_skew or abs(H[1, 0]) > max_skew:
             return None, f"Excessive skew: H01={H[0,1]:.2f}, H10={H[1,0]:.2f}"
     except Exception as e:
@@ -361,9 +364,7 @@ class IncrementalStitcher(Node):
             ]
         )
         self.current_index = 0
-
-        # Process images periodically with a timer
-        self.timer = self.create_timer(0.1, self.timer_cb)
+        self.mapping_started = False   # guard so we only run once
 
         self.get_logger().info(
             f'Stitcher ready (directory mode):\n'
@@ -380,58 +381,84 @@ class IncrementalStitcher(Node):
         if not self.image_files:
             self.get_logger().warn("No images found in mapping_photos directory.")
 
-    def timer_cb(self):
-        # Stop if we've processed all images or hit max_frames
-        if self.current_index >= len(self.image_files) or self.frames_processed >= self.max_frames:
-            self.finish_and_shutdown()
-            return
-
-        image_path = self.image_files[self.current_index]
-        self.current_index += 1
-
-        frame = cv2.imread(image_path)
-        if frame is None:
-            self.get_logger().warn(f"Failed to read image: {image_path}")
-            return
-
-        frame_small = cv2.resize(frame, (0, 0), fx=self.downscale, fy=self.downscale)
-
-        self.get_logger().info(
-            f"Processing frame {self.frames_processed + 1} from {os.path.basename(image_path)}"
+        # Initialize subscription to listen for mapping commands
+        self.command_listener = self.create_subscription(
+            StatusText,
+            '/mavros/statustext/recv',
+            self.command_cb,
+            qos_profile_sensor_data
         )
+        self.command_listener  # prevent unused variable warning
 
-        if self.panorama is None:
-            self.panorama = frame_small
-            self.get_logger().info("Initialized panorama with first frame")
-            self.frames_stitched = 1
-        else:
-            result, msg_str = stitch_pair(
-                self.panorama,
-                frame_small,
-                min_matches=self.min_matches,
-                ratio=self.ratio_test,
-                use_sift=self.use_sift,
-                debug=False
+        # Publisher to send feedback
+        self.message_sender = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
+
+    def send_back(self, text):
+        # feedback to GCS (Mission Planner messages tab)
+        msg = StatusText()
+        msg.severity = 6  # INFO/notice
+        msg.text = text
+        self.message_sender.publish(msg)
+
+    def command_cb(self, msg: StatusText):
+        if "follow" in msg.text.lower(): # change this if needed (need to test it out)
+            if self.mapping_started:
+                # Avoid running twice if multiple zigzag messages arrive
+                self.get_logger().info("Mapping already started, ignoring extra zigzag command.")
+                return
+
+            self.mapping_started = True
+            self.get_logger().info("Received mapping command. Starting mapping...")
+            self.send_back("Mapping command received. Starting mapping...")
+            self.run_mapping()
+
+    def run_mapping(self):
+        """
+        Process images in mapping_photos once, then finish.
+        """
+        while self.current_index < len(self.image_files) and self.frames_processed < self.max_frames:
+            image_path = self.image_files[self.current_index]
+            self.current_index += 1
+
+            frame = cv2.imread(image_path)
+            if frame is None:
+                self.get_logger().warn(f"Failed to read image: {image_path}")
+                continue
+
+            frame_small = cv2.resize(frame, (0, 0), fx=self.downscale, fy=self.downscale)
+
+            self.get_logger().info(
+                f"Processing frame {self.frames_processed + 1} from {os.path.basename(image_path)}"
             )
 
-            if result is not None:
-                self.panorama = result
-                self.frames_stitched += 1
-                self.get_logger().info(
-                    f"✓ Stitched frame {self.frames_processed + 1} - {msg_str}"
-                )
+            if self.panorama is None:
+                self.panorama = frame_small
+                self.get_logger().info("Initialized panorama with first frame")
+                self.frames_stitched = 1
             else:
-                self.get_logger().warn(
-                    f"✗ Failed frame {self.frames_processed + 1}: {msg_str}"
+                result, msg_str = stitch_pair(
+                    self.panorama,
+                    frame_small,
+                    min_matches=self.min_matches,
+                    ratio=self.ratio_test,
+                    use_sift=self.use_sift,
+                    debug=False
                 )
 
-        self.frames_processed += 1
+                if result is not None:
+                    self.panorama = result
+                    self.frames_stitched += 1
+                    self.get_logger().info(
+                        f"✓ Stitched frame {self.frames_processed + 1} - {msg_str}"
+                    )
+                else:
+                    self.get_logger().warn(
+                        f"✗ Failed frame {self.frames_processed + 1}: {msg_str}"
+                    )
 
-        # Save interim every 5 frames
-        # if self.frames_processed % 5 == 0 and self.panorama is not None:
-        #     interim_path = os.path.join(self.save_dir, f'interim_{self.frames_processed}.jpg')
-        #     cv2.imwrite(interim_path, self.panorama)
-        #     self.get_logger().info(f"Saved interim: {interim_path}")
+            self.frames_processed += 1
+
+        self.finish_and_shutdown()
 
     def finish_and_shutdown(self):
         if self.panorama is not None:
@@ -451,10 +478,11 @@ class IncrementalStitcher(Node):
             )
             self.get_logger().info(f"  Saved to: {final_path}")
             self.get_logger().info("=" * 60)
+            self.send_back(f"Mapping complete. Panorama saved to {final_path}")
         else:
             self.get_logger().error("No panorama created!")
+            self.send_back("Mapping failed: no panorama created")
 
-        self.timer.cancel()
         if rclpy.ok():
             rclpy.shutdown()
 
