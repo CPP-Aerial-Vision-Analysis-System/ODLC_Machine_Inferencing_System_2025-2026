@@ -1,1 +1,2 @@
 .devcontainer/** merge=ours
+#then run this git update-index --skip-worktree .devcontainer/**
