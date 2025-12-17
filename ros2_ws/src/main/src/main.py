@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from main.msg import ImageResult
+from ultralytics_ros.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
 from sensor_msgs.msg import NavSatFix, Image
@@ -19,12 +19,21 @@ import time, cv2, math, sys, os, subprocess
 
 ALT = 16.8      # in meters (this is ~55ft)
 
+# HARD CODED SERVO CHANNEL AND PWM VALUES FOR HUMAN AND TENT OBJECTS (WILL BE CHANGED TO THE RIGHT VALUES LATER)
+HUMAN_SERVO_CHANNEL_1 = 9
+HUMAN_SERVO_CHANNEL_2 = 10
+HUMAN_SERVOS_PWM= 1500
+
+TENT_SERVO_CHANNEL_1 = 11
+TENT_SERVO_CHANNEL_2 = 12
+TENT_SERVOS_PWM= 1500
+
 class Detection_Object:
     def __init__(self, type, confidence, waypoint_index):
         self.type = type          # person or tent
         self.confidence = confidence     
-        self.waypoint_index = waypoint_index       # index > 0
-
+        self.waypoint_index = waypoint_index # index > 0
+        
 class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
@@ -45,6 +54,8 @@ class MainController(Node):
         self.add_wp_client = self.create_client(AddWaypoint, "/addWaypoint")
         while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info(f"Waiting for add waypoint service ..s.")
+        
+        self.command_client = self.create_client(CommandLong, '/mavros/cmd/command')
 
         # variables
         self.last_before_rtl = 0
@@ -53,7 +64,9 @@ class MainController(Node):
         self.rtl_index = 0
         self.lap = 0
         self.waypoint_reached = 0
-        
+        self.human_wp = -1
+        self.tent_wp = -1
+        self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
         self.param_manager = ParameterManager()
 
         self.fetch_mission_indices()
@@ -81,38 +94,77 @@ class MainController(Node):
                 name = changed_param.name
                 value = changed_param.value
 
-                if name in ["num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"]:
-                    # self.get_logger().info(f"[Param Update] {name} changed")
+                if name in {"num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"}:
+                    #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        # self.get_logger().info(f"Current waypoint: {self.waypoint_reached}")
 
         # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
-        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent")):
+        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
             person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
             tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            # Update new_wp for both detections (MIGHT WORK LMAO)
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+            self.human_wp = self.last_before_rtl + 1
+            self.tent_wp = self.last_before_rtl + 2
+            
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
-        elif self.waypoint_reached == self.last_before_rtl:
+            self.wait_to_send_wp = False
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+            self.last_before_rtl = -1
+
+        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
+            # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
                 person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                self.human_wp = self.last_before_rtl + 1
+                self.get_logger().info("Only person was detected")
+                self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
                 self.send_waypoint_data([
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
+                self.wait_to_send_wp = False
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
+                self.last_before_rtl = -1
+
             if self.valid_detection("tent"):
                 tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
-
-        if self.waypoint_reached == self.rtl_index:
-            self.get_logger().info("Returning to launch. Mission complete.")
-
+                self.wait_to_send_wp = False
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
+                self.last_before_rtl = -1
+        
+        if self.waypoint_reached == self.human_wp:
+            self.get_logger().info("Reached human waypoint, activating servo...")
+            self.send_ack("Reached human waypoint, activating servo")
+            self.change_mode("GUIDED")
+            self.move_human_servo() # Placeholder when testing out in simulation
+            # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+            # time.sleep(2)
+            # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
+            # time.sleep(2)
+            self.change_mode("AUTO")
+        if self.waypoint_reached == self.tent_wp:
+            self.get_logger().info("Reached tent waypoint, activating servo...")
+            self.send_ack("Reached tent waypoint, activating servo")
+            self.change_mode("GUIDED")
+            self.move_tent_servo()
+            # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+            # time.sleep(2)
+            # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
+            # time.sleep(2)
+            self.change_mode("AUTO")
+            
+        
     def valid_detection(self, type):
         if type in self.detections:
             if self.detections[type].confidence > 0:
@@ -195,18 +247,50 @@ class MainController(Node):
                 )
 
             future = self.add_wp_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-
-            if future.result() and future.result().success:
+            #rclpy.spin_until_future_complete(self, future) PLEASE COMMENT THIS OUT ON GOD
+            if future.result() is not None:
                 self.get_logger().info("All waypoints sent successfully")
-                return True
             else:
                 self.get_logger().warn("Failed to add waypoints")
-                return False
         except Exception as e:
             self.get_logger().error(f"Error sending waypoints: {str(e)}")
-            return False
+
+    def move_human_servo(self):
+        pass
+
+    def move_tent_servo(self):
+        pass
     
+    def move_servo(self, channel, pwm):
+        try:
+            # Sending request to move servo
+            request = CommandLong.Request()
+            request.broadcast = False
+            request.command = 183  # MAV_CMD_DO_SET_SERVO
+            request.confirmation = 0
+            request.param1 = channel
+            request.param2 = pwm
+            request.param3 = 0
+            request.param4 = 0
+            request.param5 = 0
+            request.param6 = 0
+            request.param7 = 0
+
+            # Get the response from the service
+            future = self.command_client.call_async(request)
+            rclpy.spin_until_future_complete(self, future)
+            response = future.result()
+
+            if response.success:
+                self.get_logger().info(f"[SERVO] Channel {channel} moved to {pwm}μs")
+                self.send_status(f"Servo {channel} -> {pwm}")
+            else:
+                self.get_logger().warn(f"[SERVO] Failed to move channel {channel}")
+                self.send_status(f"Servo {channel} move FAILED")
+
+        except Exception as e:
+            self.get_logger().error(f"Service call failed: {e}")
+
     def send_ack(self, text):
         msg = StatusText()
         msg.severity = 6  # INFO
