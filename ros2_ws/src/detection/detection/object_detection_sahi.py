@@ -83,15 +83,7 @@ MAX_SEARCH_DEPTH = 10
 
 # Create detection directory in ros2_ws
 def get_detection_directory() -> str:
-    """
-    Returns the path to detection directory in ros2_ws
     
-    Returns:
-        str: Path to detection directory
-        
-    Raises:
-        OSError: If directory cannot be created
-    """
     # Try to find ros2_ws directory by looking for install/ or src/ directories
     current_file = os.path.abspath(__file__)
     current_dir = os.path.dirname(current_file)
