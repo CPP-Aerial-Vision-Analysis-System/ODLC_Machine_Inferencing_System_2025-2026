@@ -30,6 +30,7 @@ setup(
             'image_pub = detection.image_pub_siyi:main',
             'object_detection = detection.object_detection:main',
             'object_detection_sahi = detection.object_detection_sahi:main',
+            'new_od = detection.new_od:main',
         ],
     },
 )
