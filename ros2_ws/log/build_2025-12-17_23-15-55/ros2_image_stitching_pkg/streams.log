@@ -1,0 +1,29 @@
+[1.437s] Invoking command in '/workspace/ros2_ws/src/ros2_image_stitching_pkg': PYTHONPATH=/workspace/ros2_ws/build/ros2_image_stitching_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros2_image_stitching_pkg build --build-base /workspace/ros2_ws/build/ros2_image_stitching_pkg/build install --record /workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log --single-version-externally-managed install_data
+[1.810s] /home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[1.811s]   warnings.warn(msg)
+[2.011s] running egg_info
+[2.045s] writing ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/PKG-INFO
+[2.051s] writing dependency_links to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/dependency_links.txt
+[2.054s] writing entry points to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/entry_points.txt
+[2.057s] writing requirements to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/requires.txt
+[2.060s] writing top-level names to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/top_level.txt
+[2.146s] reading manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+[2.152s] writing manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+[2.155s] running build
+[2.159s] running build_py
+[2.161s] copying ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.164s] copying ros2_image_stitching_pkg/__init__.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.167s] copying ros2_image_stitching_pkg/mock_camera_node.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.175s] running install
+[2.184s] running install_lib
+[2.220s] copying /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg
+[2.229s] byte-compiling /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/incremental_stitcher.py to incremental_stitcher.cpython-310.pyc
+[2.241s] running install_data
+[2.244s] running install_egg_info
+[2.281s] removing '/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info' (and everything under it)
+[2.286s] Copying ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info
+[2.328s] running install_scripts
+[2.415s] Installing incremental_stitcher script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+[2.418s] Installing mock_camera_node script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+[2.423s] writing list of installed files to '/workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log'
+[2.475s] Invoked command in '/workspace/ros2_ws/src/ros2_image_stitching_pkg' returned '0': PYTHONPATH=/workspace/ros2_ws/build/ros2_image_stitching_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros2_image_stitching_pkg build --build-base /workspace/ros2_ws/build/ros2_image_stitching_pkg/build install --record /workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log --single-version-externally-managed install_data

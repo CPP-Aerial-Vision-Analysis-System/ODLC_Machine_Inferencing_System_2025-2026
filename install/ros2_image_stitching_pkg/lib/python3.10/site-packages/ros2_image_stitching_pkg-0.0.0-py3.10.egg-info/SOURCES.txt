@@ -8,6 +8,7 @@ setup.py
 ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/requires.txt
 ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/top_level.txt
 ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/zip-safe
+launch/mapping_launcher.py
 resource/ros2_image_stitching_pkg
 ros2_image_stitching_pkg/__init__.py
 ros2_image_stitching_pkg/incremental_stitcher.py

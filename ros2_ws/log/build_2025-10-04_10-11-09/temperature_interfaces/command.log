@@ -1,2 +1,0 @@
-Invoking command in '/workspace/ros2_ws/build/temperature_interfaces': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /workspace/ros2_ws/src/temperature_interfaces -DCMAKE_INSTALL_PREFIX=/workspace/ros2_ws/install/temperature_interfaces
-Invoked command in '/workspace/ros2_ws/build/temperature_interfaces' returned '1': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /workspace/ros2_ws/src/temperature_interfaces -DCMAKE_INSTALL_PREFIX=/workspace/ros2_ws/install/temperature_interfaces

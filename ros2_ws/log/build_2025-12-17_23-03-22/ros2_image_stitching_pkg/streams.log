@@ -1,0 +1,34 @@
+[1.776s] Invoking command in '/workspace/ros2_ws/src/ros2_image_stitching_pkg': PYTHONPATH=/workspace/ros2_ws/build/ros2_image_stitching_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros2_image_stitching_pkg build --build-base /workspace/ros2_ws/build/ros2_image_stitching_pkg/build install --record /workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log --single-version-externally-managed install_data
+[2.128s] /home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+[2.130s]   warnings.warn(msg)
+[2.324s] running egg_info
+[2.353s] writing ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/PKG-INFO
+[2.358s] writing dependency_links to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/dependency_links.txt
+[2.360s] writing entry points to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/entry_points.txt
+[2.362s] writing requirements to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/requires.txt
+[2.365s] writing top-level names to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/top_level.txt
+[2.448s] reading manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+[2.453s] writing manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+[2.454s] running build
+[2.456s] running build_py
+[2.458s] copying ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.461s] copying ros2_image_stitching_pkg/__init__.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.467s] copying ros2_image_stitching_pkg/mock_camera_node.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+[2.477s] running install
+[2.486s] running install_lib
+[2.521s] copying /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg
+[2.530s] byte-compiling /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/incremental_stitcher.py to incremental_stitcher.cpython-310.pyc
+[2.545s]   File "/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/incremental_stitcher.py", line 497
+[2.547s]     else:
+[2.549s]     ^^^^
+[2.550s] SyntaxError: invalid syntax
+[2.551s] 
+[2.554s] running install_data
+[2.560s] running install_egg_info
+[2.588s] removing '/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info' (and everything under it)
+[2.595s] Copying ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info
+[2.650s] running install_scripts
+[2.790s] Installing incremental_stitcher script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+[2.793s] Installing mock_camera_node script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+[2.797s] writing list of installed files to '/workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log'
+[2.866s] Invoked command in '/workspace/ros2_ws/src/ros2_image_stitching_pkg' returned '0': PYTHONPATH=/workspace/ros2_ws/build/ros2_image_stitching_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../build/ros2_image_stitching_pkg build --build-base /workspace/ros2_ws/build/ros2_image_stitching_pkg/build install --record /workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log --single-version-externally-managed install_data

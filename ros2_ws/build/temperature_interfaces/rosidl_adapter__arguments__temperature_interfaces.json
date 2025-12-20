@@ -1,6 +1,0 @@
-{
-  "package_name": "temperature_interfaces",
-  "non_idl_tuples": [
-    "/workspace/ros2_ws/src/temperature_interfaces:srv/ConvertTemperature.srv"
-  ]
-}

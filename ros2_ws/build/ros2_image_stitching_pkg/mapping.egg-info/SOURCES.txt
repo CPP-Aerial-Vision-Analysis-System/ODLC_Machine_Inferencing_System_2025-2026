@@ -1,0 +1,16 @@
+package.xml
+setup.cfg
+setup.py
+../../build/ros2_image_stitching_pkg/mapping.egg-info/PKG-INFO
+../../build/ros2_image_stitching_pkg/mapping.egg-info/SOURCES.txt
+../../build/ros2_image_stitching_pkg/mapping.egg-info/dependency_links.txt
+../../build/ros2_image_stitching_pkg/mapping.egg-info/entry_points.txt
+../../build/ros2_image_stitching_pkg/mapping.egg-info/requires.txt
+../../build/ros2_image_stitching_pkg/mapping.egg-info/top_level.txt
+../../build/ros2_image_stitching_pkg/mapping.egg-info/zip-safe
+ros2_image_stitching_pkg/__init__.py
+ros2_image_stitching_pkg/incremental_stitcher.py
+ros2_image_stitching_pkg/mock_camera_node.py
+test/test_copyright.py
+test/test_flake8.py
+test/test_pep257.py

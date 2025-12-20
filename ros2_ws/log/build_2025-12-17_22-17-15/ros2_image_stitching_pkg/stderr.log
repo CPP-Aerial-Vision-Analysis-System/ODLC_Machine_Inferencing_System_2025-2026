@@ -1,0 +1,3 @@
+/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'
+  warnings.warn(msg)
+Sorry: IndentationError: unexpected indent (incremental_stitcher.py, line 486)

@@ -1,0 +1,24 @@
+running egg_info
+creating ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info
+writing ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/PKG-INFO
+writing dependency_links to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/dependency_links.txt
+writing entry points to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/entry_points.txt
+writing requirements to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/requires.txt
+writing top-level names to ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/top_level.txt
+writing manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+reading manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+writing manifest file '../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'
+running build
+running build_py
+copying ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+copying ros2_image_stitching_pkg/__init__.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+copying ros2_image_stitching_pkg/mock_camera_node.py -> /workspace/ros2_ws/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg
+running install
+running install_lib
+running install_data
+running install_egg_info
+Copying ../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info
+running install_scripts
+Installing incremental_stitcher script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+Installing mock_camera_node script to /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg
+writing list of installed files to '/workspace/ros2_ws/build/ros2_image_stitching_pkg/install.log'

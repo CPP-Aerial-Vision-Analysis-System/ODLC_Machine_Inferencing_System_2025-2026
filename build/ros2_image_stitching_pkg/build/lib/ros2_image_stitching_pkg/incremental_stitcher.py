@@ -7,12 +7,16 @@ import cv2
 import numpy as np
 import os
 
-def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=False):
+def stitch_pair(img1, img2, min_matches=max(12, min_matches), ratio=0.75, use_sift=False, debug=False, blend_method='multiband'):
     """
     Stitch two images with multi-band blending for seamless results.
     img1: reference image (panorama)
     img2: new frame to add
     """
+
+    ## Tune ratio and minimum matches ##
+    ratio = 0.75
+    min_matches = max(12, min_matches)
     # --- Feature detection with contrast enhancement ---
     gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) if len(img1.shape) == 3 else img1
     gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) if len(img2.shape) == 3 else img2
@@ -35,7 +39,7 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
             WTA_K=2,
             scoreType=cv2.ORB_HARRIS_SCORE,
             patchSize=31,
-            fastThreshold=10
+            fastThreshold=54
         )
         norm_type = cv2.NORM_HAMMING
     
@@ -70,8 +74,11 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
     dst_pts = np.float32([k1[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
     # --- Homography estimation ---
-    ransac_thresh = 3.0
-    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, ransac_thresh, maxIters=5000)
+    ransac_thresh = 2.0
+    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, ransac_thresh, maxIters=5000, confidence = 0.995)
+
+    if H is none:
+        return None, "Homography estimation failed"
     
     if H is None:
         return None, "Homography estimation failed"
@@ -161,44 +168,84 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
     mask_img2 = np.zeros((out_h, out_w), dtype=np.uint8)
     cv2.fillConvexPoly(mask_img2, np.int32(corners_t), 255)
     
-    # --- Distance transform blending for seamless seams ---
-    # Find overlap region
-    overlap_mask = cv2.bitwise_and(mask_img1, mask_img2)
-    
-    if cv2.countNonZero(overlap_mask) > 0:
-        # Distance transform creates smooth gradients
-        dist1 = cv2.distanceTransform(mask_img1, cv2.DIST_L2, 5)
-        dist2 = cv2.distanceTransform(mask_img2, cv2.DIST_L2, 5)
-        
-        # Normalize distances
-        dist1_norm = dist1 / (dist1 + dist2 + 1e-6)
-        dist2_norm = dist2 / (dist1 + dist2 + 1e-6)
-        
-        # Apply additional smoothing for extra seamlessness
-        dist1_norm = cv2.GaussianBlur(dist1_norm, (31, 31), 10)
-        dist2_norm = cv2.GaussianBlur(dist2_norm, (31, 31), 10)
-        
-        # Renormalize after blur
-        dist_sum = dist1_norm + dist2_norm
-        dist_sum = np.maximum(dist_sum, 1e-6)
-        dist1_norm = dist1_norm / dist_sum
-        dist2_norm = dist2_norm / dist_sum
-        
-        # Convert to 3-channel for RGB blending
-        dist1_3c = np.stack([dist1_norm] * 3, axis=-1)
-        dist2_3c = np.stack([dist2_norm] * 3, axis=-1)
-        
-        # Blend in overlap region
-        overlap_3c = np.stack([overlap_mask] * 3, axis=-1) > 0
-        result = np.where(
-            overlap_3c,
-            (result.astype(float) * dist1_3c + warped_img2.astype(float) * dist2_3c).astype(np.uint8),
-            np.where(mask_img2[:,:,np.newaxis] > 0, warped_img2, result)
-        )
-    else:
-        # No overlap, just place img2
-        result = np.where(mask_img2[:,:,np.newaxis] > 0, warped_img2, result)
-    
+    # --- Multi-band + exposure-compensated blending (tuned) ---
+
+    imgs   = [result.copy(), warped_img2.copy()]        # 8UC3
+    masks  = [mask_img1.copy(), mask_img2.copy()]       # 8UC1, 0/255
+    corners = [(0, 0), (0, 0)]                          # already on same canvas
+
+    # (A) Make masks friendlier for seam finding: erode a little so the seam
+    #     is forced away from tile edges, then lightly blur to avoid aliasing.
+    erode_px = max(2, int(0.005 * min(out_w, out_h)))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_px, erode_px))
+    masks = [cv2.erode(m, kernel) for m in masks]
+    ## masks = [cv2.GaussianBlur(m, (0, 0), 0.8) for m in masks]
+    masks = [np.clip(m, 0, 255).astype(np.uint8) for m in masks]
+
+    # (B) Exposure compensation (block-wise gain is best for mosaics)
+    try:
+        comp_type = getattr(cv2.detail, 'ExposureCompensator_CHANNELS_BLOCKS', 
+                            cv2.detail.ExposureCompensator_GAIN_BLOCKS)
+        compensator = cv2.detail_ExposureCompensator_createDefault(comp_type)
+        ### compensator.setBlocksGain(32, 32)  # block size ~32x32 works well ###
+        if hasattr(compensator, 'setBlocksGain'):
+            compensator.setBlocksGain(16, 16)  # smaller blocks for finer adjustment
+        elif hasattr(compensator, 'setBlocks'):
+            compensator.setBlockSize(16, 16)      # older OpenCV versions
+
+        compensator.feed(corners, imgs, masks)
+        for i in range(2):
+            compensator.apply(i, corners[i], imgs[i], masks[i])
+    except Exception:
+        pass  # safe fallback if detail module missing
+
+    # (C) Seam finding (color+gradient is more robust than color alone)
+    try:
+        seam_finder = cv2.detail_DpSeamFinder("COLOR_GRAD")
+        seam_finder.find(imgs, corners, masks)  # updates masks in-place
+    except Exception:
+        # Fall back to color-only if grad costs unavailable
+        try:
+            seam_finder = cv2.detail_GraphCutSeamFinder(
+                cv2.detail.GraphCutSeamFinderBase.COST_COLOR_GRAD
+            )
+            seam_finder.find(imgs, corners, masks)
+        except Exception:
+            pass
+
+    # C2. broaden masks *after* seam placement so blender has room
+    soft = max(25, min(35, (min(out_w, out_h) // 32) | 1))  # 5-10% of min dim
+    soft_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (soft, soft))
+    masks = [cv2.dilate(m, soft_kernel) for m in masks]
+    masks = [np.clip(m, 0, 255).astype(np.uint8) for m in masks]
+
+    # (D) Multi-band blending (increase bands for smoother transitions)
+    #     Rule of thumb: bands ≈ log2(min(out_w, out_h)) - 1 (clamped)
+    num_bands = int(np.clip(np.log2(min(out_w, out_h)) + 1, 7, 12))
+    try:
+        blender = cv2.detail_MultiBandBlender(try_gpu=False)
+        blender.setNumBands(num_bands)
+        blender.prepare((0, 0, out_w, out_h))
+
+        for img, msk, (x, y) in zip(imgs, masks, corners):
+            # detail blender expects 16-bit signed accumulators
+            blender.feed(img.astype(np.int16), msk, (x, y))
+
+        result_f, _ = blender.blend(None, None)
+        result = np.clip(result_f, 0, 255).astype(np.uint8)
+    except Exception:
+        # Feather fallback if detail API isn’t available
+        dist1 = cv2.distanceTransform(masks[0], cv2.DIST_L2, 5)
+        dist2 = cv2.distanceTransform(masks[1], cv2.DIST_L2, 5)
+        w1 = cv2.GaussianBlur(dist1, (0, 0), 8)
+        w2 = cv2.GaussianBlur(dist2, (0, 0), 8)
+        s = np.maximum(w1 + w2, 1e-6)
+        w1 = (w1 / s)[:, :, None]
+        w2 = 1.0 - w1
+        result = (imgs[0].astype(np.float32) * w1 + imgs[1].astype(np.float32) * w2).astype(np.uint8)
+
+
+
     # --- Crop black borders ---
     # Find the largest rectangular region without black pixels
     gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
@@ -291,7 +338,7 @@ class IncrementalStitcher(Node):
         # Parameters
         self.declare_parameter('use_sift', False)
         self.declare_parameter('downscale_factor', 0.5)
-        self.declare_parameter('max_frames', 10)
+        self.declare_parameter('max_frames', 54)
         self.declare_parameter('save_dir', '/workspace/ros2_ws/panoramas')
         self.declare_parameter('min_matches', 8)
         self.declare_parameter('ratio_test', 0.75)
@@ -307,7 +354,7 @@ class IncrementalStitcher(Node):
         
         os.makedirs(self.save_dir, exist_ok=True)
         
-        self.sub = self.create_subscription(Image, 'camera/image_raw', self.cb, 150)
+        self.sub = self.create_subscription(Image, 'camera/image_raw', self.cb, 54)
         self.bridge = CvBridge()
         self.panorama = None
         self.frames_processed = 0
@@ -341,7 +388,8 @@ class IncrementalStitcher(Node):
                 min_matches=self.min_matches,
                 ratio=self.ratio_test,
                 use_sift=self.use_sift,
-                debug=False
+                debug=False,
+                blend_method=self.blend_method
             )
             
             if result is not None:

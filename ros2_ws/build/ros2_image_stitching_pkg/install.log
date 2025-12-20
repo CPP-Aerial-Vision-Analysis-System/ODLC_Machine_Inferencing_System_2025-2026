@@ -1,7 +1,9 @@
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/incremental_stitcher.py
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/__init__.py
+/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/mock_camera_node.py
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/__pycache__/incremental_stitcher.cpython-310.pyc
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/__pycache__/__init__.cpython-310.pyc
+/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/__pycache__/mock_camera_node.cpython-310.pyc
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/share/ament_index/resource_index/packages/ros2_image_stitching_pkg
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/share/ros2_image_stitching_pkg/package.xml
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info/PKG-INFO
@@ -12,3 +14,4 @@
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info/top_level.txt
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info/dependency_links.txt
 /workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg/incremental_stitcher
+/workspace/ros2_ws/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg/mock_camera_node

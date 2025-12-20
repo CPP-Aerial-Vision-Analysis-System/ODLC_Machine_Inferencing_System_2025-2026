@@ -1,2 +1,0 @@
-[console_scripts]
-siyi_cam_node = siyi_cam_node.siyi_cam_node:main

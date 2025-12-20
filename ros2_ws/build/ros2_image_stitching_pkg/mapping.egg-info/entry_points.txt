@@ -1,0 +1,3 @@
+[console_scripts]
+mapping = mapping.mapping:main
+trigger = mapping.do_digi_cam_trigger:main

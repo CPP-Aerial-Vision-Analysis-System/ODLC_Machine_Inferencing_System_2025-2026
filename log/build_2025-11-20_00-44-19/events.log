@@ -1,0 +1,106 @@
+[0.000000] (-) TimerEvent: {}
+[0.000589] (ros2_image_stitching_pkg) JobQueued: {'identifier': 'ros2_image_stitching_pkg', 'dependencies': OrderedDict()}
+[0.001939] (siyi_cam_node) JobQueued: {'identifier': 'siyi_cam_node', 'dependencies': OrderedDict()}
+[0.005705] (ros2_image_stitching_pkg) JobStarted: {'identifier': 'ros2_image_stitching_pkg'}
+[0.101441] (-) TimerEvent: {}
+[0.140344] (siyi_cam_node) JobStarted: {'identifier': 'siyi_cam_node'}
+[0.207930] (-) TimerEvent: {}
+[0.316837] (-) TimerEvent: {}
+[0.417807] (-) TimerEvent: {}
+[0.520063] (-) TimerEvent: {}
+[0.622107] (-) TimerEvent: {}
+[0.724897] (-) TimerEvent: {}
+[0.825884] (-) TimerEvent: {}
+[0.926934] (-) TimerEvent: {}
+[1.027949] (-) TimerEvent: {}
+[1.129689] (-) TimerEvent: {}
+[1.230792] (-) TimerEvent: {}
+[1.332890] (-) TimerEvent: {}
+[1.434113] (-) TimerEvent: {}
+[1.536828] (-) TimerEvent: {}
+[1.638925] (-) TimerEvent: {}
+[1.741883] (-) TimerEvent: {}
+[1.842985] (-) TimerEvent: {}
+[1.947828] (-) TimerEvent: {}
+[2.052879] (-) TimerEvent: {}
+[2.153784] (-) TimerEvent: {}
+[2.254755] (-) TimerEvent: {}
+[2.355782] (-) TimerEvent: {}
+[2.456780] (-) TimerEvent: {}
+[2.525103] (siyi_cam_node) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../../build/siyi_cam_node', 'build', '--build-base', '/workspace/build/siyi_cam_node/build', 'install', '--record', '/workspace/build/siyi_cam_node/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/ros2_ws/src/siyi_cam_node', 'env': {'PYTHON_BASIC_REPL': '1', 'HOSTNAME': 'docker-desktop', 'GIT_ASKPASS': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass.sh', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'BROWSER': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/bin/helpers/browser.sh', 'HOME': '/home/ubuntu', 'TERM_PROGRAM_VERSION': '1.98.0', 'VSCODE_IPC_HOOK_CLI': '/tmp/vscode-ipc-5d28cbaa-971b-490b-bc49-93fe908e2c96.sock', 'ROS_PYTHON_VERSION': '3', 'VSCODE_GIT_ASKPASS_MAIN': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass-main.js', 'VSCODE_GIT_ASKPASS_NODE': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/node', 'PYDEVD_DISABLE_FILE_VALIDATION': '1', 'BUNDLED_DEBUGPY_PATH': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy', 'COLORTERM': 'truecolor', 'REMOTE_CONTAINERS': 'true', 'COLCON_PREFIX_PATH': '/workspace/install', 'ROS_DISTRO': 'humble', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/vscode/vscode-server/bin/linux-x64/c306e94f98122556ca081f527b466015e1bc37b0/bin/remote-cli:/home/ubuntu/.local/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/ardu_ws/src/ardupilot/Tools/autotest', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock"]', 'DISPLAY': 'host.docker.internal:0.0', 'VSCODE_DEBUGPY_ADAPTER_ENDPOINTS': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-c52ddf65534b7b46.txt', 'LANG': 'C.UTF-8', 'PYTHONSTARTUP': '/home/ubuntu/.vscode-server/data/User/workspaceStorage/07c1ebebe2a05edd22797b01c21bb63d/ms-python.python/pythonrc.py', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'VSCODE_GIT_IPC_HANDLE': '/tmp/vscode-git-fa2975c2c3.sock', 'TERM_PROGRAM': 'vscode', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock', 'AMENT_PREFIX_PATH': '/workspace/install/siyi_cam_node:/workspace/install/ros2_image_stitching_pkg:/opt/ros/humble', 'SHELL': '/bin/bash', 'GZ_VERSION': 'harmonic', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS': '', 'PWD': '/workspace/build/siyi_cam_node', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/build/siyi_cam_node/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/siyi_cam_node/lib/python3.10/site-packages:/workspace/install/siyi_cam_node/lib/python3.10/site-packages:/workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[2.548235] (ros2_image_stitching_pkg) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../../build/ros2_image_stitching_pkg', 'build', '--build-base', '/workspace/build/ros2_image_stitching_pkg/build', 'install', '--record', '/workspace/build/ros2_image_stitching_pkg/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/workspace/ros2_ws/src/ros2_image_stitching_pkg', 'env': {'PYTHON_BASIC_REPL': '1', 'HOSTNAME': 'docker-desktop', 'GIT_ASKPASS': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass.sh', 'SHLVL': '2', 'LD_LIBRARY_PATH': '/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'BROWSER': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/bin/helpers/browser.sh', 'HOME': '/home/ubuntu', 'TERM_PROGRAM_VERSION': '1.98.0', 'VSCODE_IPC_HOOK_CLI': '/tmp/vscode-ipc-5d28cbaa-971b-490b-bc49-93fe908e2c96.sock', 'ROS_PYTHON_VERSION': '3', 'VSCODE_GIT_ASKPASS_MAIN': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/extensions/git/dist/askpass-main.js', 'VSCODE_GIT_ASKPASS_NODE': '/vscode/vscode-server/bin/linux-x64/6609ac3d66f4eade5cf376d1cb76f13985724bcb/node', 'PYDEVD_DISABLE_FILE_VALIDATION': '1', 'BUNDLED_DEBUGPY_PATH': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/bundled/libs/debugpy', 'COLORTERM': 'truecolor', 'REMOTE_CONTAINERS': 'true', 'COLCON_PREFIX_PATH': '/workspace/install', 'ROS_DISTRO': 'humble', 'REMOTE_CONTAINERS_IPC': '/tmp/vscode-remote-containers-ipc-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm-256color', 'ROS_LOCALHOST_ONLY': '0', 'PATH': '/vscode/vscode-server/bin/linux-x64/c306e94f98122556ca081f527b466015e1bc37b0/bin/remote-cli:/home/ubuntu/.local/bin:/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/ubuntu/ardu_ws/Micro-XRCE-DDS-Gen/scripts:/home/ubuntu/ardu_ws/src/ardupilot/Tools/autotest', 'REMOTE_CONTAINERS_SOCKETS': '["/tmp/vscode-ssh-auth-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock"]', 'DISPLAY': 'host.docker.internal:0.0', 'VSCODE_DEBUGPY_ADAPTER_ENDPOINTS': '/home/ubuntu/.vscode-server/extensions/ms-python.debugpy-2025.16.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-c52ddf65534b7b46.txt', 'LANG': 'C.UTF-8', 'PYTHONSTARTUP': '/home/ubuntu/.vscode-server/data/User/workspaceStorage/07c1ebebe2a05edd22797b01c21bb63d/ms-python.python/pythonrc.py', 'LS_COLORS': 'rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:', 'VSCODE_GIT_IPC_HANDLE': '/tmp/vscode-git-fa2975c2c3.sock', 'TERM_PROGRAM': 'vscode', 'SSH_AUTH_SOCK': '/tmp/vscode-ssh-auth-78ae7a1e-a449-47c0-9a93-6650d36fc5e3.sock', 'AMENT_PREFIX_PATH': '/workspace/install/siyi_cam_node:/workspace/install/ros2_image_stitching_pkg:/opt/ros/humble', 'SHELL': '/bin/bash', 'GZ_VERSION': 'harmonic', 'VSCODE_GIT_ASKPASS_EXTRA_ARGS': '', 'PWD': '/workspace/build/ros2_image_stitching_pkg', 'LC_ALL': 'C.UTF-8', 'PYTHONPATH': '/workspace/build/ros2_image_stitching_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:/workspace/install/siyi_cam_node/lib/python3.10/site-packages:/workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'COLCON': '1'}, 'shell': False}
+[2.563989] (-) TimerEvent: {}
+[2.665880] (-) TimerEvent: {}
+[2.769900] (-) TimerEvent: {}
+[2.871822] (-) TimerEvent: {}
+[2.923842] (siyi_cam_node) StderrLine: {'line': b"/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'\n"}
+[2.926126] (siyi_cam_node) StderrLine: {'line': b'  warnings.warn(msg)\n'}
+[2.941152] (ros2_image_stitching_pkg) StderrLine: {'line': b"/home/ubuntu/.local/lib/python3.10/site-packages/setuptools/_distutils/dist.py:289: UserWarning: Unknown distribution option: 'tests_require'\n"}
+[2.946247] (ros2_image_stitching_pkg) StderrLine: {'line': b'  warnings.warn(msg)\n'}
+[2.972806] (-) TimerEvent: {}
+[3.073857] (-) TimerEvent: {}
+[3.164197] (siyi_cam_node) StdoutLine: {'line': b'running egg_info\n'}
+[3.173812] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running egg_info\n'}
+[3.176505] (-) TimerEvent: {}
+[3.201678] (siyi_cam_node) StdoutLine: {'line': b'writing ../../../build/siyi_cam_node/siyi_cam_node.egg-info/PKG-INFO\n'}
+[3.210481] (siyi_cam_node) StdoutLine: {'line': b'writing dependency_links to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/dependency_links.txt\n'}
+[3.213787] (siyi_cam_node) StdoutLine: {'line': b'writing entry points to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/entry_points.txt\n'}
+[3.215597] (ros2_image_stitching_pkg) StdoutLine: {'line': b'writing ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/PKG-INFO\n'}
+[3.217990] (siyi_cam_node) StdoutLine: {'line': b'writing requirements to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/requires.txt\n'}
+[3.221811] (siyi_cam_node) StdoutLine: {'line': b'writing top-level names to ../../../build/siyi_cam_node/siyi_cam_node.egg-info/top_level.txt\n'}
+[3.224055] (ros2_image_stitching_pkg) StdoutLine: {'line': b'writing dependency_links to ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/dependency_links.txt\n'}
+[3.226191] (ros2_image_stitching_pkg) StdoutLine: {'line': b'writing entry points to ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/entry_points.txt\n'}
+[3.229489] (ros2_image_stitching_pkg) StdoutLine: {'line': b'writing requirements to ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/requires.txt\n'}
+[3.231874] (ros2_image_stitching_pkg) StdoutLine: {'line': b'writing top-level names to ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/top_level.txt\n'}
+[3.277158] (-) TimerEvent: {}
+[3.325018] (siyi_cam_node) StdoutLine: {'line': b"reading manifest file '../../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'\n"}
+[3.330359] (siyi_cam_node) StdoutLine: {'line': b"writing manifest file '../../../build/siyi_cam_node/siyi_cam_node.egg-info/SOURCES.txt'\n"}
+[3.333192] (ros2_image_stitching_pkg) StdoutLine: {'line': b"reading manifest file '../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'\n"}
+[3.334624] (siyi_cam_node) StdoutLine: {'line': b'running build\n'}
+[3.336095] (siyi_cam_node) StdoutLine: {'line': b'running build_py\n'}
+[3.338112] (siyi_cam_node) StdoutLine: {'line': b'copying siyi_cam_node/__init__.py -> /workspace/build/siyi_cam_node/build/lib/siyi_cam_node\n'}
+[3.340966] (ros2_image_stitching_pkg) StdoutLine: {'line': b"writing manifest file '../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info/SOURCES.txt'\n"}
+[3.343513] (siyi_cam_node) StdoutLine: {'line': b'copying siyi_cam_node/siyi_cam_node.py -> /workspace/build/siyi_cam_node/build/lib/siyi_cam_node\n'}
+[3.345897] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running build\n'}
+[3.348402] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running build_py\n'}
+[3.350153] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg\n'}
+[3.352426] (siyi_cam_node) StdoutLine: {'line': b'running install\n'}
+[3.354274] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying ros2_image_stitching_pkg/__init__.py -> /workspace/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg\n'}
+[3.357369] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying ros2_image_stitching_pkg/mock_camera_node.py -> /workspace/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg\n'}
+[3.367049] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running install\n'}
+[3.369251] (siyi_cam_node) StdoutLine: {'line': b'running install_lib\n'}
+[3.379801] (-) TimerEvent: {}
+[3.390270] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running install_lib\n'}
+[3.442045] (siyi_cam_node) StdoutLine: {'line': b'running install_data\n'}
+[3.444297] (siyi_cam_node) StdoutLine: {'line': b'copying resource/siyi_cam_node -> /workspace/install/siyi_cam_node/share/ament_index/resource_index/packages\n'}
+[3.450759] (siyi_cam_node) StdoutLine: {'line': b'copying package.xml -> /workspace/install/siyi_cam_node/share/siyi_cam_node\n'}
+[3.453261] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying /workspace/build/ros2_image_stitching_pkg/build/lib/ros2_image_stitching_pkg/incremental_stitcher.py -> /workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg\n'}
+[3.458830] (siyi_cam_node) StdoutLine: {'line': b'running install_egg_info\n'}
+[3.462196] (ros2_image_stitching_pkg) StdoutLine: {'line': b'byte-compiling /workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg/incremental_stitcher.py to incremental_stitcher.cpython-310.pyc\n'}
+[3.481011] (-) TimerEvent: {}
+[3.487250] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running install_data\n'}
+[3.490935] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying resource/ros2_image_stitching_pkg -> /workspace/install/ros2_image_stitching_pkg/share/ament_index/resource_index/packages\n'}
+[3.514236] (ros2_image_stitching_pkg) StdoutLine: {'line': b'copying package.xml -> /workspace/install/ros2_image_stitching_pkg/share/ros2_image_stitching_pkg\n'}
+[3.531046] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running install_egg_info\n'}
+[3.548614] (siyi_cam_node) StdoutLine: {'line': b"removing '/workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node-0.0.0-py3.10.egg-info' (and everything under it)\n"}
+[3.561020] (siyi_cam_node) StdoutLine: {'line': b'Copying ../../../build/siyi_cam_node/siyi_cam_node.egg-info to /workspace/install/siyi_cam_node/lib/python3.10/site-packages/siyi_cam_node-0.0.0-py3.10.egg-info\n'}
+[3.583685] (-) TimerEvent: {}
+[3.635863] (ros2_image_stitching_pkg) StdoutLine: {'line': b"removing '/workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info' (and everything under it)\n"}
+[3.647614] (ros2_image_stitching_pkg) StdoutLine: {'line': b'Copying ../../../build/ros2_image_stitching_pkg/ros2_image_stitching_pkg.egg-info to /workspace/install/ros2_image_stitching_pkg/lib/python3.10/site-packages/ros2_image_stitching_pkg-0.0.0-py3.10.egg-info\n'}
+[3.665682] (siyi_cam_node) StdoutLine: {'line': b'running install_scripts\n'}
+[3.683967] (-) TimerEvent: {}
+[3.740676] (ros2_image_stitching_pkg) StdoutLine: {'line': b'running install_scripts\n'}
+[3.788096] (-) TimerEvent: {}
+[3.822309] (siyi_cam_node) StdoutLine: {'line': b'Installing siyi_cam_node script to /workspace/install/siyi_cam_node/lib/siyi_cam_node\n'}
+[3.829802] (siyi_cam_node) StdoutLine: {'line': b"writing list of installed files to '/workspace/build/siyi_cam_node/install.log'\n"}
+[3.889652] (-) TimerEvent: {}
+[3.905863] (ros2_image_stitching_pkg) StdoutLine: {'line': b'Installing incremental_stitcher script to /workspace/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg\n'}
+[3.909769] (ros2_image_stitching_pkg) StdoutLine: {'line': b'Installing mock_camera_node script to /workspace/install/ros2_image_stitching_pkg/lib/ros2_image_stitching_pkg\n'}
+[3.921197] (ros2_image_stitching_pkg) StdoutLine: {'line': b"writing list of installed files to '/workspace/build/ros2_image_stitching_pkg/install.log'\n"}
+[3.940867] (siyi_cam_node) CommandEnded: {'returncode': 0}
+[3.993459] (-) TimerEvent: {}
+[4.091544] (siyi_cam_node) JobEnded: {'identifier': 'siyi_cam_node', 'rc': 0}
+[4.098388] (-) TimerEvent: {}
+[4.099122] (ros2_image_stitching_pkg) CommandEnded: {'returncode': 0}
+[4.180065] (ros2_image_stitching_pkg) JobEnded: {'identifier': 'ros2_image_stitching_pkg', 'rc': 0}
+[4.190662] (-) EventReactorShutdown: {}

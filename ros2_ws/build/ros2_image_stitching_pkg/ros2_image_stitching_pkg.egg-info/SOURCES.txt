@@ -11,6 +11,7 @@ setup.py
 resource/ros2_image_stitching_pkg
 ros2_image_stitching_pkg/__init__.py
 ros2_image_stitching_pkg/incremental_stitcher.py
+ros2_image_stitching_pkg/mock_camera_node.py
 test/test_copyright.py
 test/test_flake8.py
 test/test_pep257.py
