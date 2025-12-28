@@ -81,9 +81,9 @@ DEFAULT_OVERLAP = 0.45  # Higher overlap to catch objects at boundaries (was 0.3
 DEFAULT_CHECK_INTERVAL = 2.0
 MAX_SEARCH_DEPTH = 10
 
-# Create detection directory in ros2_ws
-def get_detection_directory() -> str:
-    
+# Find ros2_ws directory without creating extra folders
+def get_ros2_ws_directory() -> str:
+    """Find the ros2_ws root directory by searching up from current file location."""
     # Try to find ros2_ws directory by looking for install/ or src/ directories
     current_file = os.path.abspath(__file__)
     current_dir = os.path.dirname(current_file)
@@ -109,15 +109,21 @@ def get_detection_directory() -> str:
     
     # Fallback: use environment variable or default location
     if ros2_ws_dir is None:
-        ros2_ws_dir = os.getenv('ROS2_WS_PATH') or os.path.expanduser('~/ros2_ws')
+        ros2_ws_dir = os.getenv('ROS2_WS_PATH') or os.path.expanduser('~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws')
     
-    detection_dir = os.path.join(ros2_ws_dir, "detection")
+    return ros2_ws_dir
     try:
-        os.makedirs(detection_dir, exist_ok=True)
+        os.makedirs(camera_feed_path, exist_ok=True)
     except OSError as e:
-        raise OSError(f"Failed to create detection directory at {detection_dir}: {e}")
+        raise OSError(f"Failed to create camera feed path directory in {video_cam_dir}: {e}")
+
+    detection_path = os.path.join(camera_feed_path, "detection_results")
+    try:
+        os.makedirs(detection_path, exist_ok=True)
+    except ODError as e:
+        raise OSError(f"Failed to create detection path directory in {camera_feed_path}: {e}")
     
-    return detection_dir
+    #return detection_dir
 
 class SAHIObjectDetectionNode(Node):
 
@@ -125,7 +131,7 @@ class SAHIObjectDetectionNode(Node):
         # ROS2 node name - matches launch file
         super().__init__('sahi_object_detection_node')
         
-        # Declare parameters with defaults
+        # Declare parameters with defaults. You can modify these during each run using parameter_callback
         self.declare_parameter('model_path', 'yolo11s.pt')
         self.declare_parameter('confidence_threshold', DEFAULT_CONFIDENCE_THRESHOLD)
         self.declare_parameter('slice_height', DEFAULT_SLICE_SIZE)
@@ -160,13 +166,25 @@ class SAHIObjectDetectionNode(Node):
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
         self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
         
-        # Setup directories
+        # Setup directories - read images from src/video_cam/mapping_photos, save results to src/detection/detection_results
         try:
-            detection_dir = get_detection_directory()
-            self.camera_feed_path = os.path.join(detection_dir, "camera_feed")
-            self.detection_results_path = os.path.join(detection_dir, "_results_sahi")
-            os.makedirs(self.camera_feed_path, exist_ok=True)
+            ros2_ws_dir = get_ros2_ws_directory()
+            
+            # Camera feed path: ros2_ws/src/video_cam/mapping_photos
+            self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
+            
+            # Detection results path: ros2_ws/src/detection/detection_results_sahi
+            self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
+            
+            # Create results directory (camera_feed should already exist with images)
             os.makedirs(self.detection_results_path, exist_ok=True)
+            
+            # Check if camera_feed exists and has images
+            if not os.path.exists(self.camera_feed_path):
+                self.get_logger().warn(f"Camera feed directory does not exist: {self.camera_feed_path}")
+                self.get_logger().warn("Creating it, but you should place images there for detection")
+                os.makedirs(self.camera_feed_path, exist_ok=True)
+            
         except OSError as e:
             self.get_logger().error(f"Failed to setup directories: {e}")
             raise
@@ -247,7 +265,7 @@ class SAHIObjectDetectionNode(Node):
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
     
     def _load_and_validate_parameters(self) -> None:
-        """Load and validate all parameters"""
+        """Load and validate all default parameters that we declared in the beginning"""
         # Get parameters
         self.model_path = self.get_parameter('model_path').value
         self.confidence_threshold = self.get_parameter('confidence_threshold').value
@@ -257,6 +275,7 @@ class SAHIObjectDetectionNode(Node):
         self.overlap_width_ratio = self.get_parameter('overlap_width_ratio').value
         self.check_interval = self.get_parameter('check_interval').value
         self.device = self.get_parameter('device').value
+        # New Parameters
         self.max_images_per_cycle = self.get_parameter('max_images_per_cycle').value
         self.max_camera_feed_images = self.get_parameter('max_camera_feed_images').value
         self.min_detection_area = self.get_parameter('min_detection_area').value
@@ -265,7 +284,7 @@ class SAHIObjectDetectionNode(Node):
         self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
         self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
         
-        # Validate parameters
+        # Validate parameters. Not Needed if we have default, but its better to have it.
         if not 0 < self.confidence_threshold <= 1.0:
             self.get_logger().warn(f"Invalid confidence_threshold: {self.confidence_threshold}, using default: {DEFAULT_CONFIDENCE_THRESHOLD}")
             self.confidence_threshold = DEFAULT_CONFIDENCE_THRESHOLD
@@ -293,15 +312,7 @@ class SAHIObjectDetectionNode(Node):
         self.waypoint_reached = msg.wp_seq
     
     def _parameter_callback(self, params: List[Parameter]) -> rclpy.node.SetParametersResult:
-        """
-        Handle parameter changes at runtime
-        
-        Args:
-            params: List of parameters being set
-        
-        Returns:
-            SetParametersResult indicating success or failure
-        """
+        # Only for changing parameters during the run time. 99.9% is not needed, but its cool to have it.
         from rclpy.node import SetParametersResult
         for param in params:
             try:
@@ -332,6 +343,8 @@ class SAHIObjectDetectionNode(Node):
         return SetParametersResult(successful=True)
     
     def _get_statistics_service(self, request, response):
+        # This will be used in the future if we want to call these stats during code execution.
+        # ros2 service call /sahi/get_statistics std_srvs/srv/Trigger "{}"
         """Service callback to get detection statistics"""
         from std_srvs.srv import Trigger
         stats_str = (
@@ -351,6 +364,7 @@ class SAHIObjectDetectionNode(Node):
         return response
     
     def _get_health_service(self, request, response):
+        # This will be used in the future if we want to call these stats during code execution.
         """Service callback to get node health status"""
         from std_srvs.srv import Trigger
         health_str = (
@@ -411,7 +425,7 @@ class SAHIObjectDetectionNode(Node):
                 with open('/proc/device-tree/model', 'r') as f:
                     model = f.read()
                     if 'jetson' in model.lower():
-                        self.get_logger().info(f"   Platform: NVIDIA Jetson ({model.strip()})")
+                        self.get_logger().info(f" Platform: NVIDIA Jetson ({model.strip()})")
             except (OSError, IOError, FileNotFoundError):
                 pass  # Not a Jetson device or can't read device tree
             
@@ -424,7 +438,7 @@ class SAHIObjectDetectionNode(Node):
             
             # Check if MPS is actually built
             if not torch.backends.mps.is_built():
-                self.get_logger().warn("   MPS is available but not built, falling back to CPU")
+                self.get_logger().warn(" MPS is available but not built, falling back to CPU")
                 return "cpu"
             
             return "mps"
@@ -480,12 +494,12 @@ class SAHIObjectDetectionNode(Node):
             
             # If path is relative, try different locations
             if not os.path.isabs(model_path):
-                # 1. Try current directory (detection directory)
-                detection_dir = get_detection_directory()
-                detection_model_path = os.path.join(detection_dir, model_path)
-                if os.path.exists(detection_model_path):
-                    model_path = detection_model_path
-                    self.get_logger().info(f"Using model from detection directory: {model_path}")
+                # 1. Try ros2_ws root directory (where yolo11s.pt might be)
+                ros2_ws_dir = get_ros2_ws_directory()
+                ros2_ws_model_path = os.path.join(ros2_ws_dir, model_path)
+                if os.path.exists(ros2_ws_model_path):
+                    model_path = ros2_ws_model_path
+                    self.get_logger().info(f"Using model from ros2_ws directory: {model_path}")
                 # 2. Try source package directory (where yolo11s.pt might be)
                 elif os.path.exists(os.path.join(os.path.dirname(__file__), model_path)):
                     model_path = os.path.join(os.path.dirname(__file__), model_path)
@@ -530,7 +544,7 @@ class SAHIObjectDetectionNode(Node):
                     
                     # Warn if low memory
                     if gpu_mem_free < 2.0:
-                        self.get_logger().warn(f"   ⚠️  Low GPU memory ({gpu_mem_free:.2f}GB)")
+                        self.get_logger().warn(f"   Low GPU memory ({gpu_mem_free:.2f}GB)")
                         self.get_logger().warn(f"   Consider using a smaller model or reducing slice size")
                         self.get_logger().warn(f"   Run: bash fix_gpu_memory.sh")
                 except Exception as e:
@@ -1386,22 +1400,6 @@ class SAHIObjectDetectionNode(Node):
             import traceback
             self.get_logger().error(traceback.format_exc())
             self.stats['errors'] += 1
-    
-    def _log_statistics(self) -> None:
-        """Log detection statistics"""
-        self.get_logger().info("="*80)
-        self.get_logger().info("SAHI Detection Statistics:")
-        self.get_logger().info(f"  Total Images Processed: {self.stats['total_images_processed']}")
-        self.get_logger().info(f"  Total Detections: {self.stats['total_detections']}")
-        self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
-        self.get_logger().info(f"  Total People: {self.stats['total_people']}")
-        self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
-        self.get_logger().info(f"  Last Processing Time: {self.stats['last_processing_time']:.2f}s")
-        self.get_logger().info(f"  Errors: {self.stats['errors']}")
-        uptime = time.time() - self.stats['node_start_time']
-        self.get_logger().info(f"  Uptime: {uptime:.1f}s")
-        self.get_logger().info("="*80)
-
 
 def main(args=None):
     rclpy.init(args=args)
