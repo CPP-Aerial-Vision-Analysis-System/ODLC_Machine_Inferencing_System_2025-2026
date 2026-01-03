@@ -1,0 +1,14 @@
+[0.000000] (-) TimerEvent: {}
+[0.001198] (-) JobUnselected: {'identifier': 'gps_ros2'}
+[0.002263] (-) JobUnselected: {'identifier': 'interfaces'}
+[0.002417] (-) JobUnselected: {'identifier': 'main'}
+[0.002548] (-) JobUnselected: {'identifier': 'mapping'}
+[0.002834] (-) JobUnselected: {'identifier': 'payload'}
+[0.002901] (-) JobUnselected: {'identifier': 'ultralytics_ros'}
+[0.002951] (-) JobUnselected: {'identifier': 'video_cam'}
+[0.003010] (-) JobUnselected: {'identifier': 'waypoint_mavros'}
+[0.003117] (-) JobUnselected: {'identifier': 'wp_sender'}
+[0.003338] (detection) JobQueued: {'identifier': 'detection', 'dependencies': OrderedDict([('ultralytics_ros', '/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/install/ultralytics_ros')])}
+[0.003665] (detection) JobStarted: {'identifier': 'detection'}
+[0.018599] (detection) JobEnded: {'identifier': 'detection', 'rc': 1}
+[0.030390] (-) EventReactorShutdown: {}

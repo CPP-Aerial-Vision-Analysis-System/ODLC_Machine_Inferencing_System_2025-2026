@@ -12,7 +12,9 @@ ros2_ws/detection
 .vscode/
 .DS_Store
 
-
+install_broken/
+log_broken/
+build_broken/
 # Python cache files
 __pycache__/
 *.pyc
