@@ -92,9 +92,9 @@ MODEL_FORMAT_PYTORCH = 'pytorch'
 MODEL_FORMAT_TENSORRT = 'tensorrt'
 MODEL_FORMAT_AUTO = 'auto'
 
-# Create detection directory in ros2_ws
-def get_detection_directory() -> str:
-    
+# Find ros2_ws directory without creating extra folders
+def get_ros2_ws_directory() -> str:
+    """Find the ros2_ws root directory by searching up from current file location."""
     # Try to find ros2_ws directory by looking for install/ or src/ directories
     current_file = os.path.abspath(__file__)
     current_dir = os.path.dirname(current_file)
@@ -120,15 +120,9 @@ def get_detection_directory() -> str:
     
     # Fallback: use environment variable or default location
     if ros2_ws_dir is None:
-        ros2_ws_dir = os.getenv('ROS2_WS_PATH') or os.path.expanduser('~/ros2_ws')
+        ros2_ws_dir = os.getenv('ROS2_WS_PATH') or os.path.expanduser('~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws')
     
-    detection_dir = os.path.join(ros2_ws_dir, "detection")
-    try:
-        os.makedirs(detection_dir, exist_ok=True)
-    except OSError as e:
-        raise OSError(f"Failed to create detection directory at {detection_dir}: {e}")
-    
-    return detection_dir
+    return ros2_ws_dir
 
 class SAHIObjectDetectionNode(Node):
 
@@ -174,13 +168,25 @@ class SAHIObjectDetectionNode(Node):
         self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
         self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
         
-        # Setup directories
+        # Setup directories - read images from src/video_cam/mapping_photos, save results to src/detection/detection_results_sahi
         try:
-            detection_dir = get_detection_directory()
-            self.camera_feed_path = os.path.join(detection_dir, "camera_feed")
-            self.detection_results_path = os.path.join(detection_dir, "_results_sahi")
-            os.makedirs(self.camera_feed_path, exist_ok=True)
+            ros2_ws_dir = get_ros2_ws_directory()
+            
+            # Camera feed path: ros2_ws/src/video_cam/mapping_photos
+            self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
+            
+            # Detection results path: ros2_ws/src/detection/detection_results_sahi
+            self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
+            
+            # Create results directory (camera_feed should already exist with images)
             os.makedirs(self.detection_results_path, exist_ok=True)
+            
+            # Check if camera_feed exists and has images
+            if not os.path.exists(self.camera_feed_path):
+                self.get_logger().warn(f"Camera feed directory does not exist: {self.camera_feed_path}")
+                self.get_logger().warn("Creating it, but you should place images there for detection")
+                os.makedirs(self.camera_feed_path, exist_ok=True)
+            
         except OSError as e:
             self.get_logger().error(f"Failed to setup directories: {e}")
             raise
@@ -385,14 +391,14 @@ class SAHIObjectDetectionNode(Node):
             Tuple of (resolved_model_path, final_format)
         """
         model_path = self.model_path
-        detection_dir = get_detection_directory()
+        ros2_ws_dir = get_ros2_ws_directory()
         
         # Resolve relative paths
         if not os.path.isabs(model_path):
-            # Try detection directory
-            detection_model_path = os.path.join(detection_dir, model_path)
-            if os.path.exists(detection_model_path):
-                model_path = detection_model_path
+            # Try ros2_ws directory
+            ros2_ws_model_path = os.path.join(ros2_ws_dir, model_path)
+            if os.path.exists(ros2_ws_model_path):
+                model_path = ros2_ws_model_path
             # Try package directory
             elif os.path.exists(os.path.join(os.path.dirname(__file__), model_path)):
                 model_path = os.path.join(os.path.dirname(__file__), model_path)
