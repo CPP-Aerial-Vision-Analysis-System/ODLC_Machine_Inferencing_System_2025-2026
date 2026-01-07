@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DelWaypoint.srv"
   "srv/UpdateMission.srv"
   "srv/GetGPSData.srv"
+  "srv/CameraCommand.srv"
   DEPENDENCIES std_msgs vision_msgs sensor_msgs
 )
 
