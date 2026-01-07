@@ -21,7 +21,8 @@ import numpy as np
 import socket
 import struct
 import requests
-from threading import Lock
+from threading import Lock, Thread, Event
+from queue import Queue
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 class SiyiA8Publisher(Node):
@@ -48,7 +49,18 @@ class SiyiA8Publisher(Node):
         super().__init__('siyi_a8_publisher')
 
         # Publishers
-        self.publisher = self.create_publisher(Image, 'image_raw', 10)
+        # Split topics: /camera/live for RTSP stream, /camera/capture for 4K photos
+        # This prevents RTSP from overwriting 4K captures (last writer wins problem)
+        self.live_pub = self.create_publisher(
+            Image, 
+            '/camera/live', 
+            qos_profile_sensor_data  # Proper QoS for perception stacks
+        )
+        self.capture_pub = self.create_publisher(
+            Image, 
+            '/camera/capture', 
+            qos_profile_sensor_data  # Same QoS to ensure compatibility
+        )
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.camera_status_pub = self.create_publisher(String, '/camera/status', 10)
 
@@ -77,15 +89,24 @@ class SiyiA8Publisher(Node):
         self.last_photo_count = 0
         self.photo_lock = Lock()
         
+        # Thread-safe handoff for 4K images (worker thread → ROS thread)
+        # Publishing from worker thread is not ROS-safe, so we store and publish in timer
+        self.last_4k_msg = None
+        self.new_4k_ready = False
+        self.capture_lock = Lock()  # Protects 4K image handoff
+        
+        # Worker thread for blocking SD card operations
+        self.capture_queue = Queue(maxsize=10)  # Queue for capture requests
+        self.worker_thread = Thread(target=self._sd_capture_worker, daemon=True)
+        self.worker_running = Event()
+        self.worker_running.set()
+        
         # Initialize SD card directory
         self.initialize_sd_card()
-
-        # Initialize cv_bridge if available
-        if CV_BRIDGE_AVAILABLE:
-            self.bridge = CvBridge()
-        else:
-            self.bridge = None
-            self.get_logger().warn("cv_bridge not available, using alternative conversion")
+        
+        # Start worker thread after SD card is initialized
+        self.worker_thread.start()
+        self.get_logger().info("✅ SD capture worker thread started")
 
         current_file = os.path.abspath(__file__)
         current_dir = os.path.dirname(current_file)
@@ -401,25 +422,6 @@ class SiyiA8Publisher(Node):
             self.get_logger().warn(f"Could not get photo count: {e}")
             return None
     
-    def media_command(self, cmd, payload):
-        """Send HTTP command to camera's media server"""
-        try:
-            response = requests.post(
-                self.MEDIA_URL,
-                params={"cmd": cmd},
-                json=payload,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                self.get_logger().error(f"Media command '{cmd}' failed: HTTP {response.status_code}")
-                return None
-        except Exception as e:
-            self.get_logger().error(f"Media command '{cmd}' error: {e}")
-            return None
-    
     def wait_for_new_photo_on_sd(self, timeout_s=15):
         """Wait for new photo to appear on SD card and return its URL - Using correct API"""
         if not self.current_photo_dir:
@@ -586,6 +588,65 @@ class SiyiA8Publisher(Node):
         resolution = msg.data.upper()
         self.set_photo_resolution(resolution)
 
+    def _sd_capture_worker(self):
+        """
+        Worker thread for blocking SD card capture operations.
+        This prevents blocking the ROS executor during HTTP downloads.
+        """
+        self.get_logger().info("🔧 SD capture worker thread running")
+        
+        while self.worker_running.is_set():
+            try:
+                # Block until a capture request arrives (with timeout for clean shutdown)
+                timestamp = self.capture_queue.get(timeout=1.0)
+                
+                self.get_logger().info("=" * 60)
+                self.get_logger().info("📸 Worker: Starting 4K photo capture from SD card...")
+                
+                # Perform the blocking operations here
+                img_4k = self.capture_and_download_4k_photo()
+                
+                if img_4k is not None:
+                    # Save the downloaded 4K photo to Jetson
+                    filename_4k = os.path.join(self.photo_path, f"photo_4K_{timestamp}.jpg")
+                    cv2.imwrite(filename_4k, img_4k)
+                    self.get_logger().info(f"✅ Saved 4K photo: {filename_4k}")
+                    self.get_logger().info(f"   Size: {os.path.getsize(filename_4k)/1024:.1f}KB, Resolution: {img_4k.shape}")
+                    
+                    # Also save to mapping folder for detection
+                    mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+                    cv2.imwrite(mapping_filename, img_4k)
+                    self.get_logger().info(f"✅ Saved to mapping folder: {mapping_filename}")
+                    
+                    # Convert to ROS message (but DON'T publish from worker thread - not ROS-safe!)
+                    self.get_logger().info("📡 Preparing 4K image for ROS publishing...")
+                    if self.bridge is not None:
+                        image_4k_msg = self.bridge.cv2_to_imgmsg(img_4k, encoding='bgr8')
+                    else:
+                        image_4k_msg = self.cv2_to_imgmsg_manual(img_4k, encoding='bgr8')
+                    
+                    # Thread-safe handoff: store for ROS thread to publish
+                    with self.capture_lock:
+                        self.last_4k_msg = image_4k_msg
+                        self.new_4k_ready = True
+                    
+                    self.get_logger().info("✅ 4K image ready for publishing (will be sent by ROS thread)")
+                    
+                    # Send status
+                    status_msg = String()
+                    status_msg.data = f"4K photo captured: {img_4k.shape[1]}x{img_4k.shape[0]}"
+                    self.camera_status_pub.publish(status_msg)
+                else:
+                    self.get_logger().error(" Failed to capture 4K photo from SD card")
+                
+                self.get_logger().info("=" * 60)
+                
+            except Exception as e:
+                if not isinstance(e, TimeoutError):
+                    self.get_logger().error(f"Worker thread error: {e}")
+        
+        self.get_logger().info("🛑 SD capture worker thread stopped")
+
     def send_ack(self, text):
         msg = StatusText()
         msg.severity = 6  # INFO
@@ -594,24 +655,43 @@ class SiyiA8Publisher(Node):
         self.get_logger().info(f"Status: {text}")
     
     def camera_trigger_callback(self, msg):
-        self.get_logger().info(f"🔔 TRIGGER CALLBACK INVOKED! msg.data={msg.data}")
+        """
+        Callback for camera trigger. Enqueues capture request to worker thread.
+        This is non-blocking and returns immediately.
+        """
+        self.get_logger().info(f" TRIGGER CALLBACK INVOKED! msg.data={msg.data}")
         if msg.data:
-            self.get_logger().info("=" * 70)
-            self.get_logger().info("📸 CAMERA TRIGGER RECEIVED - CAPTURING PHOTO")
-            self.get_logger().info("=" * 70)
-            # Set flag to save on next frame
-            self.capture_photo = True
-            self.get_logger().info(f"✓ capture_photo flag set to: {self.capture_photo}")
+            if self.use_real_camera and self.camera_enabled:
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                try:
+                    # Non-blocking: just queue the request
+                    self.capture_queue.put_nowait(timestamp)
+                    self.get_logger().info(" 4K capture request queued to worker thread")
+                except:
+                    self.get_logger().warn(" Capture queue full, skipping request")
+            elif not self.use_real_camera:
+                # For simulation, use the old flag-based approach
+                self.capture_photo = True
+                self.get_logger().info(" Simulation capture flag set")
+            else:
+                self.get_logger().warn(" Camera disabled (altitude check)")
         else:
-            self.get_logger().info("⚠ Trigger received but data=False, ignoring")
+            self.get_logger().info(" Trigger received but data=False, ignoring")
     
     def auto_capture_callback(self):
-        """Automatically capture a 4K photo from SD card every 10 seconds"""
+        """
+        Automatically capture a 4K photo from SD card every 10 seconds.
+        Uses worker thread to prevent blocking.
+        """
         if self.camera_enabled and self.use_real_camera:
-            self.get_logger().info("⏰ Auto-capture timer triggered - capturing 4K photo from SD card")
-            self.capture_photo = True
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            try:
+                self.capture_queue.put_nowait(timestamp)
+                self.get_logger().info(" Auto-capture queued to worker thread")
+            except:
+                self.get_logger().warn(" Auto-capture skipped (queue full)", throttle_duration_sec=10.0)
         else:
-            self.get_logger().info("⏰ Auto-capture skipped (camera disabled or simulation mode)", throttle_duration_sec=10.0)
+            self.get_logger().info("⏰ Auto-capture skipped (camera disabled or simulation)", throttle_duration_sec=10.0)
     
     def check_altitude(self, msg):
         current_alt = msg.data
@@ -629,6 +709,21 @@ class SiyiA8Publisher(Node):
             self.camera_enabled = False
 
     def camera_loop(self):
+        """
+        Fast timer loop (0.1s):
+        1. Stream RTSP frames to /camera/live
+        2. Publish 4K captures to /camera/capture (when ready from worker)
+        """
+        # First, check if worker thread has a 4K image ready to publish
+        if self.new_4k_ready:
+            with self.capture_lock:
+                if self.new_4k_ready and self.last_4k_msg is not None:
+                    # Publish to /camera/capture (event-based topic)
+                    self.capture_pub.publish(self.last_4k_msg)
+                    self.get_logger().info("📸 Published 4K image to /camera/capture")
+                    self.new_4k_ready = False
+                    self.last_4k_msg = None
+        
         if self.camera_enabled:
             if self.use_real_camera:
                 if self.capture is None:
@@ -638,79 +733,24 @@ class SiyiA8Publisher(Node):
                 returnValue, capturedFrame = self.capture.read()
                 
                 if returnValue == True and capturedFrame is not None:
-                    self.get_logger().info("Camera streaming (waiting for trigger)", throttle_duration_sec=10.0)
+                    self.get_logger().info("📹 RTSP streaming to /camera/live", throttle_duration_sec=10.0)
                     
-                    # Convert to ROS message and publish for live view
+                    # Convert to ROS message and publish to /camera/live (firehose topic)
                     if self.bridge is not None:
                         imageToTransmit = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
                     else:
                         imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
                     
-                    self.publisher.publish(imageToTransmit)
+                    self.live_pub.publish(imageToTransmit)
                     
-                    # Only save when triggered
-                    if self.capture_photo:
-                        timestamp = time.strftime("%Y%m%d-%H%M%S")
-                        
-                        # Capture 4K photo from SD card and download
-                        self.get_logger().info("=" * 60)
-                        self.get_logger().info("📸 Starting 4K photo capture from SD card...")
-                        
-                        img_4k = self.capture_and_download_4k_photo()
-                        
-                        if img_4k is not None:
-                            # Save the downloaded 4K photo to Jetson
-                            filename_4k = os.path.join(self.photo_path, f"photo_4K_{timestamp}.jpg")
-                            result = cv2.imwrite(filename_4k, img_4k)
-                            self.get_logger().info(f"✅ Saved 4K photo to Jetson: {filename_4k}")
-                            self.get_logger().info(f"   Size: {os.path.getsize(filename_4k)/1024:.1f}KB, Resolution: {img_4k.shape}")
-                            
-                            # Also save to mapping folder for detection
-                            mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
-                            cv2.imwrite(mapping_filename, img_4k)
-                            self.get_logger().info(f"✅ Saved to mapping folder: {mapping_filename}")
-                            
-                            # CRITICAL: Publish the 4K image to ROS topic so it reaches the Jetson
-                            self.get_logger().info("📡 Publishing 4K image to /image_raw topic...")
-                            if self.bridge is not None:
-                                image_4k_msg = self.bridge.cv2_to_imgmsg(img_4k, encoding='bgr8')
-                            else:
-                                image_4k_msg = self.cv2_to_imgmsg_manual(img_4k, encoding='bgr8')
-                            
-                            # Publish multiple times to ensure it's received
-                            for i in range(3):
-                                self.publisher.publish(image_4k_msg)
-                                self.get_logger().info(f"  Published 4K image (attempt {i+1}/3)")
-                                time.sleep(0.1)
-                            
-                            self.get_logger().info("✅ 4K image published to Jetson successfully!")
-                            
-                            # Send status
-                            status_msg = String()
-                            status_msg.data = f"4K photo captured, saved, and published - {img_4k.shape[1]}x{img_4k.shape[0]}"
-                            self.camera_status_pub.publish(status_msg)
-                        else:
-                            self.get_logger().error(" Failed to capture 4K photo from SD card")
-                            # Fallback: save RTSP frame
-                            filename_rtsp = os.path.join(self.photo_path, f"photo_rtsp_fallback_{timestamp}.jpg")
-                            cv2.imwrite(filename_rtsp, capturedFrame)
-                            self.get_logger().warn(f"⚠️ Saved RTSP fallback frame: {filename_rtsp}")
-                            
-                            # Publish fallback frame
-                            if self.bridge is not None:
-                                fallback_msg = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
-                            else:
-                                fallback_msg = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
-                            self.publisher.publish(fallback_msg)
-                        
-                        self.get_logger().info("=" * 60)
-                        self.capture_photo = False
+                    # NOTE: 4K capture now handled by worker thread → published above in camera_loop
                 else:
                     self.get_logger().warn("Failed to read frame from camera", throttle_duration_sec=10.0)
             else:
+                # Simulation mode
                 if self.latest_image_msg is not None:
-                    self.get_logger().info("Camera Frame Publishing", throttle_duration_sec=10000.0)
-                    self.publisher.publish(self.latest_image_msg)
+                    self.get_logger().info("📹 Sim camera streaming to /camera/live", throttle_duration_sec=10000.0)
+                    self.live_pub.publish(self.latest_image_msg)
 
                     # Save image
                     if self.bridge is not None:
@@ -734,6 +774,13 @@ class SiyiA8Publisher(Node):
     
     def __del__(self):
         """Cleanup when node is destroyed"""
+        # Stop worker thread gracefully
+        if hasattr(self, 'worker_running'):
+            self.worker_running.clear()
+        if hasattr(self, 'worker_thread'):
+            self.worker_thread.join(timeout=2.0)
+        
+        # Close socket
         if hasattr(self, 'sdk_socket'):
             self.sdk_socket.close()
 
