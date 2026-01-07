@@ -21,7 +21,7 @@ Configuration:
 """
 # ros2 imports
 import rclpy # define ros2 nodes
-from rclpy.node import Node # define ros2 nodes
+from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn # define ros2 lifecycle nodes
 from rclpy.executors import MultiThreadedExecutor 
 # Removed get_package_share_directory - now using ~/detection directory instead
 from cv_bridge import CvBridge # converts between ros image messages and opencv(cv2) images
@@ -124,11 +124,14 @@ def get_ros2_ws_directory() -> str:
     
     return ros2_ws_dir
 
-class SAHIObjectDetectionNode(Node):
+class SAHIObjectDetectionNode(LifecycleNode):
 
     def __init__(self):
         # ROS2 node name - matches launch file
         super().__init__('new_od')
+        
+        # Lifecycle state flag
+        self.shutdown_requested = False
         
         # Declare parameters with defaults
         self.declare_parameter('model_path', 'yolo11s.pt')
@@ -151,60 +154,17 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('max_aspect_ratio', 10.0)  # Aspect ratio filtering
         self.declare_parameter('enable_gpu_memory_cleanup', True)  # GPU memory management
         
-        # Get and validate parameters
-        self._load_and_validate_parameters()
-        
-        # ROS2 setup
-        self.bridge = CvBridge()
-        
-        # QoS profile for reliable messaging
-        qos_profile = QoSProfile(
-            depth=10,
-            reliability=ReliabilityPolicy.RELIABLE
-        )
-        
-        # Topics
-        self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos_profile)
-        self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
-        self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
-        
-        # Setup directories - read images from src/video_cam/mapping_photos, save results to src/detection/detection_results_sahi
-        try:
-            ros2_ws_dir = get_ros2_ws_directory()
-            
-            # Camera feed path: ros2_ws/src/video_cam/mapping_photos
-            self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
-            
-            # Detection results path: ros2_ws/src/detection/detection_results_sahi
-            self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
-            
-            # Create results directory (camera_feed should already exist with images)
-            os.makedirs(self.detection_results_path, exist_ok=True)
-            
-            # Check if camera_feed exists and has images
-            if not os.path.exists(self.camera_feed_path):
-                self.get_logger().warn(f"Camera feed directory does not exist: {self.camera_feed_path}")
-                self.get_logger().warn("Creating it, but you should place images there for detection")
-                os.makedirs(self.camera_feed_path, exist_ok=True)
-            
-        except OSError as e:
-            self.get_logger().error(f"Failed to setup directories: {e}")
-            raise
-        
-        self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
-        
-        # Auto-detect device (GPU, MPS, or CPU)
-        if self.device == 'auto':
-            self.device = self._get_device()
-        self.get_logger().info(f"Using device: {self.device}")
-        
-        # Model format detection
-        self.model_format_detected = self._detect_model_format()
-        
-        # Initialize SAHI model
+        # Initialize variables (will be set in lifecycle callbacks)
+        self.bridge = None
+        self.publisher = None
+        self.detection_publisher = None
+        self.detection_pub = None
+        self.timer = None
+        self.gpu_cleanup_timer = None
+        self.stats_service = None
+        self.health_service = None
+        self.waypoint_subscription = None
         self.detection_model = None
-        if not self.initialize_sahi_model():
-            self.get_logger().error("Failed to initialize SAHI model. Node will not function properly.")
         
         # Processing state
         self.processed_images: Dict[str, float] = {}  # Track processed images with timestamps
@@ -230,44 +190,264 @@ class SAHIObjectDetectionNode(Node):
             'consecutive_errors': 0
         }
         
-        # Parameter callback for dynamic reconfiguration
-        self.add_on_set_parameters_callback(self._parameter_callback)
-        
-        # Services
-        from interfaces.srv import GetGPSData  # Import service type if available
-        # Statistics service (using std_msgs/String for simplicity)
-        from std_srvs.srv import Trigger
-        self.stats_service = self.create_service(
-            Trigger,
-            'sahi/get_statistics',
-            self._get_statistics_service
-        )
-        self.health_service = self.create_service(
-            Trigger,
-            'sahi/get_health',
-            self._get_health_service
-        )
-        
-        # Timer to check for new images
-        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
-        
-        # GPU memory cleanup timer (if enabled)
-        if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
-            self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
-        
-        # self.get_logger().info("="*80)
-        # self.get_logger().info("SAHI Object Detection Node Initialized")
-        # self.get_logger().info(f"Model: {self.model_path}")
-        # self.get_logger().info(f"Confidence Threshold: {self.confidence_threshold}")
-        # self.get_logger().info(f"Slice Size: {self.slice_height}x{self.slice_width}")
-        # self.get_logger().info(f"Overlap Ratio: {self.overlap_height_ratio}x{self.overlap_width_ratio}")
-        # self.get_logger().info(f"Device: {self.device}")
-        # self.get_logger().info(f"Max Images Per Cycle: {self.max_images_per_cycle}")
-        # self.get_logger().info("="*80)
-
-        # Waypoint subscriber
+        # Waypoint tracking
         self.waypoint_reached = 0
-        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
+        
+        # Directory paths (will be set in on_configure)
+        self.camera_feed_path = None
+        self.detection_results_path = None
+        self.device = None
+        self.model_format_detected = None
+    
+    def on_configure(self, state: State) -> TransitionCallbackReturn:
+        """Configure the node - setup parameters and directories"""
+        self.get_logger().info("Configuring SAHI Object Detection Node...")
+        
+        try:
+            # Get and validate parameters
+            self._load_and_validate_parameters()
+            
+            # Setup directories - read images from src/video_cam/mapping_photos, save results to src/detection/detection_results_sahi
+            ros2_ws_dir = get_ros2_ws_directory()
+            
+            # Camera feed path: ros2_ws/src/video_cam/mapping_photos
+            self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
+            
+            # Detection results path: ros2_ws/src/detection/detection_results_sahi
+            self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
+            
+            # Create results directory (camera_feed should already exist with images)
+            os.makedirs(self.detection_results_path, exist_ok=True)
+            
+            # Check if camera_feed exists and has images
+            if not os.path.exists(self.camera_feed_path):
+                self.get_logger().warn(f"Camera feed directory does not exist: {self.camera_feed_path}")
+                self.get_logger().warn("Creating it, but you should place images there for detection")
+                os.makedirs(self.camera_feed_path, exist_ok=True)
+            
+            self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
+            
+            # Auto-detect device (GPU, MPS, or CPU)
+            if self.device == 'auto':
+                self.device = self._get_device()
+            self.get_logger().info(f"Using device: {self.device}")
+            
+            # Model format detection
+            self.model_format_detected = self._detect_model_format()
+            
+            # Setup ROS2 bridge
+            self.bridge = CvBridge()
+            
+            # Parameter callback for dynamic reconfiguration
+            self.add_on_set_parameters_callback(self._parameter_callback)
+            
+            self.get_logger().info("Configuration complete")
+            return TransitionCallbackReturn.SUCCESS
+            
+        except Exception as e:
+            self.get_logger().error(f"Configuration failed: {e}")
+            return TransitionCallbackReturn.FAILURE
+    
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        """Activate the node - initialize model, create publishers, timers, services"""
+        self.get_logger().info("Activating SAHI Object Detection Node...")
+        
+        try:
+            # Initialize SAHI model
+            if not self.initialize_sahi_model():
+                self.get_logger().error("Failed to initialize SAHI model")
+                return TransitionCallbackReturn.FAILURE
+            
+            # QoS profile for reliable messaging
+            qos_profile = QoSProfile(
+                depth=10,
+                reliability=ReliabilityPolicy.RELIABLE
+            )
+            
+            # Create publishers
+            self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos_profile)
+            self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
+            self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
+            
+            # Create services
+            from std_srvs.srv import Trigger
+            self.stats_service = self.create_service(
+                Trigger,
+                'sahi/get_statistics',
+                self._get_statistics_service
+            )
+            self.health_service = self.create_service(
+                Trigger,
+                'sahi/get_health',
+                self._get_health_service
+            )
+            
+            # Create subscriber
+            self.waypoint_subscription = self.create_subscription(
+                WaypointReached, 
+                "/mavros/mission/reached", 
+                self.waypoint_reached_cb, 
+                10
+            )
+            
+            # Create timer to check for new images
+            self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+            
+            # GPU memory cleanup timer (if enabled)
+            if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
+                self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
+            
+            # Reset stats timing
+            self.stats['node_start_time'] = time.time()
+            
+            self.get_logger().info("SAHI Object Detection Node activated and ready")
+            return TransitionCallbackReturn.SUCCESS
+            
+        except Exception as e:
+            self.get_logger().error(f"Activation failed: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            return TransitionCallbackReturn.FAILURE
+    
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        """Deactivate the node - stop processing"""
+        self.get_logger().info("Deactivating SAHI Object Detection Node...")
+        
+        # Stop timers
+        if self.timer is not None:
+            self.timer.cancel()
+            self.timer = None
+        
+        if self.gpu_cleanup_timer is not None:
+            self.gpu_cleanup_timer.cancel()
+            self.gpu_cleanup_timer = None
+        
+        # Stop processing
+        self.is_processing = False
+        
+        self.get_logger().info("Node deactivated")
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
+        """Cleanup the node - destroy publishers, services, subscribers"""
+        self.get_logger().info("Cleaning up SAHI Object Detection Node...")
+        
+        # Destroy timers
+        if self.timer is not None:
+            self.timer.destroy()
+            self.timer = None
+        
+        if self.gpu_cleanup_timer is not None:
+            self.gpu_cleanup_timer.destroy()
+            self.gpu_cleanup_timer = None
+        
+        # Destroy publishers
+        if self.publisher is not None:
+            self.publisher.destroy()
+            self.publisher = None
+        
+        if self.detection_publisher is not None:
+            self.detection_publisher.destroy()
+            self.detection_publisher = None
+        
+        if self.detection_pub is not None:
+            self.detection_pub.destroy()
+            self.detection_pub = None
+        
+        # Destroy services
+        if self.stats_service is not None:
+            self.stats_service.destroy()
+            self.stats_service = None
+        
+        if self.health_service is not None:
+            self.health_service.destroy()
+            self.health_service = None
+        
+        # Destroy subscriber
+        if self.waypoint_subscription is not None:
+            self.waypoint_subscription.destroy()
+            self.waypoint_subscription = None
+        
+        # Clear model from memory (but don't delete it, will reload on activate)
+        if self.detection_model is not None:
+            del self.detection_model
+            self.detection_model = None
+        
+        # Cleanup GPU memory
+        if self.device and self.device.startswith('cuda') and TORCH_AVAILABLE:
+            try:
+                gc.collect()
+                torch.cuda.empty_cache()
+            except Exception as e:
+                self.get_logger().debug(f"GPU cleanup error: {e}")
+        
+        self.bridge = None
+        
+        self.get_logger().info("Cleanup complete")
+        return TransitionCallbackReturn.SUCCESS
+    
+    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
+        """Shutdown the node - final cleanup"""
+        self.get_logger().info("Lifecycle shutdown")
+        self.shutdown_requested = True
+        
+        # Final cleanup
+        try:
+            # Stop timers
+            if self.timer is not None:
+                self.timer.cancel()
+                self.timer = None
+            
+            if self.gpu_cleanup_timer is not None:
+                self.gpu_cleanup_timer.cancel()
+                self.gpu_cleanup_timer = None
+            
+            # Destroy all resources
+            if self.publisher is not None:
+                self.publisher.destroy()
+            if self.detection_publisher is not None:
+                self.detection_publisher.destroy()
+            if self.detection_pub is not None:
+                self.detection_pub.destroy()
+            if self.stats_service is not None:
+                self.stats_service.destroy()
+            if self.health_service is not None:
+                self.health_service.destroy()
+            if self.waypoint_subscription is not None:
+                self.waypoint_subscription.destroy()
+            
+            # Cleanup model and GPU memory
+            if self.detection_model is not None:
+                del self.detection_model
+                self.detection_model = None
+            
+            # Final GPU memory cleanup
+            if TORCH_AVAILABLE:
+                try:
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception as e:
+                    self.get_logger().debug(f"Final GPU cleanup error: {e}")
+            
+            # Print final statistics
+            self.get_logger().info("="*60)
+            self.get_logger().info("Final Statistics:")
+            self.get_logger().info(f"  Total Images Processed: {self.stats['total_images_processed']}")
+            self.get_logger().info(f"  Total Detections: {self.stats['total_detections']}")
+            self.get_logger().info(f"  Total People: {self.stats['total_people']}")
+            self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
+            self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
+            self.get_logger().info(f"  Errors: {self.stats['errors']}")
+            uptime = time.time() - self.stats['node_start_time']
+            self.get_logger().info(f"  Uptime: {uptime:.1f}s")
+            self.get_logger().info("="*60)
+            
+        except Exception as e:
+            self.get_logger().error(f"Error during shutdown: {e}")
+        
+        return TransitionCallbackReturn.SUCCESS
     
     def _load_and_validate_parameters(self) -> None:
         """Load and validate all parameters"""
@@ -474,8 +654,11 @@ class SAHIObjectDetectionNode(Node):
                 elif param.name == 'check_interval':
                     if param.value >= 0.1:
                         self.check_interval = param.value
-                        self.timer.cancel()
-                        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+                        # Only recreate timer if it exists (node is active)
+                        if self.timer is not None:
+                            self.timer.cancel()
+                            self.timer.destroy()
+                            self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
                         self.get_logger().info(f"Updated check_interval to {param.value}")
                     else:
                         return SetParametersResult(successful=False, reason="check_interval must be >= 0.1")
@@ -754,6 +937,13 @@ class SAHIObjectDetectionNode(Node):
         Also performs image cleanup if configured.
         """
         try:
+            # Only process if node is active
+            if self.get_current_state().id != State.PRIMARY_STATE_ACTIVE:
+                return
+            
+            if self.shutdown_requested:
+                return
+            
             if not os.path.exists(self.camera_feed_path):
                 self.get_logger().warn(f"Camera feed path does not exist: {self.camera_feed_path}")
                 return
@@ -1439,6 +1629,15 @@ class SAHIObjectDetectionNode(Node):
             image_path: Path to the original image file
         """
         try:
+            # Check if publishers are available
+            if self.publisher is None or self.detection_pub is None or self.detection_publisher is None:
+                self.get_logger().warn("Publishers not available, skipping publish")
+                return
+            
+            if self.bridge is None:
+                self.get_logger().warn("CvBridge not available, skipping publish")
+                return
+            
             # Convert to ROS2 Image message
             image_msg = self.bridge.cv2_to_imgmsg(annotated_frame, encoding='bgr8')
             image_msg.header.stamp = self.get_clock().now().to_msg()
@@ -1564,23 +1763,7 @@ class SAHIObjectDetectionNode(Node):
             import traceback
             self.get_logger().error(traceback.format_exc())
             self.stats['errors'] += 1
-    
-    def _log_statistics(self) -> None:
-        """Log detection statistics"""
-        self.get_logger().info("="*80)
-        self.get_logger().info("SAHI Detection Statistics:")
-        self.get_logger().info(f"  Total Images Processed: {self.stats['total_images_processed']}")
-        self.get_logger().info(f"  Total Detections: {self.stats['total_detections']}")
-        self.get_logger().info(f"  Total Tents: {self.stats['total_tents']}")
-        self.get_logger().info(f"  Total People: {self.stats['total_people']}")
-        self.get_logger().info(f"  Avg Processing Time: {self.stats['avg_processing_time']:.2f}s")
-        self.get_logger().info(f"  Last Processing Time: {self.stats['last_processing_time']:.2f}s")
-        self.get_logger().info(f"  Errors: {self.stats['errors']}")
-        uptime = time.time() - self.stats['node_start_time']
-        self.get_logger().info(f"  Uptime: {uptime:.1f}s")
-        self.get_logger().info("="*80)
-
-
+            
 def main(args=None):
     rclpy.init(args=args)
     
@@ -1601,30 +1784,49 @@ def main(args=None):
     node = SAHIObjectDetectionNode()
     
     try:
+        # Configure the node (transition from unconfigured to inactive)
+        if node.trigger_configure() != TransitionCallbackReturn.SUCCESS:
+            node.get_logger().error("Failed to configure node")
+            node.destroy_node()
+            rclpy.shutdown()
+            return
+        
+        # Activate the node (transition from inactive to active)
+        if node.trigger_activate() != TransitionCallbackReturn.SUCCESS:
+            node.get_logger().error("Failed to activate node")
+            node.trigger_cleanup()
+            node.destroy_node()
+            rclpy.shutdown()
+            return
+        
         # Use multithreaded executor for better responsiveness
         # Allows service callbacks to respond immediately even during image processing
         executor = MultiThreadedExecutor(num_threads=2)
         executor.add_node(node)
+        
+        node.get_logger().info("Node is active. Use 'ros2 lifecycle set /new_od deactivate' to pause or 'shutdown' to stop.")
+        
         executor.spin()
     except KeyboardInterrupt:
-        pass  # Normal shutdown via Ctrl+C
+        node.get_logger().info("Keyboard interrupt received")
     finally:
-        # Clean shutdown
-        print("\n" + "="*60)
-        print("Shutting down SAHI Object Detection Node...")
-        print("="*60)
-        
-        # Print final statistics to console (not ROS logger since context may be invalid)
-        stats = node.stats
-        print(f"  Total Images Processed: {stats['total_images_processed']}")
-        print(f"  Total Detections: {stats['total_detections']}")
-        print(f"  Total People: {stats['total_people']}")
-        print(f"  Total Tents: {stats['total_tents']}")
-        print(f"  Avg Processing Time: {stats['avg_processing_time']:.2f}s")
-        print(f"  Errors: {stats['errors']}")
-        uptime = time.time() - stats['node_start_time']
-        print(f"  Uptime: {uptime:.1f}s")
-        print("="*60 + "\n")
+        # Graceful shutdown via lifecycle transitions
+        if not node.shutdown_requested:
+            node.get_logger().info("Initiating lifecycle shutdown...")
+            try:
+                # Deactivate first
+                if node.trigger_deactivate() != TransitionCallbackReturn.SUCCESS:
+                    node.get_logger().warn("Failed to deactivate node")
+                
+                # Cleanup
+                if node.trigger_cleanup() != TransitionCallbackReturn.SUCCESS:
+                    node.get_logger().warn("Failed to cleanup node")
+                
+                # Shutdown
+                if node.trigger_shutdown() != TransitionCallbackReturn.SUCCESS:
+                    node.get_logger().warn("Failed to shutdown node")
+            except Exception as e:
+                node.get_logger().error(f"Error during lifecycle shutdown: {e}")
         
         node.destroy_node()
         rclpy.shutdown()

@@ -1,8 +1,22 @@
 # -*- coding: utf-8 -*-
+"""
+SIYI A8 mini Camera ROS2 Node
+Captures 4K photos using SDK commands and HTTP media server
+Based on SIYI A8 mini User Manual v1.6 and v1.8
+"""
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float64
+from mavros_msgs.msg import StatusText
+import cv2
+import os
+import time
+import socket
+import requests
+import numpy as np
+from threading import Lock
+
 # Lazy import cv_bridge to avoid initialization errors
 try:
     from cv_bridge import CvBridge
@@ -12,13 +26,19 @@ except Exception as e:
     print("Will attempt to use alternative image conversion methods")
     CV_BRIDGE_AVAILABLE = False
     CvBridge = None
-from mavros_msgs.msg import StatusText
-from ament_index_python.packages import get_package_share_directory
-import cv2, os, time
-import subprocess
-import numpy as np
+
 
 class SiyiA8Publisher(Node):
+    # SIYI A8 mini camera configuration
+    CAM_IP = "192.168.144.25"
+    CTRL_PORT = 37260
+    MEDIA_PORT = 82
+    MEDIA_URL = f"http://{CAM_IP}:{MEDIA_PORT}/cgi-bin/media.cgi"
+    
+    # SIYI SDK command: Take Picture (CMD_ID 0x0C, func_type 0)
+    # Based on A8 mini User Manual v1.6
+    TAKE_PIC_PKT = bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce")
+    
     def __init__(self):
         super().__init__('siyi_a8_publisher')
 
@@ -38,247 +58,236 @@ class SiyiA8Publisher(Node):
             self.bridge = None
             self.get_logger().warn("cv_bridge not available, using alternative conversion")
 
-        # Use video_cam directory in ros2_ws
+        # Setup photo storage directories
+        self.setup_directories()
+        
+        # UDP socket for SDK commands
+        self.sdk_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sdk_socket.settimeout(2.0)
+        
+        # Camera state
+        self.camera_available = False
+        self.current_photo_dir = None
+        self.last_photo_count = 0
+        self.camera_enabled = True
+        self.capture_photo = False
+        self.latest_image_msg = None
+        self.photo_lock = Lock()
+        
+        # Altitude threshold
+        self.ALT_THRESHOLD = 13.716
+        
+        # Initialize camera connection
+        self.initialize_camera()
+        
+        # Timer for periodic image capture (5 seconds)
+        self.timer = self.create_timer(5.0, self.camera_loop)
+        
+        self.get_logger().info("SIYI A8 Publisher initialized")
+    
+    def setup_directories(self):
+        """Setup directory structure for photo storage"""
+        # Find ros2_ws directory
         current_file = os.path.abspath(__file__)
         current_dir = os.path.dirname(current_file)
         
-        # Navigate up to find ros2_ws (look for install/ or src/ directories)
         search_dir = current_dir
         ros2_ws_dir = None
         
-        for _ in range(10):  # Limit search depth
-            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
-                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
-                    ros2_ws_dir = search_dir
-                    break
-                parent = os.path.dirname(search_dir)
-                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
-                    ros2_ws_dir = parent
-                    break
+        for _ in range(10):
+            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                ros2_ws_dir = search_dir
+                break
             search_dir = os.path.dirname(search_dir)
             if search_dir == "/":
                 break
         
-        # Fallback: construct path directly
+        # Fallback
         if ros2_ws_dir is None:
-            ros2_ws_dir = "/home/aro/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
+            ros2_ws_dir = "/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
         
         video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
         os.makedirs(video_cam_dir, exist_ok=True)
         
         # Directory for saving images 
         self.photo_path = os.path.join(video_cam_dir, "camera_feed")
-        if not os.path.exists(self.photo_path):
-            os.makedirs(self.photo_path)
+        os.makedirs(self.photo_path, exist_ok=True)
         
         # Directory for saving mapping images
         self.mapping_photo_path = os.path.join(video_cam_dir, "mapping_photos")
-        if not os.path.exists(self.mapping_photo_path):
-            os.makedirs(self.mapping_photo_path)
+        os.makedirs(self.mapping_photo_path, exist_ok=True)
         
-        # Real camera flag - will be determined by camera initialization
-        self.use_real_camera = None  # None means not yet determined
+        self.get_logger().info(f"Photo storage: {self.photo_path}")
+        self.get_logger().info(f"Mapping photos: {self.mapping_photo_path}")
 
-        # Altitude threshold flag
-        self.camera_enabled = True  # Enable camera for simulation
-        self.ALT_THRESHOLD = 13.716
 
-        # Save photo flag
-        self.capture_photo = False
-
-        # Change timer to 5 seconds (was 0.1 seconds)
-        self.timer = self.create_timer(5.0, self.camera_loop)
-
-        # Camera setup
-        self.latest_image_msg = None
-        self.gstreamer_process = None
-        self.capture = None
-        
-        # Initialize camera with timeout fallback
-        self.initialize_camera()
 
     def initialize_camera(self):
-        """Initialize SIYI camera with 10-second timeout, fallback to machine camera if not found"""
-        self.get_logger().info("Attempting to initialize SIYI camera (10 second timeout)...")
+        """Initialize SIYI A8 mini camera via HTTP media server"""
+        self.get_logger().info("Initializing SIYI A8 mini camera...")
         
-        rtsp_url = 'rtsp://192.168.144.25:8554/main.264'
-        timeout_seconds = 10.0
-        start_time = time.time()
-        siyi_found = False
-        
-        # Try to connect to SIYI camera with timeout
-        while (time.time() - start_time) < timeout_seconds:
-            # Method 1: Try with FFmpeg backend
-            self.get_logger().info(f"Trying to connect to SIYI camera at {rtsp_url} using FFmpeg...")
-            if self.capture is not None:
-                self.capture.release()
-            self.capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-            
-            # Set a short timeout for read operations
-            if self.capture.isOpened():
-                # Try to read a frame to verify connection
-                self.capture.set(cv2.CAP_PROP_TIMEOUT, 2000)  # 2 second timeout for read
-                ret, frame = self.capture.read()
-                if ret and frame is not None:
-                    siyi_found = True
-                    break
-            
-            # Method 2: Try with GStreamer pipeline
-            self.get_logger().info("FFmpeg failed, trying GStreamer pipeline...")
-            if self.capture is not None:
-                self.capture.release()
-            gst_pipeline = (
-                'rtspsrc location=rtsp://192.168.144.25:8554/main.264 latency=0 ! '
-                'rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink'
+        try:
+            # Test connection to media server
+            response = requests.get(
+                self.MEDIA_URL,
+                params={"cmd": "getdirectories"},
+                json={},
+                timeout=3
             )
-            self.capture = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
             
-            if self.capture.isOpened():
-                ret, frame = self.capture.read()
-                if ret and frame is not None:
-                    siyi_found = True
-                    break
-            
-            # Method 3: Try with default backend
-            self.get_logger().info("GStreamer failed, trying default backend...")
-            if self.capture is not None:
-                self.capture.release()
-            self.capture = cv2.VideoCapture(rtsp_url)
-            
-            if self.capture.isOpened():
-                ret, frame = self.capture.read()
-                if ret and frame is not None:
-                    siyi_found = True
-                    break
-            
-            # Wait a bit before retrying
-            time.sleep(0.5)
-        
-        # Clean up if SIYI camera was not found
-        if not siyi_found and self.capture is not None:
-            self.capture.release()
-            self.capture = None
-        
-        # Check if SIYI camera was found
-        if siyi_found:
-            self.use_real_camera = True
-            text = "SIYI camera initialized successfully"
-            self.send_ack(text)
-            self.get_logger().info("Successfully connected to SIYI camera!")
-        else:
-            # Switch to machine camera (webcam)
-            self.get_logger().warn(f"SIYI camera not found within {timeout_seconds} seconds. Switching to machine camera (webcam)...")
-            self.use_real_camera = False
-            
-            # Try to open default webcam (usually /dev/video0)
-            # Try common webcam indices: 0, 1, 2
-            webcam_found = False
-            cam_index = None
-            for idx in [0, 1, 2]:
-                self.get_logger().info(f"Trying to open webcam device {idx}...")
-                test_capture = cv2.VideoCapture(idx)
-                if test_capture.isOpened():
-                    ret, frame = test_capture.read()
-                    if ret and frame is not None:
-                        webcam_found = True
-                        cam_index = idx
-                        self.capture = test_capture
-                        self.get_logger().info(f"Successfully opened webcam device {idx}")
-                        break
-                    else:
-                        test_capture.release()
-            
-            if webcam_found:
-                text = f"Machine camera (webcam {cam_index}) initialized - SIYI camera unavailable"
-                self.send_ack(text)
-                self.get_logger().info(f"Using machine camera (webcam {cam_index}) as fallback")
+            if response.status_code == 200:
+                data = response.json()
+                self.get_logger().info(f"Camera connected successfully: {data}")
+                
+                # Get photo directories
+                if "photo" in data and len(data["photo"]) > 0:
+                    self.current_photo_dir = data["photo"][-1]  # Most recent directory
+                    self.get_logger().info(f"Current photo directory: {self.current_photo_dir}")
+                    
+                    # Get initial photo count
+                    count_resp = self.media_command("getmediacount", {
+                        "media_type": 0,
+                        "path": self.current_photo_dir
+                    })
+                    
+                    if count_resp and "count" in count_resp:
+                        self.last_photo_count = count_resp["count"]
+                        self.get_logger().info(f"Initial photo count: {self.last_photo_count}")
+                else:
+                    self.get_logger().warn("No photo directories found. SD card may not be inserted.")
+                    self.current_photo_dir = None
+                
+                self.camera_available = True
+                self.send_ack("SIYI A8 mini camera initialized successfully")
+                
             else:
-                # If no webcam found, use simulation mode (waiting for /webcam/image_raw topic)
-                self.capture = None
-                text = "No cameras found - waiting for /webcam/image_raw topic (simulation mode)"
-                self.send_ack(text)
-                self.get_logger().warn("No physical cameras found. Will use /webcam/image_raw topic if available.")
+                self.get_logger().error(f"Failed to connect to camera: HTTP {response.status_code}")
+                self.camera_available = False
+                self.send_ack("SIYI camera not available - check network connection")
+                
+        except requests.exceptions.RequestException as e:
+            self.get_logger().error(f"Camera connection error: {e}")
+            self.get_logger().warn("Camera not available. Will use simulation mode if /webcam/image_raw is available")
+            self.camera_available = False
+            self.send_ack("SIYI camera not available - using simulation mode")
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error during camera initialization: {e}")
+            self.camera_available = False
+    
+    def media_command(self, cmd, payload):
+        """Send command to camera's HTTP media server"""
+        try:
+            response = requests.post(
+                self.MEDIA_URL,
+                params={"cmd": cmd},
+                json=payload,
+                timeout=3
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                self.get_logger().error(f"Media command '{cmd}' failed: HTTP {response.status_code}")
+                return None
+                
+        except requests.exceptions.RequestException as e:
+            self.get_logger().error(f"Media command '{cmd}' error: {e}")
+            return None
+    
+    def take_picture(self):
+        """Trigger camera to take a photo using SDK command"""
+        try:
+            self.sdk_socket.sendto(self.TAKE_PIC_PKT, (self.CAM_IP, self.CTRL_PORT))
+            self.get_logger().info("Photo trigger sent to camera")
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Failed to send photo trigger: {e}")
+            return False
+    
+    def wait_for_new_photo(self, timeout_s=10):
+        """Wait for a new photo to appear on camera's SD card"""
+        if not self.current_photo_dir:
+            self.get_logger().error("No photo directory available")
+            return None
+        
+        start_time = time.time()
+        
+        while (time.time() - start_time) < timeout_s:
+            # Check photo count
+            count_resp = self.media_command("getmediacount", {
+                "media_type": 0,
+                "path": self.current_photo_dir
+            })
+            
+            if count_resp and "count" in count_resp:
+                current_count = count_resp["count"]
+                
+                if current_count > self.last_photo_count:
+                    # New photo detected, get the latest photo URL
+                    list_resp = self.media_command("getmedialist", {
+                        "media_type": 0,
+                        "path": self.current_photo_dir,
+                        "start": current_count - 1,  # Get last photo
+                        "count": 1
+                    })
+                    
+                    if list_resp and "data" in list_resp and len(list_resp["data"]) > 0:
+                        photo_url = list_resp["data"][0]["url"]
+                        self.last_photo_count = current_count
+                        self.get_logger().info(f"New photo available: {photo_url}")
+                        return photo_url
+            
+            time.sleep(0.3)  # Poll interval
+        
+        self.get_logger().warn(f"Timeout waiting for new photo after {timeout_s}s")
+        return None
+    
+    def download_photo(self, photo_url):
+        """Download photo from camera to Jetson"""
+        try:
+            response = requests.get(photo_url, timeout=10)
+            
+            if response.status_code == 200:
+                # Convert bytes to numpy array
+                img_array = np.frombuffer(response.content, dtype=np.uint8)
+                # Decode image
+                img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                
+                if img is not None:
+                    self.get_logger().info(f"Photo downloaded successfully, size: {img.shape}")
+                    return img
+                else:
+                    self.get_logger().error("Failed to decode downloaded image")
+                    return None
+            else:
+                self.get_logger().error(f"Failed to download photo: HTTP {response.status_code}")
+                return None
+                
+        except Exception as e:
+            self.get_logger().error(f"Error downloading photo: {e}")
+            return None
+    
+    def capture_and_download_photo(self):
+        """Complete workflow: trigger photo, wait for it, and download it"""
+        with self.photo_lock:
+            # Step 1: Trigger photo
+            if not self.take_picture():
+                return None
+            
+            # Step 2: Wait for photo to appear on SD card
+            photo_url = self.wait_for_new_photo(timeout_s=10)
+            if not photo_url:
+                return None
+            
+            # Step 3: Download photo
+            img = self.download_photo(photo_url)
+            return img
+
+
 
     def sim_image_callback(self, msg):
+        """Callback for simulation images from /webcam/image_raw topic"""
         self.latest_image_msg = msg
-    
-    def init_gstreamer_subprocess(self):
-        """Initialize GStreamer subprocess as fallback when OpenCV doesn't have GStreamer support"""
-        try:
-            # First, get video dimensions from the stream
-            probe_command = [
-                'gst-launch-1.0', '-q',
-                'rtspsrc', 'location=rtsp://192.168.144.25:8554/main.264', 'latency=0', '!',
-                'rtph264depay', '!', 'h264parse', '!', 'avdec_h264', '!',
-                'videoconvert', '!', 'video/x-raw,format=BGR', '!',
-                'fakesink', 'num-buffers=1'
-            ]
-            
-            # Try to probe stream - if this fails, camera isn't available
-            probe = subprocess.run(probe_command, capture_output=True, timeout=5)
-            if probe.returncode != 0:
-                self.get_logger().error('Cannot connect to camera stream')
-                return False
-            
-            # Assume common resolution - you may need to adjust this
-            # Common SIYI A8 resolutions: 1920x1080, 1280x720
-            self.frame_width = 1920
-            self.frame_height = 1080
-            self.frame_channels = 3
-            self.frame_size = self.frame_width * self.frame_height * self.frame_channels
-            
-            # GStreamer pipeline that outputs raw BGR frames to stdout
-            gst_command = [
-                'gst-launch-1.0', '-q',
-                'rtspsrc', 'location=rtsp://192.168.144.25:8554/main.264', 'latency=0', '!',
-                'rtph264depay', '!', 'h264parse', '!', 'avdec_h264', '!',
-                'videoscale', '!', f'video/x-raw,format=BGR,width={self.frame_width},height={self.frame_height}', '!',
-                'fdsink'
-            ]
-            
-            self.gstreamer_process = subprocess.Popen(
-                gst_command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=self.frame_size * 2
-            )
-            
-            # Wait a bit for the stream to start
-            time.sleep(1)
-            
-            if self.gstreamer_process.poll() is not None:
-                self.get_logger().error('GStreamer subprocess failed to start')
-                return False
-            
-            self.get_logger().info(f'GStreamer subprocess started successfully (resolution: {self.frame_width}x{self.frame_height})')
-            return True
-        except subprocess.TimeoutExpired:
-            self.get_logger().error('Timeout connecting to camera')
-            return False
-        except Exception as e:
-            self.get_logger().error(f'Failed to start GStreamer subprocess: {e}')
-            return False
-    
-    def read_frame_from_gstreamer(self):
-        """Read a frame from the GStreamer subprocess"""
-        try:
-            if self.gstreamer_process is None or self.gstreamer_process.poll() is not None:
-                return False, None
-            
-            # Read raw frame data
-            raw_frame = self.gstreamer_process.stdout.read(self.frame_size)
-            
-            if len(raw_frame) != self.frame_size:
-                return False, None
-            
-            # Convert to numpy array and reshape
-            frame = np.frombuffer(raw_frame, dtype=np.uint8)
-            frame = frame.reshape((self.frame_height, self.frame_width, self.frame_channels))
-            
-            return True, frame
-        except Exception as e:
-            self.get_logger().error(f'Error reading frame from GStreamer: {e}')
-            return False, None
     
     def cv2_to_imgmsg_manual(self, cv_image, encoding='bgr8'):
         """Convert OpenCV image to ROS Image message without cv_bridge"""
@@ -305,6 +314,7 @@ class SiyiA8Publisher(Node):
         return cv_image
 
     def send_ack(self, text):
+        """Send status message to MAVLink"""
         msg = StatusText()
         msg.severity = 6  # INFO
         msg.text = text
@@ -312,12 +322,13 @@ class SiyiA8Publisher(Node):
         self.get_logger().info(f"Status: {text}")
     
     def camera_trigger_callback(self, msg):
+        """Callback for manual camera trigger"""
         if msg.data:
             self.get_logger().info("Camera trigger received")
             self.capture_photo = True
     
     def check_altitude(self, msg):
-        '''enables or disables camera based on altitude'''
+        """Enable or disable camera based on altitude threshold"""
         current_alt = msg.data
         if current_alt >= self.ALT_THRESHOLD:
             if not self.camera_enabled:
@@ -333,68 +344,87 @@ class SiyiA8Publisher(Node):
             self.camera_enabled = False
 
     def camera_loop(self):
-        '''main camera loop that publishes images to the /image_raw topic'''
-        if self.camera_enabled:
-            # Use physical camera (SIYI or webcam) if available
-            if self.capture is not None:
-                returnValue, capturedFrame = self.capture.read()
+        """Main camera loop that captures and publishes images"""
+        if not self.camera_enabled:
+            return
+        
+        # Use SIYI camera if available
+        if self.camera_available and self.current_photo_dir:
+            try:
+                self.get_logger().info("Capturing photo from SIYI camera...", throttle_duration_sec=5.0)
                 
-                if returnValue == True and capturedFrame is not None:
-                    camera_type = "SIYI" if self.use_real_camera else "Webcam"
-                    self.get_logger().info(f"{camera_type} Frame Publishing", throttle_duration_sec=5.0)
-                    
-                    # Convert to ROS message
-                    if self.bridge is not None:
-                        imageToTransmit = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
-                    else:
-                        imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
-                    
-                    # self.publisher.publish(imageToTransmit)
-                    # timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    # filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
-                    # cv2.imwrite(filename, capturedFrame)
-
-                    if self.capture_photo:
-                        # self.get_logger().info("Capturing photo...")
-                        timestamp = time.strftime("%Y%m%d-%H%M%S")
-                        mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
-                        cv2.imwrite(mapping_filename, capturedFrame)
-                        # self.get_logger().info(f"Photo saved to {mapping_filename}")
-                        self.capture_photo = False
-                else:
-                    camera_type = "SIYI" if self.use_real_camera else "Webcam"
-                    self.get_logger().warn(f"Failed to read frame from {camera_type} camera", throttle_duration_sec=10.0)
-            # Fallback to simulation mode (waiting for /webcam/image_raw topic)
-            elif self.latest_image_msg is not None:
-                self.get_logger().info("Begun Camera Frame Republishing", throttle_duration_sec=5.0)
-                self.publisher.publish(self.latest_image_msg)
-
-                # Save image
-                if self.bridge is not None:
-                    cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, desired_encoding='bgr8')
-                else:
-                    cv_image = self.imgmsg_to_cv2_manual(self.latest_image_msg, desired_encoding='bgr8')
+                # Capture and download photo
+                img = self.capture_and_download_photo()
                 
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
-                cv2.imwrite(filename, cv_image) 
-
-                if self.capture_photo:
-                    self.get_logger().info("Capturing photo...")
+                if img is not None:
+                    # Save to camera feed directory
                     timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
-                    cv2.imwrite(mapping_filename, cv_image)
-                    self.get_logger().info(f"Photo saved to {mapping_filename}")
-                    self.capture_photo = False
+                    filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
+                    cv2.imwrite(filename, img)
+                    self.get_logger().info(f"Photo saved: {filename}")
+                    
+                    # Convert to ROS message and publish
+                    if self.bridge is not None:
+                        img_msg = self.bridge.cv2_to_imgmsg(img, encoding='bgr8')
+                    else:
+                        img_msg = self.cv2_to_imgmsg_manual(img, encoding='bgr8')
+                    
+                    self.publisher.publish(img_msg)
+                    self.get_logger().info("Image published to /image_raw", throttle_duration_sec=5.0)
+                    
+                    # Save to mapping directory if triggered
+                    if self.capture_photo:
+                        mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+                        cv2.imwrite(mapping_filename, img)
+                        self.get_logger().info(f"Mapping photo saved: {mapping_filename}")
+                        self.capture_photo = False
+                        
+                else:
+                    self.get_logger().warn("Failed to capture photo from SIYI camera", throttle_duration_sec=10.0)
+                    
+            except Exception as e:
+                self.get_logger().error(f"Error in camera loop: {e}", throttle_duration_sec=10.0)
+        
+        # Fallback to simulation mode
+        elif self.latest_image_msg is not None:
+            self.get_logger().info("Using simulation image from /webcam/image_raw", throttle_duration_sec=5.0)
+            self.publisher.publish(self.latest_image_msg)
+
+            # Save image
+            if self.bridge is not None:
+                cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, desired_encoding='bgr8')
             else:
-                self.get_logger().warn("No camera available and no image received from /webcam/image_raw yet", throttle_duration_sec=5.0)
+                cv_image = self.imgmsg_to_cv2_manual(self.latest_image_msg, desired_encoding='bgr8')
+            
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
+            cv2.imwrite(filename, cv_image) 
+
+            if self.capture_photo:
+                mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+                cv2.imwrite(mapping_filename, cv_image)
+                self.get_logger().info(f"Mapping photo saved: {mapping_filename}")
+                self.capture_photo = False
+        
+        else:
+            self.get_logger().warn("No camera available and no simulation image received", throttle_duration_sec=10.0)
+    
+    def __del__(self):
+        """Cleanup when node is destroyed"""
+        if hasattr(self, 'sdk_socket'):
+            self.sdk_socket.close()
 
 def main(args=None):
     rclpy.init(args=args)
     siyi_a8_publisher = SiyiA8Publisher()
-    rclpy.spin(siyi_a8_publisher)
-    siyi_a8_publisher.destroy_node()
-    rclpy.shutdown()
+    
+    try:
+        rclpy.spin(siyi_a8_publisher)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        siyi_a8_publisher.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
