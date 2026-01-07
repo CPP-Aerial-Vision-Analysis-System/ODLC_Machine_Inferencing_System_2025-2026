@@ -121,7 +121,7 @@ class SiyiA8Publisher(Node):
         if ros2_ws_dir is None:
             ros2_ws_dir = "/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws"
         
-        video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+        video_cam_dir = os.path.join(ros2_ws_dir, "src", "video_cam")
         os.makedirs(video_cam_dir, exist_ok=True)
         
         # Directory for saving images 
@@ -491,19 +491,6 @@ class SiyiA8Publisher(Node):
         msg.step = cv_image.shape[1] * cv_image.shape[2]
         msg.data = cv_image.tobytes()
         return msg
-    
-    def imgmsg_to_cv2_manual(self, img_msg, desired_encoding='bgr8'):
-        """Convert ROS Image message to OpenCV image without cv_bridge"""
-        if img_msg.encoding != desired_encoding:
-            self.get_logger().warn(f'Image encoding mismatch: {img_msg.encoding} vs {desired_encoding}')
-        
-        dtype = np.uint8
-        n_channels = 3 if desired_encoding == 'bgr8' else 1
-        
-        img_buf = np.asarray(img_msg.data, dtype=dtype)
-        cv_image = img_buf.reshape(img_msg.height, img_msg.width, n_channels)
-        
-        return cv_image
 
     def send_ack(self, text):
         """Send status message to MAVLink"""
