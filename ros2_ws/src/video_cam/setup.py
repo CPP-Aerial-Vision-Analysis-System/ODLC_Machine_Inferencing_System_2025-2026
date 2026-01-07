@@ -15,7 +15,12 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
 
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'requests>=2.28.0',
+        'opencv-python>=4.8.0',
+        'numpy>=1.24.0',
+    ],
     zip_safe=True,
     maintainer='ubuntu',
     maintainer_email='student.joshuaestrada@gmail.com',

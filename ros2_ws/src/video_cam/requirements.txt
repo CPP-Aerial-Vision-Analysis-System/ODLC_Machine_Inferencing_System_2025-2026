@@ -1,0 +1,16 @@
+# Python Dependencies for SIYI A8 Camera Integration
+# Install with: pip install -r requirements.txt
+
+# HTTP client for camera media server
+requests>=2.28.0
+
+# Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# ROS2 Python dependencies (already installed in ROS2, but listed for reference)
+# rclpy
+# sensor_msgs
+# std_msgs
+# cv_bridge
+# mavros_msgs
