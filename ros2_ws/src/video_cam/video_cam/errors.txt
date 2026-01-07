@@ -27,3 +27,6 @@ Summary: 10 packages finished [12.1s]
 [ WARN:0@38.721] global cap_ffmpeg_impl.hpp:453 _opencv_ffmpeg_interrupt_callback Stream timeout triggered after 30069.360274 ms
 astra-dev@ubuntu:~/astra/ros2_ws$ 
 astra
+
+
+taking images - ros2 topic pub --once /camera/trigger std_msgs/msg/Bool "data: true"
