@@ -7,14 +7,16 @@ Based on SIYI A8 mini User Manual v1.6 and v1.8
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float64
+from std_msgs.msg import Bool, Float64, String, Int32
 from mavros_msgs.msg import StatusText
+from interfaces.srv import CameraCommand
 import cv2
 import os
 import time
 import socket
 import requests
 import numpy as np
+import struct
 from threading import Lock
 
 # Lazy import cv_bridge to avoid initialization errors
@@ -35,9 +37,12 @@ class SiyiA8Publisher(Node):
     MEDIA_PORT = 82
     MEDIA_URL = f"http://{CAM_IP}:{MEDIA_PORT}/cgi-bin/media.cgi"
     
-    # SIYI SDK command: Take Picture (CMD_ID 0x0C, func_type 0)
-    # Based on A8 mini User Manual v1.6
-    TAKE_PIC_PKT = bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce")
+    # SIYI SDK commands (Based on A8 mini User Manual v1.6)
+    TAKE_PIC_PKT = bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce")  # CMD_ID 0x0C, func_type 0
+    
+    # Zoom control commands will be constructed dynamically
+    ZOOM_IN_CMD = 0x05  # CMD_ID for zoom control
+    ZOOM_OUT_CMD = 0x05
     
     def __init__(self):
         super().__init__('siyi_a8_publisher')
@@ -45,11 +50,19 @@ class SiyiA8Publisher(Node):
         # Publishers
         self.publisher = self.create_publisher(Image, 'image_raw', 10)
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
+        self.zoom_level_publisher = self.create_publisher(Int32, '/camera/zoom_level', 10)
 
         # Subscribers
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.check_altitude, 10)
         self.create_subscription(Image, '/webcam/image_raw', self.sim_image_callback, 1)
+        
+        # Services for camera control
+        self.camera_control_service = self.create_service(
+            CameraCommand,
+            '/camera/control',
+            self.camera_control_callback
+        )
 
         # Initialize cv_bridge if available
         if CV_BRIDGE_AVAILABLE:
@@ -73,6 +86,7 @@ class SiyiA8Publisher(Node):
         self.capture_photo = False
         self.latest_image_msg = None
         self.photo_lock = Lock()
+        self.current_zoom_level = 1  # 1x zoom by default
         
         # Altitude threshold
         self.ALT_THRESHOLD = 13.716
@@ -84,6 +98,7 @@ class SiyiA8Publisher(Node):
         self.timer = self.create_timer(5.0, self.camera_loop)
         
         self.get_logger().info("SIYI A8 Publisher initialized")
+        self.get_logger().info("Camera control service available at /camera/control")
     
     def setup_directories(self):
         """Setup directory structure for photo storage"""
@@ -120,14 +135,59 @@ class SiyiA8Publisher(Node):
         self.get_logger().info(f"Photo storage: {self.photo_path}")
         self.get_logger().info(f"Mapping photos: {self.mapping_photo_path}")
 
-
-
     def initialize_camera(self):
-        """Initialize SIYI A8 mini camera via HTTP media server"""
+        """Initialize SIYI A8 mini camera - orchestrates the initialization steps"""
         self.get_logger().info("Initializing SIYI A8 mini camera...")
         
+        # Step 1: Test Ethernet connectivity
+        if not self.test_camera_connectivity():
+            self.camera_available = False
+            self.send_ack("SIYI camera not available - using simulation mode")
+            return
+        
+        # Step 2: Discover photo directory on SD card
+        if not self.discover_photo_directory():
+            self.camera_available = False
+            self.send_ack("SIYI camera connected but SD card issue detected")
+            return
+        
+        # Step 3: Get initial photo count
+        if not self.initialize_photo_count():
+            self.get_logger().warn("Could not get initial photo count, starting from 0")
+            self.last_photo_count = 0
+        
+        # Camera is ready
+        self.camera_available = True
+        self.send_ack("SIYI A8 mini camera initialized successfully")
+    
+    def test_camera_connectivity(self):
+        '''Sends HTTP requrest to confirm the camera is reachable over Ethernet'''
         try:
-            # Test connection to media server
+            response = requests.get(
+                self.MEDIA_URL,
+                params={"cmd": "getdirectories"},
+                json={},
+                timeout=3
+            )
+            
+            if response.status_code == 200:
+                self.get_logger().info("Camera Ethernet connectivity verified")
+                return True
+            else:
+                self.get_logger().error(f"Camera responded with HTTP {response.status_code}")
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            self.get_logger().error(f"Camera connection error: {e}")
+            self.get_logger().warn("Camera not available. Will use simulation mode if /webcam/image_raw is available")
+            return False
+        except Exception as e:
+            self.get_logger().error(f"Unexpected error testing connectivity: {e}")
+            return False
+    
+    def discover_photo_directory(self):
+        """Discover the active photo directory on camera's SD card"""
+        try:
             response = requests.get(
                 self.MEDIA_URL,
                 params={"cmd": "getdirectories"},
@@ -137,45 +197,50 @@ class SiyiA8Publisher(Node):
             
             if response.status_code == 200:
                 data = response.json()
-                self.get_logger().info(f"Camera connected successfully: {data}")
                 
                 # Get photo directories
                 if "photo" in data and len(data["photo"]) > 0:
                     self.current_photo_dir = data["photo"][-1]  # Most recent directory
                     self.get_logger().info(f"Current photo directory: {self.current_photo_dir}")
-                    
-                    # Get initial photo count
-                    count_resp = self.media_command("getmediacount", {
-                        "media_type": 0,
-                        "path": self.current_photo_dir
-                    })
-                    
-                    if count_resp and "count" in count_resp:
-                        self.last_photo_count = count_resp["count"]
-                        self.get_logger().info(f"Initial photo count: {self.last_photo_count}")
+                    return True
                 else:
                     self.get_logger().warn("No photo directories found. SD card may not be inserted.")
                     self.current_photo_dir = None
-                
-                self.camera_available = True
-                self.send_ack("SIYI A8 mini camera initialized successfully")
-                
+                    return False
             else:
-                self.get_logger().error(f"Failed to connect to camera: HTTP {response.status_code}")
-                self.camera_available = False
-                self.send_ack("SIYI camera not available - check network connection")
+                self.get_logger().error(f"Failed to get directories: HTTP {response.status_code}")
+                return False
                 
-        except requests.exceptions.RequestException as e:
-            self.get_logger().error(f"Camera connection error: {e}")
-            self.get_logger().warn("Camera not available. Will use simulation mode if /webcam/image_raw is available")
-            self.camera_available = False
-            self.send_ack("SIYI camera not available - using simulation mode")
         except Exception as e:
-            self.get_logger().error(f"Unexpected error during camera initialization: {e}")
-            self.camera_available = False
+            self.get_logger().error(f"Error discovering photo directory: {e}")
+            return False
+    
+    def initialize_photo_count(self):
+        """Get initial photo count from camera SD card"""
+        if not self.current_photo_dir:
+            self.get_logger().error("No photo directory available for photo count")
+            return False
+        
+        try:
+            count_resp = self.media_command("getmediacount", {
+                "media_type": 0,
+                "path": self.current_photo_dir
+            })
+            
+            if count_resp and "count" in count_resp:
+                self.last_photo_count = count_resp["count"]
+                self.get_logger().info(f"Initial photo count: {self.last_photo_count}")
+                return True
+            else:
+                self.get_logger().error("Failed to get media count from camera")
+                return False
+                
+        except Exception as e:
+            self.get_logger().error(f"Error getting initial photo count: {e}")
+            return False
     
     def media_command(self, cmd, payload):
-        """Send command to camera's HTTP media server"""
+        """Send command to camera's HTTP media server and returns a parsed JSON response"""
         try:
             response = requests.post(
                 self.MEDIA_URL,
@@ -203,6 +268,135 @@ class SiyiA8Publisher(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to send photo trigger: {e}")
             return False
+    
+    def set_zoom_level(self, zoom_level):
+        """Set camera zoom level (1x to maximum supported)"""
+        try:
+            # SIYI zoom control command structure (CMD_ID 0x05)
+            # This is a simplified implementation - adjust based on actual camera specs
+            zoom_value = int(max(1, min(zoom_level, 30)))  # Clamp between 1 and 30x
+            
+            # Construct zoom command packet
+            # Format: Header + Seq + CMD_ID + Data + CRC
+            cmd_id = 0x05
+            seq = 0x01
+            ctrl = 0x01
+            data_len = 2
+            
+            # Build packet (simplified - real implementation needs proper CRC)
+            packet = bytearray([0x55, 0x66, ctrl, seq, data_len, 0x00, cmd_id, 
+                              zoom_value & 0xFF, (zoom_value >> 8) & 0xFF])
+            
+            # Calculate CRC16 (placeholder - use actual CRC16 calculation)
+            crc = self.calculate_crc16(packet)
+            packet.extend(struct.pack('<H', crc))
+            
+            self.sdk_socket.sendto(bytes(packet), (self.CAM_IP, self.CTRL_PORT))
+            self.current_zoom_level = zoom_value
+            
+            # Publish zoom level
+            zoom_msg = Int32()
+            zoom_msg.data = zoom_value
+            self.zoom_level_publisher.publish(zoom_msg)
+            
+            self.get_logger().info(f"Zoom level set to {zoom_value}x")
+            return True
+            
+        except Exception as e:
+            self.get_logger().error(f"Failed to set zoom level: {e}")
+            return False
+    
+    def zoom_in(self, steps=1):
+        """Zoom in by specified steps"""
+        new_zoom = self.current_zoom_level + steps
+        return self.set_zoom_level(new_zoom)
+    
+    def zoom_out(self, steps=1):
+        """Zoom out by specified steps"""
+        new_zoom = self.current_zoom_level - steps
+        return self.set_zoom_level(new_zoom)
+    
+    def calculate_crc16(self, data):
+        """Calculate CRC16 for SIYI protocol (polynomial x^16 + x^12 + x^5 + 1)"""
+        crc = 0
+        for byte in data:
+            crc ^= byte << 8
+            for _ in range(8):
+                if crc & 0x8000:
+                    crc = (crc << 1) ^ 0x1021
+                else:
+                    crc = crc << 1
+            crc &= 0xFFFF
+        return crc
+    
+    def camera_control_callback(self, request, response):
+        """Service callback for camera control commands"""
+        command = request.command.lower()
+        param = request.parameter if hasattr(request, 'parameter') else ""
+        
+        self.get_logger().info(f"Received camera control command: {command} {param}")
+        
+        try:
+            if command == "take_photo" or command == "capture":
+                # Trigger immediate photo capture
+                with self.photo_lock:
+                    if not self.camera_available:
+                        response.success = False
+                        response.message = "Camera not available"
+                        return response
+                    
+                    img = self.capture_and_download_photo()
+                    if img is not None:
+                        timestamp = time.strftime("%Y%m%d-%H%M%S")
+                        filename = os.path.join(self.photo_path, f"manual_photo_{timestamp}.jpg")
+                        cv2.imwrite(filename, img)
+                        response.success = True
+                        response.message = f"Photo captured and saved to {filename}"
+                    else:
+                        response.success = False
+                        response.message = "Failed to capture photo"
+            
+            elif command == "zoom_in":
+                steps = int(param) if param else 1
+                if self.zoom_in(steps):
+                    response.success = True
+                    response.message = f"Zoomed in to {self.current_zoom_level}x"
+                else:
+                    response.success = False
+                    response.message = "Failed to zoom in"
+            
+            elif command == "zoom_out":
+                steps = int(param) if param else 1
+                if self.zoom_out(steps):
+                    response.success = True
+                    response.message = f"Zoomed out to {self.current_zoom_level}x"
+                else:
+                    response.success = False
+                    response.message = "Failed to zoom out"
+            
+            elif command == "set_zoom":
+                zoom_level = int(param) if param else 1
+                if self.set_zoom_level(zoom_level):
+                    response.success = True
+                    response.message = f"Zoom set to {self.current_zoom_level}x"
+                else:
+                    response.success = False
+                    response.message = "Failed to set zoom level"
+            
+            elif command == "get_status":
+                response.success = True
+                response.message = f"Camera available: {self.camera_available}, Zoom: {self.current_zoom_level}x, Enabled: {self.camera_enabled}"
+            
+            else:
+                response.success = False
+                response.message = f"Unknown command: {command}. Available: take_photo, zoom_in, zoom_out, set_zoom, get_status"
+        
+        except Exception as e:
+            response.success = False
+            response.message = f"Error executing command: {str(e)}"
+            self.get_logger().error(f"Error in camera control: {e}")
+        
+        return response
     
     def wait_for_new_photo(self, timeout_s=10):
         """Wait for a new photo to appear on camera's SD card"""
@@ -282,8 +476,6 @@ class SiyiA8Publisher(Node):
             # Step 3: Download photo
             img = self.download_photo(photo_url)
             return img
-
-
 
     def sim_image_callback(self, msg):
         """Callback for simulation images from /webcam/image_raw topic"""

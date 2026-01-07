@@ -1,0 +1,12 @@
+# Camera control service definition
+# Allows manual control of SIYI camera functions
+
+# Request
+string command      # Command: take_photo, zoom_in, zoom_out, set_zoom, get_status
+string parameter    # Optional parameter (e.g., zoom level, steps)
+
+---
+
+# Response
+bool success        # True if command executed successfully
+string message      # Status message or error description
