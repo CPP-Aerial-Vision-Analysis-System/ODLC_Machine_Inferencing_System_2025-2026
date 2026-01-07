@@ -142,9 +142,6 @@ class SiyiA8Publisher(Node):
         self.capture_photo = False
 
         self.timer = self.create_timer(0.1, self.camera_loop)
-        
-        # Auto-capture timer: capture 4K photo from SD card every 10 seconds
-        self.auto_capture_timer = self.create_timer(10.0, self.auto_capture_callback)
 
         # Camera setup
         self.latest_image_msg = None
@@ -605,14 +602,6 @@ class SiyiA8Publisher(Node):
         else:
             self.get_logger().info("⚠ Trigger received but data=False, ignoring")
     
-    def auto_capture_callback(self):
-        """Automatically capture a 4K photo from SD card every 10 seconds"""
-        if self.camera_enabled and self.use_real_camera:
-            self.get_logger().info("⏰ Auto-capture timer triggered - capturing 4K photo from SD card")
-            self.capture_photo = True
-        else:
-            self.get_logger().info("⏰ Auto-capture skipped (camera disabled or simulation mode)", throttle_duration_sec=10.0)
-    
     def check_altitude(self, msg):
         current_alt = msg.data
         if current_alt >= self.ALT_THRESHOLD:
@@ -654,7 +643,7 @@ class SiyiA8Publisher(Node):
                         
                         # Capture 4K photo from SD card and download
                         self.get_logger().info("=" * 60)
-                        self.get_logger().info("📸 Starting 4K photo capture from SD card...")
+                        self.get_logger().info(" Starting 4K photo capture from SD card...")
                         
                         img_4k = self.capture_and_download_4k_photo()
                         
@@ -662,46 +651,19 @@ class SiyiA8Publisher(Node):
                             # Save the downloaded 4K photo to Jetson
                             filename_4k = os.path.join(self.photo_path, f"photo_4K_{timestamp}.jpg")
                             result = cv2.imwrite(filename_4k, img_4k)
-                            self.get_logger().info(f"✅ Saved 4K photo to Jetson: {filename_4k}")
+                            self.get_logger().info(f" Saved 4K photo to Jetson: {filename_4k}")
                             self.get_logger().info(f"   Size: {os.path.getsize(filename_4k)/1024:.1f}KB, Resolution: {img_4k.shape}")
                             
                             # Also save to mapping folder for detection
                             mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
                             cv2.imwrite(mapping_filename, img_4k)
-                            self.get_logger().info(f"✅ Saved to mapping folder: {mapping_filename}")
-                            
-                            # CRITICAL: Publish the 4K image to ROS topic so it reaches the Jetson
-                            self.get_logger().info("📡 Publishing 4K image to /image_raw topic...")
-                            if self.bridge is not None:
-                                image_4k_msg = self.bridge.cv2_to_imgmsg(img_4k, encoding='bgr8')
-                            else:
-                                image_4k_msg = self.cv2_to_imgmsg_manual(img_4k, encoding='bgr8')
-                            
-                            # Publish multiple times to ensure it's received
-                            for i in range(3):
-                                self.publisher.publish(image_4k_msg)
-                                self.get_logger().info(f"  Published 4K image (attempt {i+1}/3)")
-                                time.sleep(0.1)
-                            
-                            self.get_logger().info("✅ 4K image published to Jetson successfully!")
-                            
-                            # Send status
-                            status_msg = String()
-                            status_msg.data = f"4K photo captured, saved, and published - {img_4k.shape[1]}x{img_4k.shape[0]}"
-                            self.camera_status_pub.publish(status_msg)
+                            self.get_logger().info(f" Saved to mapping folder: {mapping_filename}")
                         else:
                             self.get_logger().error(" Failed to capture 4K photo from SD card")
                             # Fallback: save RTSP frame
                             filename_rtsp = os.path.join(self.photo_path, f"photo_rtsp_fallback_{timestamp}.jpg")
                             cv2.imwrite(filename_rtsp, capturedFrame)
-                            self.get_logger().warn(f"⚠️ Saved RTSP fallback frame: {filename_rtsp}")
-                            
-                            # Publish fallback frame
-                            if self.bridge is not None:
-                                fallback_msg = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
-                            else:
-                                fallback_msg = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
-                            self.publisher.publish(fallback_msg)
+                            self.get_logger().warn(f"⚠ Saved RTSP fallback frame: {filename_rtsp}")
                         
                         self.get_logger().info("=" * 60)
                         self.capture_photo = False

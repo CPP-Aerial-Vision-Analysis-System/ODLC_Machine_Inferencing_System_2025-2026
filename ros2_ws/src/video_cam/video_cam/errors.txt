@@ -1,0 +1,28 @@
+
+
+Summary: 10 packages finished [12.1s]
+[INFO] [1767824898.961552473] [siyi_a8_publisher]: Connecting to camera HTTP API...
+[INFO] [1767824898.962595471] [siyi_a8_publisher]: API URL: http://192.168.144.25:82/cgi-bin/media.cgi/api/v1/getdirectories?media_type=0
+[INFO] [1767824898.978506826] [siyi_a8_publisher]: ✓ API Response: {'code': 200, 'data': {'media_type': 0, 'directories': [{'name': '101SIYI_IMG', 'path': '101SIYI_IMG'}]}, 'success': True, 'message': ''}
+[INFO] [1767824898.979570210] [siyi_a8_publisher]: ✓ Found 1 directories
+[INFO] [1767824898.980391604] [siyi_a8_publisher]: ✓ Using photo directory: 101SIYI_IMG
+[INFO] [1767824898.992715136] [siyi_a8_publisher]: Photo count in 101SIYI_IMG: 0
+[INFO] [1767824898.994614474] [siyi_a8_publisher]: ✓ Initial photo count: 0
+[INFO] [1767824898.996041737] [siyi_a8_publisher]: ✓ SD card ready. Directory: 101SIYI_IMG
+[INFO] [1767824898.997817008] [siyi_a8_publisher]: Determined ros2_ws directory: /home/astra-dev/astra/ros2_ws/src
+[INFO] [1767824898.998855590] [siyi_a8_publisher]: Using real camera: True
+[INFO] [1767824899.000145891] [siyi_a8_publisher]: Attempting to connect to camera at rtsp://192.168.144.25:8554/main.264 using FFmpeg...
+[INFO] [1767824900.186175254] [siyi_a8_publisher]: Status: Real camera initialized
+[INFO] [1767824900.187104586] [siyi_a8_publisher]: Successfully connected to camera!
+[INFO] [1767824900.187937468] [siyi_a8_publisher]: SD Card mode: True, Resolution: 4K
+[INFO] [1767824900.188652524] [siyi_a8_publisher]: ======================================================================
+[INFO] [1767824900.189363547] [siyi_a8_publisher]: 📡 SUBSCRIPTIONS ACTIVE:
+[INFO] [1767824900.190050314] [siyi_a8_publisher]:    - /camera/trigger (Bool) -> camera_trigger_callback
+[INFO] [1767824900.190775354] [siyi_a8_publisher]:    - /camera/set_resolution (String) -> set_resolution_callback
+[INFO] [1767824900.191502762] [siyi_a8_publisher]: ======================================================================
+[INFO] [1767824900.192200217] [siyi_a8_publisher]: To take a photo, publish: ros2 topic pub --once /camera/trigger std_msgs/msg/Bool "data: true"
+[INFO] [1767824900.193133613] [siyi_a8_publisher]: To change resolution: ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '4K'"
+[INFO] [1767824900.272640052] [siyi_a8_publisher]: Camera streaming (waiting for trigger)
+^C
+[ WARN:0@38.721] global cap_ffmpeg_impl.hpp:453 _opencv_ffmpeg_interrupt_callback Stream timeout triggered after 30069.360274 ms
+astra-dev@ubuntu:~/astra/ros2_ws$ 
