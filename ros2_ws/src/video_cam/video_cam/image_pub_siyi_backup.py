@@ -21,7 +21,8 @@ import numpy as np
 import socket
 import struct
 import requests
-from threading import Lock
+from threading import Lock, Thread, Event
+from queue import Queue
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 
 class SiyiA8Publisher(Node):
@@ -44,17 +45,22 @@ class SiyiA8Publisher(Node):
         '1080P': 0x02    # 1920x1080
     }
     
-    # Verification constants
-    MIN_4K_WIDTH = 3000
-    MIN_4K_HEIGHT = 1600
-    MIN_FILE_SIZE = 50000  # 50KB minimum to consider file valid
-    MAX_CAPTURE_RETRIES = 3
-    
     def __init__(self):
         super().__init__('siyi_a8_publisher')
 
         # Publishers
-        self.publisher = self.create_publisher(Image, 'image_raw', 10)
+        # Split topics: /camera/live for RTSP stream, /camera/capture for 4K photos
+        # This prevents RTSP from overwriting 4K captures (last writer wins problem)
+        self.live_pub = self.create_publisher(
+            Image, 
+            '/camera/live', 
+            qos_profile_sensor_data  # Proper QoS for perception stacks
+        )
+        self.capture_pub = self.create_publisher(
+            Image, 
+            '/camera/capture', 
+            qos_profile_sensor_data  # Same QoS to ensure compatibility
+        )
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.camera_status_pub = self.create_publisher(String, '/camera/status', 10)
 
@@ -83,8 +89,24 @@ class SiyiA8Publisher(Node):
         self.last_photo_count = 0
         self.photo_lock = Lock()
         
+        # Thread-safe handoff for 4K images (worker thread → ROS thread)
+        # Publishing from worker thread is not ROS-safe, so we store and publish in timer
+        self.last_4k_msg = None
+        self.new_4k_ready = False
+        self.capture_lock = Lock()  # Protects 4K image handoff
+        
+        # Worker thread for blocking SD card operations
+        self.capture_queue = Queue(maxsize=10)  # Queue for capture requests
+        self.worker_thread = Thread(target=self._sd_capture_worker, daemon=True)
+        self.worker_running = Event()
+        self.worker_running.set()
+        
         # Initialize SD card directory
         self.initialize_sd_card()
+        
+        # Start worker thread after SD card is initialized
+        self.worker_thread.start()
+        self.get_logger().info(" SD capture worker thread started")
 
         current_file = os.path.abspath(__file__)
         current_dir = os.path.dirname(current_file)
@@ -115,7 +137,6 @@ class SiyiA8Publisher(Node):
         # Fallback: construct path directly
         if ros2_ws_dir is None:
             ros2_ws_dir = "/astra/ros2_ws/src"
-            self.get_logger().warn(f"  Using fallback path: {ros2_ws_dir}")
         
         video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
         os.makedirs(video_cam_dir, exist_ok=True)
@@ -130,13 +151,6 @@ class SiyiA8Publisher(Node):
         if not os.path.exists(self.mapping_photo_path):
             os.makedirs(self.mapping_photo_path)
         
-        # STEP 1: Explicitly log local save paths
-        self.get_logger().info("=" * 70)
-        self.get_logger().info(" LOCAL STORAGE PATHS:")
-        self.get_logger().info(f"   camera_feed:    {self.photo_path}")
-        self.get_logger().info(f"   mapping_photos: {self.mapping_photo_path}")
-        self.get_logger().info("=" * 70)
-        
         # Real camera flag
         self.use_real_camera = True
         self.get_logger().info(f"Using real camera: {self.use_real_camera}")
@@ -149,6 +163,9 @@ class SiyiA8Publisher(Node):
         self.capture_photo = False
 
         self.timer = self.create_timer(0.1, self.camera_loop)
+        
+        # Auto-capture timer: capture 4K photo from SD card every 10 seconds
+        self.auto_capture_timer = self.create_timer(10.0, self.auto_capture_callback)
 
         # Camera setup
         self.latest_image_msg = None
@@ -189,7 +206,7 @@ class SiyiA8Publisher(Node):
                 self.get_logger().info("Successfully connected to camera!")
                 self.get_logger().info(f"SD Card mode: {self.save_to_sd_card}, Resolution: {self.current_resolution}")
                 self.get_logger().info("=" * 70)
-                self.get_logger().info(" SUBSCRIPTIONS ACTIVE:")
+                self.get_logger().info("📡 SUBSCRIPTIONS ACTIVE:")
                 self.get_logger().info("   - /camera/trigger (Bool) -> camera_trigger_callback")
                 self.get_logger().info("   - /camera/set_resolution (String) -> set_resolution_callback")
                 self.get_logger().info("=" * 70)
@@ -203,88 +220,6 @@ class SiyiA8Publisher(Node):
 
     def sim_image_callback(self, msg):
         self.latest_image_msg = msg
-    
-    def _verify_local_file(self, path: str, min_bytes: int = None) -> bool:
-        """
-        STEP 2 & 6: Verify local file exists and has valid size
-        """
-        if min_bytes is None:
-            min_bytes = self.MIN_FILE_SIZE
-        
-        try:
-            if not os.path.exists(path):
-                self.get_logger().error(f" File does not exist: {path}")
-                return False
-            
-            size = os.path.getsize(path)
-            if size < min_bytes:
-                self.get_logger().error(f" File too small ({size} bytes < {min_bytes} bytes): {path}")
-                return False
-            
-            self.get_logger().info(f" File verified: {path} ({size/1024:.1f}KB)")
-            return True
-        except Exception as e:
-            self.get_logger().error(f" Error verifying file {path}: {e}")
-            return False
-    
-    def _verify_downloaded_image(self, img: np.ndarray, expected_resolution: str = '4K') -> bool:
-        """
-        STEP 4: Verify downloaded image has valid dimensions
-        """
-        if img is None:
-            self.get_logger().error(" Image is None")
-            return False
-        
-        try:
-            h, w = img.shape[:2]
-            
-            if expected_resolution == '4K':
-                if w < self.MIN_4K_WIDTH or h < self.MIN_4K_HEIGHT:
-                    self.get_logger().warn(f"  Downloaded image seems not 4K: {w}x{h} (expected ~3840x2160)")
-                    return False
-            
-            self.get_logger().info(f" Image dimensions verified: {w}x{h}")
-            return True
-        except Exception as e:
-            self.get_logger().error(f" Error verifying image dimensions: {e}")
-            return False
-    
-    def _atomic_write(self, filepath: str, img: np.ndarray) -> bool:
-        """
-        STEP 5: Atomic write to prevent corrupted files
-        Write to temp file first, then rename
-        """
-        try:
-            tmp_path = filepath + ".tmp"
-            
-            # Write to temp file
-            ok = cv2.imwrite(tmp_path, img)
-            if not ok:
-                self.get_logger().error(f" cv2.imwrite failed for {tmp_path}")
-                return False
-            
-            # Verify temp file
-            if not self._verify_local_file(tmp_path):
-                self.get_logger().error(f" Temp file verification failed: {tmp_path}")
-                try:
-                    os.remove(tmp_path)
-                except:
-                    pass
-                return False
-            
-            # Atomic rename (on same filesystem)
-            os.replace(tmp_path, filepath)
-            self.get_logger().info(f" Atomically wrote: {filepath}")
-            return True
-            
-        except Exception as e:
-            self.get_logger().error(f" Atomic write failed for {filepath}: {e}")
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except:
-                pass
-            return False
     
     def init_gstreamer_subprocess(self):
         """Initialize GStreamer subprocess as fallback when OpenCV doesn't have GStreamer support"""
@@ -464,10 +399,7 @@ class SiyiA8Publisher(Node):
         self.get_logger().info(f"✓ SD card ready. Directory: {self.current_photo_dir}")
     
     def get_photo_count(self, dir_path):
-        """
-        STEP 3: Get count of photos in directory using correct API format
-        This helps verify SD save happened
-        """
+        """Get count of photos in directory using correct API format"""
         try:
             url = f"{self.BASE_URL}/getmedialist"
             params = {
@@ -490,38 +422,16 @@ class SiyiA8Publisher(Node):
             self.get_logger().warn(f"Could not get photo count: {e}")
             return None
     
-    def media_command(self, cmd, payload):
-        """Send HTTP command to camera's media server"""
-        try:
-            response = requests.post(
-                self.MEDIA_URL,
-                params={"cmd": cmd},
-                json=payload,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                return response.json()
-            else:
-                self.get_logger().error(f"Media command '{cmd}' failed: HTTP {response.status_code}")
-                return None
-        except Exception as e:
-            self.get_logger().error(f"Media command '{cmd}' error: {e}")
-            return None
-    
     def wait_for_new_photo_on_sd(self, timeout_s=15):
-        """
-        STEP 3: Wait for new photo to appear on SD card and return its URL
-        This is the SD verification step
-        """
+        """Wait for new photo to appear on SD card and return its URL - Using correct API"""
         if not self.current_photo_dir:
-            self.get_logger().error(" No photo directory available")
+            self.get_logger().error("No photo directory available")
             return None
         
         start_time = time.time()
         poll_interval = 0.5
         
-        self.get_logger().info(f" Polling for new photo (timeout: {timeout_s}s)...")
+        self.get_logger().info(f"Polling for new photo (timeout: {timeout_s}s)...")
         
         while (time.time() - start_time) < timeout_s:
             try:
@@ -542,9 +452,9 @@ class SiyiA8Publisher(Node):
                     if data.get('success', False) and 'data' in data:
                         total = data['data'].get('total', 0)
                         
-                        # STEP 3: Check if new photo appeared (SD verification)
+                        # Check if new photo appeared
                         if total > self.last_photo_count:
-                            self.get_logger().info(f" SD VERIFIED: New photo detected! Count: {self.last_photo_count} -> {total}")
+                            self.get_logger().info(f"✓ New photo detected! Count: {self.last_photo_count} -> {total}")
                             
                             # Get the list of files
                             if 'list' in data['data']:
@@ -560,8 +470,8 @@ class SiyiA8Publisher(Node):
                                     photo_url = photo_url.replace("192.168.144.25", self.CAM_IP)
                                     
                                     self.last_photo_count = total
-                                    self.get_logger().info(f" Photo found on SD: {photo_name}")
-                                    self.get_logger().info(f" URL: {photo_url}")
+                                    self.get_logger().info(f"✓ Photo found: {photo_name}")
+                                    self.get_logger().info(f"✓ URL: {photo_url}")
                                     return photo_url
                         else:
                             elapsed = time.time() - start_time
@@ -572,15 +482,13 @@ class SiyiA8Publisher(Node):
             
             time.sleep(poll_interval)
         
-        self.get_logger().error(f" SD VERIFICATION FAILED: Timeout after {timeout_s}s (final count: {self.last_photo_count})")
+        self.get_logger().warn(f"⚠ Timeout after {timeout_s}s (final count: {self.last_photo_count})")
         return None
     
     def download_photo_from_sd(self, photo_url):
-        """
-        STEP 4: Download 4K photo from camera's SD card with verification
-        """
+        """Download 4K photo from camera's SD card"""
         try:
-            self.get_logger().info(f"⬇  Downloading from SD card: {photo_url}")
+            self.get_logger().info(f"Downloading from SD card: {photo_url}")
             response = requests.get(photo_url, timeout=15)
             
             if response.status_code == 200:
@@ -590,82 +498,59 @@ class SiyiA8Publisher(Node):
                 img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 
                 if img is not None:
-                    self.get_logger().info(f" Downloaded: {img.shape} ({len(response.content)/1024:.1f}KB)")
-                    
-                    # STEP 4: Verify downloaded image dimensions
-                    if self._verify_downloaded_image(img, self.current_resolution):
-                        return img
-                    else:
-                        self.get_logger().error(" Downloaded image failed dimension verification")
-                        return None
+                    self.get_logger().info(f"✓ Downloaded 4K photo: {img.shape} ({len(response.content)/1024:.1f}KB)")
+                    return img
                 else:
-                    self.get_logger().error(" Failed to decode downloaded image")
+                    self.get_logger().error("Failed to decode downloaded image")
                     return None
             else:
-                self.get_logger().error(f" Download failed: HTTP {response.status_code}")
+                self.get_logger().error(f"Download failed: HTTP {response.status_code}")
                 return None
                 
         except Exception as e:
-            self.get_logger().error(f" Error downloading photo: {e}")
+            self.get_logger().error(f"Error downloading photo: {e}")
             return None
     
     def capture_and_download_4k_photo(self):
-        """
-        STEP 2 & 7: Complete workflow with verification and retries
-        Returns (success, img) tuple
-        """
+        """Complete workflow: trigger 4K photo, wait, and download from SD"""
         with self.photo_lock:
-            for attempt in range(self.MAX_CAPTURE_RETRIES):
-                if attempt > 0:
-                    self.get_logger().warn(f" Retry attempt {attempt + 1}/{self.MAX_CAPTURE_RETRIES}")
-                
-                # Step 1: Trigger photo on camera
-                self.get_logger().info(f" Step 1: Triggering {self.current_resolution} photo on camera...")
-                if not self.trigger_photo_on_sd_card():
-                    self.get_logger().error(" Failed to trigger photo")
-                    if attempt < self.MAX_CAPTURE_RETRIES - 1:
-                        time.sleep(1)
-                        continue
-                    return False, None
-                
-                # Step 2: Wait for photo to appear on SD card (SD VERIFICATION)
-                self.get_logger().info(" Step 2: Waiting for photo on SD card...")
-                photo_url = self.wait_for_new_photo_on_sd(timeout_s=15)
-                if not photo_url:
-                    self.get_logger().error(" SD verification failed: Photo not found on SD card")
-                    if attempt < self.MAX_CAPTURE_RETRIES - 1:
-                        time.sleep(1)
-                        continue
-                    return False, None
-                
-                # Step 3: Download photo from SD card (with dimension verification)
-                self.get_logger().info("  Step 3: Downloading photo from SD card...")
-                img = self.download_photo_from_sd(photo_url)
-                
-                if img is not None:
-                    self.get_logger().info("✅ SD capture and download successful!")
-                    return True, img
-                else:
-                    self.get_logger().error(" Download or verification failed")
-                    if attempt < self.MAX_CAPTURE_RETRIES - 1:
-                        time.sleep(1)
-                        continue
+            # Step 1: Trigger photo on camera
+            self.get_logger().info("📸 Step 1: Triggering 4K photo on camera...")
+            if not self.trigger_photo_on_sd_card():
+                return None
             
-            # All retries exhausted
-            self.get_logger().error(f" All {self.MAX_CAPTURE_RETRIES} capture attempts failed")
-            return False, None
+            # Step 2: Wait for photo to appear on SD card
+            self.get_logger().info("⏳ Step 2: Waiting for photo on SD card...")
+            photo_url = self.wait_for_new_photo_on_sd(timeout_s=15)
+            if not photo_url:
+                self.get_logger().error(" Photo not found on SD card")
+                return None
+            
+            # Step 3: Download photo from SD card
+            self.get_logger().info("⬇  Step 3: Downloading 4K photo from SD card...")
+            img = self.download_photo_from_sd(photo_url)
+            
+            if img is not None:
+                self.get_logger().info(" Complete: 4K photo captured and downloaded!")
+            
+            return img
     
     def trigger_photo_on_sd_card(self):
-        """Trigger camera to take photo and save to its SD card"""
+        """Trigger camera to take 4K photo and save to its SD card"""
         try:
             # Send UDP command to camera to take photo
             self.sdk_socket.sendto(self.TAKE_PHOTO_4K, (self.CAM_IP, self.CTRL_PORT))
             self.photo_count += 1
-            self.get_logger().info(f" Photo trigger sent to camera SD card (photo #{self.photo_count})")
+            self.get_logger().info(f"Photo trigger sent to camera SD card (photo #{self.photo_count})")
+            
+            # Publish status
+            status_msg = String()
+            status_msg.data = f"Photo captured on SD card in {self.current_resolution} resolution"
+            self.camera_status_pub.publish(status_msg)
             
             return True
         except Exception as e:
-            self.get_logger().error(f" Failed to trigger photo on SD card: {e}")
+            self.get_logger().error(f"Failed to trigger photo on SD card: {e}")
             return False
     
     def set_photo_resolution(self, resolution):
@@ -691,17 +576,76 @@ class SiyiA8Publisher(Node):
             
             self.sdk_socket.sendto(bytes(packet), (self.CAM_IP, self.CTRL_PORT))
             self.current_resolution = resolution
-            self.get_logger().info(f" Photo resolution set to: {resolution}")
+            self.get_logger().info(f"Photo resolution set to: {resolution}")
             
             return True
         except Exception as e:
-            self.get_logger().error(f" Failed to set resolution: {e}")
+            self.get_logger().error(f"Failed to set resolution: {e}")
             return False
     
     def set_resolution_callback(self, msg):
         """Callback for resolution change requests"""
         resolution = msg.data.upper()
         self.set_photo_resolution(resolution)
+
+    def _sd_capture_worker(self):
+        """
+        Worker thread for blocking SD card capture operations.
+        This prevents blocking the ROS executor during HTTP downloads.
+        """
+        self.get_logger().info("🔧 SD capture worker thread running")
+        
+        while self.worker_running.is_set():
+            try:
+                # Block until a capture request arrives (with timeout for clean shutdown)
+                timestamp = self.capture_queue.get(timeout=1.0)
+                
+                self.get_logger().info("=" * 60)
+                self.get_logger().info("📸 Worker: Starting 4K photo capture from SD card...")
+                
+                # Perform the blocking operations here
+                img_4k = self.capture_and_download_4k_photo()
+                
+                if img_4k is not None:
+                    # Save the downloaded 4K photo to Jetson
+                    filename_4k = os.path.join(self.photo_path, f"photo_4K_{timestamp}.jpg")
+                    cv2.imwrite(filename_4k, img_4k)
+                    self.get_logger().info(f"✅ Saved 4K photo: {filename_4k}")
+                    self.get_logger().info(f"   Size: {os.path.getsize(filename_4k)/1024:.1f}KB, Resolution: {img_4k.shape}")
+                    
+                    # Also save to mapping folder for detection
+                    mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+                    cv2.imwrite(mapping_filename, img_4k)
+                    self.get_logger().info(f"✅ Saved to mapping folder: {mapping_filename}")
+                    
+                    # Convert to ROS message (but DON'T publish from worker thread - not ROS-safe!)
+                    self.get_logger().info("📡 Preparing 4K image for ROS publishing...")
+                    if self.bridge is not None:
+                        image_4k_msg = self.bridge.cv2_to_imgmsg(img_4k, encoding='bgr8')
+                    else:
+                        image_4k_msg = self.cv2_to_imgmsg_manual(img_4k, encoding='bgr8')
+                    
+                    # Thread-safe handoff: store for ROS thread to publish
+                    with self.capture_lock:
+                        self.last_4k_msg = image_4k_msg
+                        self.new_4k_ready = True
+                    
+                    self.get_logger().info("✅ 4K image ready for publishing (will be sent by ROS thread)")
+                    
+                    # Send status
+                    status_msg = String()
+                    status_msg.data = f"4K photo captured: {img_4k.shape[1]}x{img_4k.shape[0]}"
+                    self.camera_status_pub.publish(status_msg)
+                else:
+                    self.get_logger().error(" Failed to capture 4K photo from SD card")
+                
+                self.get_logger().info("=" * 60)
+                
+            except Exception as e:
+                if not isinstance(e, TimeoutError):
+                    self.get_logger().error(f"Worker thread error: {e}")
+        
+        self.get_logger().info("🛑 SD capture worker thread stopped")
 
     def send_ack(self, text):
         msg = StatusText()
@@ -711,16 +655,43 @@ class SiyiA8Publisher(Node):
         self.get_logger().info(f"Status: {text}")
     
     def camera_trigger_callback(self, msg):
+        """
+        Callback for camera trigger. Enqueues capture request to worker thread.
+        This is non-blocking and returns immediately.
+        """
         self.get_logger().info(f" TRIGGER CALLBACK INVOKED! msg.data={msg.data}")
         if msg.data:
-            self.get_logger().info("=" * 70)
-            self.get_logger().info(" CAMERA TRIGGER RECEIVED - CAPTURING PHOTO")
-            self.get_logger().info("=" * 70)
-            # Set flag to save on next frame
-            self.capture_photo = True
-            self.get_logger().info(f"✓ capture_photo flag set to: {self.capture_photo}")
+            if self.use_real_camera and self.camera_enabled:
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                try:
+                    # Non-blocking: just queue the request
+                    self.capture_queue.put_nowait(timestamp)
+                    self.get_logger().info(" 4K capture request queued to worker thread")
+                except:
+                    self.get_logger().warn(" Capture queue full, skipping request")
+            elif not self.use_real_camera:
+                # For simulation, use the old flag-based approach
+                self.capture_photo = True
+                self.get_logger().info(" Simulation capture flag set")
+            else:
+                self.get_logger().warn(" Camera disabled (altitude check)")
         else:
-            self.get_logger().info("⚠ Trigger received but data=False, ignoring")
+            self.get_logger().info(" Trigger received but data=False, ignoring")
+    
+    def auto_capture_callback(self):
+        """
+        Automatically capture a 4K photo from SD card every 10 seconds.
+        Uses worker thread to prevent blocking.
+        """
+        if self.camera_enabled and self.use_real_camera:
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            try:
+                self.capture_queue.put_nowait(timestamp)
+                self.get_logger().info(" Auto-capture queued to worker thread")
+            except:
+                self.get_logger().warn(" Auto-capture skipped (queue full)", throttle_duration_sec=10.0)
+        else:
+            self.get_logger().info("⏰ Auto-capture skipped (camera disabled or simulation)", throttle_duration_sec=10.0)
     
     def check_altitude(self, msg):
         current_alt = msg.data
@@ -738,6 +709,21 @@ class SiyiA8Publisher(Node):
             self.camera_enabled = False
 
     def camera_loop(self):
+        """
+        Fast timer loop (0.1s):
+        1. Stream RTSP frames to /camera/live
+        2. Publish 4K captures to /camera/capture (when ready from worker)
+        """
+        # First, check if worker thread has a 4K image ready to publish
+        if self.new_4k_ready:
+            with self.capture_lock:
+                if self.new_4k_ready and self.last_4k_msg is not None:
+                    # Publish to /camera/capture (event-based topic)
+                    self.capture_pub.publish(self.last_4k_msg)
+                    self.get_logger().info("📸 Published 4K image to /camera/capture")
+                    self.new_4k_ready = False
+                    self.last_4k_msg = None
+        
         if self.camera_enabled:
             if self.use_real_camera:
                 if self.capture is None:
@@ -747,81 +733,24 @@ class SiyiA8Publisher(Node):
                 returnValue, capturedFrame = self.capture.read()
                 
                 if returnValue == True and capturedFrame is not None:
-                    self.get_logger().info("Camera streaming (waiting for trigger)", throttle_duration_sec=10.0)
+                    self.get_logger().info("📹 RTSP streaming to /camera/live", throttle_duration_sec=10.0)
                     
-                    # Convert to ROS message and publish for live view
+                    # Convert to ROS message and publish to /camera/live (firehose topic)
                     if self.bridge is not None:
                         imageToTransmit = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
                     else:
                         imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
                     
-                    self.publisher.publish(imageToTransmit)
+                    self.live_pub.publish(imageToTransmit)
                     
-                    # Only save when triggered
-                    if self.capture_photo:
-                        timestamp = time.strftime("%Y%m%d-%H%M%S")
-                        
-                        # STEP 2 & 7: Capture 4K photo with verification and retries
-                        self.get_logger().info("=" * 70)
-                        self.get_logger().info(" Starting verified 4K photo capture from SD card...")
-                        
-                        success, img_4k = self.capture_and_download_4k_photo()
-                        
-                        if success and img_4k is not None:
-                            # STEP 5 & 6: Atomic writes with verification
-                            filename_4k = os.path.join(self.photo_path, f"photo_4K_{timestamp}.jpg")
-                            mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
-                            
-                            self.get_logger().info(" Step 4: Saving to local storage...")
-                            
-                            # Atomic write to camera_feed
-                            ok1 = self._atomic_write(filename_4k, img_4k)
-                            
-                            # Atomic write to mapping_photos
-                            ok2 = self._atomic_write(mapping_filename, img_4k)
-                            
-                            # STEP 6: Verify both local files
-                            if ok1 and ok2:
-                                self.get_logger().info("   SD + LOCAL SAVE VERIFIED   ")
-                                self.get_logger().info(f"    camera_feed:    {filename_4k}")
-                                self.get_logger().info(f"    mapping_photos: {mapping_filename}")
-                                
-                                # Publish success status
-                                status_msg = String()
-                                status_msg.data = f"SUCCESS: Photo saved to SD and local ({self.current_resolution})"
-                                self.camera_status_pub.publish(status_msg)
-                                self.send_ack(status_msg.data)
-                            else:
-                                self.get_logger().error(f" LOCAL SAVE VERIFICATION FAILED: ok1={ok1}, ok2={ok2}")
-                                
-                                # Publish failure status
-                                status_msg = String()
-                                status_msg.data = f"FAILURE: Local save verification failed"
-                                self.camera_status_pub.publish(status_msg)
-                                self.send_ack(status_msg.data)
-                        else:
-                            self.get_logger().error(" Failed to capture 4K photo from SD card")
-                            
-                            # FALLBACK: Save RTSP stream frame
-                            filename_rtsp = os.path.join(self.photo_path, f"photo_rtsp_fallback_{timestamp}.jpg")
-                            result = cv2.imwrite(filename_rtsp, capturedFrame)
-                            if result:
-                                self.get_logger().warn(f"  Saved RTSP fallback frame: {filename_rtsp}")
-                            
-                            # Publish failure status
-                            status_msg = String()
-                            status_msg.data = f"FAILURE: SD capture failed (saved RTSP fallback)"
-                            self.camera_status_pub.publish(status_msg)
-                            self.send_ack(status_msg.data)
-                        
-                        self.get_logger().info("=" * 70)
-                        self.capture_photo = False
+                    # NOTE: 4K capture now handled by worker thread → published above in camera_loop
                 else:
                     self.get_logger().warn("Failed to read frame from camera", throttle_duration_sec=10.0)
             else:
+                # Simulation mode
                 if self.latest_image_msg is not None:
-                    self.get_logger().info("Camera Frame Publishing", throttle_duration_sec=10000.0)
-                    self.publisher.publish(self.latest_image_msg)
+                    self.get_logger().info("📹 Sim camera streaming to /camera/live", throttle_duration_sec=10000.0)
+                    self.live_pub.publish(self.latest_image_msg)
 
                     # Save image
                     if self.bridge is not None:
@@ -834,15 +763,24 @@ class SiyiA8Publisher(Node):
                     cv2.imwrite(filename, cv_image) 
 
                     if self.capture_photo:
+                        # self.get_logger().info("Capturing photo...")
                         timestamp = time.strftime("%Y%m%d-%H%M%S")
                         mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
                         cv2.imwrite(mapping_filename, cv_image)
+                        # self.get_logger().info(f"Photo saved to {mapping_filename}")
                         self.capture_photo = False
                 else:
                     self.get_logger().warn("No image received from /webcam/image_raw yet", throttle_duration_sec=5.0)
     
     def __del__(self):
         """Cleanup when node is destroyed"""
+        # Stop worker thread gracefully
+        if hasattr(self, 'worker_running'):
+            self.worker_running.clear()
+        if hasattr(self, 'worker_thread'):
+            self.worker_thread.join(timeout=2.0)
+        
+        # Close socket
         if hasattr(self, 'sdk_socket'):
             self.sdk_socket.close()
 
