@@ -33,7 +33,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'working_pub = video_cam.working_pub:main',
             'image_pub = video_cam.image_pub_siyi:main',
+            'image_pub_backup = video_cam.image_pub_siyi_backup:main',
             'camera_control = video_cam.camera_control_client:main',
             'object_detection = video_cam.object_detection:main',
             'object_detection_sahi = video_cam.object_detection_sahi:main',

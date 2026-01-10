@@ -30,3 +30,6 @@ astra
 
 
 taking images - ros2 topic pub --once /camera/trigger std_msgs/msg/Bool "data: true"
+
+when running working_pub.py, it will takes images at every frame, but you can take images every time you click it using this approach.
+ros2 topic pub --once /camera/trigger std_msgs/msg/Bool "{data: true}"

@@ -1,3 +1,21 @@
+'''
+Instructions:
+
+Take a photo
+ros2 run video_cam camera_control take_photo
+
+Zoom in 2 steps
+ros2 run video_cam camera_control zoom_in 2
+
+Set zoom level to 10
+ros2 run video_cam camera_control set_zoom 10
+
+Ask camera for status
+ros2 run video_cam camera_control get_status
+
+'''
+
+
 #!/usr/bin/env python3
 """
 SIYI Camera Control Client
