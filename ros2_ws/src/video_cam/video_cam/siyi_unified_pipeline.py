@@ -40,6 +40,7 @@ from urllib.request import urlretrieve
 from urllib.error import URLError, HTTPError
 from enum import Enum
 from typing import Optional, Tuple, List, Dict, Set
+from PIL import Image as PILImage
 
 try:
     from cv_bridge import CvBridge
@@ -200,6 +201,9 @@ class SIYIUnifiedPipeline(Node):
         # Initialize camera connection
         self._initialize_camera()
         
+        # Check OpenCV JPEG support
+        self._check_image_codec_support()
+        
         # Initialize SD card indexing
         self._initialize_sd_card()
         
@@ -260,6 +264,33 @@ class SIYIUnifiedPipeline(Node):
         else:
             self.get_logger().error(" ✗ Failed to connect to camera video stream")
             self._send_status("WARNING: Camera video stream unavailable")
+    
+    def _check_image_codec_support(self):
+        """Check if OpenCV can write JPEG files, warn if not"""
+        try:
+            # Create a small test image
+            test_img = np.zeros((10, 10, 3), dtype=np.uint8)
+            
+            # Test in the actual download directory
+            test_path = os.path.join(self.download_dir, "opencv_test.jpg")
+            
+            # Try to write JPEG with OpenCV
+            try:
+                success = cv2.imwrite(test_path, test_img)
+                
+                if success and os.path.exists(test_path):
+                    self.get_logger().info(" ✓ OpenCV JPEG support: OK")
+                    os.remove(test_path)
+                else:
+                    self.get_logger().warn(" ⚠ OpenCV JPEG support: WRITE FAILED")
+                    self.get_logger().warn(" → Will use PIL/Pillow fallback for JPEG files")
+            except Exception as cv_error:
+                self.get_logger().warn(f" ⚠ OpenCV JPEG support: EXCEPTION - {cv_error}")
+                self.get_logger().warn(" → Will use PIL/Pillow fallback for JPEG files")
+                
+        except Exception as e:
+            self.get_logger().warn(f" ⚠ OpenCV codec check failed: {e}")
+            self.get_logger().warn(" → Will use PIL/Pillow fallback for JPEG files")
     
     def _initialize_sd_card(self):
         """
@@ -584,13 +615,47 @@ class SIYIUnifiedPipeline(Node):
     
     def _atomic_write(self, filepath: str, img: np.ndarray) -> bool:
         """Write image file atomically (temp file + rename)"""
+        tmp_path = None
         try:
             tmp_path = filepath + ".tmp"
             
-            # Write to temp file
-            success = cv2.imwrite(tmp_path, img)
+            # Check if this is a JPEG file
+            file_ext = os.path.splitext(filepath)[1].lower()
+            is_jpeg = file_ext in ['.jpg', '.jpeg']
+            
+            self.get_logger().debug(f" Attempting to write: {filepath} (JPEG: {is_jpeg})")
+            
+            success = False
+            opencv_exception = None
+            
+            # Try OpenCV first
+            try:
+                success = cv2.imwrite(tmp_path, img)
+                if not success:
+                    self.get_logger().debug(f" cv2.imwrite returned False for {tmp_path}")
+            except Exception as cv_error:
+                # OpenCV threw an exception (codec issue)
+                opencv_exception = cv_error
+                self.get_logger().debug(f" cv2.imwrite exception: {cv_error}")
+                if not is_jpeg:
+                    raise  # Re-raise for non-JPEG files
+            
+            # If OpenCV failed and it's a JPEG, try PIL/Pillow as fallback
+            if not success and is_jpeg:
+                self.get_logger().info(f" OpenCV failed for JPEG, using PIL fallback...")
+                try:
+                    # Convert BGR (OpenCV) to RGB (PIL)
+                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    pil_img = PILImage.fromarray(img_rgb)
+                    pil_img.save(tmp_path, 'JPEG', quality=95)
+                    success = True
+                    self.get_logger().info(f" ✓ PIL write successful")
+                except Exception as pil_error:
+                    self.get_logger().error(f" PIL fallback also failed: {pil_error}")
+                    return False
+            
             if not success:
-                self.get_logger().error(f" cv2.imwrite failed for {tmp_path}")
+                self.get_logger().error(f" Image write failed for {tmp_path}")
                 return False
             
             # Verify temp file before committing
