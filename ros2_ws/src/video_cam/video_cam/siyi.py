@@ -124,7 +124,7 @@ def download_files(ip_address, dest_dir):
                         except (URLError, HTTPError) as e:
                             print(prefix_str + f"failed to download {filename}: {e}")
 
-
+ ros2_ws/video_cam/video_cam
 # main function
 def main():
     parser = ArgumentParser(description=__doc__)
