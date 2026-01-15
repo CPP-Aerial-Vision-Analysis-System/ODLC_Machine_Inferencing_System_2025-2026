@@ -42,6 +42,7 @@ setup(
             'object_detection = video_cam.object_detection:main',
             'object_detection_sahi = video_cam.object_detection_sahi:main',
             'object_detection_sahi_mobilenet = video_cam.object_detection_sahi_mobilenet:main',
+            'full_workflow = video_cam.full_workflow:main',
         ],
     },
 )
