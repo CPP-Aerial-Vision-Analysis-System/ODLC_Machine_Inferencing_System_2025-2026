@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 
 """
-SAHI Object Detection Node using YOLO for Small Object Detection
+SAHI Object Detection Node using YOLO26 for Small Object Detection
 Specifically optimized for detecting small tents and people in aerial imagery
 Uses Slicing Aided Hyper Inference (SAHI) for improved small object detection
 
 Current Architecture:
 - SAHI: Slices images and manages detection pipeline
-- YOLO: Performs actual object detection on each slice
+- YOLO26: Performs actual object detection on each slice
 
 Detection Pipeline:
 1. SAHI slices the image into overlapping patches
-2. YOLO detects objects in each slice
+2. YOLO26 detects objects in each slice
 3. Results are merged and filtered (NMS)
-4. Detections are annotated with YOLO results
+4. Detections are annotated with YOLO26 results
 
 Configuration:
 - Slice size: 512x512 (optimized for small object detection)
@@ -132,7 +132,7 @@ class SAHIObjectDetectionNode(Node):
         super().__init__('sahi_object_detection_node')
         
         # Declare parameters with defaults. You can modify these during each run using parameter_callback
-        self.declare_parameter('model_path', 'yolo11s.pt')
+        self.declare_parameter('model_path', 'yolo26m.pt')
         self.declare_parameter('confidence_threshold', DEFAULT_CONFIDENCE_THRESHOLD)
         self.declare_parameter('slice_height', DEFAULT_SLICE_SIZE)
         self.declare_parameter('slice_width', DEFAULT_SLICE_SIZE)
@@ -479,7 +479,7 @@ class SAHIObjectDetectionNode(Node):
             return "cpu"
     
     def initialize_sahi_model(self):
-        """Initialize SAHI detection model with YOLO"""
+        """Initialize SAHI detection model with YOLO26"""
         try:
             if not SAHI_AVAILABLE:
                 self.get_logger().error("SAHI is not available. Please install: pip install sahi")
@@ -551,11 +551,11 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
             # Initialize SAHI AutoDetectionModel
-            # Note: SAHI uses 'yolov8' as the model_type identifier for YOLO v8+ models (including YOLO11)
-            # The actual model file is yolo11s.pt, specified in model_path
+            # Note: SAHI uses 'yolo26' as the model_type identifier for YOLO26 models
+            # The actual model file is yolo26m.pt, specified in model_path
             self.detection_model = AutoDetectionModel.from_pretrained(
-                model_type='yolov8',  # SAHI model type identifier (works for YOLO v8, v9, v10, v11)
-                model_path=model_path,  # Actual model: yolo11s.pt
+                model_type='yolo26',  # SAHI model type identifier for YOLO26
+                model_path=model_path,  # Actual model: yolo26m.pt
                 confidence_threshold=self.confidence_threshold,
                 device=self.device,
             )

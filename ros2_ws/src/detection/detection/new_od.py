@@ -6,13 +6,13 @@ Identical to object_detection_sahi.py but uses TensorRT instead of PyTorch
 
 Current Architecture:
 - SAHI: Slices images and manages detection pipeline
-- YOLO/TensorRT: Performs actual object detection on each slice
+- YOLO26/TensorRT: Performs actual object detection on each slice
 
 Detection Pipeline:
 1. SAHI slices the image into overlapping patches
-2. YOLO/TensorRT detects objects in each slice
+2. YOLO26/TensorRT detects objects in each slice
 3. Results are merged and filtered (NMS)
-4. Detections are annotated with YOLO results
+4. Detections are annotated with YOLO26 results
 
 Configuration:
 - Slice size: 256x256 (optimized for small object detection)
@@ -134,7 +134,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.shutdown_requested = False
         
         # Declare parameters with defaults
-        self.declare_parameter('model_path', 'yolo11s.pt')
+        self.declare_parameter('model_path', 'yolo26m.pt')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)  # NEW: 'pytorch', 'tensorrt', or 'auto'
         self.declare_parameter('auto_convert_tensorrt', True)  # NEW: Auto-convert .pt to .engine if missing
         self.declare_parameter('tensorrt_workspace', 4)  # NEW: GPU memory for TensorRT (GB)
@@ -809,7 +809,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             return "cpu"
     
     def initialize_sahi_model(self):
-        """Initialize SAHI detection model with YOLO/TensorRT"""
+        """Initialize SAHI detection model with YOLO26/TensorRT"""
         try:
             if not SAHI_AVAILABLE:
                 self.get_logger().error("SAHI is not available. Please install: pip install sahi")
@@ -863,15 +863,15 @@ class SAHIObjectDetectionNode(LifecycleNode):
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
             # Initialize SAHI AutoDetectionModel
-            # Note: SAHI uses 'yolov8' as the model_type identifier for YOLO v8+ models (including YOLO11)
+            # Note: SAHI uses 'yolo26' as the model_type identifier for YOLO26 models
             # For TensorRT, we still use the same model_type, but with .engine file
             if final_format == MODEL_FORMAT_TENSORRT:
                 # TensorRT models - try loading with Ultralytics first
                 try:
-                    # Load TensorRT engine with Ultralytics YOLO
+                    # Load TensorRT engine with Ultralytics YOLO26
                     # SAHI should handle this, but may need model_type adjustment
                     self.detection_model = AutoDetectionModel.from_pretrained(
-                        model_type='yolov8',  # SAHI model type identifier
+                        model_type='yolo26',  # SAHI model type identifier for YOLO26
                         model_path=resolved_path,  # TensorRT .engine file
                         confidence_threshold=self.confidence_threshold,
                         device=self.device,
@@ -886,7 +886,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                     if os.path.exists(pt_path):
                         self.get_logger().warn(f"Using PyTorch fallback: {pt_path}")
                         self.detection_model = AutoDetectionModel.from_pretrained(
-                            model_type='yolov8',
+                            model_type='yolo26',
                             model_path=pt_path,
                             confidence_threshold=self.confidence_threshold,
                             device=self.device,
@@ -897,7 +897,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             else:
                 # PyTorch model - standard SAHI loading
                 self.detection_model = AutoDetectionModel.from_pretrained(
-                    model_type='yolov8',  # SAHI model type identifier (works for YOLO v8, v9, v10, v11)
+                    model_type='yolo26',  # SAHI model type identifier for YOLO26
                     model_path=resolved_path,  # Actual model: yolo11s.pt
                     confidence_threshold=self.confidence_threshold,
                     device=self.device,
