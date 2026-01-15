@@ -551,10 +551,10 @@ class SAHIObjectDetectionNode(Node):
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
             # Initialize SAHI AutoDetectionModel
-            # Note: SAHI uses 'yolo26' as the model_type identifier for YOLO26 models
-            # The actual model file is yolo26m.pt, specified in model_path
+            # Note: SAHI uses 'yolov8' as the model_type identifier for all YOLO v8+ models (including YOLO26)
+            # The actual model version is determined by the model file: yolo26m.pt
             self.detection_model = AutoDetectionModel.from_pretrained(
-                model_type='yolo26',  # SAHI model type identifier for YOLO26
+                model_type='yolov8',  # SAHI model type identifier (works for YOLO v8, v9, v10, v11, v26)
                 model_path=model_path,  # Actual model: yolo26m.pt
                 confidence_threshold=self.confidence_threshold,
                 device=self.device,
