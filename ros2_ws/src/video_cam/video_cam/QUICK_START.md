@@ -10,7 +10,19 @@
 This new system takes pictures, saves them into an SD thats mounted on the camera, then downloads them to the Jetson over Ethernet.
 
 ---
+## Before setting up
+```bash
+# setting up the ip
+ip link show
+# this will show all the ports. Look for 'eth0'
+# then check the jetson ip
+ip addr show eth0
+# Or whatever it is instead of the eth0
+# Look for: inet 192.168.144.100/24
 
+# check connection to Camera
+ping 192.168.144.25
+```
 ##  Setup
 
 ### Step 1: Connect Hardware
