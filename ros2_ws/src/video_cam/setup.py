@@ -36,6 +36,8 @@ setup(
             'working_pub = video_cam.working_pub:main',
             'image_pub = video_cam.image_pub_siyi:main',
             'image_pub_backup = video_cam.image_pub_siyi_backup:main',
+            'image_pub_siyi2 = video_cam.image_pub_siyi2:main',
+            'siyi2 = video_cam.siyi2:main',
             'camera_control = video_cam.camera_control_client:main',
             'object_detection = video_cam.object_detection:main',
             'object_detection_sahi = video_cam.object_detection_sahi:main',

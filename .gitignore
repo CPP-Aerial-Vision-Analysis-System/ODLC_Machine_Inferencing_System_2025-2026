@@ -12,9 +12,6 @@ ros2_ws/detection
 .vscode/
 .DS_Store
 
-install_broken/
-log_broken/
-build_broken/
 # Python cache files
 __pycache__/
 *.pyc
@@ -37,20 +34,6 @@ ros2_ws/detection
 .vscode/
 .DS_Store
 
+# Documentations
 
-# Python cache files
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-ros2_ws/*.tlog.raw
-
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
-ros2_ws/terrain/
-ros2_ws/*.bin
-ros2_ws/*.parm
-ros2_ws/*.tlog
-ros2_ws/*.tlog.raw
+ros2_ws/src/video_cam/video_cam/documentations
