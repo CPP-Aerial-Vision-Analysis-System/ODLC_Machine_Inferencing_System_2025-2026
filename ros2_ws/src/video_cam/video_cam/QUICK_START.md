@@ -89,16 +89,8 @@ source install/setup.bash
 ros2 topic pub --once /camera/trigger std_msgs/msg/Bool "data: true"
 ```
 
-### What Happens (5-10 seconds):
-```
-[1/3] Triggering 4K capture...        ← Sends command to camera
-[2/3] Waiting for photo on SD card... ← Verifies save to SD
-[3/3] Downloading from SD card...     ← Downloads via Ethernet
-✓ Saved: camera_feed/photo_4K_*.jpg   ← Ready for processing!
-✓ Saved: mapping_photos/mapping_*.jpg ← Archived copy
-```
 
-### Your Photos Are Here:
+### Photos Are Here:
 ```bash
 ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/video_cam_data/
 ├── camera_feed/         ← For detection/processing
