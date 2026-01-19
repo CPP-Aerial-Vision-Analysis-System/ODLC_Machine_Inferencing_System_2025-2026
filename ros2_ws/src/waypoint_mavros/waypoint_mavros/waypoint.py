@@ -15,17 +15,17 @@ class WaypointManager(Node):
         self.waypoint_reached = 0 
         self.waypoint_list = WaypointList()
 
-        # Subscribers
+        # Subscribers and a publisher
         self.create_subscription(State, "/mavros/state", self.state_callback, 10)
-        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
-        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list_cb, 10)
+        self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached, 10)
+        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list, 10)
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
-        # mavros Clients
-        self.waypoint_pull = self.create_client(WaypointPull, "/mavros/mission/pull")
-        self.waypoint_push = self.create_client(WaypointPush, "/mavros/mission/push")
-        self.waypoint_clear = self.create_client(WaypointClear, "/mavros/mission/clear")
-        self.set_mode = self.create_client(SetMode, "/mavros/set_mode")
+        # Mavros Clients
+        self.waypoint_pull = self.create_client(WaypointPull, "/mavros/mission/pull") # req current mission from AP
+        self.waypoint_push = self.create_client(WaypointPush, "/mavros/mission/push") # gives new mission to AP
+        self.waypoint_clear = self.create_client(WaypointClear, "/mavros/mission/clear") # clear mission 
+        self.set_mode = self.create_client(SetMode, "/mavros/set_mode") # flight mode change( auto, guided, rtl)
 
         # Custom Services
         self.add_srv = self.create_service(AddWaypoint, "/addWaypoint", self.handle_wp_req)
@@ -47,10 +47,9 @@ class WaypointManager(Node):
     
     def waypoints_list(self, data):
         """receives and stores the waypoint lists from mavros"""
-        self.waypoint_list = data
-        for i, wp in enumerate(self.waypoint_list.waypoints):
-            #self.get_logger().info(f"Waypoint {i}: Lat: {wp.x_lat}, Lon: {wp.y_long}, Alt: {wp.z_alt}")
-            
+        self.waypoint_list = data #stdy
+        for i, wp in enumerate(self.waypoint_list.waypoints):       
+                 
             if wp.command == MAV_CMD_NAV_TAKEOFF:
                 self.takeoff_index = i
                 if i + 1 < len(self.waypoint_list.waypoints):
@@ -62,6 +61,7 @@ class WaypointManager(Node):
                     self.last_before_rtl = i - 1
 
         self.get_logger().info(f"Takeoff Index: {self.takeoff_index}, Next After Takeoff: {self.next_after_takeoff}, Last Before RTL: {self.last_before_rtl}, RTL Index: {self.rtl_index}")
+        
         self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, len(self.waypoint_list.waypoints))])
         self.set_parameters([rclpy.parameter.Parameter('takeoff_index', rclpy.Parameter.Type.INTEGER, self.takeoff_index)])
         self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, self.next_after_takeoff)])
@@ -204,7 +204,7 @@ class WaypointManager(Node):
         else:
             self.get_logger().info(f"Index {index} out of range. No waypoint deleted.")
     
-    def waypoint_reached_cb(self, msg):                         # change this to match 2025-2026 mission
+    def waypoint_reached(self, msg):                         # change this to match 2025-2026 mission
         """Tells us which waypoint we just reached."""
         self.waypoint_reached = msg.wp_seq
         self.get_logger().info(f"Waypoint {msg.wp_seq} reached.")
