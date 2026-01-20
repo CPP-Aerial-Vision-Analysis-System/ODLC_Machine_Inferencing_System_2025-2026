@@ -7,24 +7,18 @@ from typing import Optional, Callable, List, Dict
 from rclpy.node import Node
 from rclpy.duration import Duration
 from mavros_msgs.msg import Waypoint, WaypointList, CommandCode, WaypointReached, State, StatusText
-from mavros_msgs.srv import WaypointPull, WaypointPush, WaypointClear, SetMode
+from mavros_msgs.srv import WaypointPull, WaypointPush, WaypointClear, SetMode # custom services
 
 from interfaces.srv import AddWaypoint, DelWaypoint, UpdateMission
 
-
-# ============================================================================
-# INDUSTRIAL CONSTANTS & ENUMS - Replace magic numbers
-# ============================================================================
-
+# Declare these here for better readability
 class MAVCommand(IntEnum):
-    """MAVLink navigation commands"""
     NAV_WAYPOINT = 16
     NAV_TAKEOFF = 22
     NAV_RETURN_TO_LAUNCH = 20
 
 
 class MAVFrame(IntEnum):
-    """MAVLink coordinate frames"""
     GLOBAL = 0
     LOCAL_NED = 1
     MISSION = 2
@@ -34,7 +28,6 @@ class MAVFrame(IntEnum):
 
 
 class SeverityLevel(IntEnum):
-    """MAVLink status text severity levels"""
     EMERGENCY = 0
     ALERT = 1
     CRITICAL = 2
@@ -57,7 +50,7 @@ MAX_LATITUDE = 90.0
 MIN_LONGITUDE = -180.0
 MAX_LONGITUDE = 180.0
 MIN_ALTITUDE = 0.0
-MAX_ALTITUDE = 10000.0  # Reasonable max for drones in meters
+MAX_ALTITUDE = 1000.0  # subject to be changed
 
 # Retry policy defaults
 MAX_RETRY_ATTEMPTS = 3
@@ -65,20 +58,9 @@ BASE_RETRY_DELAY = 1.0
 MAX_RETRY_DELAY = 10.0
 
 
-# ============================================================================
-# TYPE-SAFE DATA STRUCTURES
-# ============================================================================
-
 @dataclass
 class WaypointData:
-    """Type-safe waypoint data with built-in validation.
-    
-    Attributes:
-        lat: Latitude in degrees [-90, 90]
-        lon: Longitude in degrees [-180, 180]
-        alt: Altitude in meters [0, 10000]
-        index: Insertion index (0-based)
-    """
+    """Type-safe waypoint data with built-in validation."""
     lat: float
     lon: float
     alt: float
