@@ -742,7 +742,7 @@ class SiyiA8CombinedPublisher(Node):
                         
                         if ok1 and ok2:
                             self.get_logger().info("=" * 80)
-                            self.get_logger().info(" ✅ SUCCESS - PHOTO SAVED")
+                            self.get_logger().info(" SUCCESS - PHOTO SAVED")
                             self.get_logger().info("=" * 80)
                             self.get_logger().info(f"  camera_feed: {filename_feed}")
                             self.get_logger().info(f"  mapping: {filename_mapping}")
