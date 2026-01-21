@@ -43,6 +43,10 @@ import gc # garbage collection
 import platform # system info
 from rclpy.parameter import Parameter # for parameter callbacks
 from rclpy.qos import QoSProfile, ReliabilityPolicy # QoS settings
+import json # for structured message serialization
+import threading # for worker thread pattern
+import queue # for work queue
+import statistics # for performance metrics
 # This is just to make sure that we have all the dependencies
 
 # Progress bar
@@ -91,6 +95,42 @@ MAX_SEARCH_DEPTH = 10
 MODEL_FORMAT_PYTORCH = 'pytorch'
 MODEL_FORMAT_TENSORRT = 'tensorrt'
 MODEL_FORMAT_AUTO = 'auto'
+
+# Class ID mapping
+CLASS_ID = {"person": "0", "tent": "1", "object": "2"}
+
+
+class PerformanceMonitor:
+    """Track and report performance metrics"""
+    
+    def __init__(self):
+        self.detection_times = []
+        self.slice_counts = []
+        self.memory_snapshots = []
+    
+    def record_detection(self, time_val: float, num_slices: int, memory_used: float):
+        self.detection_times.append(time_val)
+        self.slice_counts.append(num_slices)
+        self.memory_snapshots.append(memory_used)
+        
+        # Keep only last 100 records
+        if len(self.detection_times) > 100:
+            self.detection_times.pop(0)
+            self.slice_counts.pop(0)
+            self.memory_snapshots.pop(0)
+    
+    def get_stats(self) -> dict:
+        if not self.detection_times:
+            return {}
+        
+        return {
+            'avg_time': statistics.mean(self.detection_times),
+            'median_time': statistics.median(self.detection_times),
+            'p95_time': statistics.quantiles(self.detection_times, n=20)[18] if len(self.detection_times) > 20 else max(self.detection_times),
+            'avg_slices': statistics.mean(self.slice_counts),
+            'avg_memory': statistics.mean(self.memory_snapshots),
+        }
+
 
 # Find ros2_ws directory without creating extra folders
 def get_ros2_ws_directory() -> str:
@@ -153,6 +193,10 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.declare_parameter('min_aspect_ratio', 0.1)  # Aspect ratio filtering
         self.declare_parameter('max_aspect_ratio', 10.0)  # Aspect ratio filtering
         self.declare_parameter('enable_gpu_memory_cleanup', True)  # GPU memory management
+        self.declare_parameter('camera_feed_path', '')  # Parameterized directory
+        self.declare_parameter('detection_results_path', '')  # Parameterized directory
+        self.declare_parameter('log_level', 'INFO')  # Logging verbosity
+        self.declare_parameter('detection_watchdog_timeout', 60.0)  # Watchdog timeout
         
         # Initialize variables (will be set in lifecycle callbacks)
         self.bridge = None
@@ -166,9 +210,17 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.waypoint_subscription = None
         self.detection_model = None
         
+        # Worker thread pattern for async processing
+        self.work_q = queue.Queue(maxsize=50)
+        self.worker_thread = None
+        self.worker_stop = threading.Event()
+        
         # Processing state
         self.processed_images: Dict[str, float] = {}  # Track processed images with timestamps
         self.is_processing = False  # Flag to prevent overlapping processing
+        
+        # Performance monitoring
+        self.perf_monitor = PerformanceMonitor()
         
         # Statistics
         self.stats = {
@@ -180,7 +232,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
             'avg_processing_time': 0.0,
             'last_processing_time': 0.0,
             'node_start_time': time.time(),
-            'errors': 0
+            'errors': 0,
+            'model_reloads': 0  # Track recovery attempts
         }
         
         # Health monitoring
@@ -207,14 +260,24 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Get and validate parameters
             self._load_and_validate_parameters()
             
-            # Setup directories - read images from src/video_cam/mapping_photos, save results to src/detection/detection_results_sahi
+            # Setup directories - parameterized with fallback
             ros2_ws_dir = get_ros2_ws_directory()
             
-            # Camera feed path: ros2_ws/src/video_cam/mapping_photos
-            self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
+            # Get parameterized paths or use defaults
+            cam = self.get_parameter('camera_feed_path').value
+            out = self.get_parameter('detection_results_path').value
             
-            # Detection results path: ros2_ws/src/detection/detection_results_sahi
-            self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
+            if not cam:
+                # Default: ros2_ws/src/video_cam/mapping_photos
+                self.camera_feed_path = os.path.join(ros2_ws_dir, "src", "video_cam", "mapping_photos")
+            else:
+                self.camera_feed_path = cam
+            
+            if not out:
+                # Default: ros2_ws/src/detection/detection_results_sahi
+                self.detection_results_path = os.path.join(ros2_ws_dir, "src", "detection", "detection_results_sahi")
+            else:
+                self.detection_results_path = out
             
             # Create results directory (camera_feed should already exist with images)
             os.makedirs(self.detection_results_path, exist_ok=True)
@@ -227,13 +290,26 @@ class SAHIObjectDetectionNode(LifecycleNode):
             
             self.get_logger().info(f"Detection results will be saved to: {self.detection_results_path}")
             
+            # OpenCV optimizations for Jetson
+            cv2.setNumThreads(0)  # Avoid CPU oversubscription
+            cv2.ocl.setUseOpenCL(False)  # Disable OpenCL (unstable on Jetson)
+            
             # Auto-detect device (GPU, MPS, or CPU)
             if self.device == 'auto':
                 self.device = self._get_device()
             self.get_logger().info(f"Using device: {self.device}")
             
+            # Optimize GPU memory
+            if self.device.startswith('cuda'):
+                self._optimize_gpu_memory()
+            
             # Model format detection
             self.model_format_detected = self._detect_model_format()
+            
+            # Validate SAHI configuration
+            warnings = self._validate_sahi_config()
+            for warning in warnings:
+                self.get_logger().warn(warning)
             
             # Setup ROS2 bridge
             self.bridge = CvBridge()
@@ -257,6 +333,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
             if not self.initialize_sahi_model():
                 self.get_logger().error("Failed to initialize SAHI model")
                 return TransitionCallbackReturn.FAILURE
+            
+            # Warmup model
+            self._warmup_model()
             
             # QoS profile for reliable messaging
             qos_profile = QoSProfile(
@@ -290,10 +369,15 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 10
             )
             
-            # Create timer to check for new images
+            # Start worker thread
+            self.worker_stop.clear()
+            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self.worker_thread.start()
+            
+            # Create timer to check for new images (lightweight - only enqueues)
             self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
             
-            # GPU memory cleanup timer (if enabled)
+            # GPU memory cleanup timer (if enabled) - less frequent
             if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
                 self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
             
@@ -312,6 +396,11 @@ class SAHIObjectDetectionNode(LifecycleNode):
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Deactivate the node - stop processing"""
         self.get_logger().info("Deactivating SAHI Object Detection Node...")
+        
+        # Stop worker thread
+        self.worker_stop.set()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=5.0)
         
         # Stop timers
         if self.timer is not None:
@@ -332,40 +421,45 @@ class SAHIObjectDetectionNode(LifecycleNode):
         """Cleanup the node - destroy publishers, services, subscribers"""
         self.get_logger().info("Cleaning up SAHI Object Detection Node...")
         
-        # Destroy timers
+        # Stop worker thread if still running
+        self.worker_stop.set()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=5.0)
+        
+        # Destroy timers using proper ROS2 API
         if self.timer is not None:
-            self.timer.destroy()
+            self.destroy_timer(self.timer)
             self.timer = None
         
         if self.gpu_cleanup_timer is not None:
-            self.gpu_cleanup_timer.destroy()
+            self.destroy_timer(self.gpu_cleanup_timer)
             self.gpu_cleanup_timer = None
         
-        # Destroy publishers
+        # Destroy publishers using proper ROS2 API
         if self.publisher is not None:
-            self.publisher.destroy()
+            self.destroy_publisher(self.publisher)
             self.publisher = None
         
         if self.detection_publisher is not None:
-            self.detection_publisher.destroy()
+            self.destroy_publisher(self.detection_publisher)
             self.detection_publisher = None
         
         if self.detection_pub is not None:
-            self.detection_pub.destroy()
+            self.destroy_publisher(self.detection_pub)
             self.detection_pub = None
         
-        # Destroy services
+        # Destroy services using proper ROS2 API
         if self.stats_service is not None:
-            self.stats_service.destroy()
+            self.destroy_service(self.stats_service)
             self.stats_service = None
         
         if self.health_service is not None:
-            self.health_service.destroy()
+            self.destroy_service(self.health_service)
             self.health_service = None
         
-        # Destroy subscriber
+        # Destroy subscriber using proper ROS2 API
         if self.waypoint_subscription is not None:
-            self.waypoint_subscription.destroy()
+            self.destroy_subscription(self.waypoint_subscription)
             self.waypoint_subscription = None
         
         # Clear model from memory (but don't delete it, will reload on activate)
@@ -448,6 +542,194 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.get_logger().error(f"Error during shutdown: {e}")
         
         return TransitionCallbackReturn.SUCCESS
+    
+    def _optimize_gpu_memory(self):
+        """Optimize GPU memory settings based on available resources"""
+        if not self.device.startswith('cuda') or not TORCH_AVAILABLE:
+            return
+        
+        try:
+            # Get total GPU memory
+            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            
+            # Adjust settings based on available memory
+            if total_memory < 4:  # Low memory (Jetson Nano, etc.)
+                torch.cuda.set_per_process_memory_fraction(0.7, 0)
+                self.get_logger().warn(f"Low GPU memory ({total_memory:.1f}GB), reducing allocation")
+                
+                # Suggest smaller slice sizes
+                if self.slice_height > 256 or self.slice_width > 256:
+                    self.get_logger().warn("Consider using smaller slice_size (128-256) for low memory")
+            
+            # Enable memory pooling for faster allocation
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+            
+        except Exception as e:
+            self.get_logger().debug(f"GPU memory optimization failed: {e}")
+    
+    def _validate_sahi_config(self) -> List[str]:
+        """Validate SAHI configuration and return warnings"""
+        warnings = []
+        
+        # Check slice size vs image size
+        if self.slice_height > 1024 or self.slice_width > 1024:
+            warnings.append(
+                f"Large slice size ({self.slice_height}x{self.slice_width}) "
+                "may reduce small object detection effectiveness"
+            )
+        
+        # Check overlap
+        if self.overlap_height_ratio < 0.2 or self.overlap_width_ratio < 0.2:
+            warnings.append(
+                f"Low overlap ({self.overlap_height_ratio:.0%}) "
+                "may miss objects at boundaries"
+            )
+        
+        # Check confidence threshold
+        if self.confidence_threshold > 0.3:
+            warnings.append(
+                f"High confidence threshold ({self.confidence_threshold:.0%}) "
+                "may miss valid detections"
+            )
+        
+        # Memory vs slice size
+        if self.device.startswith('cuda') and TORCH_AVAILABLE:
+            gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            if gpu_mem < 4 and self.slice_height * self.slice_width > 512 * 512:
+                warnings.append(
+                    f"GPU memory ({gpu_mem:.1f}GB) may be insufficient for "
+                    f"slice size {self.slice_height}x{self.slice_width}"
+                )
+        
+        return warnings
+    
+    def _warmup_model(self):
+        """Warmup model with dummy inference"""
+        if self.detection_model is None:
+            return
+        
+        self.get_logger().info("Warming up model...")
+        
+        try:
+            # Create dummy image
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            
+            # Run inference
+            _ = get_sliced_prediction(
+                dummy_img,
+                self.detection_model,
+                slice_height=self.slice_height,
+                slice_width=self.slice_width,
+                overlap_height_ratio=self.overlap_height_ratio,
+                overlap_width_ratio=self.overlap_width_ratio,
+                verbose=0
+            )
+            
+            self.get_logger().info("Model warmup complete")
+        except Exception as e:
+            self.get_logger().warn(f"Model warmup failed: {e}")
+    
+    def _worker_loop(self):
+        """Worker thread for processing images asynchronously"""
+        while not self.worker_stop.is_set():
+            try:
+                image_path = self.work_q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            try:
+                self.process_image(image_path)
+                self.health_status['last_successful_detection'] = time.time()
+                self.health_status['consecutive_errors'] = 0
+                self.health_status['is_healthy'] = True
+            except Exception as e:
+                self.get_logger().error(f"Worker error processing {os.path.basename(image_path)}: {e}")
+                self.stats['errors'] += 1
+                self.health_status['consecutive_errors'] += 1
+            finally:
+                self.work_q.task_done()
+    
+    def _is_file_ready(self, path: str, min_age_s: float = 0.2) -> bool:
+        """Check if file is fully written and stable"""
+        try:
+            st = os.stat(path)
+            # File too young (still being written)
+            if (time.time() - st.st_mtime) < min_age_s:
+                return False
+            
+            # Check size stability
+            size1 = st.st_size
+            if size1 == 0:
+                return False
+            
+            time.sleep(0.05)
+            size2 = os.stat(path).st_size
+            return size1 == size2  # Size unchanged = stable
+        except OSError:
+            return False
+    
+    def _prune_processed(self, max_age_s: float = 3600.0, max_entries: int = 2000):
+        """Prevent unbounded memory growth"""
+        now = time.time()
+        
+        # Remove old entries
+        old = [k for k, v in self.processed_images.items() if (now - v) > max_age_s]
+        for k in old:
+            self.processed_images.pop(k, None)
+        
+        # Cap total size (keep most recent)
+        if len(self.processed_images) > max_entries:
+            items = sorted(self.processed_images.items(), key=lambda kv: kv[1])
+            for k, _ in items[:len(self.processed_images) - max_entries]:
+                self.processed_images.pop(k, None)
+    
+    def _handle_detection_error(self, error: Exception, retry_count: int = 0) -> bool:
+        """Handle detection errors with automatic recovery"""
+        self.get_logger().error(f"Detection error: {error}")
+        self.stats['errors'] += 1
+        self.health_status['consecutive_errors'] += 1
+        
+        # Mark unhealthy after 3 consecutive errors
+        if self.health_status['consecutive_errors'] >= 3:
+            self.health_status['is_healthy'] = False
+            self.get_logger().error("Node marked unhealthy due to consecutive errors")
+        
+        # Try to recover by reloading model
+        if retry_count < 2 and self.detection_model is not None:
+            self.get_logger().warn(f"Attempting model reload (retry {retry_count + 1}/2)")
+            
+            # Clear old model
+            del self.detection_model
+            self.detection_model = None
+            
+            # Cleanup GPU
+            if self.device.startswith('cuda') and TORCH_AVAILABLE:
+                gc.collect()
+                torch.cuda.empty_cache()
+            
+            # Reload model
+            if self.initialize_sahi_model():
+                self.get_logger().info("Model reloaded successfully")
+                self.stats['model_reloads'] += 1
+                return True
+        
+        return False
+    
+    def _analyze_detection_quality(self, detections: List[Dict]) -> dict:
+        """Analyze quality metrics for detections"""
+        if not detections:
+            return {'quality': 'none'}
+        
+        confidences = [d['confidence'] for d in detections]
+        areas = [d.get('area', 0) for d in detections]
+        
+        return {
+            'avg_confidence': np.mean(confidences),
+            'min_confidence': np.min(confidences),
+            'avg_area': np.mean(areas),
+            'small_objects': sum(1 for a in areas if a < 1000),  # Likely small objects
+            'quality': 'high' if np.mean(confidences) > 0.7 else 'medium' if np.mean(confidences) > 0.4 else 'low'
+        }
     
     def _load_and_validate_parameters(self) -> None:
         """Load and validate all parameters"""
@@ -535,10 +817,12 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Load PyTorch model
             model = YOLO(pt_path)
             
-            # Export to TensorRT
+            # Export to TensorRT - FIXED: Lock input size to slice dimensions
             model.export(
                 format='engine',
                 device=0 if self.device.startswith('cuda') else 'cpu',
+                imgsz=(self.slice_height, self.slice_width),  # FIX: Use actual slice size
+                half=True,  # FP16 for Jetson (if supported)
                 workspace=self.tensorrt_workspace,
                 simplify=True,
                 verbose=False
@@ -866,17 +1150,19 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Note: SAHI uses 'yolov8' as the model_type identifier for all YOLO v8+ models (including YOLO26)
             # The actual model version is determined by the model file. For TensorRT, we use .engine file
             if final_format == MODEL_FORMAT_TENSORRT:
-                # TensorRT models - try loading with Ultralytics first
+                # TensorRT models - FIXED: Load with Ultralytics directly, wrap in SAHI-compatible format
                 try:
-                    # Load TensorRT engine with Ultralytics YOLO26
-                    # SAHI should handle this, but may need model_type adjustment
-                    self.detection_model = AutoDetectionModel.from_pretrained(
-                        model_type='yolov8',  # SAHI model type identifier (works for all modern YOLO versions)
-                        model_path=resolved_path,  # TensorRT .engine file
+                    # Load TensorRT model with Ultralytics directly
+                    base_model = YOLO(resolved_path)
+                    
+                    # Wrap in SAHI-compatible format
+                    from sahi.models.yolov8 import Yolov8DetectionModel
+                    self.detection_model = Yolov8DetectionModel(
+                        model=base_model,
                         confidence_threshold=self.confidence_threshold,
                         device=self.device,
                     )
-                    self.get_logger().info("✓ TensorRT model loaded via SAHI")
+                    self.get_logger().info("✓ TensorRT model loaded via Ultralytics+SAHI wrapper")
                 except Exception as e:
                     self.get_logger().error(f"Failed to load TensorRT model: {e}")
                     self.get_logger().error("Falling back to PyTorch if available...")
@@ -933,8 +1219,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
     
     def check_for_new_images(self) -> None:
         """
-        Check for new images in camera_feed folder and process them one by one.
-        Also performs image cleanup if configured.
+        Check for new images in camera_feed folder and enqueue them for processing.
+        Lightweight timer callback - processing done in worker thread.
         """
         try:
             # Only process if node is active
@@ -952,12 +1238,11 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.get_logger().warn("SAHI model not initialized, skipping detection")
                 return
             
-            # Skip if already processing
-            if self.is_processing:
-                return
-            
-            # Clean up old images if needed
+            # Clean up old images periodically
             self._cleanup_old_images()
+            
+            # Prune processed_images dict to prevent memory leak
+            self._prune_processed()
             
             # Get all image files with timestamps
             image_files_with_time: List[Tuple[str, float]] = []
@@ -974,31 +1259,26 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Sort by timestamp (oldest first)
             image_files_with_time.sort(key=lambda x: x[1])
             
-            # Find first unprocessed image
+            # Enqueue new images up to max_images_per_cycle
+            enqueued = 0
             for fname, mtime in image_files_with_time:
-                if fname not in self.processed_images:
-                    # Process this single image
-                    image_path = os.path.join(self.camera_feed_path, fname)
-                    self.is_processing = True
-                    
-                    try:
-                        self.process_image(image_path)
-                        # Update health on success
-                        self.health_status['last_successful_detection'] = time.time()
-                        self.health_status['consecutive_errors'] = 0
-                        self.health_status['is_healthy'] = True
-                    except Exception as e:
-                        self.get_logger().error(f"Error processing image {image_path}: {e}")
-                        import traceback
-                        self.get_logger().error(traceback.format_exc())
-                        self.stats['errors'] += 1
-                        self.health_status['consecutive_errors'] += 1
-                    finally:
-                        # Mark as processed regardless of success/failure
-                        self.processed_images[fname] = mtime
-                        self.is_processing = False
-                    
-                    # Only process one image per timer cycle
+                if enqueued >= self.max_images_per_cycle:
+                    break
+                if fname in self.processed_images:
+                    continue
+                
+                image_path = os.path.join(self.camera_feed_path, fname)
+                
+                # Check if file is ready (fully written)
+                if not self._is_file_ready(image_path):
+                    continue
+                
+                try:
+                    self.work_q.put_nowait(image_path)
+                    self.processed_images[fname] = mtime
+                    enqueued += 1
+                except queue.Full:
+                    self.get_logger().warn("Work queue full, skipping images")
                     break
             
         except (OSError, IOError) as e:
@@ -1070,16 +1350,23 @@ class SAHIObjectDetectionNode(LifecycleNode):
             height, width = frame.shape[:2]
             # self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
+            # Keep original BEFORE annotation (for crops without boxes)
+            frame_orig = frame.copy()
+            
             # Run SAHI prediction
             detections = self.detect_objects_sahi(frame)
             
             processing_time = time.time() - start_time
             self.stats['last_processing_time'] = processing_time
             
-            # Create annotated frame
+            # Analyze detection quality
+            quality_metrics = self._analyze_detection_quality(detections)
+            
+            # Create annotated frame (annotates on the copy)
             annotated_frame = self.annotate_frame(frame, detections, processing_time)
             
-            self.get_logger().info(f"{self.detection_pub.publish(ImageResult())}")
+            # Use original for crops (no boxes)
+            self.save_top_matches_crop(frame_orig, detections, image_path)
             
             # Publish results
             self.publish_results(annotated_frame, detections, image_path)
@@ -1096,6 +1383,17 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.stats['avg_processing_time'] = (
                 (self.stats['avg_processing_time'] * (n - 1) + processing_time) / n
             )
+            
+            # Record performance metrics
+            if TORCH_AVAILABLE and self.device.startswith('cuda'):
+                try:
+                    mem_used = torch.cuda.memory_allocated(0) / 1024**3
+                except:
+                    mem_used = 0.0
+            else:
+                mem_used = 0.0
+            
+            self.perf_monitor.record_detection(processing_time, len(detections), mem_used)
             
             # Count by class for logging
             num_people = sum(1 for d in detections if d['class'] == 'person')
@@ -1116,9 +1414,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.get_logger().error(traceback.format_exc())
             self.stats['errors'] += 1
     
-    def detect_objects_sahi(self, frame: np.ndarray) -> List[Dict]:
+    def detect_objects_sahi(self, frame: np.ndarray, retry_count: int = 0) -> List[Dict]:
         """
-        Detect objects using SAHI (Slicing Aided Hyper Inference)
+        Detect objects using SAHI (Slicing Aided Hyper Inference) with error recovery
         
         SAHI slices the image into smaller patches with overlap, runs detection
         on each patch, then merges the results. This is highly effective for
@@ -1126,6 +1424,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         
         Args:
             frame: Input image as numpy array (BGR format)
+            retry_count: Internal retry counter for error recovery
             
         Returns:
             List of detection dictionaries
@@ -1200,17 +1499,24 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 if detection:
                     detections.append(detection)
             
-            # Apply additional filtering
+            # Apply additional filtering (SAHI already did NMS)
             detections = self._filter_detections(detections)
             
-            # Clean up GPU memory after detection (important for Jetson)
+            # Periodic GPU memory cleanup (every 10 images) - less frequent for better performance
             if self.enable_gpu_memory_cleanup and self.device.startswith('cuda') and TORCH_AVAILABLE:
-                try:
-                    torch.cuda.empty_cache()
-                except (RuntimeError, AttributeError):
-                    pass
+                if (self.stats["total_images_processed"] % 10) == 0:
+                    try:
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                    except (RuntimeError, AttributeError):
+                        pass
             
         except (RuntimeError, AttributeError, ImportError) as e:
+            # Try error recovery
+            if self._handle_detection_error(e, retry_count):
+                # Retry detection after recovery
+                return self.detect_objects_sahi(frame, retry_count + 1)
+            
             self.get_logger().error(f"Error in SAHI detection: {e}")
             import traceback
             self.get_logger().error(traceback.format_exc())
@@ -1252,8 +1558,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
         if aspect_ratio < self.min_aspect_ratio or aspect_ratio > self.max_aspect_ratio:
             return None
         
-        # Minimum confidence for any detection (very low to catch everything)
-        if confidence < 0.05:
+        # Minimum confidence for any detection - FIXED: Use runtime parameter
+        if confidence < self.confidence_threshold:
             return None
         
         # === CLASSIFICATION LOGIC ===
@@ -1653,34 +1959,24 @@ class SAHIObjectDetectionNode(LifecycleNode):
             output_path = os.path.join(self.detection_results_path, output_filename)
             cv2.imwrite(output_path, annotated_frame)
             
-            # Save top matches crop (best person + best tent)
-            # Need to read original image for clean crops
-            original_frame = cv2.imread(image_path)
-            if original_frame is not None:
-                self.save_top_matches_crop(original_frame, detections, image_path)
-            
-            # Create detection info message
+            # Create detection info message with summary data (NOT full bbox arrays)
             method = 'sahi+yolo11s+tensorrt' if self.model_format_detected == MODEL_FORMAT_TENSORRT else 'sahi+yolo11s'
+            
+            num_people = sum(1 for d in detections if d['class'] == 'person')
+            num_tents = sum(1 for d in detections if d['class'] == 'tent')
+            num_objects = sum(1 for d in detections if d['class'] == 'object')
             
             detection_info = {
                 'image': os.path.basename(image_path),
                 'timestamp': datetime.now().isoformat(),
-                'detections': len(detections),
-                'saved_to': output_path,
+                'num_people': num_people,
+                'num_tents': num_tents,
+                'num_objects': num_objects,
+                'total_detections': len(detections),
                 'method': method,
                 'slice_size': f"{self.slice_height}x{self.slice_width}",
                 'overlap': f"{self.overlap_height_ratio}x{self.overlap_width_ratio}",
-                'objects': [
-                    {
-                        'class': d['class'],
-                        'yolo_class': d.get('yolo_class', d['class']),
-                        'confidence': d['confidence'],
-                        'bbox': d['bbox'],
-                        'description': d.get('description', d['class']),
-                        'area': d.get('area', 0)
-                    }
-                    for d in detections
-                ]
+                # DON'T include full bbox arrays - use ImageResult for that
             }
 
             # create ImageResult message
@@ -1720,9 +2016,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
                 # Add hypothesis (class + confidence)
                 hypo = ObjectHypothesisWithPose()
-                # Map class names to integer IDs (0=person, 1=tent)
-                class_id = 0 if det['class'] == 'person' else 1
-                hypo.hypothesis.class_id = str(class_id)  # class_id is a string
+                # Map class names to integer IDs - FIXED: 0=person, 1=tent, 2=object
+                hypo.hypothesis.class_id = CLASS_ID.get(det['class'], "2")
                 hypo.hypothesis.score = float(det['confidence'])
                 d2d.results.append(hypo)
 
@@ -1746,9 +2041,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Publish ImageResult message
             self.detection_pub.publish(image_result_msg)
             
-            # Publish detection info
+            # Publish detection info with JSON serialization
             info_msg = String()
-            info_msg.data = str(detection_info)
+            info_msg.data = json.dumps(detection_info, separators=(",", ":"))
             self.detection_publisher.publish(info_msg)
             
             # self.get_logger().info(
