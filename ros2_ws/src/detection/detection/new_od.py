@@ -170,8 +170,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
         # ROS2 node name - matches launch file
         super().__init__('new_od')
         
-        # Lifecycle state flag
+        # Lifecycle state flags
         self.shutdown_requested = False
+        self._active = False  # Track if node is in active state
         
         # Declare parameters with defaults
         self.declare_parameter('model_path', 'yolo26m.pt')
@@ -329,6 +330,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.get_logger().info("Activating SAHI Object Detection Node...")
         
         try:
+            # Set active flag
+            self._active = True
+            
             # Initialize SAHI model
             if not self.initialize_sahi_model():
                 self.get_logger().error("Failed to initialize SAHI model")
@@ -396,6 +400,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         """Deactivate the node - stop processing"""
         self.get_logger().info("Deactivating SAHI Object Detection Node...")
+        
+        # Clear active flag
+        self._active = False
         
         # Stop worker thread
         self.worker_stop.set()
@@ -598,7 +605,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # CRITICAL: Warn if user settings will cause memory failure
             if current_slices > 100:  # More than 100 slices = almost certain crash
                 self.get_logger().error(
-                    f"🔴 CRITICAL: Current settings will generate ~{current_slices} slices for 4K images!"
+                    f" CRITICAL: Current settings will generate ~{current_slices} slices for 4K images!"
                 )
                 self.get_logger().error(
                     f"   This WILL cause 'NvMapMemAllocInternalTagged error 12' (out of memory)"
@@ -620,7 +627,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 
             elif current_slices > 60:  # Warning zone
                 self.get_logger().warn(
-                    f"⚠️  WARNING: Current settings generate ~{current_slices} slices (recommended: ~{recommended_slices})"
+                    f"  WARNING: Current settings generate ~{current_slices} slices (recommended: ~{recommended_slices})"
                 )
                 self.get_logger().warn(
                     f"   Consider: slice_size={recommended_slice}, overlap={recommended_overlap:.2f}"
@@ -1327,7 +1334,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         """
         try:
             # Only process if node is active
-            if self.get_current_state().id != State.PRIMARY_STATE_ACTIVE:
+            if not self._active:
                 return
             
             if self.shutdown_requested:
@@ -1362,12 +1369,20 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Sort by timestamp (oldest first)
             image_files_with_time.sort(key=lambda x: x[1])
             
+            # Log current state periodically (every 10 checks)
+            if not hasattr(self, '_check_count'):
+                self._check_count = 0
+            self._check_count += 1
+            if self._check_count % 10 == 0:
+                self.get_logger().info(f"📊 Check #{self._check_count}: Found {len(image_files_with_time)} images, {len(self.processed_images)} already processed, Queue size: {self.work_q.qsize()}")
+            
             # Enqueue new images up to max_images_per_cycle
             enqueued = 0
             for fname, mtime in image_files_with_time:
                 if enqueued >= self.max_images_per_cycle:
                     break
                 if fname in self.processed_images:
+                    # Image already processed - skip silently
                     continue
                 
                 image_path = os.path.join(self.camera_feed_path, fname)
@@ -1380,9 +1395,15 @@ class SAHIObjectDetectionNode(LifecycleNode):
                     self.work_q.put_nowait(image_path)
                     self.processed_images[fname] = mtime
                     enqueued += 1
+                    self.get_logger().info(f"✅ Enqueued NEW image: {fname} (Total processed: {len(self.processed_images)})")
                 except queue.Full:
                     self.get_logger().warn("Work queue full, skipping images")
                     break
+            
+            # Log if nothing was enqueued but we have images
+            if enqueued == 0 and len(image_files_with_time) > 0:
+                if self._check_count % 20 == 0:  # Every 20 checks (40 seconds)
+                    self.get_logger().info(f"ℹ️  No new images to process. All {len(image_files_with_time)} image(s) already processed.")
             
         except (OSError, IOError) as e:
             self.get_logger().error(f"Error checking for new images: {e}")
@@ -1451,7 +1472,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 return
             
             height, width = frame.shape[:2]
-            # self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
+            self.get_logger().info(f"📸 Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
             # Keep original BEFORE annotation (for crops without boxes)
             frame_orig = frame.copy()
