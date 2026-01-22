@@ -86,8 +86,8 @@ except ImportError:
 # Constants
 # TUNED FOR MAXIMUM DETECTION - lower thresholds, smaller slices, more overlap
 DEFAULT_CONFIDENCE_THRESHOLD = 0.05  # Very low to catch everything (was 0.10)
-DEFAULT_SLICE_SIZE = 256  # Smaller slices for better small object detection (was 512)
-DEFAULT_OVERLAP = 0.45  # Higher overlap to catch objects at boundaries (was 0.3)
+DEFAULT_SLICE_SIZE = 640  # Smaller slices for better small object detection (was 512)
+DEFAULT_OVERLAP = 0.15  # Higher overlap to catch objects at boundaries (was 0.3)
 DEFAULT_CHECK_INTERVAL = 2.0
 MAX_SEARCH_DEPTH = 10
 
@@ -544,28 +544,131 @@ class SAHIObjectDetectionNode(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
     
     def _optimize_gpu_memory(self):
-        """Optimize GPU memory settings based on available resources"""
+        """
+        Optimize GPU memory settings for SAHI on Jetson devices.
+        
+        KEY INSIGHT: With SAHI, LARGER slices = FEWER slices = LESS total memory
+        Small slices cause memory fragmentation and allocation failures.
+        """
         if not self.device.startswith('cuda') or not TORCH_AVAILABLE:
             return
         
         try:
-            # Get total GPU memory
+            # Get GPU specs
             total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
             
-            # Adjust settings based on available memory
-            if total_memory < 4:  # Low memory (Jetson Nano, etc.)
-                torch.cuda.set_per_process_memory_fraction(0.7, 0)
-                self.get_logger().warn(f"Low GPU memory ({total_memory:.1f}GB), reducing allocation")
-                
-                # Suggest smaller slice sizes
-                if self.slice_height > 256 or self.slice_width > 256:
-                    self.get_logger().warn("Consider using smaller slice_size (128-256) for low memory")
+            # CORRECTED ADAPTIVE LOGIC FOR SAHI
+            # Low memory → LARGER slices (fewer slices total)
+            # High memory → Can use smaller slices (more slices, better accuracy)
             
-            # Enable memory pooling for faster allocation
-            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:128'
+            if total_memory < 4:  # Jetson Nano (2-4GB)
+                recommended_slice = 640
+                recommended_overlap = 0.10  # Minimal overlap
+                max_fraction = 0.6
+                self.get_logger().warn("Jetson Nano detected: Using large slices + low overlap for stability")
+                
+            elif total_memory < 8:  # Jetson Xavier NX, TX2 (4-8GB)
+                recommended_slice = 512
+                recommended_overlap = 0.15
+                max_fraction = 0.7
+                self.get_logger().info("Jetson Xavier NX/TX2 detected: Balanced settings")
+                
+            else:  # Jetson AGX Xavier, Orin (16-32GB)
+                recommended_slice = 416  # Still large enough to limit slice count
+                recommended_overlap = 0.20
+                max_fraction = 0.75
+                self.get_logger().info("Jetson AGX/Orin detected: Can use moderate slices")
+            
+            # Calculate expected slice count for current image size
+            # Assume 4K worst case (3840×2160)
+            test_width, test_height = 3840, 2160
+            
+            current_slices = self._estimate_slice_count(
+                test_width, test_height,
+                self.slice_width, self.slice_height,
+                self.overlap_width_ratio, self.overlap_height_ratio
+            )
+            
+            recommended_slices = self._estimate_slice_count(
+                test_width, test_height,
+                recommended_slice, recommended_slice,
+                recommended_overlap, recommended_overlap
+            )
+            
+            # CRITICAL: Warn if user settings will cause memory failure
+            if current_slices > 100:  # More than 100 slices = almost certain crash
+                self.get_logger().error(
+                    f"🔴 CRITICAL: Current settings will generate ~{current_slices} slices for 4K images!"
+                )
+                self.get_logger().error(
+                    f"   This WILL cause 'NvMapMemAllocInternalTagged error 12' (out of memory)"
+                )
+                self.get_logger().error(
+                    f"   Recommended settings would generate ~{recommended_slices} slices"
+                )
+                self.get_logger().error("")
+                self.get_logger().error(f"   FORCING SAFE SETTINGS:")
+                self.get_logger().error(f"   slice_size: {self.slice_height}x{self.slice_width} → {recommended_slice}x{recommended_slice}")
+                self.get_logger().error(f"   overlap: {self.overlap_height_ratio:.2f} → {recommended_overlap:.2f}")
+                self.get_logger().error("")
+                
+                # FORCE safe settings to prevent crash
+                self.slice_height = recommended_slice
+                self.slice_width = recommended_slice
+                self.overlap_height_ratio = recommended_overlap
+                self.overlap_width_ratio = recommended_overlap
+                
+            elif current_slices > 60:  # Warning zone
+                self.get_logger().warn(
+                    f"⚠️  WARNING: Current settings generate ~{current_slices} slices (recommended: ~{recommended_slices})"
+                )
+                self.get_logger().warn(
+                    f"   Consider: slice_size={recommended_slice}, overlap={recommended_overlap:.2f}"
+                )
+            
+            # Set memory fraction
+            torch.cuda.set_per_process_memory_fraction(max_fraction, 0)
+            
+            # Memory allocator settings
+            # Larger slices = bigger allocations = need larger split size
+            split_size = 256 if recommended_slice >= 512 else 128
+            os.environ['PYTORCH_CUDA_ALLOC_CONF'] = f'max_split_size_mb:{split_size},expandable_segments:True'
+            
+            self.get_logger().info(
+                f"GPU Memory Config: {total_memory:.1f}GB total, "
+                f"using {max_fraction*100:.0f}% max, "
+                f"split_size={split_size}MB"
+            )
+            self.get_logger().info(
+                f"SAHI Config: {self.slice_height}x{self.slice_width} slices, "
+                f"{self.overlap_height_ratio:.0%} overlap → ~{current_slices} slices/4K-image"
+            )
             
         except Exception as e:
-            self.get_logger().debug(f"GPU memory optimization failed: {e}")
+            self.get_logger().warn(f"GPU memory optimization failed: {e}")
+
+    def _estimate_slice_count(self, img_width: int, img_height: int,
+                             slice_w: int, slice_h: int,
+                             overlap_w: float, overlap_h: float) -> int:
+        """
+        Estimate number of slices SAHI will generate.
+        
+        Formula:
+            stride = slice_size × (1 - overlap)
+            num_slices = ceil((img_size - slice_size) / stride) + 1
+        """
+        import math
+        
+        stride_w = int(slice_w * (1 - overlap_w))
+        stride_h = int(slice_h * (1 - overlap_h))
+        
+        if stride_w <= 0 or stride_h <= 0:
+            return 999999  # Invalid config
+        
+        slices_w = max(1, math.ceil((img_width - slice_w) / stride_w) + 1)
+        slices_h = max(1, math.ceil((img_height - slice_h) / stride_h) + 1)
+        
+        return slices_w * slices_h
     
     def _validate_sahi_config(self) -> List[str]:
         """Validate SAHI configuration and return warnings"""
