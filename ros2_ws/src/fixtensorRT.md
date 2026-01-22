@@ -37,7 +37,7 @@ print(google.protobuf.__version__)
 EOF
 
 
-✅ It must print something like:
+It must print something like:
 
 3.20.3
 
