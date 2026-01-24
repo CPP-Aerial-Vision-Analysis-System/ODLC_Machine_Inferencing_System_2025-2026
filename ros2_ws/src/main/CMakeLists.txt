@@ -38,6 +38,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 install(PROGRAMS
   src/main.py
+  ../ultralytics_ros/scripts/capture_detect.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

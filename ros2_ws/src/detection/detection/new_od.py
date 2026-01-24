@@ -13,11 +13,6 @@ Detection Pipeline:
 2. YOLO26/TensorRT detects objects in each slice
 3. Results are merged and filtered (NMS)
 4. Detections are annotated with YOLO26 results
-
-Configuration:
-- Slice size: 256x256 (optimized for small object detection)
-- Overlap: 45% (ensures objects at boundaries are detected)
-- Balance: Accuracy over speed for critical small object detection
 """
 # ros2 imports
 import rclpy # define ros2 nodes
@@ -84,10 +79,10 @@ except ImportError:
     TENSORRT_AVAILABLE = False
 
 # Constants
-# TUNED FOR MAXIMUM DETECTION - lower thresholds, smaller slices, more overlap
-DEFAULT_CONFIDENCE_THRESHOLD = 0.05  # Very low to catch everything (was 0.10)
-DEFAULT_SLICE_SIZE = 640  # Smaller slices for better small object detection (was 512)
-DEFAULT_OVERLAP = 0.15  # Higher overlap to catch objects at boundaries (was 0.3)
+# TUNED FOR QUALITY DETECTION - balanced thresholds for accuracy
+DEFAULT_CONFIDENCE_THRESHOLD = 0.25  # Filter out low-confidence false positives (was 0.05)
+DEFAULT_SLICE_SIZE = 640  # Smaller slices for better small object detection
+DEFAULT_OVERLAP = 0.25  # Good overlap to catch objects at boundaries (was 0.15)
 DEFAULT_CHECK_INTERVAL = 2.0
 MAX_SEARCH_DEPTH = 10
 
@@ -175,7 +170,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self._active = False  # Track if node is in active state
         
         # Declare parameters with defaults
-        self.declare_parameter('model_path', 'yolo26m.pt')
+        self.declare_parameter('model_path', 'yolo26x.pt')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)  # NEW: 'pytorch', 'tensorrt', or 'auto'
         self.declare_parameter('auto_convert_tensorrt', True)  # NEW: Auto-convert .pt to .engine if missing
         self.declare_parameter('tensorrt_workspace', 4)  # NEW: GPU memory for TensorRT (GB)
@@ -1374,7 +1369,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self._check_count = 0
             self._check_count += 1
             if self._check_count % 10 == 0:
-                self.get_logger().info(f"📊 Check #{self._check_count}: Found {len(image_files_with_time)} images, {len(self.processed_images)} already processed, Queue size: {self.work_q.qsize()}")
+                self.get_logger().info(f" Check #{self._check_count}: Found {len(image_files_with_time)} images, {len(self.processed_images)} already processed, Queue size: {self.work_q.qsize()}")
             
             # Enqueue new images up to max_images_per_cycle
             enqueued = 0
@@ -1393,9 +1388,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 
                 try:
                     self.work_q.put_nowait(image_path)
-                    self.processed_images[fname] = mtime
+                    self.processed_images[fname] = time.time()  # Use current time, not file mtime
                     enqueued += 1
-                    self.get_logger().info(f"✅ Enqueued NEW image: {fname} (Total processed: {len(self.processed_images)})")
+                    self.get_logger().info(f" Enqueued NEW image: {fname} (Total processed: {len(self.processed_images)})")
                 except queue.Full:
                     self.get_logger().warn("Work queue full, skipping images")
                     break
@@ -1403,7 +1398,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Log if nothing was enqueued but we have images
             if enqueued == 0 and len(image_files_with_time) > 0:
                 if self._check_count % 20 == 0:  # Every 20 checks (40 seconds)
-                    self.get_logger().info(f"ℹ️  No new images to process. All {len(image_files_with_time)} image(s) already processed.")
+                    self.get_logger().info(f"  No new images to process. All {len(image_files_with_time)} image(s) already processed.")
             
         except (OSError, IOError) as e:
             self.get_logger().error(f"Error checking for new images: {e}")
@@ -1472,7 +1467,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 return
             
             height, width = frame.shape[:2]
-            self.get_logger().info(f"📸 Processing image: {os.path.basename(image_path)} ({width}x{height})")
+            self.get_logger().info(f"Processing image: {os.path.basename(image_path)} ({width}x{height})")
             
             # Keep original BEFORE annotation (for crops without boxes)
             frame_orig = frame.copy()
@@ -1866,9 +1861,11 @@ class SAHIObjectDetectionNode(LifecycleNode):
             if class_name == 'person':
                 box_color = COLOR_PERSON
                 label = f"PERSON ({confidence:.0%})"
+                align_right = True  # Person labels on RIGHT side
             elif class_name == 'tent':
                 box_color = COLOR_TENT
                 label = f"TENT ({confidence:.0%})"
+                align_right = False  # Tent labels on LEFT side
             else:
                 # For 'object' class: just draw blue box, no labels
                 cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), COLOR_OBJECT, 1)
@@ -1893,17 +1890,27 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 label_y1 = y1
                 label_y2 = y1 + label_h
             
+            # Position horizontally: tents on left, persons on right
+            if align_right:
+                # Align to right edge of bounding box
+                label_x1 = max(0, x2 - text_w - padding * 2)
+                label_x2 = x2
+            else:
+                # Align to left edge of bounding box
+                label_x1 = x1
+                label_x2 = x1 + text_w + padding * 2
+            
             # Draw filled background rectangle for label
             cv2.rectangle(
                 annotated_frame,
-                (x1, label_y1),
-                (x1 + text_w + padding * 2, label_y2),
+                (label_x1, label_y1),
+                (label_x2, label_y2),
                 box_color,
                 -1  # Filled
             )
             
             # Draw text with black outline for better readability
-            text_x = x1 + padding
+            text_x = label_x1 + padding
             text_y = label_y2 - padding
             
             # Draw black outline (shadow effect for readability)
