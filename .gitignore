@@ -47,3 +47,4 @@ ros2_ws/src/video_cam/mapping_photos
 *.engine
 *.trt
 
+.DS_Store
