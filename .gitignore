@@ -40,3 +40,10 @@ ros2_ws/src/video_cam/video_cam/documentations
 ros2_ws/src/detection/detection_results_sahi
 Docs
 ros2_ws/src/video_cam/mapping_photos
+
+# ML / YOLO model weights
+*.pt
+*.onnx
+*.engine
+*.trt
+
