@@ -14,6 +14,11 @@ Detection Pipeline:
 3. Results are merged and filtered (NMS)
 4. Detections are annotated with YOLO26 results
 """
+
+# Fix protobuf compatibility for ONNX/TensorRT export
+import os
+os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+
 # ros2 imports
 import rclpy # define ros2 nodes
 from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn # define ros2 lifecycle nodes
@@ -170,7 +175,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self._active = False  # Track if node is in active state
         
         # Declare parameters with defaults
-        self.declare_parameter('model_path', 'yolo26x.pt')
+        self.declare_parameter('model_path', 'yolo26m.pt')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)  # NEW: 'pytorch', 'tensorrt', or 'auto'
         self.declare_parameter('auto_convert_tensorrt', True)  # NEW: Auto-convert .pt to .engine if missing
         self.declare_parameter('tensorrt_workspace', 4)  # NEW: GPU memory for TensorRT (GB)
@@ -919,10 +924,17 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.get_logger().info(f"Converting {pt_path} to TensorRT format...")
             self.get_logger().info("This may take several minutes on first run...")
             
+            # Clear GPU cache before conversion to maximize available memory
+            if TORCH_AVAILABLE and self.device.startswith('cuda'):
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                self.get_logger().info("GPU cache cleared before TensorRT conversion")
+            
             # Load PyTorch model
             model = YOLO(pt_path)
             
             # Export to TensorRT - FIXED: Lock input size to slice dimensions
+            self.get_logger().info(f"Starting TensorRT export: imgsz=({self.slice_height}, {self.slice_width}), workspace={self.tensorrt_workspace}GB")
             model.export(
                 format='engine',
                 device=0 if self.device.startswith('cuda') else 'cpu',
@@ -930,7 +942,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 half=True,  # FP16 for Jetson (if supported)
                 workspace=self.tensorrt_workspace,
                 simplify=True,
-                verbose=False
+                verbose=True  # Enable verbose for debugging
             )
             
             # Find the exported engine file
@@ -942,7 +954,10 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 if exported_engine != engine_path:
                     import shutil
                     shutil.move(exported_engine, engine_path)
-                self.get_logger().info(f"✓ TensorRT conversion successful: {engine_path}")
+                
+                # Verify engine file size
+                engine_size = os.path.getsize(engine_path) / (1024**2)  # MB
+                self.get_logger().info(f"✓ TensorRT conversion successful: {engine_path} ({engine_size:.1f}MB)")
                 return True
             else:
                 self.get_logger().error(f"TensorRT engine file not found at {exported_engine}")
@@ -950,6 +965,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 
         except Exception as e:
             self.get_logger().error(f"TensorRT conversion failed: {str(e)}")
+            import traceback
+            self.get_logger().error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def _resolve_model_path(self) -> Tuple[str, str]:
@@ -1251,49 +1268,59 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 except Exception as e:
                     self.get_logger().debug(f"Could not get GPU memory info: {e}")
             
-            # Initialize SAHI AutoDetectionModel
-            # Note: SAHI uses 'yolov8' as the model_type identifier for all YOLO v8+ models (including YOLO26)
-            # The actual model version is determined by the model file. For TensorRT, we use .engine file
-            if final_format == MODEL_FORMAT_TENSORRT:
-                # TensorRT models - FIXED: Load with Ultralytics directly, wrap in SAHI-compatible format
-                try:
-                    # Load TensorRT model with Ultralytics directly
-                    base_model = YOLO(resolved_path)
+            # Initialize detection model
+            # For TensorRT engines, we need to load YOLO model first, then pass to SAHI
+            try:
+                if final_format == MODEL_FORMAT_TENSORRT:
+                    # TensorRT: Load YOLO model directly, then pass to SAHI's AutoDetectionModel
+                    from ultralytics import YOLO
+                    yolo_model = YOLO(resolved_path, task='detect')
                     
-                    # Wrap in SAHI-compatible format
-                    from sahi.models.yolov8 import Yolov8DetectionModel
-                    self.detection_model = Yolov8DetectionModel(
-                        model=base_model,
+                    # Pass pre-initialized model to SAHI
+                    self.detection_model = AutoDetectionModel.from_pretrained(
+                        model_type='yolov8',
+                        model_path=None,  # Not needed when passing model instance
+                        model=yolo_model,  # Pass the pre-loaded TensorRT model
                         confidence_threshold=self.confidence_threshold,
                         device=self.device,
                     )
-                    self.get_logger().info("✓ TensorRT model loaded via Ultralytics+SAHI wrapper")
-                except Exception as e:
-                    self.get_logger().error(f"Failed to load TensorRT model: {e}")
-                    self.get_logger().error("Falling back to PyTorch if available...")
-                    # Try fallback to PyTorch
+                    self.get_logger().info("✓ TensorRT model loaded and wrapped for SAHI")
+                else:
+                    # PyTorch: Use SAHI's standard loading from file path
+                    self.detection_model = AutoDetectionModel.from_pretrained(
+                        model_type='yolov8',
+                        model_path=resolved_path,
+                        confidence_threshold=self.confidence_threshold,
+                        device=self.device,
+                    )
+                    self.get_logger().info("✓ PyTorch model loaded via SAHI")
+                    
+            except Exception as e:
+                self.get_logger().error(f"Failed to load model: {e}")
+                
+                # If TensorRT failed, try PyTorch fallback
+                if final_format == MODEL_FORMAT_TENSORRT:
                     base_name = os.path.splitext(resolved_path)[0]
                     pt_path = f"{base_name}.pt"
                     if os.path.exists(pt_path):
-                        self.get_logger().warn(f"Using PyTorch fallback: {pt_path}")
-                        self.detection_model = AutoDetectionModel.from_pretrained(
-                            model_type='yolov8',
-                            model_path=pt_path,
-                            confidence_threshold=self.confidence_threshold,
-                            device=self.device,
-                        )
-                        self.model_format_detected = MODEL_FORMAT_PYTORCH
+                        self.get_logger().warn(f"TensorRT failed, trying PyTorch fallback: {pt_path}")
+                        try:
+                            self.detection_model = AutoDetectionModel.from_pretrained(
+                                model_type='yolov8',
+                                model_path=pt_path,
+                                confidence_threshold=self.confidence_threshold,
+                                device=self.device,
+                            )
+                            self.model_format_detected = MODEL_FORMAT_PYTORCH
+                            self.get_logger().info("✓ PyTorch fallback model loaded via SAHI")
+                        except Exception as e2:
+                            self.get_logger().error(f"PyTorch fallback also failed: {e2}")
+                            return False
                     else:
+                        self.get_logger().error(f"No PyTorch fallback available at {pt_path}")
                         return False
-            else:
-                # PyTorch model - standard SAHI loading
-                self.detection_model = AutoDetectionModel.from_pretrained(
-                    model_type='yolov8',  # SAHI model type identifier (works for YOLO v8, v9, v10, v11, v26)
-                    model_path=resolved_path,  # Actual model: yolo11s.pt
-                    confidence_threshold=self.confidence_threshold,
-                    device=self.device,
-                )
-                self.get_logger().info("✓ PyTorch model loaded via SAHI")
+                else:
+                    return False
             
             # self.get_logger().info(" SAHI YOLOv11s model loaded successfully!")
             
