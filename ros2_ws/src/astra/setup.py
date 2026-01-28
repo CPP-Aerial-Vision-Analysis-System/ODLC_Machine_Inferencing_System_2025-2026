@@ -19,7 +19,6 @@ setup(
     maintainer_email='dev@example.com',
     description='Combined camera capture and object detection node',
     license='MIT',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'capture_detect = astra.capture_detect:main',

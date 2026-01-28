@@ -31,6 +31,8 @@ setup(
             'object_detection = detection.object_detection:main',
             'object_detection_sahi = detection.object_detection_sahi:main',
             'new_od = detection.new_od:main',
+            'new_od_aro = detection.new_od_aro:main',
+            'steroids_od = detection.new_od_on_steroids:main',
         ],
     },
 )

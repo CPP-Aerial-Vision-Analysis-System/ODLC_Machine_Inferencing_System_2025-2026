@@ -16,7 +16,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
+find_package(interfaces REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(message_filters REQUIRED)
@@ -27,18 +27,12 @@ find_package(tf2_ros REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(PCL REQUIRED)
 
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/ImageResult.msg"
-  "msg/YoloResult.msg"
-  DEPENDENCIES
-  sensor_msgs
-  std_msgs
-  vision_msgs
-)
+# Messages are now defined in the interfaces package, not here
 
 install(PROGRAMS
   src/main.py
-  ../ultralytics_ros/scripts/capture_detect.py
+  ../ultralytics_ros/scripts/main_controller.py
+  ../ultralytics_ros/scripts/main_controller_aro.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

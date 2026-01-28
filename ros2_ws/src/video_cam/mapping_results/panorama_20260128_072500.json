@@ -1,0 +1,15 @@
+{
+  "timestamp": "20260128_072500",
+  "panorama_file": "panorama_20260128_072500.jpg",
+  "was_stopped_early": false,
+  "panorama_size": {
+    "width": 971,
+    "height": 957
+  },
+  "frames_processed": 40,
+  "frames_stitched": 39,
+  "success_rate": "97.5%",
+  "detector": "ORB",
+  "blend_method": "distance",
+  "downscale_factor": 0.5
+}
