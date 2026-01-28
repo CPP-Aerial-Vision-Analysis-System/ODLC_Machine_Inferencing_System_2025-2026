@@ -346,6 +346,9 @@ class IncrementalStitcher(Node):
         # Load images from mapping_photos
         exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
+        self.last_frame = None
+        self.H_global = np.eye(3, dtype=np.float64)
+
         def numeric_key(path):
             # Extract all digits from the file name and convert to int
             fname = os.path.basename(path)
