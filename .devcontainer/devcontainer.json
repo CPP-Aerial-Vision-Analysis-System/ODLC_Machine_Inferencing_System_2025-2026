@@ -6,9 +6,20 @@
     "--env=DISPLAY=host.docker.internal:0.0",
     "--network=host"
   ],
+  "containerEnv": {
+    "HISTFILE": "/dev/null"
+  },
+  "remoteEnv": {
+    "HISTFILE": "/dev/null"
+  },
+  "mounts": [
+    "source=odlc-bashhistory,target=/commandhistory,type=volume"
+  ],
+  "remoteUser": "ubuntu",
   "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/${localWorkspaceFolderBasename}",
   "mounts": [
     "source=${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind"
-  ]
+  ],
+  "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
 }
