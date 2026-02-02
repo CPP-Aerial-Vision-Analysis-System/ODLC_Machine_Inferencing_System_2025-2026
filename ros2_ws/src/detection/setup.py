@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'object_detection_sahi = detection.object_detection_sahi:main'
+            'object_detection_sahi = detection.object_detection_sahi:main',
+            'new_od = detection.new_od:main',
         ],
     },
 )

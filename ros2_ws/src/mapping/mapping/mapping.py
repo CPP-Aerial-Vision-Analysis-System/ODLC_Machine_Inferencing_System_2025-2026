@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+
 # sensor_msgs and CvBridge no longer strictly needed, but left for compatibility
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -12,7 +13,7 @@ from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
 
 
-def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=False):
+def stitch_pair(img1, img2, min_matches=6, ratio=0.8, use_sift=False, debug=False):
     """
     Stitch two images with multi-band blending for seamless results.
     img1: reference image (panorama)
@@ -74,33 +75,38 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
     src_pts = np.float32([k2[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
     dst_pts = np.float32([k1[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
-    # --- Homography estimation ---
+    # --- Affine estimation (better for mapping, less bending) ---
     ransac_thresh = 3.0
-    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, ransac_thresh, maxIters=5000)
+    M, mask = cv2.estimateAffinePartial2D(
+        src_pts,
+        dst_pts,
+        method=cv2.RANSAC,
+        ransacReprojThreshold=ransac_thresh,
+        maxIters=5000,
+        confidence=0.99,
+        refineIters=10
+    )
 
-    if H is None:
-        return None, "Homography estimation failed"
+    if M is None or mask is None:
+        return None, "Affine estimation failed"
 
     matches_mask = mask.ravel().tolist()
-    inlier_count = sum(matches_mask)
+    inlier_count = int(np.sum(matches_mask))
     inlier_ratio = inlier_count / len(good)
 
-    min_inliers = max(6, min_matches // 2)
-
+    min_inliers = max(1, min_matches // 6)
     if inlier_count < min_inliers:
         return None, f"Too few inliers: {inlier_count}/{min_inliers} ({inlier_ratio:.1%})"
 
-    # Validate homography
-    try:
-        det = abs(np.linalg.det(H[:2, :2]))
-        if det < 0.05 or det > 15:
-            return None, f"Invalid scale: det={det:.3f}"
+    # Convert 2×3 affine matrix to 3×3 homography for the rest of the code
+    H = np.eye(3, dtype=np.float64)
+    H[:2, :] = M
 
-        max_skew = 1.0   # you can increase this to 1.5 if needed
-        if abs(H[0, 1]) > max_skew or abs(H[1, 0]) > max_skew:
-            return None, f"Excessive skew: H01={H[0,1]:.2f}, H10={H[1,0]:.2f}"
-    except Exception as e:
-        return None, f"Homography validation error: {e}"
+    # --- Simple sanity check on scale (no crazy zooming) ---
+    sx = np.linalg.norm(H[0, :2])
+    sy = np.linalg.norm(H[1, :2])
+    if not (0.7 < sx < 1.5 and 0.7 < sy < 1.5):
+        return None, f"Unreasonable scale: sx={sx:.3f}, sy={sy:.3f}"
 
     # --- Compute canvas size ---
     h1, w1 = img1.shape[:2]
@@ -204,23 +210,6 @@ def stitch_pair(img1, img2, min_matches=8, ratio=0.75, use_sift=False, debug=Fal
         # No overlap, just place img2
         result = np.where(mask_img2[:, :, np.newaxis] > 0, warped_img2, result)
 
-    # --- Crop black borders ---
-    gray_result = cv2.cvtColor(result, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray_result, 1, 255, cv2.THRESH_BINARY)
-
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        largest_contour = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(largest_contour)
-
-        margin = 2
-        x = max(0, x + margin)
-        y = max(0, y + margin)
-        w = min(w - 2 * margin, result.shape[1] - x)
-        h = min(h - 2 * margin, result.shape[0] - y)
-
-        result = result[y:y + h, x:x + w]
-
     info = f"Success: {inlier_count} inliers ({inlier_ratio:.1%}), overlap={overlap_ratio:.1%}"
     return result, info
 
@@ -292,8 +281,8 @@ class IncrementalStitcher(Node):
         self.declare_parameter('use_sift', False)
         self.declare_parameter('downscale_factor', 0.5)
         self.declare_parameter('max_frames', 150)
-        self.declare_parameter('min_matches', 8)
-        self.declare_parameter('ratio_test', 0.75)
+        self.declare_parameter('min_matches', 6)
+        self.declare_parameter('ratio_test', 0.8)
         self.declare_parameter('blend_method', 'distance')  # 'distance' or 'multiband'
 
         current_file = os.path.abspath(__file__)
@@ -356,12 +345,23 @@ class IncrementalStitcher(Node):
 
         # Load images from mapping_photos
         exts = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
+
+        self.last_frame = None
+        self.H_global = np.eye(3, dtype=np.float64)
+
+        def numeric_key(path):
+            # Extract all digits from the file name and convert to int
+            fname = os.path.basename(path)
+            digits = ''.join(ch for ch in fname if ch.isdigit())
+            return int(digits) if digits else 0
+
         self.image_files = sorted(
             [
                 os.path.join(self.camera_feed_path, f)
                 for f in os.listdir(self.camera_feed_path)
                 if f.lower().endswith(exts)
-            ]
+            ],
+            key=numeric_key
         )
         self.current_index = 0
         self.mapping_started = False   # guard so we only run once
@@ -393,6 +393,8 @@ class IncrementalStitcher(Node):
         # Publisher to send feedback
         self.message_sender = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
+        self.run_mapping()
+
     def send_back(self, text):
         # feedback to GCS (Mission Planner messages tab)
         msg = StatusText()
@@ -401,7 +403,7 @@ class IncrementalStitcher(Node):
         self.message_sender.publish(msg)
 
     def command_cb(self, msg: StatusText):
-        if "follow" in msg.text.lower(): # change this if needed (need to test it out)
+        if "follow" in msg.text.lower():  # change this if needed
             if self.mapping_started:
                 # Avoid running twice if multiple zigzag messages arrive
                 self.get_logger().info("Mapping already started, ignoring extra zigzag command.")
@@ -462,16 +464,34 @@ class IncrementalStitcher(Node):
 
     def finish_and_shutdown(self):
         if self.panorama is not None:
+            # --- Robust crop of non-black area ---
+            gray = cv2.cvtColor(self.panorama, cv2.COLOR_BGR2GRAY)
+
+            # Treat anything that is not absolutely black as valid
+            # (THRESH_BINARY with threshold=0 will make all >0 → 255)
+            _, mask = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY)
+
+            nonzero = cv2.countNonZero(mask)
+            if nonzero > 0:
+                # Find all non-zero pixels and take a tight bounding box
+                coords = cv2.findNonZero(mask)  # Nx1x2
+                x, y, w, h = cv2.boundingRect(coords)
+                self.panorama = self.panorama[y:y+h, x:x+w]
+            else:
+                # This should basically never happen unless the panorama is fully black
+                self.get_logger().warn("Panorama looks empty (all black); skipping crop.")
+
+            # --- Save final panorama (cropped or not) ---
             final_path = os.path.join(self.save_dir, 'final_panorama.jpg')
             cv2.imwrite(final_path, self.panorama)
 
             self.get_logger().info("=" * 60)
-            self.get_logger().info(f"FINAL RESULTS:")
+            self.get_logger().info("FINAL RESULTS:")
             self.get_logger().info(f"  Frames processed: {self.frames_processed}")
             self.get_logger().info(f"  Frames stitched: {self.frames_stitched}")
             if self.frames_processed > 0:
                 self.get_logger().info(
-                    f"  Success rate: {100*self.frames_stitched/self.frames_processed:.1f}%"
+                    f"  Success rate: {100 * self.frames_stitched / self.frames_processed:.1f}%"
                 )
             self.get_logger().info(
                 f"  Final size: {self.panorama.shape[1]}x{self.panorama.shape[0]}"
@@ -485,7 +505,6 @@ class IncrementalStitcher(Node):
 
         if rclpy.ok():
             rclpy.shutdown()
-
 
 def main(args=None):
     rclpy.init(args=args)
