@@ -11,5 +11,5 @@
   "mounts": [
     "source=${localEnv:USERPROFILE}/.bash_history,target=/home/vscode/.bash_history,type=bind"
   ],
-  "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
+  // "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
 }
