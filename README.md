@@ -106,3 +106,32 @@ ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552
 
 ---
 
+
+# How to wipe out all the docker images (mac)
+
+* osascript -e 'quit app "Docker Desktop"'
+
+### Paste all this
+
+* docker stop $(docker ps -aq) 2>/dev/null || true
+* docker rm -f $(docker ps -aq) 2>/dev/null || true
+* docker rmi -f $(docker images -aq) 2>/dev/null || true
+* docker volume rm $(docker volume ls -q) 2>/dev/null || true
+* docker network rm $(docker network ls -q) 2>/dev/null || true
+
+### Vhen go nuklear
+
+* docker system prune -a --volumes -f
+
+### Verify
+
+* docker ps -a
+* docker images
+* docker volume ls
+* docker network ls
+
+### Reset docker and clean leftovers
+
+* docker builder prune -a -f
+* docker buildx prune -a -f
+
