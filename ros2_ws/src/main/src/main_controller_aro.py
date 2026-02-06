@@ -36,6 +36,7 @@ from collections import defaultdict, deque
 from typing import Dict, List, Tuple, Optional
 from enum import Enum, auto
 import json
+from datetime import datetime
 
 # Servo configuration
 HUMAN_SERVO_CHANNEL_1 = 9
@@ -493,7 +494,8 @@ class MainControllerAro(Node):
         # Process each detection
         for detection in msg.detections.detections:
             for result in detection.results:
-                class_id = result.hypothesis.class_id
+                # Ensure class_id is string type (handle both string and int from detection node)
+                class_id = str(result.hypothesis.class_id)
                 confidence = result.hypothesis.score
                 
                 # Calculate detection area (optional, for filtering)
@@ -875,8 +877,13 @@ class MainControllerAro(Node):
         
         except Exception as e:
             if retry_count < 3:
-                self.get_logger().warn(f"Servo {channel} failed, retry {retry_count + 1}/3")
+                self.get_logger().warn(
+                    f"Servo {channel} failed, retry {retry_count + 1}/3. "
+                    f"WARNING: Immediate retry without delay may spam command stream."
+                )
                 # Don't sleep - let state machine handle retry timing
+                # Note: This immediate retry is acceptable since state machine 
+                # controls overall deployment timing between servo activations
                 return self._move_servo_async(channel, pwm, retry_count + 1)
             else:
                 self.get_logger().error(f"Servo {channel} failed after 3 retries: {e}")
@@ -966,14 +973,23 @@ class MainControllerAro(Node):
         if time_elapsed > 15.0:
             if current_wp == last_wp:
                 # No waypoint progress in 15 seconds - might be stuck
+                distance_to_target = target_wp - current_wp
                 self.get_logger().warn(
                     f" Navigation progress check: at wp {current_wp}, target {target_wp}, "
-                    f"no advancement in {time_elapsed:.1f}s"
+                    f"no advancement in {time_elapsed:.1f}s (distance remaining: {distance_to_target} waypoints)"
                 )
                 # Only fail if we haven't started moving at all from resume point
                 if hasattr(self, 'resume_waypoint') and self.resume_waypoint and current_wp == self.resume_waypoint:
-                    self.get_logger().error("Navigation completely stuck at resume point")
+                    self.get_logger().error("Navigation completely stuck at resume point - no movement initiated")
                     return False
+            else:
+                # Log progress rate for monitoring
+                waypoints_advanced = current_wp - last_wp
+                rate = waypoints_advanced / time_elapsed
+                self.get_logger().info(
+                    f" Navigation progress: advanced {waypoints_advanced} waypoints "
+                    f"in {time_elapsed:.1f}s (rate: {rate:.3f} wp/s)"
+                )
             # Update checkpoint
             self._last_nav_check = (time.time(), current_wp)
         

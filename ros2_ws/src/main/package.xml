@@ -13,7 +13,11 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>interfaces</depend>
+  <depend>mavros_msgs</depend>
+  <depend>vision_msgs</depend>
+  <depend>rcl_interfaces</depend>
   <exec_depend>image_view</exec_depend>
+  <exec_depend>wp_sender</exec_depend>
   <export>
     <build_type>ament_cmake</build_type>
   </export>
