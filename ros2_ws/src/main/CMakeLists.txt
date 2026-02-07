@@ -31,7 +31,6 @@ find_package(PCL REQUIRED)
 
 install(PROGRAMS
   src/main.py
-  src/main_controller_aro.py
   ../ultralytics_ros/script/main_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )

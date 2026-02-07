@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'capture_detect = astra.capture_detect:main',
+            'main_controller_aro = astra.main_controller_aro:main',
         ],
     },
 )

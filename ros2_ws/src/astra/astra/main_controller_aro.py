@@ -26,7 +26,7 @@ from interfaces.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent
 from mavros_msgs.msg import WaypointReached, StatusText, WaypointList
 from rcl_interfaces.msg import ParameterEvent
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 
 from wp_sender.parameter import ParameterManager
 
@@ -66,6 +66,7 @@ ADJACENT_WAYPOINT_THRESHOLD = 2  # Waypoints within this distance are "adjacent"
 
 class ControllerState(Enum):
     IDLE = auto()  # Waiting for mission start
+    WAITING_FOR_IMAGE_CAPTURE = auto()  # Waiting for image capture at waypoint
     COLLECTING_EVIDENCE = auto()  # Receiving detections, not committed yet
     TARGET_COMMITTED = auto()  # Target selected, ready to act
     NAVIGATING_TO_TARGET = auto()  # En route to target waypoint
@@ -77,14 +78,13 @@ class ControllerState(Enum):
     MISSION_COMPLETE = auto()  # All actions done
     ERROR = auto()  # Recoverable error state
 
-
 class TargetPriority(Enum):
     PERSON_FIRST = auto()  # Person has higher priority
     TENT_FIRST = auto()  # Tent has higher priority
     CLOSEST_FIRST = auto()  # Navigate to nearest target first
     HIGHEST_CONFIDENCE_FIRST = auto()  # Navigate to most confident detection
 
-
+# Digests waypoints
 class WaypointStats:
     """Statistics for a single waypoint and class"""
     def __init__(self):
@@ -111,14 +111,18 @@ class WaypointStats:
     
     def get_score(self) -> float:
         """
-        Anti-decoy scoring rule:
-        Score = (topKMean) × (1 + log(1 + hits))
+        Confidence-first scoring rule:
+        Score = max_conf × (0.85 + 0.15 × min(hits, 5) / 5)
         
-        Rewards repeatability - decoys typically produce one spike
+        Prioritizes high confidence detections with small repeatability bonus
+        A single high-confidence detection (0.9, hits=1) will score higher
+        than multiple low-confidence detections (0.6, hits=10)
         """
         if self.hits == 0:
             return 0.0
-        return self.topk_mean * (1.0 + math.log(1.0 + self.hits))
+        # Primary weight on max confidence, small bonus for repeatability (capped at 5 hits)
+        repeatability_bonus = 0.15 * min(self.hits, 5) / 5.0
+        return self.max_conf * (0.85 + repeatability_bonus)
     
     def to_dict(self) -> dict:
         """Convert to dictionary for logging"""
@@ -129,7 +133,7 @@ class WaypointStats:
             'score': round(self.get_score(), 3)
         }
 
-
+# Digests detections
 class TargetSelector:
     """
     Independent selector for one target class (tent or person)
@@ -301,10 +305,12 @@ class MainControllerAro(Node):
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
+        self.create_subscription(String, "/waypoint_capture/status", self.capture_status_cb, 10)
         
         # Publishers
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.target_selection_pub = self.create_publisher(String, '/target_selection', 10)
+        self.camera_trigger_pub = self.create_publisher(Bool, '/camera/trigger', 10)
         
         # Service clients
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
@@ -349,6 +355,14 @@ class MainControllerAro(Node):
         self.servo_futures = []  # List of pending servo command futures
         self.servo_deploy_start_time = None
         self.servos_to_deploy = []  # Queue: [(channel, pwm), ...]
+        
+        # Image capture coordination
+        self.capture_requested_waypoint = None  # Waypoint for which capture was requested
+        self.capture_complete = False  # Flag indicating capture completion
+        self.capture_request_time = None  # Time when capture was requested
+        self.waiting_for_capture = False  # Flag to track if waiting for capture
+        self.captured_waypoints = set()  # Track waypoints that have been captured
+        self.CAPTURE_TIMEOUT = 15.0  # Maximum time to wait for capture (seconds)
         
         # Adjacent target handling
         self.deploy_both_payloads = False
@@ -414,8 +428,25 @@ class MainControllerAro(Node):
         self.waypoints = msg.waypoints
         self.get_logger().info(f"Mission updated: {len(self.waypoints)} waypoints loaded")
     
+    def capture_status_cb(self, msg: String):
+        """Handle capture status updates from image capture node"""
+        try:
+            status_data = json.loads(msg.data)
+            captured_wp = status_data.get('waypoint')
+            
+            if captured_wp is not None and captured_wp == self.capture_requested_waypoint:
+                self.capture_complete = True
+                self.waiting_for_capture = False
+                self.captured_waypoints.add(captured_wp)
+                self.get_logger().info(
+                    f" ✓ Image capture confirmed for waypoint {captured_wp} "
+                    f"(total captured: {status_data.get('total_waypoints_captured', '?')})"
+                )
+        except json.JSONDecodeError as e:
+            self.get_logger().warn(f"Could not parse capture status: {e}")
+    
     def update_waypoint_reached(self, msg: WaypointReached):
-        """Track current waypoint and trigger payload actions at target waypoints"""
+        """Track current waypoint and trigger image capture at each waypoint"""
         self.waypoint_reached = msg.wp_seq
         self.get_logger().info(f" Reached waypoint {self.waypoint_reached}")
         
@@ -426,6 +457,13 @@ class MainControllerAro(Node):
             
             if self.state == ControllerState.NAVIGATING_TO_TARGET:
                 self._transition_state(ControllerState.AT_TARGET)
+        
+        # Trigger image capture at this waypoint if in COLLECTING_EVIDENCE state
+        # and not already captured and not a special waypoint
+        if (self.state == ControllerState.COLLECTING_EVIDENCE and 
+            self.waypoint_reached not in self.captured_waypoints and
+            not self._is_special_waypoint(self.waypoint_reached)):
+            self._trigger_waypoint_capture(self.waypoint_reached)
     
     def image_result_cb(self, msg: ImageResult):
         """
@@ -1004,6 +1042,36 @@ class MainControllerAro(Node):
             self.get_logger().info(f" State: {self.previous_state.name} → {new_state.name}")
             self.send_ack(f"State: {new_state.name}")
     
+    def _is_special_waypoint(self, waypoint_id: int) -> bool:
+        """Check if waypoint is special (takeoff/RTL/home) and should skip capture"""
+        if waypoint_id == 0:  # Home
+            return True
+        if hasattr(self, 'takeoff_index') and waypoint_id == self.takeoff_index:
+            return True
+        if hasattr(self, 'rtl_index') and waypoint_id == self.rtl_index:
+            return True
+        return False
+    
+    def _trigger_waypoint_capture(self, waypoint_id: int):
+        """Trigger image capture at a specific waypoint"""
+        self.get_logger().info(f" Requesting image capture at waypoint {waypoint_id}")
+        
+        # Send trigger to camera
+        trigger_msg = Bool()
+        trigger_msg.data = True
+        self.camera_trigger_pub.publish(trigger_msg)
+        
+        # Update state
+        self.capture_requested_waypoint = waypoint_id
+        self.capture_complete = False
+        self.waiting_for_capture = True
+        self.capture_request_time = time.time()
+        
+        # Transition to waiting state
+        self._transition_state(ControllerState.WAITING_FOR_IMAGE_CAPTURE)
+        
+        self.send_ack(f"Capturing image at waypoint {waypoint_id}")
+    
     def _should_abort(self) -> bool:
         """
         Check if mission should be aborted
@@ -1036,6 +1104,28 @@ class MainControllerAro(Node):
         if self.state == ControllerState.IDLE:
             # Waiting for mission to start
             if len(self.waypoints) > 0:
+                self._transition_state(ControllerState.COLLECTING_EVIDENCE)
+        
+        elif self.state == ControllerState.WAITING_FOR_IMAGE_CAPTURE:
+            # Waiting for image capture to complete
+            if self.capture_complete:
+                self.get_logger().info(
+                    f" Image capture complete for waypoint {self.capture_requested_waypoint}, "
+                    f"resuming evidence collection"
+                )
+                self.capture_requested_waypoint = None
+                self.waiting_for_capture = False
+                self._transition_state(ControllerState.COLLECTING_EVIDENCE)
+            elif self.capture_request_time and (time.time() - self.capture_request_time) > self.CAPTURE_TIMEOUT:
+                self.get_logger().warn(
+                    f" Image capture timeout for waypoint {self.capture_requested_waypoint} "
+                    f"after {self.CAPTURE_TIMEOUT}s - proceeding anyway"
+                )
+                # Mark as captured to prevent retry loop
+                if self.capture_requested_waypoint:
+                    self.captured_waypoints.add(self.capture_requested_waypoint)
+                self.capture_requested_waypoint = None
+                self.waiting_for_capture = False
                 self._transition_state(ControllerState.COLLECTING_EVIDENCE)
         
         elif self.state == ControllerState.COLLECTING_EVIDENCE:
