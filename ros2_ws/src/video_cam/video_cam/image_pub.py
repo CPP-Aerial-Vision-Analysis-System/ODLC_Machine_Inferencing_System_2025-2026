@@ -289,10 +289,10 @@ class SiyiA8Publisher(Node):
                     else:
                         imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
                     
-                    # self.publisher.publish(imageToTransmit)
-                    # timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    # filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
-                    # cv2.imwrite(filename, capturedFrame)
+                    self.publisher.publish(imageToTransmit)
+                    timestamp = time.strftime("%Y%m%d-%H%M%S")
+                    filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
+                    cv2.imwrite(filename, capturedFrame)
 
                     if self.capture_photo:
                         # self.get_logger().info("Capturing photo...")
@@ -315,7 +315,7 @@ class SiyiA8Publisher(Node):
                         cv_image = self.imgmsg_to_cv2_manual(self.latest_image_msg, desired_encoding='bgr8')
                     
                     # timestamp = time.strftime("%Y%m%d-%H%M%S")
-                    # filename = os.path.join(self.photo_path, f"photo_{timestamp}.jpg")
+                    # filename = os.path.join(self.photo_path, f"photo_{timestamp} 676767676767.jpg")
                     # cv2.imwrite(filename, cv_image) 
 
                     if self.capture_photo:

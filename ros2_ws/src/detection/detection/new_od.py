@@ -319,7 +319,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             # Create publishers
             self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos_profile)
             self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos_profile)
-            self.detection_pub = self.create_publisher(ImageResult, '/image_detections', qos_profile)
+            self.detection_pub = self.create_publisher(ImageResult, '/image_detection', qos_profile)
             
             # Create services
             from std_srvs.srv import Trigger

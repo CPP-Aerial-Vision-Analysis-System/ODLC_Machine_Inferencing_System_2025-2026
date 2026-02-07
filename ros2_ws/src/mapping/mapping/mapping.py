@@ -503,9 +503,7 @@ class IncrementalStitcher(Node):
             self.get_logger().error("No panorama created!")
             self.send_back("Mapping failed: no panorama created")
 
-        if rclpy.ok():
-            rclpy.shutdown()
-
+        
 def main(args=None):
     rclpy.init(args=args)
     node = IncrementalStitcher()
