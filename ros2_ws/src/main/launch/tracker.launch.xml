@@ -55,6 +55,8 @@
 
   <node pkg="detection" exec="object_detection_sahi" output="screen"></node>
 
+  <!-- <node pkg="detection" exec="new_od_aro" output="screen"></node> -->
+
   <node pkg="main" exec="main.py" output="screen"></node>
 
   <node pkg="video_cam" exec="image_pub" output="screen"></node>

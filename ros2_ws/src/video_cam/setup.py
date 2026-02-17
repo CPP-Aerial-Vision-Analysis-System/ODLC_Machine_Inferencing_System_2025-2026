@@ -40,6 +40,7 @@ setup(
             'siyi2 = video_cam.siyi2:main',
             'siyi_unified_pipeline = video_cam.siyi_unified_pipeline:main',
             'siyi_unified_pipeline_new = video_cam.siyi_unified_pipeline_new:main',
+            'siyi_unified_pipeline_refactored = video_cam.siyi_node_refactored:main',
             'image_pub_final = video_cam.image_pub_final:main',
             'camera_control = video_cam.camera_control_client:main',
             'object_detection = video_cam.object_detection:main',

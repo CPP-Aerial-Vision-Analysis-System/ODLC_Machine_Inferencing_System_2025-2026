@@ -280,39 +280,26 @@ class TargetSelector:
 
 
 class MainControllerAro(Node):
-    """
-    Improved main controller with waypoint-based target selection
-    
-    Pipeline:
-    1. Receive detections with CAPTURE-TIME waypoint attribution
-    2. Update per-waypoint statistics for tent and person
-    3. Run independent selectors with anti-decoy scoring
-    4. Apply commit logic
-    5. Execute mission action (jump to waypoint or add waypoints)
-    """
+
     def __init__(self):
         super().__init__('main_controller_aro')
         
-        # Validate configuration parameters
-        assert 0 < COMMIT_MARGIN < 1.0, "COMMIT_MARGIN must be in (0, 1)"
-        assert TOPK_SIZE >= 1, "TOPK_SIZE must be >= 1"
-        assert 0 <= NEIGHBOR_WEIGHT <= 1.0, "NEIGHBOR_WEIGHT must be in [0, 1]"
-        assert MIN_SCORE_THRESHOLD > 0, "MIN_SCORE_THRESHOLD must be positive"
-        assert CONFIDENCE_GATE_TENT > 0 and CONFIDENCE_GATE_PERSON > 0, "Confidence gates must be positive"
+        assert 0 < COMMIT_MARGIN < 1.0, 
+        assert TOPK_SIZE >= 1,
+        assert 0 <= NEIGHBOR_WEIGHT <= 1.0,
+        assert MIN_SCORE_THRESHOLD > 0, 
+        assert CONFIDENCE_GATE_TENT > 0 and CONFIDENCE_GATE_PERSON > 0,
         
-        # Subscribers
         self.create_subscription(ImageResult, "/image_detections", self.image_result_cb, 10)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
         self.create_subscription(String, "/waypoint_capture/status", self.capture_status_cb, 10)
         
-        # Publishers
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.target_selection_pub = self.create_publisher(String, '/target_selection', 10)
         self.camera_trigger_pub = self.create_publisher(Bool, '/camera/trigger', 10)
         
-        # Service clients
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
         self.command_client = self.create_client(CommandLong, '/mavros/cmd/command')
         self.set_current_client = self.create_client(WaypointSetCurrent, "/mavros/mission/set_current")
@@ -388,7 +375,7 @@ class MainControllerAro(Node):
         self.get_logger().info(" MainControllerAro initialized with waypoint-based selection")
     
     def _wait_for_services(self):
-        """Wait for all required services"""
+        # Wait for all required services
         services = [
             ("set_mode", self.set_mode_client),
             ("set_current", self.set_current_client),
@@ -398,7 +385,6 @@ class MainControllerAro(Node):
                 self.get_logger().info(f"Waiting for {name} service...")
     
     def fetch_mission_indices(self):
-        """Fetch mission structure parameters from waypoint manager"""
         wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
         params = self.param_manager.get_param(self.param_manager.waypoint_client, list_params=wp_params)
         
@@ -439,7 +425,7 @@ class MainControllerAro(Node):
                 self.waiting_for_capture = False
                 self.captured_waypoints.add(captured_wp)
                 self.get_logger().info(
-                    f" ✓ Image capture confirmed for waypoint {captured_wp} "
+                    f" Image capture confirmed for waypoint {captured_wp} "
                     f"(total captured: {status_data.get('total_waypoints_captured', '?')})"
                 )
         except json.JSONDecodeError as e:

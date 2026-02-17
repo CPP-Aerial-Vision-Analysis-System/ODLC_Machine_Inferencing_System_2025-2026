@@ -31,10 +31,10 @@ import cv2
 import os
 import time
 import json
-import socket
+import socket #UDP trigger to capture image
 import struct
 import requests
-import numpy as np
+import numpy as np # decode jpeg bytes to an image array
 import shutil
 import hashlib
 from threading import Lock, Event, Thread
@@ -54,13 +54,11 @@ except Exception as e:
 
 
 class MediaTypes(Enum):
-    """Camera media types"""
     IMAGE = 0
     VIDEO = 1
 
 
 class CaptureState(Enum):
-    """Pipeline execution states"""
     IDLE = "idle"
     CAPTURING = "capturing"
     INDEXING = "indexing"
@@ -80,14 +78,12 @@ class SIYIUnifiedPipeline(Node):
     # SIYI SDK commands (Based on A8 mini User Manual v1.6)
     TAKE_PHOTO_4K = bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce")
     
-    # Photo resolution modes with capture commands
     PHOTO_RESOLUTIONS = {
-        '4K': 0x00,      # 3840x2160 (default)
-        '2.7K': 0x01,    # 2704x1520
-        '1080P': 0x02    # 1920x1080
+        '4K': 0x00,      # default
+        '2.7K': 0x01,    
+        '1080P': 0x02    
     }
     
-    # Resolution-specific capture commands
     CAPTURE_COMMANDS = {
         '4K': bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce"),
         '2.7K': bytes.fromhex("55 66 01 01 00 00 00 0c 01 35 ce"),  # UNVERIFIED - checksum may be incorrect
@@ -95,8 +91,8 @@ class SIYIUnifiedPipeline(Node):
     }
     
     # Resolution verification - only 4K is hardware-verified
-    VERIFIED_RESOLUTIONS = {'4K'}  # Only 4K command confirmed working
-    USE_UNVERIFIED_RESOLUTIONS = False  # Safety flag - disable unverified resolutions
+    VERIFIED_RESOLUTIONS = {'4K'}  
+    USE_UNVERIFIED_RESOLUTIONS = False
     
     # Resolution verification specs with file size requirements
     RESOLUTION_SPECS = {
@@ -105,8 +101,6 @@ class SIYIUnifiedPipeline(Node):
         '1080P': {'min_width': 1800, 'min_height': 900, 'min_file_size': 20000},  # 20KB
     }
     
-    # Verification constants
-    # 4K is 3840x2160, but allow tolerance for compression artifacts
     MIN_4K_WIDTH = 3000
     MIN_4K_HEIGHT = 1600
     # Minimum JPEG file size - below this indicates corruption
@@ -129,9 +123,7 @@ class SIYIUnifiedPipeline(Node):
     def __init__(self):
         super().__init__('siyi_unified_pipeline')
         
-        # ====================================================================
         # STATE MANAGEMENT (Jetson is stateful)
-        # ====================================================================
         self.pipeline_state = CaptureState.IDLE
         self.state_lock = Lock()  # Lock for pipeline state transitions
         self.download_lock = Lock()  # Lock for downloaded_files tracking
@@ -153,6 +145,9 @@ class SIYIUnifiedPipeline(Node):
         self.camera_enabled = True
         self.capture_requested = Event()
         
+        # Simulation mode
+        self.latest_image_msg = None  # For simulation: stores latest image from /camera/image topic
+        
         # Codec capabilities (determined at startup)
         self.codec_capabilities = {
             'opencv_jpeg': False,
@@ -163,9 +158,11 @@ class SIYIUnifiedPipeline(Node):
         self.pipeline_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pipeline")
         self.pipeline_future = None
         
-        # ====================================================================
         # ROS PARAMETERS
-        # ====================================================================
+
+        # Simulation mode flag - set to False for real camera, True for simulation
+        self.declare_parameter('use_real_camera', False)
+        
         # Camera enable altitude (meters AGL - Above Ground Level)
         # Negative value indicates below ground level for testing purposes
         # In production, set to positive value (e.g., 10.0 for 10m AGL)
@@ -180,6 +177,7 @@ class SIYIUnifiedPipeline(Node):
         self.declare_parameter('min_free_space_mb', 50.0)
         
         # Get parameters
+        self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
         self.CAM_IP = self.get_parameter('camera_ip').value
         self.CTRL_PORT = self.get_parameter('ctrl_port').value
@@ -190,45 +188,44 @@ class SIYIUnifiedPipeline(Node):
         
         # Update BASE_URL with configured parameters
         self.BASE_URL = f"http://{self.CAM_IP}:{self.MEDIA_PORT}/cgi-bin/media.cgi/api/v1"
-        
-        # ====================================================================
-        # ROS INTERFACE
-        # ====================================================================
-        
-        # Publishers
+                
         self.image_pub = self.create_publisher(Image, 'image_raw', 10)
         self.status_pub = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.camera_status_pub = self.create_publisher(String, '/camera/status', 10)
         self.disk_status_pub = self.create_publisher(Float64, '/camera/disk_free_mb', 10)
         
-        # Subscribers
-        self.create_subscription(Bool, '/camera/trigger', 
-                                self.camera_trigger_callback, 10)
-        self.create_subscription(String, '/camera/set_resolution', 
-                                self.set_resolution_callback, 10)
-        self.create_subscription(Float64, '/mavros/global_position/rel_alt', 
-                                self.altitude_callback, qos_profile_sensor_data)
+        self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
+        self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
+        self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         
-        # ====================================================================
+        # Simulation image subscriber
+        if not self.use_real_camera:
+            self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
+        
         # HARDWARE INTERFACE
-        # ====================================================================
         
-        # SDK socket for camera control
-        self.sdk_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sdk_socket.settimeout(2.0)
+        # SDK socket for camera control (only for real camera)
+        if self.use_real_camera:
+            self.sdk_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sdk_socket.settimeout(2.0)
+        else:
+            self.sdk_socket = None
         
-        # HTTP session with connection pooling
-        self.http_session = requests.Session()
-        self.http_session.headers.update({
-            'User-Agent': 'SIYI-ROS-Client/1.0',
-            'Connection': 'keep-alive'
-        })
-        adapter = requests.adapters.HTTPAdapter(
-            pool_connections=1,  # Only 1 host (camera)
-            pool_maxsize=3,      # Keep 3 connections alive
-            max_retries=0        # We'll handle retries ourselves
-        )
-        self.http_session.mount('http://', adapter)
+        # HTTP session with connection pooling (only for real camera)
+        if self.use_real_camera:
+            self.http_session = requests.Session()
+            self.http_session.headers.update({
+                'User-Agent': 'SIYI-ROS-Client/1.0',
+                'Connection': 'keep-alive'
+            })
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=1,  # Only 1 host (camera)
+                pool_maxsize=3,      # Keep 3 connections alive
+                max_retries=0        # We'll handle retries ourselves
+            )
+            self.http_session.mount('http://', adapter)
+        else:
+            self.http_session = None
         
         # Video stream capture (for live preview)
         self.video_capture: Optional[cv2.VideoCapture] = None
@@ -240,9 +237,7 @@ class SIYIUnifiedPipeline(Node):
             self.bridge = None
             self.get_logger().warn("cv_bridge not available, using alternative conversion")
         
-        # ====================================================================
         # LOCAL STORAGE
-        # ====================================================================
         
         # Determine workspace root
         ros2_ws_dir = self._find_ros2_workspace()
@@ -263,27 +258,32 @@ class SIYIUnifiedPipeline(Node):
         self.get_logger().info("=" * 70)
         self.get_logger().info(" SIYI UNIFIED PIPELINE INITIALIZED")
         self.get_logger().info("=" * 70)
-        self.get_logger().info(f" Storage paths:")
-        self.get_logger().info(f"   Downloads:      {self.download_dir}")
-        self.get_logger().info(f"   Camera feed:    {self.camera_feed_dir}")
-        self.get_logger().info(f"   Mapping photos: {self.mapping_dir}")
-        self.get_logger().info("=" * 70)
         
-        # ====================================================================
         # INITIALIZATION
-        # ====================================================================
         
-        # Initialize camera connection
-        self._initialize_camera()
+        # Log simulation mode
+        self.get_logger().info(f" Camera mode: {'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'}")
+        
+        # Initialize camera connection (only for real camera)
+        if self.use_real_camera:
+            self._initialize_camera()
+            self._send_status("Real camera initialized")
+        else:
+            self.get_logger().info(" Simulation mode: Skipping RTSP connection")
+            self.get_logger().info(" Waiting for images on /camera/image topic...")
+            self._send_status("Simulation camera initialized")
         
         # Check OpenCV JPEG support
         self._check_image_codec_support()
         
-        # Load persistent tracking state
-        self._load_tracking_state()
-        
-        # Initialize SD card indexing
-        self._initialize_sd_card()
+        # Load persistent tracking state (only for real camera)
+        if self.use_real_camera:
+            self._load_tracking_state()
+            
+            # Initialize SD card indexing (only for real camera)
+            self._initialize_sd_card()
+        else:
+            self.get_logger().info(" Simulation mode: Skipping SD card initialization")
         
         # Start main pipeline loop
         stream_period = 1.0 / self.STREAM_RATE
@@ -292,9 +292,7 @@ class SIYIUnifiedPipeline(Node):
         self.get_logger().info(" Pipeline ready. Waiting for triggers...")
         self.get_logger().info("=" * 70)
     
-    # ========================================================================
     # INITIALIZATION METHODS
-    # ========================================================================
     
     def _find_ros2_workspace(self) -> str:
         """Locate the ROS2 workspace root directory"""
@@ -316,7 +314,12 @@ class SIYIUnifiedPipeline(Node):
         return fallback
     
     def _initialize_camera(self):
-        """Initialize RTSP video stream connection"""
+        """Initialize RTSP video stream connection (only for real camera)"""
+        if not self.use_real_camera:
+            self.get_logger().info(" Simulation mode: Skipping camera initialization")
+            self.video_capture = None
+            return
+        
         rtsp_port = self.get_parameter('rtsp_port').value
         rtsp_url = f'rtsp://{self.CAM_IP}:{rtsp_port}/main.264'
         
@@ -553,9 +556,7 @@ class SIYIUnifiedPipeline(Node):
         except Exception as e:
             self.get_logger().warn(f" Could not save tracking state: {e}")
     
-    # ========================================================================
     # PHASE 1: CAPTURE CONTROL (Camera → SD)
-    # ========================================================================
     
     def _trigger_capture(self) -> bool:
         """
@@ -633,9 +634,7 @@ class SIYIUnifiedPipeline(Node):
             self.get_logger().error(f" [Phase 1] Capture command failed: {e}")
             return False
     
-    # ========================================================================
     # PHASE 2: SD CARD INDEXING (Metadata Only)
-    # ========================================================================
     
     def _query_sd_card_index(self) -> List[Dict]:
         """
@@ -810,9 +809,7 @@ class SIYIUnifiedPipeline(Node):
             self.get_logger().warn(f" Directory rollover check failed: {e}")
             return False
     
-    # ========================================================================
     # PHASE 3: INCREMENTAL DOWNLOAD (SD → Jetson)
-    # ========================================================================
     
     def _check_disk_space(self, required_mb: float = 10.0) -> bool:
         """Check if sufficient disk space is available"""
@@ -1129,9 +1126,7 @@ class SIYIUnifiedPipeline(Node):
             self.get_logger().warn(f" File verification error: {e}")
             return False
     
-    # ========================================================================
     # PHASE 4: ROS PUBLICATION (Jetson → ROS Graph)
-    # ========================================================================
     
     def _publish_image_to_ros(self, filename: str, file_info: Dict, img: np.ndarray):
         """
@@ -1184,9 +1179,20 @@ class SIYIUnifiedPipeline(Node):
         msg.header.frame_id = "camera_link"
         return msg
     
-    # ========================================================================
+    def _imgmsg_to_cv2_manual(self, img_msg: Image, desired_encoding: str = 'bgr8') -> np.ndarray:
+        """Convert ROS Image message to OpenCV image without cv_bridge"""
+        if img_msg.encoding != desired_encoding:
+            self.get_logger().warn(f'Image encoding mismatch: {img_msg.encoding} vs {desired_encoding}')
+        
+        dtype = np.uint8
+        n_channels = 3 if desired_encoding == 'bgr8' else 1
+        
+        img_buf = np.asarray(img_msg.data, dtype=dtype)
+        cv_image = img_buf.reshape(img_msg.height, img_msg.width, n_channels)
+        
+        return cv_image
+    
     # COMPLETE PIPELINE EXECUTION
-    # ========================================================================
     
     def _execute_capture_pipeline(self) -> bool:
         """
@@ -1301,9 +1307,7 @@ class SIYIUnifiedPipeline(Node):
             
             return False
     
-    # ========================================================================
     # MAIN LOOP
-    # ========================================================================
     
     def _pipeline_loop(self):
         """
@@ -1333,30 +1337,64 @@ class SIYIUnifiedPipeline(Node):
                 self.pipeline_future = self.pipeline_executor.submit(self._execute_capture_pipeline)
         
         # Always publish live video stream (fast operation)
-        if self.video_capture is not None and self.video_capture.isOpened():
-            ret, frame = self.video_capture.read()
-            
-            if ret and frame is not None:
-                # Publish live stream
-                if self.bridge is not None:
-                    msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
-                else:
-                    msg = self._cv2_to_imgmsg_manual(frame, encoding='bgr8')
+        if self.use_real_camera:
+            # Real camera mode: use RTSP stream
+            if self.video_capture is not None and self.video_capture.isOpened():
+                ret, frame = self.video_capture.read()
                 
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.header.frame_id = "camera_link"
-                
-                self.image_pub.publish(msg)
+                if ret and frame is not None:
+                    # Publish live stream
+                    if self.bridge is not None:
+                        msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                    else:
+                        msg = self._cv2_to_imgmsg_manual(frame, encoding='bgr8')
+                    
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.header.frame_id = "camera_link"
+                    
+                    self.image_pub.publish(msg)
+        else:
+            # Simulation mode: republish simulation image
+            if self.latest_image_msg is not None:
+                self.get_logger().info(" Publishing simulation image", throttle_duration_sec=10.0)
+                self.image_pub.publish(self.latest_image_msg)
+            else:
+                self.get_logger().warn(" No simulation image received yet from /camera/image", throttle_duration_sec=5.0)
     
-    # ========================================================================
     # ROS CALLBACKS
-    # ========================================================================
+    
+    def sim_image_callback(self, msg: Image):
+        """Callback for simulation images from /camera/image topic"""
+        self.latest_image_msg = msg
     
     def camera_trigger_callback(self, msg: Bool):
         """Handle capture trigger requests"""
         if msg.data:
             self.get_logger().info(" Capture trigger received!")
-            self.capture_requested.set()
+            
+            # In simulation mode, save the current simulation image when triggered
+            if not self.use_real_camera and self.latest_image_msg is not None:
+                try:
+                    # Convert ROS Image to OpenCV format
+                    if self.bridge is not None:
+                        cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, desired_encoding='bgr8')
+                    else:
+                        cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, desired_encoding='bgr8')
+                    
+                    # Save to mapping directory
+                    timestamp = time.strftime("%Y%m%d-%H%M%S")
+                    mapping_filename = os.path.join(self.mapping_dir, f"mapping_photo_{timestamp}.jpg")
+                    cv2.imwrite(mapping_filename, cv_image)
+                    self.get_logger().info(f" Simulation photo saved: {mapping_filename}")
+                    self._send_status(f"Simulation photo captured: {timestamp}")
+                except Exception as e:
+                    self.get_logger().error(f" Failed to save simulation image: {e}")
+            elif not self.use_real_camera:
+                self.get_logger().warn(" Trigger received but no simulation image available yet")
+            
+            # For real camera, use the normal pipeline
+            if self.use_real_camera:
+                self.capture_requested.set()
         else:
             self.get_logger().debug(" Trigger received with data=False, ignoring")
     
@@ -1394,9 +1432,7 @@ class SIYIUnifiedPipeline(Node):
                     )
                     self._send_status("Below altitude threshold - Camera disabled")
     
-    # ========================================================================
     # UTILITY METHODS
-    # ========================================================================
     
     def _send_status(self, text: str):
         """Send status message to MAVROS"""
@@ -1421,12 +1457,12 @@ class SIYIUnifiedPipeline(Node):
             self.get_logger().info(" Stopping worker threads...")
             self.pipeline_executor.shutdown(wait=True)
         
-        # Close network connections
-        if hasattr(self, 'http_session'):
+        # Close network connections (only if initialized - i.e., real camera mode)
+        if hasattr(self, 'http_session') and self.http_session is not None:
             self.get_logger().info(" Closing HTTP session...")
             self.http_session.close()
         
-        if hasattr(self, 'sdk_socket'):
+        if hasattr(self, 'sdk_socket') and self.sdk_socket is not None:
             self.get_logger().info(" Closing SDK socket...")
             self.sdk_socket.close()
         
