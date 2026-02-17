@@ -38,7 +38,7 @@ setup(
             'image_pub_backup = video_cam.image_pub_siyi_backup:main',
             'image_pub_siyi2 = video_cam.image_pub_siyi2:main',
             'siyi2 = video_cam.siyi2:main',
-            'siyi_unified_pipeline = video_cam.siyi_unified_pipeline:main',
+            'siyi_unified_pipeline = video_cam.siyi_node_refactored:main',
             'siyi_unified_pipeline_new = video_cam.siyi_unified_pipeline_new:main',
             'siyi_unified_pipeline_refactored = video_cam.siyi_node_refactored:main',
             'image_pub_final = video_cam.image_pub_final:main',

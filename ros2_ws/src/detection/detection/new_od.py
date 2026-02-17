@@ -18,6 +18,15 @@ Detection Pipeline:
 # Fix protobuf compatibility for ONNX/TensorRT export
 import os
 os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
+# Disable Ultralytics auto-install of onnxruntime-gpu (fails on Jetson - TensorRT is used instead).
+# YOLO_AUTOINSTALL=0 is the env var Ultralytics actually checks in check_requirements().
+os.environ['YOLO_AUTOINSTALL'] = '0'
+
+# ── Suppress TensorRT verbose logging ──
+# TRT_LOG_LEVEL: 0=INTERNAL_ERROR, 1=ERROR, 2=WARNING, 3=INFO, 4=VERBOSE
+# We only want warnings and errors, NOT the per-layer parsing spam.
+os.environ.setdefault('TRT_LOG_LEVEL', '2')          # WARNING level
+os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')  # Faster CUDA init on Jetson
 
 # ros2 imports
 import rclpy # define ros2 nodes
@@ -80,6 +89,8 @@ except ImportError:
 try:
     import tensorrt as trt
     TENSORRT_AVAILABLE = True
+    # Suppress TensorRT verbose parsing logs (the per-layer spam)
+    _trt_logger = trt.Logger(trt.Logger.WARNING)  # Only WARNING+ messages
 except ImportError:
     TENSORRT_AVAILABLE = False
 
@@ -210,7 +221,14 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.health_service = None
         self.waypoint_subscription = None
         self.detection_model = None
-        
+
+        # Background model-loading thread
+        # on_activate() starts this thread and returns immediately so the
+        # executor keeps spinning (and Ctrl+C works). check_for_new_images()
+        # skips processing until _model_ready is set.
+        self._model_ready = threading.Event()
+        self._model_load_thread = None
+
         # Worker thread pattern for async processing
         self.work_q = queue.Queue(maxsize=50)
         self.worker_thread = None
@@ -332,15 +350,21 @@ class SAHIObjectDetectionNode(LifecycleNode):
         try:
             # Set active flag
             self._active = True
-            
-            # Initialize SAHI model
-            if not self.initialize_sahi_model():
-                self.get_logger().error("Failed to initialize SAHI model")
-                return TransitionCallbackReturn.FAILURE
-            
-            # Warmup model
-            self._warmup_model()
-            
+
+            # ---------------------------------------------------------------
+            # Model loading (including optional TensorRT conversion) can take
+            # several minutes. Run it in a background thread so on_activate()
+            # returns immediately, the executor keeps spinning, and Ctrl+C
+            # is handled cleanly. check_for_new_images() waits for
+            # self._model_ready before enqueuing any work.
+            # ---------------------------------------------------------------
+            self._model_ready.clear()
+            self._model_load_thread = threading.Thread(
+                target=self._background_model_load, daemon=True, name="model_loader"
+            )
+            self._model_load_thread.start()
+            self.get_logger().info("Model loading started in background thread (may take a few minutes for TensorRT conversion)...")
+
             # QoS profile for reliable messaging
             qos_profile = QoSProfile(
                 depth=10,
@@ -403,6 +427,13 @@ class SAHIObjectDetectionNode(LifecycleNode):
         
         # Clear active flag
         self._active = False
+
+        # Wait for the background model-load thread to finish (it's a daemon
+        # thread so it won't block process exit, but we give it a short window
+        # to avoid tearing down GPU state while it's still writing to self.detection_model).
+        if self._model_load_thread and self._model_load_thread.is_alive():
+            self.get_logger().info("Waiting for model-load thread to finish...")
+            self._model_load_thread.join(timeout=10.0)
         
         # Stop worker thread
         self.worker_stop.set()
@@ -428,6 +459,10 @@ class SAHIObjectDetectionNode(LifecycleNode):
         """Cleanup the node - destroy publishers, services, subscribers"""
         self.get_logger().info("Cleaning up SAHI Object Detection Node...")
         
+        # Stop model-load thread if still running
+        if self._model_load_thread and self._model_load_thread.is_alive():
+            self._model_load_thread.join(timeout=10.0)
+
         # Stop worker thread if still running
         self.worker_stop.set()
         if self.worker_thread and self.worker_thread.is_alive():
@@ -718,22 +753,37 @@ class SAHIObjectDetectionNode(LifecycleNode):
         if self.detection_model is None:
             return
         
-        self.get_logger().info("Warming up model...")
+        self.get_logger().info("Warming up model (first inference is slow)...")
         
         try:
             # Create dummy image
             dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
             
-            # Run inference
-            _ = get_sliced_prediction(
-                dummy_img,
-                self.detection_model,
-                slice_height=self.slice_height,
-                slice_width=self.slice_width,
-                overlap_height_ratio=self.overlap_height_ratio,
-                overlap_width_ratio=self.overlap_width_ratio,
-                verbose=0
-            )
+            # Suppress TRT C++ logs during first inference (engine init)
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            saved_stdout_fd = os.dup(1)
+            saved_stderr_fd = os.dup(2)
+            try:
+                import sys as _sys
+                _sys.stdout.flush(); _sys.stderr.flush()
+                os.dup2(devnull_fd, 1)
+                os.dup2(devnull_fd, 2)
+                # Run inference
+                _ = get_sliced_prediction(
+                    dummy_img,
+                    self.detection_model,
+                    slice_height=self.slice_height,
+                    slice_width=self.slice_width,
+                    overlap_height_ratio=self.overlap_height_ratio,
+                    overlap_width_ratio=self.overlap_width_ratio,
+                    verbose=0
+                )
+            finally:
+                os.dup2(saved_stdout_fd, 1)
+                os.dup2(saved_stderr_fd, 2)
+                os.close(saved_stdout_fd)
+                os.close(saved_stderr_fd)
+                os.close(devnull_fd)
             
             self.get_logger().info("Model warmup complete")
         except Exception as e:
@@ -935,15 +985,36 @@ class SAHIObjectDetectionNode(LifecycleNode):
             
             # Export to TensorRT - FIXED: Lock input size to slice dimensions
             self.get_logger().info(f"Starting TensorRT export: imgsz=({self.slice_height}, {self.slice_width}), workspace={self.tensorrt_workspace}GB")
-            model.export(
-                format='engine',
-                device=0 if self.device.startswith('cuda') else 'cpu',
-                imgsz=(self.slice_height, self.slice_width),  # FIX: Use actual slice size
-                half=True,  # FP16 for Jetson (if supported)
-                workspace=self.tensorrt_workspace,
-                simplify=True,
-                verbose=True  # Enable verbose for debugging
-            )
+            self.get_logger().info("This will take several minutes on first run. Subsequent runs will reuse the cached engine.")
+
+            # Redirect C-level stdout/stderr to suppress TensorRT's native
+            # verbose output that bypasses Python's logging.
+            # We use OS-level file descriptor redirection because TRT writes
+            # from C++ directly to fd 1/2, not through Python's sys.stdout.
+            import sys
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            saved_stdout_fd = os.dup(1)
+            saved_stderr_fd = os.dup(2)
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.dup2(devnull_fd, 1)  # redirect C-level stdout → /dev/null
+                os.dup2(devnull_fd, 2)  # redirect C-level stderr → /dev/null
+                model.export(
+                    format='engine',
+                    device=0 if self.device.startswith('cuda') else 'cpu',
+                    imgsz=(self.slice_height, self.slice_width),  # Use actual slice size
+                    half=True,  # FP16 for Jetson (if supported)
+                    workspace=self.tensorrt_workspace,
+                    simplify=True,
+                    verbose=False  # Suppress per-layer TRT parsing spam
+                )
+            finally:
+                os.dup2(saved_stdout_fd, 1)  # restore stdout
+                os.dup2(saved_stderr_fd, 2)  # restore stderr
+                os.close(saved_stdout_fd)
+                os.close(saved_stderr_fd)
+                os.close(devnull_fd)
             
             # Find the exported engine file
             base_name = os.path.splitext(pt_path)[0]
@@ -1213,7 +1284,31 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.get_logger().info("   Consider using a GPU for better performance!")
             
             return "cpu"
-    
+
+    def _background_model_load(self):
+        """
+        Background thread: load (and optionally convert) the model without
+        blocking the ROS2 executor.  Sets self._model_ready when done so that
+        check_for_new_images() can start enqueuing work.
+        """
+        try:
+            self.get_logger().info("Background model load: initialising SAHI model...")
+            ok = self.initialize_sahi_model()
+            if not ok:
+                self.get_logger().error("Background model load: initialize_sahi_model() failed")
+                self.health_status['is_healthy'] = False
+                return
+            self._warmup_model()
+            self.get_logger().info("Background model load: complete — node ready to process images")
+        except Exception as e:
+            import traceback
+            self.get_logger().error(f"Background model load failed: {e}\n{traceback.format_exc()}")
+            self.health_status['is_healthy'] = False
+        finally:
+            # Always set the event so check_for_new_images() unblocks (even on
+            # failure — it will report model=None and skip gracefully).
+            self._model_ready.set()
+
     def initialize_sahi_model(self):
         """Initialize SAHI detection model with YOLO26/TensorRT"""
         try:
@@ -1274,12 +1369,29 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 if final_format == MODEL_FORMAT_TENSORRT:
                     # TensorRT: Load YOLO model directly, then pass to SAHI's AutoDetectionModel
                     from ultralytics import YOLO
-                    yolo_model = YOLO(resolved_path, task='detect')
+                    
+                    # Suppress TRT C++ verbose logs during engine deserialization
+                    self.get_logger().info(f"Loading TensorRT engine: {resolved_path} ...")
+                    devnull_fd = os.open(os.devnull, os.O_WRONLY)
+                    saved_stdout_fd = os.dup(1)
+                    saved_stderr_fd = os.dup(2)
+                    try:
+                        import sys as _sys
+                        _sys.stdout.flush(); _sys.stderr.flush()
+                        os.dup2(devnull_fd, 1)
+                        os.dup2(devnull_fd, 2)
+                        yolo_model = YOLO(resolved_path, task='detect')
+                    finally:
+                        os.dup2(saved_stdout_fd, 1)
+                        os.dup2(saved_stderr_fd, 2)
+                        os.close(saved_stdout_fd)
+                        os.close(saved_stderr_fd)
+                        os.close(devnull_fd)
                     
                     # Pass pre-initialized model to SAHI
                     self.detection_model = AutoDetectionModel.from_pretrained(
                         model_type='yolov8',
-                        model_path=None,  # Not needed when passing model instance
+                        model_path=resolved_path,  # Pass path for SAHI metadata
                         model=yolo_model,  # Pass the pre-loaded TensorRT model
                         confidence_threshold=self.confidence_threshold,
                         device=self.device,
@@ -1366,8 +1478,19 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.get_logger().warn(f"Camera feed path does not exist: {self.camera_feed_path}")
                 return
             
+            # Block until the background model-load thread has finished.
+            # Log a progress message every ~10 seconds so the user can see
+            # that the node is still alive during TensorRT conversion.
+            if not self._model_ready.is_set():
+                if not hasattr(self, '_model_wait_log_count'):
+                    self._model_wait_log_count = 0
+                self._model_wait_log_count += 1
+                if self._model_wait_log_count % 5 == 1:  # every ~10s at 2s interval
+                    self.get_logger().info("Waiting for model to finish loading (TRT conversion may take a few minutes)...")
+                return
+
             if self.detection_model is None:
-                self.get_logger().warn("SAHI model not initialized, skipping detection")
+                self.get_logger().warn("SAHI model failed to load — skipping detection")
                 return
             
             # Clean up old images periodically
@@ -2241,7 +2364,8 @@ def main(args=None):
         if node.trigger_configure() != TransitionCallbackReturn.SUCCESS:
             node.get_logger().error("Failed to configure node")
             node.destroy_node()
-            rclpy.shutdown()
+            if rclpy.ok():
+                rclpy.shutdown()
             return
         
         # Activate the node (transition from inactive to active)
@@ -2249,7 +2373,8 @@ def main(args=None):
             node.get_logger().error("Failed to activate node")
             node.trigger_cleanup()
             node.destroy_node()
-            rclpy.shutdown()
+            if rclpy.ok():
+                rclpy.shutdown()
             return
         
         # Use multithreaded executor for better responsiveness
@@ -2263,26 +2388,33 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info("Keyboard interrupt received")
     finally:
-        # Graceful shutdown via lifecycle transitions
+        # Graceful shutdown via lifecycle transitions.
+        # Only attempt lifecycle transitions if the node finished activating
+        # (i.e. is in 'active' state). If interrupted mid-activation the
+        # lifecycle state machine has no registered transitions and calling
+        # trigger_deactivate() would raise an error.
         if not node.shutdown_requested:
             node.get_logger().info("Initiating lifecycle shutdown...")
             try:
-                # Deactivate first
-                if node.trigger_deactivate() != TransitionCallbackReturn.SUCCESS:
-                    node.get_logger().warn("Failed to deactivate node")
-                
-                # Cleanup
-                if node.trigger_cleanup() != TransitionCallbackReturn.SUCCESS:
-                    node.get_logger().warn("Failed to cleanup node")
-                
-                # Shutdown
-                if node.trigger_shutdown() != TransitionCallbackReturn.SUCCESS:
-                    node.get_logger().warn("Failed to shutdown node")
+                current_label = node.get_current_state().label  # e.g. 'active', 'activating', 'inactive'
+                if current_label == 'active':
+                    if node.trigger_deactivate() != TransitionCallbackReturn.SUCCESS:
+                        node.get_logger().warn("Failed to deactivate node")
+                    if node.trigger_cleanup() != TransitionCallbackReturn.SUCCESS:
+                        node.get_logger().warn("Failed to cleanup node")
+                elif current_label == 'inactive':
+                    if node.trigger_cleanup() != TransitionCallbackReturn.SUCCESS:
+                        node.get_logger().warn("Failed to cleanup node")
+                # For 'activating', 'configuring', etc. skip transitions —
+                # the state machine has no valid path from those states.
             except Exception as e:
                 node.get_logger().error(f"Error during lifecycle shutdown: {e}")
         
         node.destroy_node()
-        rclpy.shutdown()
+        # Guard against double-shutdown (rclpy may already be shut down
+        # if the executor raised RCLError internally on Ctrl+C).
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

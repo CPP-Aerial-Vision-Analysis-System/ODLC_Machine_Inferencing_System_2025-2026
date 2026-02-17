@@ -99,7 +99,10 @@ class StorageManager:
         """Write image file atomically (temp file + rename)"""
         tmp_path = None
         try:
-            tmp_path = filepath + ATOMIC_WRITE_SUFFIX
+            # Preserve extension so OpenCV can determine the encoder
+            # e.g. IMG_0079.jpg -> IMG_0079.tmp.jpg (not IMG_0079.jpg.tmp)
+            base, ext = os.path.splitext(filepath)
+            tmp_path = base + ATOMIC_WRITE_SUFFIX + ext
             
             # Write image using OpenCV
             success = cv2.imwrite(tmp_path, img)

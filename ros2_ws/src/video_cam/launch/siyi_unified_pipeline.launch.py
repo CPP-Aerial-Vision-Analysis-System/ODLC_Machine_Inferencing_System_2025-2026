@@ -42,11 +42,12 @@ def generate_launch_description():
     # Unified pipeline node
     pipeline_node = Node(
         package='video_cam',
-        executable='siyi_unified_pipeline',
+        executable='siyi_unified_pipeline_refactored',
         name='siyi_unified_pipeline',
         output='screen',
         emulate_tty=True,
         parameters=[{
+            'use_real_camera': True,
             'camera_ip': LaunchConfiguration('camera_ip'),
             'resolution': LaunchConfiguration('resolution'),
             'altitude_threshold': LaunchConfiguration('altitude_threshold'),

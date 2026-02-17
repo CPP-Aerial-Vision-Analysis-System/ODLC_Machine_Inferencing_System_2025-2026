@@ -58,6 +58,10 @@ TRACKING_STATE_FILE = ".tracking_state.json"
 MIN_FILE_SIZE_BYTES = 1000
 ATOMIC_WRITE_SUFFIX = ".tmp"
 
+# JPEG validation constants
+JPEG_HEADER_BYTES = b'\xff\xd8\xff'  # JPEG file signature (SOI + start of frame)
+JPEG_FOOTER_BYTES = b'\xff\xd9'      # JPEG end of image marker (EOI)
+
 # HTTP
 HTTP_POOL_CONNECTIONS = 1
 HTTP_POOL_MAXSIZE = 3
@@ -65,7 +69,7 @@ HTTP_MAX_RETRIES = 0
 HTTP_HEADERS = {'User-Agent': 'SIYI-ROS-Client/1.0', 'Connection': 'keep-alive'}
 
 # ROS defaults
-DEFAULT_USE_REAL_CAMERA = False
+DEFAULT_USE_REAL_CAMERA = True
 DEFAULT_MIN_ALTITUDE_AGL = -13.716
 DEFAULT_CAMERA_IP = CAMERA_IP
 DEFAULT_CTRL_PORT = CONTROL_PORT

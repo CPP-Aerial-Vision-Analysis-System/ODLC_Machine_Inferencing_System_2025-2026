@@ -295,9 +295,34 @@ class SIYINode(Node):
     
     def _publish_captured_image(self):
         """Publish the most recently captured image to ROS"""
-        # This would need to get the image from storage
-        # For now, we'll skip this as the live stream already publishes video
-        pass
+        try:
+            mapping_dir = self.storage.get_mapping_dir()
+            # Find the most recently modified image file
+            image_files = [
+                os.path.join(mapping_dir, f) for f in os.listdir(mapping_dir)
+                if f.lower().endswith(('.jpg', '.jpeg', '.png'))
+            ]
+            if not image_files:
+                self.get_logger().warn("No image files found to publish")
+                return
+
+            latest_file = max(image_files, key=os.path.getmtime)
+            img = cv2.imread(latest_file)
+            if img is None:
+                self.get_logger().error(f"Failed to read image: {latest_file}")
+                return
+
+            if self.bridge is not None:
+                msg = self.bridge.cv2_to_imgmsg(img, 'bgr8')
+            else:
+                msg = self._cv2_to_imgmsg_manual(img, 'bgr8')
+
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = "camera_link"
+            self.image_pub.publish(msg)
+            self.get_logger().info(f"Published image to {TOPIC_IMAGE_RAW}: {os.path.basename(latest_file)}")
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish captured image: {e}")
     
     def _publish_video_stream(self):
         """Publish live video stream - DISABLED (not needed for capture workflow)"""
@@ -424,13 +449,22 @@ class SIYINode(Node):
     
     def shutdown(self):
         """Proper shutdown handler"""
-        self.get_logger().info("Shutting down SIYI pipeline...")
+        try:
+            self.get_logger().info("Shutting down SIYI pipeline...")
+        except Exception:
+            pass
         
         # Close camera interface
         if self.camera is not None:
-            self.camera.close()
+            try:
+                self.camera.close()
+            except Exception:
+                pass
         
-        self.get_logger().info("✓ Shutdown complete")
+        try:
+            self.get_logger().info("✓ Shutdown complete")
+        except Exception:
+            pass
 
 
 def main(args=None):

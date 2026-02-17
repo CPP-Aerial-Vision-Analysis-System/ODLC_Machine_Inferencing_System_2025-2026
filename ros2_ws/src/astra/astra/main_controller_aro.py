@@ -284,11 +284,11 @@ class MainControllerAro(Node):
     def __init__(self):
         super().__init__('main_controller_aro')
         
-        assert 0 < COMMIT_MARGIN < 1.0, 
-        assert TOPK_SIZE >= 1,
-        assert 0 <= NEIGHBOR_WEIGHT <= 1.0,
-        assert MIN_SCORE_THRESHOLD > 0, 
-        assert CONFIDENCE_GATE_TENT > 0 and CONFIDENCE_GATE_PERSON > 0,
+        assert 0 < COMMIT_MARGIN < 1.0
+        assert TOPK_SIZE >= 1
+        assert 0 <= NEIGHBOR_WEIGHT <= 1.0
+        assert MIN_SCORE_THRESHOLD > 0
+        assert CONFIDENCE_GATE_TENT > 0 and CONFIDENCE_GATE_PERSON > 0
         
         self.create_subscription(ImageResult, "/image_detections", self.image_result_cb, 10)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
