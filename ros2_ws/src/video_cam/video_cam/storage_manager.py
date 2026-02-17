@@ -32,7 +32,8 @@ class StorageManager:
         # logger: Optional logger (must have .info(), .warn(), .error() methods)
         self.logger = logger
 
-        video_cam_dir = os.path.join(workspace_root, WORKSPACE_SUBDIR)
+        # Save images directly into ros2_ws/src/video_cam/mapping_photos
+        video_cam_dir = os.path.join(workspace_root, "src", WORKSPACE_SUBDIR)
         os.makedirs(video_cam_dir, exist_ok=True)
         
         # Single directory for all images (capture, download, mapping)
