@@ -149,7 +149,37 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"File verification error: {e}")
             return False
+   
+    def save_tracking_state(self, downloaded_files: Set[str], last_photo_count: int, photo_count: int = 0, max_tracked_files: int = 500):
+        # This makes sure we dont redownload photos after we crash, restart, mission pause, etc..
+        try:
+            # Prune old entries
+            if len(downloaded_files) > max_tracked_files:
+                old_count = len(downloaded_files)
+                downloaded_files = set(list(downloaded_files)[:max_tracked_files])
+                self._log('info', f"Pruned tracking state: {old_count} → {max_tracked_files}")
+            
+            import time
+            data = {
+                'downloaded_files': list(downloaded_files),
+                'last_photo_count': last_photo_count,
+                'last_operation_time': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'photo_count': photo_count
+            }
+            
+            # Atomic write
+            tmp_file = self.tracking_file + ATOMIC_WRITE_SUFFIX
+            with open(tmp_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            os.replace(tmp_file, self.tracking_file)
+            
+        except Exception as e:
+            self._log('warn', f"Could not save tracking state: {e}")
     
+    def get_mapping_dir(self) -> str:
+        return self.mapping_dir
+
     # The methods below may seem useless, but sometimes camera tweaks(cause of bandwith drops for example) and returns a junk data, this is neded to prevent it
     def verify_image_dimensions(self, img: np.ndarray, resolution: str = '4K') -> bool:
         """Verify image meets minimum dimension requirements"""
@@ -232,32 +262,3 @@ class StorageManager:
             self._log('warn', f"Could not load tracking state: {e}")
             return set(), 0
     
-    def save_tracking_state(self, downloaded_files: Set[str], last_photo_count: int, photo_count: int = 0, max_tracked_files: int = 500):
-        # This makes sure we dont redownload photos after we crash, restart, mission pause, etc..
-        try:
-            # Prune old entries
-            if len(downloaded_files) > max_tracked_files:
-                old_count = len(downloaded_files)
-                downloaded_files = set(list(downloaded_files)[:max_tracked_files])
-                self._log('info', f"Pruned tracking state: {old_count} → {max_tracked_files}")
-            
-            import time
-            data = {
-                'downloaded_files': list(downloaded_files),
-                'last_photo_count': last_photo_count,
-                'last_operation_time': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'photo_count': photo_count
-            }
-            
-            # Atomic write
-            tmp_file = self.tracking_file + ATOMIC_WRITE_SUFFIX
-            with open(tmp_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            
-            os.replace(tmp_file, self.tracking_file)
-            
-        except Exception as e:
-            self._log('warn', f"Could not save tracking state: {e}")
-    
-    def get_mapping_dir(self) -> str:
-        return self.mapping_dir

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+'''Head Chef'''
 """SIYI Pipeline Orchestrator - simplified"""
 
 import time
@@ -20,7 +21,6 @@ from .storage_manager import StorageManager
 class PipelineError(Exception):
     """Raised when pipeline execution fails"""
     pass
-
 
 class PipelineOrchestrator:
     """Orchestrates the image capture pipeline"""
