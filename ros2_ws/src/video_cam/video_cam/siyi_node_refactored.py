@@ -157,11 +157,13 @@ class SIYINode(Node):
                 logger=self.get_logger()
             )
             
-            # Connect video stream
-            if self.camera.connect_video_stream():
-                self._send_status("Real camera initialized")
-            else:
-                self._send_status("WARNING: Camera video stream unavailable")
+            # RTSP video stream disabled - not needed for capture/save/detect workflow
+            # Only needed for live video preview during flight
+            # if self.camera.connect_video_stream():
+            #     self._send_status("Real camera initialized")
+            # else:
+            #     self._send_status("WARNING: Camera video stream unavailable")
+            self._send_status("Real camera initialized (RTSP disabled)")
             
             # Initialize SD card
             self.pipeline.initialize_sd_card()
@@ -204,8 +206,8 @@ class SIYINode(Node):
         Main execution loop.
         
         Responsibilities:
-        1. Publish live video stream (always fast)
-        2. Execute capture pipeline when triggered (in separate thread)
+        1. Execute capture pipeline when triggered (in separate thread)
+        2. Publish disk status
         """
         # Check if camera is enabled (altitude check)
         with self.config_lock:
@@ -219,8 +221,9 @@ class SIYINode(Node):
             self.capture_requested.clear()
             self._handle_capture_request()
         
-        # Publish live video stream
-        self._publish_video_stream()
+        # RTSP video streaming disabled - not needed for capture workflow
+        # Uncomment below if you need live video preview during flight
+        # self._publish_video_stream()
         
         # Publish disk status
         self._publish_disk_status()
@@ -297,29 +300,34 @@ class SIYINode(Node):
         pass
     
     def _publish_video_stream(self):
-        """Publish live video stream"""
-        if self.use_real_camera:
-            if self.camera is None:
-                return
-            
-            frame = self.camera.read_video_frame()
-            if frame is not None:
-                # Convert to ROS message
-                if self.bridge is not None:
-                    msg = self.bridge.cv2_to_imgmsg(frame, 'bgr8')
-                else:
-                    msg = self._cv2_to_imgmsg_manual(frame, 'bgr8')
-                
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.header.frame_id = "camera_link"
-                
-                self.image_pub.publish(msg)
-        else:
-            # Simulation mode: republish simulation image
-            if self.latest_image_msg is not None:
-                self.get_logger().info(
-                    "Publishing simulation image", throttle_duration_sec=10.0)
-                self.image_pub.publish(self.latest_image_msg)
+        """Publish live video stream - DISABLED (not needed for capture workflow)"""
+        # RTSP video streaming commented out - only needed for live preview
+        # Uncomment this entire method if you need continuous video feed
+        # Current workflow: trigger capture → save to SD → download → detect
+        # This doesn't require continuous RTSP streaming
+        pass
+        # if self.use_real_camera:
+        #     if self.camera is None:
+        #         return
+        #     
+        #     frame = self.camera.read_video_frame()
+        #     if frame is not None:
+        #         # Convert to ROS message
+        #         if self.bridge is not None:
+        #             msg = self.bridge.cv2_to_imgmsg(frame, 'bgr8')
+        #         else:
+        #             msg = self._cv2_to_imgmsg_manual(frame, 'bgr8')
+        #         
+        #         msg.header.stamp = self.get_clock().now().to_msg()
+        #         msg.header.frame_id = "camera_link"
+        #         
+        #         self.image_pub.publish(msg)
+        # else:
+        #     # Simulation mode: republish simulation image
+        #     if self.latest_image_msg is not None:
+        #         self.get_logger().info(
+        #             "Publishing simulation image", throttle_duration_sec=10.0)
+        #         self.image_pub.publish(self.latest_image_msg)
     
     def _publish_disk_status(self):
         """Publish disk space status"""

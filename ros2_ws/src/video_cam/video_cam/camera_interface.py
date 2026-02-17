@@ -24,13 +24,13 @@ from .config import (
 )
 
 
+    # Raised when camera connection fails
 class CameraConnectionError(Exception):
-    """Raised when camera connection fails"""
     pass
 
 
 class CameraInterface:
-    """Low-level interface to SIYI A8 Mini camera"""
+    #Low-level interface to SIYI A8 Mini camera
     
     def __init__(self, camera_ip: str = CAMERA_IP, 
                  ctrl_port: int = CONTROL_PORT,
@@ -38,17 +38,6 @@ class CameraInterface:
                  rtsp_port: int = RTSP_PORT,
                  http_timeout: float = HTTP_TIMEOUT_SECONDS,
                  logger=None):
-        """
-        Initialize camera interface.
-        
-        Args:
-            camera_ip: Camera IP address
-            ctrl_port: SDK control port (UDP)
-            media_port: HTTP API port
-            rtsp_port: RTSP video stream port
-            http_timeout: HTTP request timeout (seconds)
-            logger: Optional logger (must have .info(), .warn(), .error() methods)
-        """
         self.camera_ip = camera_ip
         self.ctrl_port = ctrl_port
         self.media_port = media_port
@@ -76,8 +65,10 @@ class CameraInterface:
         )
         self.http_session.mount('http://', adapter)
         
-        # Video capture (initialized on demand)
-        self.video_capture: Optional[cv2.VideoCapture] = None
+        # RTSP video capture disabled - not needed for capture/save/detect workflow
+        # Only needed for live video preview during flight
+        # self.video_capture: Optional[cv2.VideoCapture] = None
+        self.video_capture = None  # Disabled
         
     def _log(self, level: str, message: str):
         if self.logger:
@@ -95,13 +86,14 @@ class CameraInterface:
             
             capture_command = CAPTURE_COMMANDS.get(resolution, CAPTURE_COMMANDS['4K'])
             
-            # Send UDP packet for the camera 
+            # Send UDP packet for the camera (actual signal to capture)
             self.sdk_socket.sendto(capture_command, (self.camera_ip, self.ctrl_port))
             
             # Wait for ACK
             try:
                 response, addr = self.sdk_socket.recvfrom(1024)
                 
+                # Check is there >= 10 bytes from the response (from 3rd and 7th bytes)
                 if len(response) >= 10:
                     cmd_id = response[2] if len(response) > 2 else 0
                     status = response[6] if len(response) > 6 else 0
@@ -127,16 +119,12 @@ class CameraInterface:
             raise CameraConnectionError(error_msg)
     
     def get_directories(self, media_type: MediaTypes = MediaTypes.IMAGE) -> List[Dict]:
-        """
-        Get list of directories on SD card.
-        
-        Returns:
-            List of directory dictionaries with 'path' and 'name' keys
-        """
+        # Get list of directories on SD card.
         try:
             url = f"{self.base_url}/getdirectories"
             params = {'media_type': media_type.value}
             
+            # Send HTTP GET request (just like in web but here its in an internal server of siyi)
             response = self.http_session.get(url, params=params, timeout=self.http_timeout)
             
             if response.status_code == 200:
@@ -153,22 +141,8 @@ class CameraInterface:
             self._log('warn', f"Directory query error: {e}")
             return []
     
-    def get_media_list(self, dir_path: str,
-                       media_type: MediaTypes = MediaTypes.IMAGE,
-                       start: int = 0,
-                       count: int = 9999) -> List[Dict]:
-        """
-        Get list of media files in directory.
-        
-        Args:
-            dir_path: SD card directory path (e.g., "A:/DCIM/100MEDIA")
-            media_type: Media type filter
-            start: Starting index
-            count: Maximum number of files to return
-            
-        Returns:
-            List of file info dictionaries with 'name', 'url', 'size', 'create_time', etc.
-        """
+    def get_media_list(self, dir_path: str, media_type: MediaTypes = MediaTypes.IMAGE, start: int = 0, count: int = 9999) -> List[Dict]:
+        # Get list of media files in directory.
         try:
             url = f"{self.base_url}/getmedialist"
             params = {
@@ -193,12 +167,7 @@ class CameraInterface:
     
     def get_media_count(self, dir_path: str,
                        media_type: MediaTypes = MediaTypes.IMAGE) -> Optional[int]:
-        """
-        Get total count of media files in directory.
-        
-        Returns:
-            Total file count or None if query failed
-        """
+        # Get total count of media files in directory.
         try:
             url = f"{self.base_url}/getmedialist"
             params = {
@@ -222,15 +191,7 @@ class CameraInterface:
             return None
     
     def download_image(self, file_url: str) -> Optional[bytes]:
-        """
-        Download image file from SD card.
-        
-        Args:
-            file_url: Full URL to image file
-            
-        Returns:
-            Image bytes or None if download failed
-        """
+        # Download image file from SD card.
         try:
             # Fix IP address in URL if needed
             file_url = file_url.replace("192.168.144.25", self.camera_ip)
@@ -249,15 +210,10 @@ class CameraInterface:
             return None
     
     def decode_image(self, image_bytes: bytes) -> Optional[np.ndarray]:
-        """
-        Decode JPEG bytes to image array.
-        
-        Args:
-            image_bytes: JPEG file bytes
-            
-        Returns:
-            OpenCV image array (BGR) or None if decode failed
-        """
+        # Decode JPEG bytes to image array.
+        # Returns: OpenCV image array (BGR) or None if decode failed
+        # this is used to process objrec, publish to ros topics, overaly bounding boxes(od)
+        # models require in this format np.ndarray shape: (H, W, 3)
         try:
             img_array = np.frombuffer(image_bytes, dtype=np.uint8)
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
@@ -267,71 +223,61 @@ class CameraInterface:
             return None
     
     def connect_video_stream(self) -> bool:
+        """RTSP video stream - DISABLED
+        
+        Not needed for capture workflow - slows down Jetson unnecessarily.
+        We use SDK capture commands, not RTSP stream extraction.
         """
-        Initialize RTSP video stream connection.
+        return False  # Disabled - not needed for capture/save/detect workflow
         
-        Returns:
-            True if connection successful
-        """
-        rtsp_url = f'rtsp://{self.camera_ip}:{self.rtsp_port}/main.264'
-        
-        self._log('info', f"Connecting to camera at {rtsp_url}...")
-        
-        # Try FFmpeg backend first
-        self.video_capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-        
-        # Configure buffer and timeouts
-        if self.video_capture.isOpened():
-            self.video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            
-            try:
-                timeout_ms = int(self.http_timeout * 1000)
-                self.video_capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms)
-                self.video_capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
-                self._log('info', f"Video capture timeouts set to {timeout_ms}ms")
-            except (AttributeError, Exception) as e:
-                self._log('warn', f"Video capture timeout not supported: {e}")
-        
-        # Fallback to GStreamer
-        if not self.video_capture.isOpened():
-            self._log('warn', "FFmpeg failed, trying GStreamer...")
-            gst_pipeline = (
-                f'rtspsrc location={rtsp_url} latency=0 ! '
-                'rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink'
-            )
-            self.video_capture = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-        
-        # Fallback to default backend
-        if not self.video_capture.isOpened():
-            self._log('warn', "GStreamer failed, trying default backend...")
-            self.video_capture = cv2.VideoCapture(rtsp_url)
-        
-        if self.video_capture.isOpened():
-            self._log('info', "Camera video stream connected")
-            return True
-        else:
-            self._log('error', "Failed to connect to camera video stream")
-            self.video_capture = None
-            return False
+        # Original RTSP connection code (commented out):
+        # rtsp_url = f'rtsp://{self.camera_ip}:{self.rtsp_port}/main.264'
+        # self._log('info', f"Connecting to camera at {rtsp_url}...")
+        # self.video_capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        # if self.video_capture.isOpened():
+        #     self.video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        #     try:
+        #         timeout_ms = int(self.http_timeout * 1000)
+        #         self.video_capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms)
+        #         self.video_capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
+        #         self._log('info', f"Video capture timeouts set to {timeout_ms}ms")
+        #     except (AttributeError, Exception) as e:
+        #         self._log('warn', f"Video capture timeout not supported: {e}")
+        # Fallback to GStreamer (commented out)
+        # if not self.video_capture.isOpened():
+        #     self._log('warn', "FFmpeg failed, trying GStreamer...")
+        #     gst_pipeline = (
+        #         f'rtspsrc location={rtsp_url} latency=0 ! '
+        #         'rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink'
+        #     )
+        #     self.video_capture = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+        # Fallback to default backend (commented out)
+        # if not self.video_capture.isOpened():
+        #     self._log('warn', "GStreamer failed, trying default backend...")
+        #     self.video_capture = cv2.VideoCapture(rtsp_url)
+        # if self.video_capture.isOpened():
+        #     self._log('info', "Camera video stream connected")
+        #     return True
+        # else:
+        #     self._log('error', "Failed to connect to camera video stream")
+        #     self.video_capture = None
+        #     return False
     
     def read_video_frame(self) -> Optional[np.ndarray]:
-        """
-        Read a frame from the video stream.
+        """Read frame from RTSP stream - DISABLED (not needed)"""
+        return None  # Disabled - not needed for capture workflow
         
-        Returns:
-            OpenCV image array (BGR) or None if read failed
-        """
-        if self.video_capture is None or not self.video_capture.isOpened():
-            return None
-        
-        try:
-            ret, frame = self.video_capture.read()
-            if ret and frame is not None:
-                return frame
-            return None
-        except Exception as e:
-            self._log('warn', f"Frame read error: {e}")
-            return None
+        # Original frame reading code (commented out):
+        # if self.video_capture is None or not self.video_capture.isOpened():
+        #     return None
+        # try:
+        #     ret, frame = self.video_capture.read()
+        #     if ret and frame is not None:
+        #         return frame
+        #     return None
+        # except Exception as e:
+        #     self._log('warn', f"Frame read error: {e}")
+        #     return None
     
     def close(self):
         """Close all connections and release resources"""
@@ -341,7 +287,8 @@ class CameraInterface:
         if self.sdk_socket:
             self.sdk_socket.close()
         
-        if self.video_capture:
-            self.video_capture.release()
+        # Video capture disabled
+        # if self.video_capture:
+        #     self.video_capture.release()
         
         self._log('info', "Camera interface closed")
