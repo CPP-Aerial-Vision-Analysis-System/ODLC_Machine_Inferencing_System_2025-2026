@@ -283,7 +283,7 @@ class SIYINode(Node):
             # Save to mapping directory
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             filename = f"mapping_photo_{timestamp}.jpg"
-            _, _, mapping_dir = self.storage.get_directories()
+            mapping_dir = self.storage.get_mapping_dir()
             filepath = os.path.join(mapping_dir, filename)
             
             cv2.imwrite(filepath, cv_image)

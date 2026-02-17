@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""SIYI Image Storage Manager"""
+'''Kitchen Storage'''
+"""SIYI Image Storage Manager using atomic write and verfications"""
 
 import os
 import cv2
 import json
 import shutil
 import numpy as np
-from PIL import Image as PILImage
 from typing import Optional, Set, Tuple
 from .config import (
     MIN_FILE_SIZE_BYTES,
     ATOMIC_WRITE_SUFFIX,
     WORKSPACE_SUBDIR,
-    DOWNLOAD_SUBDIR,
-    CAMERA_FEED_SUBDIR,
     MAPPING_SUBDIR,
     TRACKING_STATE_FILE,
     RESOLUTION_SPECS,
@@ -29,98 +27,32 @@ class StorageError(Exception):
 
 
 class StorageManager:
-    """Manages local image storage with atomic writes and verification"""
     
     def __init__(self, workspace_root: str, logger=None):
-        """
-        Initialize storage manager.
-        
-        Args:
-            workspace_root: ROS2 workspace root directory
-            logger: Optional logger (must have .info(), .warn(), .error() methods)
-        """
+        # logger: Optional logger (must have .info(), .warn(), .error() methods)
         self.logger = logger
-        
-        # Directory structure
+
         video_cam_dir = os.path.join(workspace_root, WORKSPACE_SUBDIR)
         os.makedirs(video_cam_dir, exist_ok=True)
         
-        self.download_dir = os.path.join(video_cam_dir, DOWNLOAD_SUBDIR)
-        self.camera_feed_dir = os.path.join(video_cam_dir, CAMERA_FEED_SUBDIR)
+        # Single directory for all images (capture, download, mapping)
         self.mapping_dir = os.path.join(video_cam_dir, MAPPING_SUBDIR)
+        os.makedirs(self.mapping_dir, exist_ok=True)
         
-        for directory in [self.download_dir, self.camera_feed_dir, self.mapping_dir]:
-            os.makedirs(directory, exist_ok=True)
-        
-        self.tracking_file = os.path.join(self.download_dir, TRACKING_STATE_FILE)
-        
-        # Codec capabilities
-        self.codec_capabilities = {
-            'opencv_jpeg': False,
-            'pil_available': False
-        }
-        self._detect_codec_support()
+        # Prevents duplicate downloads
+        self.tracking_file = os.path.join(self.mapping_dir, TRACKING_STATE_FILE)
         
         self._log('info', "Storage manager initialized")
     
     def _log(self, level: str, message: str):
-        """Internal logging wrapper"""
         if self.logger:
             log_func = getattr(self.logger, level, None)
             if log_func:
                 log_func(message)
     
-    def _detect_codec_support(self):
-        """Detect available image codecs"""
-        try:
-            # Test OpenCV JPEG support
-            test_img = np.zeros((10, 10, 3), dtype=np.uint8)
-            test_path = os.path.join(self.download_dir, "opencv_test.jpg")
-            
-            try:
-                success = cv2.imwrite(test_path, test_img)
-                if success and os.path.exists(test_path):
-                    self.codec_capabilities['opencv_jpeg'] = True
-                    self._log('info', "OpenCV JPEG support: OK")
-                    os.remove(test_path)
-                else:
-                    self._log('warn', "OpenCV JPEG support: WRITE FAILED")
-            except Exception as e:
-                self._log('warn', f"OpenCV JPEG support: {e}")
-            
-            # Test PIL availability
-            try:
-                self.codec_capabilities['pil_available'] = True
-                self._log('info', "PIL/Pillow support: OK")
-            except ImportError:
-                self._log('warn', "PIL/Pillow not available")
-            
-            # Fail fast if no codecs available
-            if not any(self.codec_capabilities.values()):
-                raise RuntimeError("No JPEG codec available - cannot save images!")
-            
-            if not self.codec_capabilities['opencv_jpeg'] and self.codec_capabilities['pil_available']:
-                self._log('warn', "Will use PIL/Pillow fallback for JPEG files")
-                
-        except RuntimeError:
-            raise
-        except Exception as e:
-            self._log('warn', f"Codec check failed: {e}")
-            # Assume OpenCV works as fallback
-            self.codec_capabilities['opencv_jpeg'] = True
-    
     def check_disk_space(self, required_mb: float = MIN_FREE_SPACE_MB) -> bool:
-        """
-        Check if sufficient disk space is available.
-        
-        Args:
-            required_mb: Required free space in megabytes
-            
-        Returns:
-            True if sufficient space available
-        """
         try:
-            stat = shutil.disk_usage(self.download_dir)
+            stat = shutil.disk_usage(self.mapping_dir)
             free_mb = stat.free / (1024 * 1024)
             
             if free_mb < required_mb:
@@ -134,28 +66,17 @@ class StorageManager:
             return True  # Assume OK if check fails
     
     def get_free_space_mb(self) -> float:
-        """Get available disk space in megabytes"""
         try:
-            stat = shutil.disk_usage(self.download_dir)
+            stat = shutil.disk_usage(self.mapping_dir)
             return stat.free / (1024 * 1024)
         except Exception:
             return 0.0
     
     def save_image(self, filename: str, img: np.ndarray, 
                    resolution: str = '4K') -> Optional[str]:
-        """
-        Save image to download directory with atomic write.
-        
-        Args:
-            filename: Target filename
-            img: OpenCV image array (BGR)
-            resolution: Image resolution for verification
-            
-        Returns:
-            Full path to saved file or None if failed
-        """
+        # Save image to mapping directory with atomic write.
         try:
-            filepath = os.path.join(self.download_dir, filename)
+            filepath = os.path.join(self.mapping_dir, filename)
             
             # Atomic write
             if not self._atomic_write(filepath, img):
@@ -180,27 +101,8 @@ class StorageManager:
         try:
             tmp_path = filepath + ATOMIC_WRITE_SUFFIX
             
-            # Determine if JPEG
-            file_ext = os.path.splitext(filepath)[1].lower()
-            is_jpeg = file_ext in ['.jpg', '.jpeg']
-            
-            success = False
-            
-            if is_jpeg:
-                # Use best available JPEG codec
-                if self.codec_capabilities.get('opencv_jpeg', False):
-                    success = cv2.imwrite(tmp_path, img)
-                elif self.codec_capabilities.get('pil_available', False):
-                    # Convert BGR (OpenCV) to RGB (PIL)
-                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                    pil_img = PILImage.fromarray(img_rgb)
-                    pil_img.save(tmp_path, 'JPEG', quality=95)
-                    success = True
-                else:
-                    raise RuntimeError("No JPEG codec available")
-            else:
-                # Non-JPEG file
-                success = cv2.imwrite(tmp_path, img)
+            # Write image using OpenCV
+            success = cv2.imwrite(tmp_path, img)
             
             if not success:
                 return False
@@ -225,16 +127,8 @@ class StorageManager:
             return False
     
     def verify_file(self, path: str, resolution: str = '4K') -> bool:
-        """
-        Verify file exists and meets size requirements.
+        # Verify file exists and meets size requirements.
         
-        Args:
-            path: File path to verify
-            resolution: Expected resolution for size threshold
-            
-        Returns:
-            True if file valid
-        """
         try:
             if not os.path.exists(path):
                 return False
@@ -256,6 +150,7 @@ class StorageManager:
             self._log('warn', f"File verification error: {e}")
             return False
     
+    # The methods below may seem useless, but sometimes camera tweaks(cause of bandwith drops for example) and returns a junk data, this is neded to prevent it
     def verify_image_dimensions(self, img: np.ndarray, resolution: str = '4K') -> bool:
         """Verify image meets minimum dimension requirements"""
         if img is None:
@@ -279,13 +174,8 @@ class StorageManager:
             
         except Exception:
             return False
-    
     def verify_image_integrity(self, img: np.ndarray) -> bool:
-        """
-        Verify image is not corrupted or blank.
-        
-        Uses warnings instead of hard failures for brightness extremes.
-        """
+        # Verify image is not corrupted or blank.
         try:
             if img is None:
                 return False
@@ -313,7 +203,6 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"Integrity check error: {e}")
             return True  # Don't fail on check errors
-    
     def load_tracking_state(self) -> Tuple[Set[str], int]:
         """
         Load persistent tracking state from disk.
@@ -343,19 +232,8 @@ class StorageManager:
             self._log('warn', f"Could not load tracking state: {e}")
             return set(), 0
     
-    def save_tracking_state(self, downloaded_files: Set[str], 
-                           last_photo_count: int,
-                           photo_count: int = 0,
-                           max_tracked_files: int = 500):
-        """
-        Save persistent tracking state to disk with pruning.
-        
-        Args:
-            downloaded_files: Set of filenames
-            last_photo_count: Last known SD card photo count
-            photo_count: Current capture count
-            max_tracked_files: Maximum files to keep in tracking
-        """
+    def save_tracking_state(self, downloaded_files: Set[str], last_photo_count: int, photo_count: int = 0, max_tracked_files: int = 500):
+        # This makes sure we dont redownload photos after we crash, restart, mission pause, etc..
         try:
             # Prune old entries
             if len(downloaded_files) > max_tracked_files:
@@ -381,11 +259,5 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"Could not save tracking state: {e}")
     
-    def get_directories(self) -> Tuple[str, str, str]:
-        """
-        Get storage directory paths.
-        
-        Returns:
-            Tuple of (download_dir, camera_feed_dir, mapping_dir)
-        """
-        return self.download_dir, self.camera_feed_dir, self.mapping_dir
+    def get_mapping_dir(self) -> str:
+        return self.mapping_dir
