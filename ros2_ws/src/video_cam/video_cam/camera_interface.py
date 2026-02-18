@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-'''Waiter'''
-"""SIYI A8 Mini Camera Interface - SDK/HTTP/RTSP communication"""
+"""SIYI A8 Mini camera interface — SDK + HTTP communication."""
 
 import cv2
 import socket
@@ -11,7 +10,6 @@ from .config import (
     CAMERA_IP,
     CONTROL_PORT,
     MEDIA_PORT,
-    RTSP_PORT,
     MediaTypes,
     CAPTURE_COMMANDS,
     VERIFIED_RESOLUTIONS,
@@ -30,18 +28,16 @@ class CameraConnectionError(Exception):
 
 
 class CameraInterface:
-    #Low-level interface to SIYI A8 Mini camera
-    
-    def __init__(self, camera_ip: str = CAMERA_IP, 
+    """Low-level interface to SIYI A8 Mini camera."""
+
+    def __init__(self, camera_ip: str = CAMERA_IP,
                  ctrl_port: int = CONTROL_PORT,
                  media_port: int = MEDIA_PORT,
-                 rtsp_port: int = RTSP_PORT,
                  http_timeout: float = HTTP_TIMEOUT_SECONDS,
                  logger=None):
         self.camera_ip = camera_ip
         self.ctrl_port = ctrl_port
         self.media_port = media_port
-        self.rtsp_port = rtsp_port
         self.http_timeout = http_timeout
         self.logger = logger
         
@@ -64,11 +60,6 @@ class CameraInterface:
             max_retries=HTTP_MAX_RETRIES
         )
         self.http_session.mount('http://', adapter)
-        
-        # RTSP video capture disabled - not needed for capture/save/detect workflow
-        # Only needed for live video preview during flight
-        # self.video_capture: Optional[cv2.VideoCapture] = None
-        self.video_capture = None  # Disabled
         
     def _log(self, level: str, message: str):
         if self.logger:
@@ -222,73 +213,10 @@ class CameraInterface:
             self._log('error', f"Image decode error: {e}")
             return None
     
-    def connect_video_stream(self) -> bool:
-        """RTSP video stream - DISABLED
-        
-        Not needed for capture workflow - slows down Jetson unnecessarily.
-        We use SDK capture commands, not RTSP stream extraction.
-        """
-        return False  # Disabled - not needed for capture/save/detect workflow
-        
-        # Original RTSP connection code (commented out):
-        # rtsp_url = f'rtsp://{self.camera_ip}:{self.rtsp_port}/main.264'
-        # self._log('info', f"Connecting to camera at {rtsp_url}...")
-        # self.video_capture = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-        # if self.video_capture.isOpened():
-        #     self.video_capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        #     try:
-        #         timeout_ms = int(self.http_timeout * 1000)
-        #         self.video_capture.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms)
-        #         self.video_capture.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms)
-        #         self._log('info', f"Video capture timeouts set to {timeout_ms}ms")
-        #     except (AttributeError, Exception) as e:
-        #         self._log('warn', f"Video capture timeout not supported: {e}")
-        # Fallback to GStreamer (commented out)
-        # if not self.video_capture.isOpened():
-        #     self._log('warn', "FFmpeg failed, trying GStreamer...")
-        #     gst_pipeline = (
-        #         f'rtspsrc location={rtsp_url} latency=0 ! '
-        #         'rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink'
-        #     )
-        #     self.video_capture = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
-        # Fallback to default backend (commented out)
-        # if not self.video_capture.isOpened():
-        #     self._log('warn', "GStreamer failed, trying default backend...")
-        #     self.video_capture = cv2.VideoCapture(rtsp_url)
-        # if self.video_capture.isOpened():
-        #     self._log('info', "Camera video stream connected")
-        #     return True
-        # else:
-        #     self._log('error', "Failed to connect to camera video stream")
-        #     self.video_capture = None
-        #     return False
-    
-    def read_video_frame(self) -> Optional[np.ndarray]:
-        """Read frame from RTSP stream - DISABLED (not needed)"""
-        return None  # Disabled - not needed for capture workflow
-        
-        # Original frame reading code (commented out):
-        # if self.video_capture is None or not self.video_capture.isOpened():
-        #     return None
-        # try:
-        #     ret, frame = self.video_capture.read()
-        #     if ret and frame is not None:
-        #         return frame
-        #     return None
-        # except Exception as e:
-        #     self._log('warn', f"Frame read error: {e}")
-        #     return None
-    
     def close(self):
-        """Close all connections and release resources"""
+        """Close all connections and release resources."""
         if self.http_session:
             self.http_session.close()
-        
         if self.sdk_socket:
             self.sdk_socket.close()
-        
-        # Video capture disabled
-        # if self.video_capture:
-        #     self.video_capture.release()
-        
         self._log('info', "Camera interface closed")

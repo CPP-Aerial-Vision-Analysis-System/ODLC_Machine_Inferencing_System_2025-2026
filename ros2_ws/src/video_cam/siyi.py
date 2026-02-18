@@ -53,25 +53,21 @@ def get_filelist_url(ip_address, media_type, dir_path):
 # download files from camera
 def download_files(ip_address, dest_dir):
 
-    '''lets the script download all media, not just photos'''
     # repeat for images and videos
     for media_type in [mt.value for mt in MediaTypes]:
 
         # display output to user
         print(prefix_str + f"downloading {MEDIA_TYPE_STR[media_type]} files")
 
-        '''Sends an HTTP request to camera, asking "which folders on the sd card contain images(or vieos)'''
         # download list of directories in JSON format
         dir_list_url = get_dirlist_url(ip_address, media_type)
         with urlopen(dir_list_url) as get_dir_url:
             dir_dict = json.load(get_dir_url)
 
-            '''make sure the request is successfully handled'''
             # check that the request succeeded
             if (not dir_dict['success']):
                 exit(prefix_str + "failed to get list of directories")
 
-            '''makes sure tha the expected JSON structure is there'''
             # check response includes 'data'
             if ('data' not in dir_dict.keys()):
                 exit(prefix_str + "could not get list of directories, no 'data' in response")
@@ -82,7 +78,6 @@ def download_files(ip_address, dest_dir):
                 exit(prefix_str + "could not get list of directories, no 'directories' in response")
             dir_dict_data_directories = dir_dict_data['directories']
 
-            '''pulls out the dir names'''
             # create list of directories from 'path' values
             dir_list = []
             for dir in dir_dict_data_directories:
@@ -90,15 +85,11 @@ def download_files(ip_address, dest_dir):
                     dir_list.append(dir['path'])
             print(prefix_str + f"{len(dir_list)} directories")
 
-            '''asks "what files are in the folder?"'''
             # get list of files in each directory
             for dir_path in dir_list:
                 filenames_url = get_filelist_url(ip_address, media_type, dir_path)
-                '''requests file names and download URLs'''
                 with urlopen(filenames_url) as get_filenames_url:
                     filename_dict = json.load(get_filenames_url)
-
-                    '''bottom three "ifs" confirm whether the camera accepted the request and returned a valid list of files'''
 
                     # check that the request succeeded
                     if (not filename_dict['success']):
@@ -116,23 +107,22 @@ def download_files(ip_address, dest_dir):
                     print(prefix_str + f"{len(filename_dict_data_list)} files")
 
                     # download each image
-                    '''iterate through each file in the dict'''
-                    '''gets the file name, url, fixes ip addresss if the camera returned a hard coded one'''
                     for fileinfo in filename_dict_data_list:
                         if ('name' not in fileinfo.keys() or 'url' not in fileinfo.keys()):
                             exit(prefix_str + "could not get list of files, no 'name' or 'url' in response")
                         filename = fileinfo['name']
                         file_url = fileinfo['url']
+
+                        # correct incorrect ip address in returned url
                         file_url_fixed = file_url.replace(ip_address_default, ip_address)
 
-                        '''downloads each file from sd to jetson. Raw file transfer'''
+                        # download file
                         print(prefix_str + f"downloading {filename} from {file_url_fixed}")
                         dest_filename = os.path.join(dest_dir, filename)
                         try:
                             urlretrieve(file_url_fixed, dest_filename)
                         except (URLError, HTTPError) as e:
                             print(prefix_str + f"failed to download {filename}: {e}")
-
 
 # main function
 def main():

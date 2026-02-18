@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIYI A8 Mini Configuration Constants"""
+"""SIYI A8 Mini configuration constants."""
 
 from enum import Enum
 from typing import Dict
@@ -22,8 +22,6 @@ class CaptureState(Enum):
 CAMERA_IP = "192.168.144.25"
 CONTROL_PORT = 37260
 MEDIA_PORT = 82
-RTSP_PORT = 8554  # Not used - RTSP streaming disabled (not needed for capture workflow)
-
 PHOTO_RESOLUTIONS = {'4K': 0x00, '2.7K': 0x01, '1080P': 0x02}
 VERIFIED_RESOLUTIONS = {'4K'}
 
@@ -46,8 +44,7 @@ SD_POLL_INTERVAL = 0.5
 MAX_PIPELINE_DURATION = 60.0
 HTTP_TIMEOUT_SECONDS = 10.0
 SDK_SOCKET_TIMEOUT_SECONDS = 2.0
-STREAM_RATE_HZ = 10.0  # Not used - RTSP streaming disabled
-STREAM_LOOP_PERIOD = 1.0 / STREAM_RATE_HZ  # Not used
+NODE_LOOP_PERIOD = 1.0  # Main loop period (1 Hz is plenty for capture polling + disk status)
 
 # Storage
 MIN_FREE_SPACE_MB = 50
@@ -74,20 +71,8 @@ DEFAULT_MIN_ALTITUDE_AGL = -13.716
 DEFAULT_CAMERA_IP = CAMERA_IP
 DEFAULT_CTRL_PORT = CONTROL_PORT
 DEFAULT_MEDIA_PORT = MEDIA_PORT
-DEFAULT_RTSP_PORT = RTSP_PORT  # Not used - RTSP streaming disabled
 DEFAULT_HTTP_TIMEOUT = HTTP_TIMEOUT_SECONDS
 DEFAULT_CAPTURE_TIMEOUT = CAPTURE_TIMEOUT_SECONDS
 DEFAULT_MIN_FREE_SPACE_MB = MIN_FREE_SPACE_MB
 
-# # ROS topics
-# TOPIC_IMAGE_RAW = 'image_raw'
-# TOPIC_MAVROS_STATUS = '/mavros/statustext/send'
-# TOPIC_CAMERA_STATUS = '/camera/status'
-# TOPIC_DISK_STATUS = '/camera/disk_free_mb'
-# TOPIC_CAMERA_TRIGGER = '/camera/trigger'
-# TOPIC_SET_RESOLUTION = '/camera/set_resolution'
-# TOPIC_ALTITUDE = '/mavros/global_position/rel_alt'
-# TOPIC_SIM_IMAGE = '/camera/image'
-QUEUE_SIZE_DEFAULT = 10
-QUEUE_SIZE_IMAGE = 1
-MAVROS_SEVERITY_INFO = 6
+

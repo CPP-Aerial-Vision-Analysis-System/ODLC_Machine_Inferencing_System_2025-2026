@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-'''Head Chef'''
-"""SIYI Pipeline Orchestrator - simplified"""
+"""SIYI pipeline orchestrator — capture, index, download."""
 
 import time
 import numpy as np
@@ -51,23 +50,22 @@ class PipelineOrchestrator:
     
     @contextmanager
     def _acquire_pipeline(self):
-        """Context manager for pipeline state"""
+        """Context manager for pipeline state. Always resets to IDLE on exit."""
         with self.state_lock:
             if self.pipeline_state != CaptureState.IDLE:
                 raise PipelineError("Pipeline already running")
             self.pipeline_state = CaptureState.CAPTURING
-        
+
         try:
             yield
-        except Exception as e:
+        except Exception:
             with self.state_lock:
                 self.pipeline_state = CaptureState.FAILED
             time.sleep(1.0)
             raise
         finally:
             with self.state_lock:
-                if self.pipeline_state != CaptureState.FAILED:
-                    self.pipeline_state = CaptureState.IDLE
+                self.pipeline_state = CaptureState.IDLE
     
     def get_state(self) -> CaptureState:
         with self.state_lock:
@@ -137,9 +135,7 @@ class PipelineOrchestrator:
         start_time = time.time()
         
         try:
-            self._log('info', "=" * 70)
             self._log('info', "STARTING CAPTURE PIPELINE")
-            self._log('info', "=" * 70)
             
             # Phase 1: Trigger capture
             if not self._phase1_capture():
@@ -168,13 +164,13 @@ class PipelineOrchestrator:
                 self.downloaded_files.add(filename)
             
             elapsed = time.time() - start_time
-            self._log('info', f"✓ PIPELINE COMPLETED in {elapsed:.1f}s")
+            self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
             self._save_tracking_state()
             return True
             
         except Exception as e:
             elapsed = time.time() - start_time
-            self._log('error', f"✗ PIPELINE FAILED after {elapsed:.1f}s: {e}")
+            self._log('error', f"PIPELINE FAILED after {elapsed:.1f}s: {e}")
             return False
     
     def _phase1_capture(self) -> bool:
@@ -196,11 +192,11 @@ class PipelineOrchestrator:
         
         while (time.time() - start_time) < timeout:
             if new_file := self._find_new_file():
-                self._log('info', f"✓ Found new image: {new_file.get('name')}")
+                self._log('info', f"Found new image: {new_file.get('name')}")
                 return new_file
             time.sleep(SD_POLL_INTERVAL)
         
-        self._log('error', f"✗ Timeout after {timeout}s")
+        self._log('error', f"Timeout after {timeout}s")
         return None
     
     def _find_new_file(self) -> Optional[Dict]:

@@ -150,7 +150,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
             cam = self.get_parameter('camera_feed_path').value
             out = self.get_parameter('detection_results_path').value
-            self.camera_feed_path = cam or os.path.join(ros2_ws, "src", "video_cam", "mapping_photos")
+            self.camera_feed_path = cam or os.path.join(ros2_ws, "video_cam", "mapping_photos")
             self.detection_results_path = out or os.path.join(ros2_ws, "src", "detection", "detection_results_sahi")
 
             os.makedirs(self.detection_results_path, exist_ok=True)

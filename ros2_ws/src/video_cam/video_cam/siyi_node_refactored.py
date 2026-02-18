@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-'''Manager'''
-"""SIYI A8 Mini ROS2 Node - Refactored"""
+"""SIYI A8 Mini ROS2 Node."""
 
 import rclpy
 from rclpy.node import Node
@@ -24,13 +23,12 @@ except Exception as e:
     CV_BRIDGE_AVAILABLE = False
 
 from .config import (
-    STREAM_LOOP_PERIOD,
+    NODE_LOOP_PERIOD,
     DEFAULT_USE_REAL_CAMERA,
     DEFAULT_MIN_ALTITUDE_AGL,
     DEFAULT_CAMERA_IP,
     DEFAULT_CTRL_PORT,
     DEFAULT_MEDIA_PORT,
-    DEFAULT_RTSP_PORT,
     DEFAULT_HTTP_TIMEOUT,
     DEFAULT_CAPTURE_TIMEOUT,
     DEFAULT_MIN_FREE_SPACE_MB,
@@ -85,7 +83,7 @@ class SIYINode(Node):
         self._initialize_components()
         
         # Start main loop
-        self.pipeline_timer = self.create_timer(STREAM_LOOP_PERIOD, self._pipeline_loop)
+        self.pipeline_timer = self.create_timer(NODE_LOOP_PERIOD, self._pipeline_loop)
         
         self._log_initialization_complete()
     
@@ -95,7 +93,6 @@ class SIYINode(Node):
         self.declare_parameter('camera_ip', DEFAULT_CAMERA_IP)
         self.declare_parameter('ctrl_port', DEFAULT_CTRL_PORT)
         self.declare_parameter('media_port', DEFAULT_MEDIA_PORT)
-        self.declare_parameter('rtsp_port', DEFAULT_RTSP_PORT)
         self.declare_parameter('http_timeout_sec', DEFAULT_HTTP_TIMEOUT)
         self.declare_parameter('capture_timeout_sec', DEFAULT_CAPTURE_TIMEOUT)
         self.declare_parameter('min_free_space_mb', DEFAULT_MIN_FREE_SPACE_MB)
@@ -106,13 +103,11 @@ class SIYINode(Node):
         self.camera_ip = self.get_parameter('camera_ip').value
         self.ctrl_port = self.get_parameter('ctrl_port').value
         self.media_port = self.get_parameter('media_port').value
-        self.rtsp_port = self.get_parameter('rtsp_port').value
         self.http_timeout = self.get_parameter('http_timeout_sec').value
         self.capture_timeout = self.get_parameter('capture_timeout_sec').value
         self.min_free_space_mb = self.get_parameter('min_free_space_mb').value
     
     def _initialize_components(self):
-        """Initialize camera, storage, and pipeline components"""
         # Find workspace root
         workspace_root = self._find_ros2_workspace()
         
@@ -125,7 +120,6 @@ class SIYINode(Node):
                 camera_ip=self.camera_ip,
                 ctrl_port=self.ctrl_port,
                 media_port=self.media_port,
-                rtsp_port=self.rtsp_port,
                 http_timeout=self.http_timeout,
                 logger=self.get_logger()
             )
@@ -137,13 +131,7 @@ class SIYINode(Node):
                 logger=self.get_logger()
             )
             
-            # RTSP video stream disabled - not needed for capture/save/detect workflow
-            # Only needed for live video preview during flight
-            # if self.camera.connect_video_stream():
-            #     self._send_status("Real camera initialized")
-            # else:
-            #     self._send_status("WARNING: Camera video stream unavailable")
-            self._send_status("Real camera initialized (RTSP disabled)")
+            self._send_status("Real camera initialized")
             
             # Initialize SD card
             self.pipeline.initialize_sd_card()
@@ -155,7 +143,6 @@ class SIYINode(Node):
             self._send_status("Simulation camera initialized")
     
     def _find_ros2_workspace(self) -> str:
-        """Locate the ROS2 workspace root directory"""
         current_file = os.path.abspath(__file__)
         search_dir = os.path.dirname(current_file)
         
@@ -172,23 +159,11 @@ class SIYINode(Node):
         return os.path.expanduser('~')
     
     def _log_initialization_complete(self):
-        """Log initialization summary"""
-        self.get_logger().info("=" * 70)
-        self.get_logger().info(" SIYI UNIFIED PIPELINE INITIALIZED")
-        self.get_logger().info("=" * 70)
-        self.get_logger().info(
-            f" Camera mode: {'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'}")
-        self.get_logger().info(" Pipeline ready. Waiting for triggers...")
-        self.get_logger().info("=" * 70)
+        mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
+        self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
     
     def _pipeline_loop(self):
-        """
-        Main execution loop.
-        
-        Responsibilities:
-        1. Execute capture pipeline when triggered (in separate thread)
-        2. Publish disk status
-        """
+        # Main execution loop. Execute capture pipeline when triggered (in separate thread)
         # Check if camera is enabled (altitude check)
         with self.config_lock:
             camera_enabled = self.camera_enabled
@@ -200,12 +175,7 @@ class SIYINode(Node):
         if self.capture_requested.is_set():
             self.capture_requested.clear()
             self._handle_capture_request()
-        
-        # RTSP video streaming disabled - not needed for capture workflow
-        # Uncomment below if you need live video preview during flight
-        # self._publish_video_stream()
-        
-        # Publish disk status
+
         self._publish_disk_status()
     
     def _handle_capture_request(self):
@@ -442,7 +412,7 @@ class SIYINode(Node):
                 pass
         
         try:
-            self.get_logger().info("✓ Shutdown complete")
+            self.get_logger().info("Shutdown complete")
         except Exception:
             pass
 

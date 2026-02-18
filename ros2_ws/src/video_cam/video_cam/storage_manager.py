@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-'''Kitchen Storage'''
-"""SIYI Image Storage Manager using atomic write and verfications"""
+"""SIYI image storage manager."""
 
 import os
 import cv2
 import json
+import time
 import shutil
 import numpy as np
 from typing import Optional, Set, Tuple
@@ -32,8 +32,8 @@ class StorageManager:
         # logger: Optional logger (must have .info(), .warn(), .error() methods)
         self.logger = logger
 
-        # Save images directly into ros2_ws/src/video_cam/mapping_photos
-        video_cam_dir = os.path.join(workspace_root, "src", WORKSPACE_SUBDIR)
+        # Save images into ros2_ws/video_cam/mapping_photos
+        video_cam_dir = os.path.join(workspace_root, WORKSPACE_SUBDIR)
         os.makedirs(video_cam_dir, exist_ok=True)
         
         # Single directory for all images (capture, download, mapping)
@@ -163,7 +163,6 @@ class StorageManager:
                 downloaded_files = set(list(downloaded_files)[:max_tracked_files])
                 self._log('info', f"Pruned tracking state: {old_count} → {max_tracked_files}")
             
-            import time
             data = {
                 'downloaded_files': list(downloaded_files),
                 'last_photo_count': last_photo_count,
@@ -209,34 +208,18 @@ class StorageManager:
         except Exception:
             return False
     def verify_image_integrity(self, img: np.ndarray) -> bool:
-        # Verify image is not corrupted or blank.
+        """Verify image is not corrupted (minimum dimension check)."""
         try:
             if img is None:
                 return False
-            
             h, w = img.shape[:2]
-            
-            # Sanity check dimensions
             if h < 100 or w < 100:
                 self._log('error', f"Image too small: {w}x{h}")
                 return False
-            
-            # Check for extreme brightness (warning only)
-            mean_val = np.mean(img)
-            if mean_val < 5:
-                self._log('warn', 
-                    f"Image appears very dark (mean: {mean_val:.1f}) - "
-                    "could be legitimate night shot")
-            elif mean_val > 250:
-                self._log('warn', 
-                    f"Image appears very bright (mean: {mean_val:.1f}) - "
-                    "could be snow/clouds or overexposure")
-            
             return True
-            
         except Exception as e:
             self._log('warn', f"Integrity check error: {e}")
-            return True  # Don't fail on check errors
+            return True
     def load_tracking_state(self) -> Tuple[Set[str], int]:
         """
         Load persistent tracking state from disk.
