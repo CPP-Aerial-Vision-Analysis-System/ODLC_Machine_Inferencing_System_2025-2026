@@ -144,20 +144,38 @@ class SIYINode(Node):
     
     def _find_ros2_workspace(self) -> str:
         current_file = os.path.abspath(__file__)
-        search_dir = os.path.dirname(current_file)
+        current_dir = os.path.dirname(current_file)
         
-        # Search up to 10 levels
-        for _ in range(10):
-            parent = os.path.dirname(search_dir)
-            if os.path.basename(search_dir) == 'ros2_ws':
-                return search_dir
-            if parent == search_dir:  # Reached root
+        # Navigate up to find ros2_ws (look for install/ or src/ directories)
+        search_dir = current_dir
+        ros2_ws_dir = None
+        
+        for _ in range(10):  # Limit search depth
+            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
+                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                    ros2_ws_dir = search_dir
+                    break
+                parent = os.path.dirname(search_dir)
+                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
+                    ros2_ws_dir = parent
+                    break
+            search_dir = os.path.dirname(search_dir)
+            if search_dir == "/":
                 break
-            search_dir = parent
+
         
-        # Fallback to home directory
-        return os.path.expanduser('~')
-    
+        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
+            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
+            
+        # Fallback: construct path directly
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/astra/ros2_ws/src"
+        
+        video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+        os.makedirs(video_cam_dir, exist_ok=True)
+        
+        return video_cam_dir
+
     def _log_initialization_complete(self):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
         self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")

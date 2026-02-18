@@ -32,21 +32,39 @@ _MAX_SEARCH_DEPTH = 10
 
 
 def get_ros2_ws_directory() -> str:
-    search_dir = os.path.dirname(os.path.abspath(__file__))
-    for _ in range(_MAX_SEARCH_DEPTH):
-        if (
-            os.path.isdir(os.path.join(search_dir, "install"))
-            and os.path.isdir(os.path.join(search_dir, "src"))
-        ):
-            return search_dir
-        parent = os.path.dirname(search_dir)
-        if parent == search_dir:
+    current_file = os.path.abspath(__file__)
+    current_dir = os.path.dirname(current_file)
+    
+    # Navigate up to find ros2_ws (look for install/ or src/ directories)
+    search_dir = current_dir
+    ros2_ws_dir = None
+    
+    for _ in range(10):  # Limit search depth
+        if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
+            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
+                ros2_ws_dir = search_dir
+                break
+            parent = os.path.dirname(search_dir)
+            if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
+                ros2_ws_dir = parent
+                break
+        search_dir = os.path.dirname(search_dir)
+        if search_dir == "/":
             break
-        search_dir = parent
-    return os.getenv(
-        'ROS2_WS_PATH',
-        os.path.expanduser('~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws'),
-    )
+
+    
+    if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
+        ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
+        
+    # Fallback: construct path directly
+    if ros2_ws_dir is None:
+        ros2_ws_dir = "/astra/ros2_ws/src"
+    
+    video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
+    os.makedirs(video_cam_dir, exist_ok=True)
+    
+    return video_cam_dir
+
 
 
 def resolve_model_path(model_path, model_format, auto_convert, slice_height,
