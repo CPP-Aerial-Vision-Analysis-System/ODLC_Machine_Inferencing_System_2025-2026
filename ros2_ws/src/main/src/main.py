@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from main.msg import ImageResult
+from interfaces.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
 from sensor_msgs.msg import NavSatFix, Image
@@ -114,15 +114,18 @@ class MainController(Node):
             self.get_logger().info("Returning to launch. Mission complete.")
 
     def valid_detection(self, type):
+        # if confidence is > 0 ? why
         if type in self.detections:
             if self.detections[type].confidence > 0:
                 return True
         return False
         
     def waypoints_cb(self, msg: WaypointList):
+        # stores wp list from mavros
         self.waypoints = msg.waypoints
 
-    def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
+    def get_waypoint(self, waypoint_index):
+        # get lat, lon, alt of an existing waypoint
         if 0 < waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
             lat = wp.x_lat
@@ -145,6 +148,8 @@ class MainController(Node):
                         obj_class = "person"
                     elif obj_id == "1":
                         obj_class = "tent"
+                    else:
+                        continue  # skip non-target detections (class_id "2" = object)
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS

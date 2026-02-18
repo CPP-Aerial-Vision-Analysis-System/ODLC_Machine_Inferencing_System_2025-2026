@@ -79,15 +79,15 @@ DEFAULT_HTTP_TIMEOUT = HTTP_TIMEOUT_SECONDS
 DEFAULT_CAPTURE_TIMEOUT = CAPTURE_TIMEOUT_SECONDS
 DEFAULT_MIN_FREE_SPACE_MB = MIN_FREE_SPACE_MB
 
-# ROS topics
-TOPIC_IMAGE_RAW = 'image_raw'
-TOPIC_MAVROS_STATUS = '/mavros/statustext/send'
-TOPIC_CAMERA_STATUS = '/camera/status'
-TOPIC_DISK_STATUS = '/camera/disk_free_mb'
-TOPIC_CAMERA_TRIGGER = '/camera/trigger'
-TOPIC_SET_RESOLUTION = '/camera/set_resolution'
-TOPIC_ALTITUDE = '/mavros/global_position/rel_alt'
-TOPIC_SIM_IMAGE = '/camera/image'
+# # ROS topics
+# TOPIC_IMAGE_RAW = 'image_raw'
+# TOPIC_MAVROS_STATUS = '/mavros/statustext/send'
+# TOPIC_CAMERA_STATUS = '/camera/status'
+# TOPIC_DISK_STATUS = '/camera/disk_free_mb'
+# TOPIC_CAMERA_TRIGGER = '/camera/trigger'
+# TOPIC_SET_RESOLUTION = '/camera/set_resolution'
+# TOPIC_ALTITUDE = '/mavros/global_position/rel_alt'
+# TOPIC_SIM_IMAGE = '/camera/image'
 QUEUE_SIZE_DEFAULT = 10
 QUEUE_SIZE_IMAGE = 1
 MAVROS_SEVERITY_INFO = 6

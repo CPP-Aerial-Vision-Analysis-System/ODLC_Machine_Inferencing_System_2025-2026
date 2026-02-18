@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+'''Manager'''
 """SIYI A8 Mini ROS2 Node - Refactored"""
 
 import rclpy
@@ -33,17 +34,6 @@ from .config import (
     DEFAULT_HTTP_TIMEOUT,
     DEFAULT_CAPTURE_TIMEOUT,
     DEFAULT_MIN_FREE_SPACE_MB,
-    TOPIC_IMAGE_RAW,
-    TOPIC_MAVROS_STATUS,
-    TOPIC_CAMERA_STATUS,
-    TOPIC_DISK_STATUS,
-    TOPIC_CAMERA_TRIGGER,
-    TOPIC_SET_RESOLUTION,
-    TOPIC_ALTITUDE,
-    TOPIC_SIM_IMAGE,
-    QUEUE_SIZE_DEFAULT,
-    QUEUE_SIZE_IMAGE,
-    MAVROS_SEVERITY_INFO,
     PHOTO_RESOLUTIONS,
 )
 from .camera_interface import CameraInterface
@@ -62,27 +52,19 @@ class SIYINode(Node):
         self._load_parameters()
         
         # ROS Publishers
-        self.image_pub = self.create_publisher(
-            Image, TOPIC_IMAGE_RAW, QUEUE_SIZE_DEFAULT)
-        self.status_pub = self.create_publisher(
-            StatusText, TOPIC_MAVROS_STATUS, QUEUE_SIZE_DEFAULT)
-        self.camera_status_pub = self.create_publisher(
-            String, TOPIC_CAMERA_STATUS, QUEUE_SIZE_DEFAULT)
-        self.disk_status_pub = self.create_publisher(
-            Float64, TOPIC_DISK_STATUS, QUEUE_SIZE_DEFAULT)
+        self.image_pub = self.create_publisher(Image, 'image_raw', 10)
+        self.status_pub = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
+        self.camera_status_pub = self.create_publisher(String, '/camera/status', 10)
+        self.disk_status_pub = self.create_publisher(Float64, '/camera/disk_free_mb', 10)
         
         # ROS Subscribers
-        self.create_subscription(
-            Bool, TOPIC_CAMERA_TRIGGER, self.camera_trigger_callback, QUEUE_SIZE_DEFAULT)
-        self.create_subscription(
-            String, TOPIC_SET_RESOLUTION, self.set_resolution_callback, QUEUE_SIZE_DEFAULT)
-        self.create_subscription(
-            Float64, TOPIC_ALTITUDE, self.altitude_callback, qos_profile_sensor_data)
+        self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
+        self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
+        self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         
         # Simulation mode subscriber
         if not self.use_real_camera:
-            self.create_subscription(
-                Image, TOPIC_SIM_IMAGE, self.sim_image_callback, QUEUE_SIZE_IMAGE)
+            self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
         
         # State
         self.camera_enabled = True
@@ -108,7 +90,6 @@ class SIYINode(Node):
         self._log_initialization_complete()
     
     def _declare_parameters(self):
-        """Declare all ROS parameters"""
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
         self.declare_parameter('min_altitude_agl', DEFAULT_MIN_ALTITUDE_AGL)
         self.declare_parameter('camera_ip', DEFAULT_CAMERA_IP)
@@ -120,7 +101,6 @@ class SIYINode(Node):
         self.declare_parameter('min_free_space_mb', DEFAULT_MIN_FREE_SPACE_MB)
     
     def _load_parameters(self):
-        """Load parameter values"""
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
         self.camera_ip = self.get_parameter('camera_ip').value
@@ -320,7 +300,7 @@ class SIYINode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
             self.image_pub.publish(msg)
-            self.get_logger().info(f"Published image to {TOPIC_IMAGE_RAW}: {os.path.basename(latest_file)}")
+            self.get_logger().info(f"Published image to image_raw: {os.path.basename(latest_file)}")
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
     
@@ -409,7 +389,7 @@ class SIYINode(Node):
     def _send_status(self, text: str):
         """Send status message to MAVROS"""
         msg = StatusText()
-        msg.severity = MAVROS_SEVERITY_INFO
+        msg.severity = 6
         msg.text = text
         self.status_pub.publish(msg)
         self.get_logger().info(f"Status: {text}")
