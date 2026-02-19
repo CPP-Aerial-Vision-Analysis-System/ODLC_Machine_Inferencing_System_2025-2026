@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'image_pub = video_cam.image_pub:main',
+            'siyi = video_cam.siyi_node_refactored:main',
         ],
     },
 )
