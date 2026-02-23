@@ -539,7 +539,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 d2d.bbox.size_y = float(y2 - y1)
 
                 hypo = ObjectHypothesisWithPose()
-                hypo.hypothesis.class_id = CLASS_ID.get(det['class'], "2")
+                # Map class names to integer IDs (0=person, 1=tent)
+                class_id = 0 if det['class'] == 'person' else 1
+                hypo.hypothesis.class_id = str(class_id)
                 hypo.hypothesis.score = float(det['confidence'])
                 d2d.results.append(hypo)
                 det_array.detections.append(d2d)
