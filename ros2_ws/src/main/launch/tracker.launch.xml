@@ -45,19 +45,23 @@
 
   <node pkg="waypoint_mavros" exec="waypoint" output="screen"></node>
   
-  <!-- <node pkg="waypoint_mavros" exec="killnode" output="screen"></node> -->
+  <node pkg="waypoint_mavros" exec="killnode" output="screen"></node>
 
   <!-- <node pkg="wp_sender" exec="send_wp" output="screen"></node> -->
 
   <!-- <node pkg="wp_sender" exec="test_param" output="screen"></node> -->
 
-  <!-- <node pkg="gps_ros2" exec="gpstest" output="screen"></node> -->
+  <node pkg="gps_ros2" exec="gpstest" output="screen"></node>
 
-  <node pkg="detection" exec="object_detection_sahi" output="screen"></node>
+  <!-- <node pkg="detection" exec="object_detection_sahi" output="screen"></node> -->
 
-  <node pkg="main" exec="main.py" output="screen"></node>
+  <node pkg="detection" exec="new_od" output="screen"></node>
 
-  <node pkg="video_cam" exec="image_pub" output="screen"></node>
+  <node pkg="main" exec="main_controller.py" output="screen"></node>
+
+  <!-- <node pkg="video_cam" exec="image_pub" output="screen"></node> -->
+
+  <node pkg="video_cam" exec="siyi" output="screen"></node>
 
   <node pkg="mapping" exec="trigger" output="screen"></node>
 

@@ -27,6 +27,7 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from ultralytics_ros.msg import ImageResult
+# from main.msg import ImageResult
 from mavros_msgs.msg import WaypointReached
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 
@@ -69,7 +70,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.shutdown_requested = False
         self._active = False
 
-        self.declare_parameter('model_path', 'yolo11s.pt')
+        self.declare_parameter('model_path', 'yolo26m.pt')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)
         self.declare_parameter('auto_convert_tensorrt', True)
         self.declare_parameter('tensorrt_workspace', 4)

@@ -13,206 +13,174 @@ from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
 
 
-def stitch_pair(img1, img2, min_matches=6, ratio=0.8, use_sift=False, debug=False):
-    """
-    Stitch two images with multi-band blending for seamless results.
-    img1: reference image (panorama)
-    img2: new frame to add
-    """
-    # --- Feature detection with contrast enhancement ---
-    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY) if len(img1.shape) == 3 else img1
-    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY) if len(img2.shape) == 3 else img2
 
-    # Apply CLAHE for better feature detection
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    gray1 = clahe.apply(gray1)
-    gray2 = clahe.apply(gray2)
+def estimate_affine(img_ref, img_new, min_matches=6, ratio=0.75,
+                    use_sift=False, ransac_thresh=3.0):
+    """
+    Estimate affine transform: img_new → img_ref coordinate space.
+    Returns (M_3x3, inlier_count, info_str) or (None, 0, reason).
+    Tuned for downscale=0.5 aerial tiles.
+    """
+    def enhance(img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        return clahe.apply(gray)
+
+    g_ref = enhance(img_ref)
+    g_new = enhance(img_new)
 
     if use_sift:
-        detector = cv2.SIFT_create(nfeatures=5000)
-        norm_type = cv2.NORM_L2
+        det = cv2.SIFT_create(nfeatures=5000)
+        norm = cv2.NORM_L2
     else:
-        detector = cv2.ORB_create(
-            nfeatures=8000,
-            scaleFactor=1.2,
-            nlevels=8,
-            edgeThreshold=15,
-            firstLevel=0,
-            WTA_K=2,
-            scoreType=cv2.ORB_HARRIS_SCORE,
-            patchSize=31,
-            fastThreshold=10
+        det = cv2.ORB_create(
+            nfeatures=8000, scaleFactor=1.2, nlevels=8,
+            edgeThreshold=15, WTA_K=2,
+            scoreType=cv2.ORB_HARRIS_SCORE, patchSize=31, fastThreshold=10
         )
-        norm_type = cv2.NORM_HAMMING
+        norm = cv2.NORM_HAMMING
 
-    k1, d1 = detector.detectAndCompute(gray1, None)
-    k2, d2 = detector.detectAndCompute(gray2, None)
+    k_ref, d_ref = det.detectAndCompute(g_ref, None)
+    k_new, d_new = det.detectAndCompute(g_new, None)
 
-    if d1 is None or d2 is None:
-        return None, f"No descriptors (k1={len(k1) if k1 else 0}, k2={len(k2) if k2 else 0})"
+    if d_ref is None or d_new is None or len(k_ref) < min_matches or len(k_new) < min_matches:
+        return None, 0, f"Too few keypoints: ref={len(k_ref) if k_ref else 0}, new={len(k_new) if k_new else 0}"
 
-    if len(k1) < min_matches or len(k2) < min_matches:
-        return None, f"Insufficient keypoints: k1={len(k1)}, k2={len(k2)}"
-
-    # --- Matching with ratio test ---
-    bf = cv2.BFMatcher(norm_type, crossCheck=False)
+    bf = cv2.BFMatcher(norm, crossCheck=False)
     try:
-        knn = bf.knnMatch(d2, d1, k=2)
+        knn = bf.knnMatch(d_new, d_ref, k=2)
     except cv2.error as e:
-        return None, f"Matching error: {e}"
+        return None, 0, f"Match error: {e}"
 
-    good = []
-    for match_pair in knn:
-        if len(match_pair) == 2:
-            m, n = match_pair
-            if m.distance < ratio * n.distance:
-                good.append(m)
+    good = [m for m, n in knn if len((m, n)) == 2 and m.distance < ratio * n.distance]
+
+    # ── Thresholds tuned for downscale=0.5 ──────────────────────────────────
+    # At 0.5× scale a "frame" is roughly 320–640 px wide; 15 inliers is generous.
+    MIN_INLIERS       = 10      # absolute floor
+    MIN_INLIER_RATIO  = 0.25    # 25 % of good matches must survive RANSAC
+    # ────────────────────────────────────────────────────────────────────────
 
     if len(good) < min_matches:
-        return None, f"Insufficient good matches: {len(good)}/{min_matches}"
+        return None, 0, f"Too few good matches: {len(good)}"
 
-    # Extract matched points
-    src_pts = np.float32([k2[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
-    dst_pts = np.float32([k1[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
+    src = np.float32([k_new[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)
+    dst = np.float32([k_ref[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)
 
-    # --- Affine estimation (better for mapping, less bending) ---
-    ransac_thresh = 3.0
     M, mask = cv2.estimateAffinePartial2D(
-        src_pts,
-        dst_pts,
+        src, dst,
         method=cv2.RANSAC,
-        ransacReprojThreshold=ransac_thresh,
-        maxIters=5000,
-        confidence=0.99,
-        refineIters=10
+        ransacReprojThreshold=ransac_thresh,   # 3 px at 0.5× ≈ 6 px full-res
+        maxIters=5000, confidence=0.99, refineIters=10
     )
 
     if M is None or mask is None:
-        return None, "Affine estimation failed"
+        return None, 0, "Affine estimation failed"
 
-    matches_mask = mask.ravel().tolist()
-    inlier_count = int(np.sum(matches_mask))
-    inlier_ratio = inlier_count / len(good)
+    inliers = int(mask.sum())
+    ratio_i = inliers / len(good)
 
-    min_inliers = max(1, min_matches // 6)
-    if inlier_count < min_inliers:
-        return None, f"Too few inliers: {inlier_count}/{min_inliers} ({inlier_ratio:.1%})"
+    if inliers < MIN_INLIERS or ratio_i < MIN_INLIER_RATIO:
+        return None, inliers, f"Weak inliers: {inliers} ({ratio_i:.1%})"
 
-    # Convert 2×3 affine matrix to 3×3 homography for the rest of the code
+    # Scale sanity check (no crazy zoom)
+    sx, sy = np.linalg.norm(M[0, :2]), np.linalg.norm(M[1, :2])
+    if not (0.65 < sx < 1.55 and 0.65 < sy < 1.55):
+        return None, inliers, f"Bad scale: sx={sx:.3f} sy={sy:.3f}"
+
     H = np.eye(3, dtype=np.float64)
     H[:2, :] = M
+    return H, inliers, f"OK inliers={inliers} ({ratio_i:.1%})"
 
-    # --- Simple sanity check on scale (no crazy zooming) ---
-    sx = np.linalg.norm(H[0, :2])
-    sy = np.linalg.norm(H[1, :2])
-    if not (0.7 < sx < 1.5 and 0.7 < sy < 1.5):
-        return None, f"Unreasonable scale: sx={sx:.3f}, sy={sy:.3f}"
+def warp_and_blend(panorama, pano_mask, frame, H_global):
+    """
+    Warp `frame` into panorama coordinates using H_global (accumulated 3×3),
+    then distance-transform blend into `panorama`.
 
-    # --- Compute canvas size ---
-    h1, w1 = img1.shape[:2]
-    h2, w2 = img2.shape[:2]
+    panorama   : current BGR panorama canvas
+    pano_mask  : uint8 mask (255 = valid pixels) same size as panorama
+    frame      : new BGR frame (in its own coordinate space)
+    H_global   : 3×3 homography  frame_coords → panorama_coords
 
-    corners_img2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
-    corners_img2_transformed = cv2.perspectiveTransform(corners_img2, H)
-    corners_img1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
+    Returns (new_panorama, new_pano_mask, offset_xy)
+    offset_xy  : (tx, ty) translation applied so callers can update H_global
+    """
+    h_p, w_p = panorama.shape[:2]
+    h_f, w_f = frame.shape[:2]
 
-    all_corners = np.concatenate([corners_img1, corners_img2_transformed], axis=0)
+    # Where do the four corners of the new frame land?
+    corners_f = np.float32([[0,0],[0,h_f],[w_f,h_f],[w_f,0]]).reshape(-1,1,2)
+    corners_w = cv2.perspectiveTransform(corners_f, H_global)
 
-    [xmin, ymin] = np.int32(all_corners.min(axis=0).ravel() - 0.5)
-    [xmax, ymax] = np.int32(all_corners.max(axis=0).ravel() + 0.5)
+    corners_p = np.float32([[0,0],[0,h_p],[w_p,h_p],[w_p,0]]).reshape(-1,1,2)
+    all_c = np.concatenate([corners_p, corners_w], axis=0)
 
-    tx = -xmin if xmin < 0 else 0
-    ty = -ymin if ymin < 0 else 0
+    xmin, ymin = np.int32(all_c.min(axis=0).ravel() - 0.5)
+    xmax, ymax = np.int32(all_c.max(axis=0).ravel() + 0.5)
 
-    T = np.array([[1, 0, tx],
-                  [0, 1, ty],
-                  [0, 0, 1]], dtype=np.float64)
-
+    tx = max(0, -xmin)
+    ty = max(0, -ymin)
     out_w = xmax - xmin
     out_h = ymax - ymin
 
-    max_dimension = max(w1, h1, w2, h2) * 4
-    if out_w <= 0 or out_h <= 0 or out_w > max_dimension or out_h > max_dimension:
-        return None, f"Invalid output size: {out_w}x{out_h} (max: {max_dimension})"
+    max_dim = max(w_p, h_p, w_f, h_f) * 8   # generous limit
+    if out_w <= 0 or out_h <= 0 or out_w > max_dim or out_h > max_dim:
+        return panorama, pano_mask, (0, 0), f"Canvas too large: {out_w}x{out_h}"
 
-    # --- Check overlap ---
-    img1_box = [tx, ty, tx + w1, ty + h1]
-    corners_t = cv2.perspectiveTransform(corners_img2, T @ H)
-    x2min = corners_t[:, :, 0].min()
-    y2min = corners_t[:, :, 1].min()
-    x2max = corners_t[:, :, 0].max()
-    y2max = corners_t[:, :, 1].max()
-    img2_box = [x2min, y2min, x2max, y2max]
+    # Translation matrix to shift everything into positive coords
+    T = np.array([[1,0,tx],[0,1,ty],[0,0,1]], dtype=np.float64)
+    TH = T @ H_global
 
-    ix1 = max(img1_box[0], img2_box[0])
-    iy1 = max(img1_box[1], img2_box[1])
-    ix2 = min(img1_box[2], img2_box[2])
-    iy2 = min(img1_box[3], img2_box[3])
+    # Warp new frame
+    warped_f  = cv2.warpPerspective(frame, TH, (out_w, out_h))
+    warped_fm = np.zeros((out_h, out_w), dtype=np.uint8)
+    frame_fill = np.ones((h_f, w_f), dtype=np.uint8) * 255
+    warped_fm = cv2.warpPerspective(frame_fill, TH, (out_w, out_h))
 
-    if ix2 <= ix1 or iy2 <= iy1:
-        return None, "No spatial overlap"
+    # Expand panorama canvas
+    new_pano = np.zeros((out_h, out_w, 3), dtype=np.uint8)
+    new_pano[ty:ty+h_p, tx:tx+w_p] = panorama
+    new_mask = np.zeros((out_h, out_w), dtype=np.uint8)
+    new_mask[ty:ty+h_p, tx:tx+w_p] = pano_mask
 
-    inter_area = (ix2 - ix1) * (iy2 - iy1)
-    img2_area = (img2_box[2] - img2_box[0]) * (img2_box[3] - img2_box[1])
-    overlap_ratio = inter_area / img2_area if img2_area > 0 else 0
+    # ── Mask-intersection overlap check (replaces bbox heuristic) ──────────
+    overlap = cv2.bitwise_and(new_mask, warped_fm)
+    overlap_px   = int(cv2.countNonZero(overlap))
+    frame_px     = int(cv2.countNonZero(warped_fm))
+    overlap_frac = overlap_px / frame_px if frame_px > 0 else 0.0
+    if overlap_frac < 0.03:                 # need at least 3 % pixel overlap
+        return panorama, pano_mask, (tx, ty), f"No overlap: {overlap_frac:.1%}"
 
-    if overlap_ratio < 0.03:
-        return None, f"Insufficient overlap: {overlap_ratio:.1%}"
+    # ── Distance-transform blend ─────────────────────────────────────────────
+    dist1 = cv2.distanceTransform(new_mask,  cv2.DIST_L2, 5).astype(np.float32)
+    dist2 = cv2.distanceTransform(warped_fm, cv2.DIST_L2, 5).astype(np.float32)
 
-    # --- Warp images ---
-    warped_img2 = cv2.warpPerspective(img2, T @ H, (out_w, out_h))
+    d_sum = dist1 + dist2 + 1e-6
+    w1 = cv2.GaussianBlur(dist1 / d_sum, (31,31), 10)
+    w2 = cv2.GaussianBlur(dist2 / d_sum, (31,31), 10)
+    # renormalize
+    ws = w1 + w2 + 1e-6
+    w1, w2 = w1/ws, w2/ws
 
-    # Create base canvas with img1
-    result = np.zeros((out_h, out_w, 3), dtype=np.uint8)
-    result[ty:ty + h1, tx:tx + w1] = img1
+    w1_3 = np.stack([w1]*3, axis=-1)
+    w2_3 = np.stack([w2]*3, axis=-1)
 
-    # --- Create precise masks ---
-    mask_img1 = np.zeros((out_h, out_w), dtype=np.uint8)
-    mask_img1[ty:ty + h1, tx:tx + w1] = 255
+    in_pano  = new_mask[:,:,None]  > 0
+    in_frame = warped_fm[:,:,None] > 0
+    both     = in_pano & in_frame
 
-    mask_img2 = np.zeros((out_h, out_w), dtype=np.uint8)
-    cv2.fillConvexPoly(mask_img2, np.int32(corners_t), 255)
+    result = new_pano.copy()
+    # frame-only region
+    result = np.where(in_frame & ~in_pano, warped_f, result)
+    # overlap — smooth blend
+    result = np.where(both,
+                      (new_pano.astype(np.float32)*w1_3
+                       + warped_f.astype(np.float32)*w2_3).astype(np.uint8),
+                      result)
 
-    # --- Distance transform blending for seamless seams ---
-    overlap_mask = cv2.bitwise_and(mask_img1, mask_img2)
+    new_mask_out = np.where((new_mask > 0) | (warped_fm > 0),
+                            np.uint8(255), np.uint8(0))
 
-    if cv2.countNonZero(overlap_mask) > 0:
-        # Distance transform creates smooth gradients
-        dist1 = cv2.distanceTransform(mask_img1, cv2.DIST_L2, 5)
-        dist2 = cv2.distanceTransform(mask_img2, cv2.DIST_L2, 5)
-
-        # Normalize distances
-        dist1_norm = dist1 / (dist1 + dist2 + 1e-6)
-        dist2_norm = dist2 / (dist1 + dist2 + 1e-6)
-
-        # Apply additional smoothing for extra seamlessness
-        dist1_norm = cv2.GaussianBlur(dist1_norm, (31, 31), 10)
-        dist2_norm = cv2.GaussianBlur(dist2_norm, (31, 31), 10)
-
-        # Renormalize after blur
-        dist_sum = dist1_norm + dist2_norm
-        dist_sum = np.maximum(dist_sum, 1e-6)
-        dist1_norm = dist1_norm / dist_sum
-        dist2_norm = dist2_norm / dist_sum
-
-        # Convert to 3-channel for RGB blending
-        dist1_3c = np.stack([dist1_norm] * 3, axis=-1)
-        dist2_3c = np.stack([dist2_norm] * 3, axis=-1)
-
-        # Blend in overlap region
-        overlap_3c = np.stack([overlap_mask] * 3, axis=-1) > 0
-        result = np.where(
-            overlap_3c,
-            (result.astype(float) * dist1_3c + warped_img2.astype(float) * dist2_3c).astype(np.uint8),
-            np.where(mask_img2[:, :, np.newaxis] > 0, warped_img2, result)
-        )
-    else:
-        # No overlap, just place img2
-        result = np.where(mask_img2[:, :, np.newaxis] > 0, warped_img2, result)
-
-    info = f"Success: {inlier_count} inliers ({inlier_ratio:.1%}), overlap={overlap_ratio:.1%}"
-    return result, info
-
+    return result, new_mask_out, (tx, ty), f"Blended overlap={overlap_frac:.1%}"
 
 def multiband_blend(img1, img2, mask1, mask2, levels=4):
     """
@@ -337,6 +305,7 @@ class IncrementalStitcher(Node):
         self.bridge = CvBridge()
 
         self.panorama = None
+        self.pano_mask = None
         self.frames_processed = 0
         self.frames_stitched = 0
 
@@ -416,51 +385,90 @@ class IncrementalStitcher(Node):
 
     def run_mapping(self):
         """
-        Process images in mapping_photos once, then finish.
+        Frame-to-frame affine estimation + global accumulation.
+        Recovery: if last frame fails, try up to 3 previous keyframes.
         """
-        while self.current_index < len(self.image_files) and self.frames_processed < self.max_frames:
-            image_path = self.image_files[self.current_index]
-            self.current_index += 1
+        WINDOW = 10          # how many recent keyframes to try on failure
+        keyframes = []      # list of (original_frame_small, H_at_time_of_stitching)
+
+        for image_path in self.image_files:
+            if self.frames_processed >= self.max_frames:
+                break
 
             frame = cv2.imread(image_path)
             if frame is None:
-                self.get_logger().warn(f"Failed to read image: {image_path}")
+                self.get_logger().warn(f"Cannot read: {image_path}")
                 continue
 
-            frame_small = cv2.resize(frame, (0, 0), fx=self.downscale, fy=self.downscale)
+            frame_small = cv2.resize(frame, (0,0), fx=self.downscale, fy=self.downscale)
+            self.frames_processed += 1
+            fname = os.path.basename(image_path)
 
-            self.get_logger().info(
-                f"Processing frame {self.frames_processed + 1} from {os.path.basename(image_path)}"
-            )
-
+            # ── Bootstrap ───────────────────────────────────────────────────────
             if self.panorama is None:
-                self.panorama = frame_small
-                self.get_logger().info("Initialized panorama with first frame")
+                self.panorama  = frame_small.copy()
+                self.pano_mask = np.full(frame_small.shape[:2], 255, dtype=np.uint8)
+                self.H_global  = np.eye(3, dtype=np.float64)
+                keyframes.append((frame_small.copy(), self.H_global.copy()))
                 self.frames_stitched = 1
-            else:
-                result, msg_str = stitch_pair(
-                    self.panorama,
-                    frame_small,
+                self.get_logger().info(f"Bootstrap: {fname}")
+                continue
+
+            # ── Try matching against recent keyframes (newest first) ────────────
+            candidates = list(reversed(keyframes[-WINDOW:]))   # newest → oldest
+            matched_H  = None
+            matched_ref_H = None
+
+            for ref_frame, ref_H in candidates:
+                H_rel, n_in, info = estimate_affine(
+                    ref_frame, frame_small,
                     min_matches=self.min_matches,
                     ratio=self.ratio_test,
-                    use_sift=self.use_sift,
-                    debug=False
+                    use_sift=self.use_sift
                 )
-
-                if result is not None:
-                    self.panorama = result
-                    self.frames_stitched += 1
-                    self.get_logger().info(
-                        f"✓ Stitched frame {self.frames_processed + 1} - {msg_str}"
-                    )
+                
+                if H_rel is not None:
+                    matched_H     = H_rel      # frame_small → ref_frame coords
+                    matched_ref_H = ref_H      # ref_frame   → panorama coords
+                    self.get_logger().info(f"✓ {fname}: {info}")
+                    break
                 else:
-                    self.get_logger().warn(
-                        f"✗ Failed frame {self.frames_processed + 1}: {msg_str}"
-                    )
+                    self.get_logger().warn(f"  retry {fname} vs older keyframe: {info}")
 
-            self.frames_processed += 1
+            if matched_H is None:
+                self.get_logger().warn(f"✗ Skipped {fname}: no candidate matched")
+                keyframes.append((frame_small.copy(), keyframes[-1][1]))  # inherit last good H
+                continue
+
+            # ── Compose: frame → panorama ────────────────────────────────────────
+            # H_global_new = matched_ref_H  @  matched_H
+            H_new_global = matched_ref_H @ matched_H
+
+            # ── Warp & blend ─────────────────────────────────────────────────────
+            result, new_mask, (tx, ty), blend_info = warp_and_blend(
+                self.panorama, self.pano_mask, frame_small, H_new_global
+            )
+
+            if "No overlap" in blend_info:
+                self.get_logger().warn(f"✗ {fname}: {blend_info}")
+                continue
+
+            # Update panorama + shift all stored H_globals by translation (tx, ty)
+            T_shift = np.array([[1,0,tx],[0,1,ty],[0,0,1]], dtype=np.float64)
+            self.panorama  = result
+            self.pano_mask = new_mask
+            self.H_global  = T_shift @ H_new_global   # absolute position of *last* frame
+
+            # Shift all stored keyframe Hs to match new canvas origin
+            keyframes = [(f, T_shift @ h) for f, h in keyframes]
+            keyframes.append((frame_small.copy(), self.H_global.copy()))
+
+            self.frames_stitched += 1
+            self.get_logger().info(f"  canvas: {self.panorama.shape[1]}x{self.panorama.shape[0]}  {blend_info}")
 
         self.finish_and_shutdown()
+
+            
 
     def finish_and_shutdown(self):
         if self.panorama is not None:

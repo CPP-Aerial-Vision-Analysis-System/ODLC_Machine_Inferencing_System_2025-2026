@@ -2,6 +2,7 @@
 
 # Configs
 MAVROS_CMD="ros2 launch mavros px4.launch fcu_url:=/dev/ttyUSB0:115200"
+# MAVROS_CMD="ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552"
 TRACKER_CMD="ros2 launch ultralytics_ros tracker.launch.xml"
 MAX_WAIT=30
 LOOP_DELAY=1
