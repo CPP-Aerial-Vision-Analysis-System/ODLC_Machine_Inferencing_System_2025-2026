@@ -61,7 +61,7 @@
 
   <!-- <node pkg="video_cam" exec="image_pub" output="screen"></node> -->
 
-  <node pkg="video_cam" exec="siyi" output="screen"></node>how
+  <node pkg="video_cam" exec="siyi" output="screen"></node>
 
   <node pkg="mapping" exec="trigger" output="screen"></node>
 

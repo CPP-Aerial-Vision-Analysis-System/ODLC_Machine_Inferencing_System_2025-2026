@@ -33,20 +33,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'working_pub = video_cam.working_pub:main',
-            'image_pub = video_cam.image_pub_siyi:main',
-            'image_pub_backup = video_cam.image_pub_siyi_backup:main',
-            'image_pub_siyi2 = video_cam.image_pub_siyi2:main',
-            'siyi2 = video_cam.siyi2:main',
-            'siyi_unified_pipeline = video_cam.siyi_node_refactored:main',
-            'siyi_unified_pipeline_new = video_cam.siyi_unified_pipeline_new:main',
-            'siyi_unified_pipeline_refactored = video_cam.siyi_node_refactored:main',
-            'image_pub_final = video_cam.image_pub_final:main',
-            'camera_control = video_cam.camera_control_client:main',
-            'object_detection = video_cam.object_detection:main',
-            'object_detection_sahi = video_cam.object_detection_sahi:main',
-            'object_detection_sahi_mobilenet = video_cam.object_detection_sahi_mobilenet:main',
-            'full_workflow = video_cam.full_workflow:main',
+            'image_pub = video_cam.image_pub:main',
+            'siyi = video_cam.siyi_node_refactored:main',
         ],
     },
 )

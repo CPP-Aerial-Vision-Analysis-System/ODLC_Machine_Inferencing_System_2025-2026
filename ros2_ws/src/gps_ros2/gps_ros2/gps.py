@@ -89,7 +89,7 @@ class GPSMavrosServiceNode(Node):
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
-        self.get_logger().info(f"{self.latest_gps}")
+        # self.get_logger().info(f"{self.latest_gps}")
 
     def pose_callback(self, msg: Float64):
         """Callback to store the latest yaw data (Z-axis rotation)."""

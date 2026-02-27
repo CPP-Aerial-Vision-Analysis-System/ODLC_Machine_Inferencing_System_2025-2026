@@ -94,7 +94,7 @@ class SiyiA8Publisher(Node):
         # Save photo flag
         self.capture_photo = False
 
-        self.timer = self.create_timer(0.1, self.camera_loop)
+        # self.timer = self.create_timer(0.1, self.camera_loop)
 
         # Camera setup
         self.latest_image_msg = None
@@ -255,6 +255,50 @@ class SiyiA8Publisher(Node):
         if msg.data:
             self.get_logger().info("Camera trigger received")
             self.capture_photo = True
+
+        self.camera_loop()  # Will replace with below once below works on jetson
+        
+        # if self.use_real_camera:
+        #     returnvalue, capturedFrame = self.capture.read()
+        #     if returnValue == True and capturedFrame is not None:
+        #         self.get_logger().info("Camera Frame Publishing", throttle_duration_sec=5.0)
+                    
+        #         # Convert to ROS message
+        #         if self.bridge is not None:
+        #             imageToTransmit = self.bridge.cv2_to_imgmsg(capturedFrame, encoding='bgr8')
+        #         else:
+        #             imageToTransmit = self.cv2_to_imgmsg_manual(capturedFrame, encoding='bgr8')
+
+        #         if self.capture_photo:
+        #             # self.get_logger().info("Capturing photo...")
+        #             self.publisher.publish(imageToTransmit)
+        #             timestamp = time.strftime("%Y%m%d-%H%M%S")
+        #             mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+        #             cv2.imwrite(mapping_filename, capturedFrame)                        # self.get_logger().info(f"Photo saved to {mapping_filename}")
+        #             self.capture_photo = False
+        #     else:
+        #             self.get_logger().warn("Failed to read frame from camera", throttle_duration_sec=10.0)
+
+        # else:
+        #     if self.latest_image_msg is not None:
+        #         self.get_logger().info("Camera Frame Publishing")
+        #         self.publisher.publish(self.latest_image_msg)
+
+        #         if self.capture_photo:
+        #             # self.get_logger().info("Capturing photo...")
+        #             if self.bridge is not None:
+        #                 cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, desired_encoding='bgr8')
+        #             else:
+        #                 cv_image = self.imgmsg_to_cv2_manual(self.latest_image_msg, desired_encoding='bgr8')
+
+        #             timestamp = time.strftime("%Y%m%d-%H%M%S")
+        #             mapping_filename = os.path.join(self.mapping_photo_path, f"mapping_photo_{timestamp}.jpg")
+        #             cv2.imwrite(mapping_filename, cv_image)
+        #             # self.get_logger().info(f"Photo saved to {mapping_filename}")
+        #             self.capture_photo = False
+        #     else:
+        #         self.get_logger().warn("No image received", throttle_duration_sec=5.0)
+
     
     def check_altitude(self, msg):
         current_alt = msg.data
@@ -305,7 +349,7 @@ class SiyiA8Publisher(Node):
                     self.get_logger().warn("Failed to read frame from camera", throttle_duration_sec=10.0)
             else:
                 if self.latest_image_msg is not None:
-                    self.get_logger().info("Camera Frame Publishing", throttle_duration_sec=10000.0)
+                    self.get_logger().info("Camera Frame Publishing")
                     self.publisher.publish(self.latest_image_msg)
 
                     # Save image

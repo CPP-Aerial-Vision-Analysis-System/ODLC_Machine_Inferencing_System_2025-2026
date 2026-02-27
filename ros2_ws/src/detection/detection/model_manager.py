@@ -63,7 +63,7 @@ def get_ros2_ws_directory() -> str:
     video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
     os.makedirs(video_cam_dir, exist_ok=True)
     
-    return video_cam_dir
+    return ros2_ws_dir
 
 def resolve_model_path(model_path, model_format, auto_convert, slice_height,
                        slice_width, tensorrt_workspace, device, logger):
