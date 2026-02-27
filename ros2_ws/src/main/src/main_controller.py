@@ -2,7 +2,8 @@
 
 import rclpy
 from rclpy.node import Node
-from main.msg import ImageResult
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from ultralytics_ros.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
 from sensor_msgs.msg import NavSatFix, Image
@@ -39,8 +40,9 @@ class MainController(Node):
         super().__init__('main_controller')
 
         # Subscribers
-        self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, 1)
-        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
+        detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, detection_qos)
+        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 10)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
@@ -67,6 +69,7 @@ class MainController(Node):
         self.human_wp = -1
         self.tent_wp = -1
         self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
+        self.last_nav_before_rtl = -1  # last physical nav waypoint before RTL
         self.param_manager = ParameterManager()
 
         self.fetch_mission_indices()
@@ -102,13 +105,16 @@ class MainController(Node):
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
+        self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
-        # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
-        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
+        # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
+        # since DigiCamCtrl commands don't fire WaypointReached.
+        trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
+
+        if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
             person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
             tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
-            # Update new_wp for both detections (MIGHT WORK LMAO)
-            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+            self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
             self.human_wp = self.last_before_rtl + 1
             self.tent_wp = self.last_before_rtl + 2
             
@@ -117,10 +123,10 @@ class MainController(Node):
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
             self.wait_to_send_wp = False
-            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+            self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
-        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
+        elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
                 person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
@@ -134,7 +140,7 @@ class MainController(Node):
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
-            if self.valid_detection("tent"):
+            elif self.valid_detection("tent"):
                 tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
                 self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
@@ -174,6 +180,24 @@ class MainController(Node):
         
     def waypoints_cb(self, msg: WaypointList):
         self.waypoints = msg.waypoints
+        self._update_last_nav_before_rtl()
+
+    def _update_last_nav_before_rtl(self):
+        """Find the last actual NAV waypoint index before RTL.
+        DigiCamCtrl (cmd 203) and other DO_ commands don't trigger WaypointReached,
+        so we need the index of the last physical navigation waypoint."""
+        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
+        self.last_nav_before_rtl = -1
+        if self.rtl_index > 0 and len(self.waypoints) > 0:
+            for i in range(self.rtl_index - 1, -1, -1):
+                if self.waypoints[i].command in NAV_COMMANDS:
+                    self.last_nav_before_rtl = i
+                    break
+        if self.last_nav_before_rtl >= 0:
+            self.get_logger().info(
+                f"Last nav WP before RTL: index {self.last_nav_before_rtl} "
+                f"(last_before_rtl={self.last_before_rtl}, rtl={self.rtl_index})"
+            )
 
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
