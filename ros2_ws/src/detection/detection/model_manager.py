@@ -65,8 +65,6 @@ def get_ros2_ws_directory() -> str:
     
     return video_cam_dir
 
-
-
 def resolve_model_path(model_path, model_format, auto_convert, slice_height,
                        slice_width, tensorrt_workspace, device, logger):
     """Resolve model path and determine final format. Returns (path, format) or (None, None)."""
@@ -114,8 +112,7 @@ def resolve_model_path(model_path, model_format, auto_convert, slice_height,
         engine_path = f"{base}.engine"
         if os.path.exists(engine_path):
             return engine_path, MODEL_FORMAT_TENSORRT
-        if model_path.endswith('.pt') and os.path.exists(model_path):
-            if _convert_pt_to_trt(model_path, engine_path, slice_height, slice_width, tensorrt_workspace, device, logger):
+        if model_path.endswith('.pt') and os.path.exists(model_path) and _convert_pt_to_trt(model_path, engine_path, slice_height, slice_width, tensorrt_workspace, device, logger):
                 return engine_path, MODEL_FORMAT_TENSORRT
         logger.error("TensorRT model required but not available")
         return None, None
@@ -123,25 +120,19 @@ def resolve_model_path(model_path, model_format, auto_convert, slice_height,
     # PyTorch explicit
     return model_path, MODEL_FORMAT_PYTORCH
 
-
 def load_sahi_model(resolved_path, final_format, confidence_threshold, device, logger):
     """Load a SAHI-wrapped detection model. Returns model or None."""
     if not SAHI_AVAILABLE:
         logger.error("SAHI not installed: pip install sahi")
         return None
     if not YOLO_AVAILABLE:
-        logger.error("Ultralytics not installed: pip install ultralytics")
+        logger.error("Ultralytics not installed: pip install ultralytics(make sure to get the correct versions if on Jetson)")
         return None
 
     # Pre-load GPU optimisation
     if device.startswith('cuda') and TORCH_AVAILABLE:
         try:
-            import gc
-            gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            torch.backends.cudnn.benchmark = True
-            torch.backends.cudnn.enabled = True
+            _setup_gpu_optimizations()
         except Exception as e:
             logger.debug(f"GPU pre-load setup: {e}")
 
@@ -173,7 +164,7 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device, l
 
         # TensorRT fallback to PyTorch
         if final_format == MODEL_FORMAT_TENSORRT:
-            pt_path = os.path.splitext(resolved_path)[0] + '.pt'
+            pt_path = f'{os.path.splitext(resolved_path)[0]}.pt'
             if os.path.exists(pt_path):
                 logger.warn(f"Falling back to PyTorch: {pt_path}")
                 try:
@@ -189,6 +180,14 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device, l
                     logger.error(f"PyTorch fallback also failed: {e2}")
         return None
 
+def _setup_gpu_optimizations():
+    """Pre-configure GPU memory and CUDA settings for optimal performance."""
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.enabled = True
 
 def warmup_model(model, slice_h, slice_w, overlap_h, overlap_w, logger):
     """Run a dummy inference to warm up the model."""
@@ -210,13 +209,10 @@ def warmup_model(model, slice_h, slice_w, overlap_h, overlap_w, logger):
     except Exception as e:
         logger.warn(f"Model warmup failed: {e}")
 
-
-
 def _detect_format(path: str) -> str:
     if path.endswith('.engine'):
         return MODEL_FORMAT_TENSORRT
     return MODEL_FORMAT_PYTORCH
-
 
 def _convert_pt_to_trt(pt_path, engine_path, slice_h, slice_w, workspace_gb, device, logger):
     """Convert .pt model to TensorRT .engine."""

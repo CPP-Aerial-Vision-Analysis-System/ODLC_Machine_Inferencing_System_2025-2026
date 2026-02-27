@@ -14,7 +14,6 @@ os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')
 import time
 import threading
 import queue
-import json
 from datetime import datetime
 from typing import List, Dict, Tuple
 
@@ -24,8 +23,6 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image
-from std_msgs.msg import String
 from interfaces.msg import ImageResult
 from mavros_msgs.msg import WaypointReached
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
@@ -92,8 +89,6 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
         # Instance state
         self.bridge = None
-        self.publisher = None
-        self.detection_publisher = None
         self.detection_pub = None
         self.timer = None
         self.gpu_cleanup_timer = None
@@ -158,9 +153,11 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.get_logger().warn(f"Camera feed dir missing, creating: {self.camera_feed_path}")
                 os.makedirs(self.camera_feed_path, exist_ok=True)
 
+            self.get_logger().info(f"Images dir: {self.camera_feed_path}")
             self.get_logger().info(f"Results dir: {self.detection_results_path}")
 
             # OpenCV hints for Jetson
+            # disables opencl and limits opencv. this helps us avoid cuda conflicts on jetson
             cv2.setNumThreads(0)
             cv2.ocl.setUseOpenCL(False)
 
@@ -168,7 +165,6 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.device = detect_device(self.get_logger())
             self.get_logger().info(f"Device: {self.device}")
 
-            # GPU memory tuning (returns possibly-adjusted slice params)
             if self.device.startswith('cuda'):
                 self.slice_height, self.slice_width, self.overlap_height_ratio, self.overlap_width_ratio = (
                     optimize_gpu_memory(
@@ -178,7 +174,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                         self.get_logger(),
                     )
                 )
-
+            # image conversion
             self.bridge = CvBridge()
             self.add_on_set_parameters_callback(self._parameter_callback)
 
@@ -203,17 +199,14 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
             qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
-            self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos)
-            self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos)
             self.detection_pub = self.create_publisher(ImageResult, '/image_detection', qos)
 
+            # service
             from std_srvs.srv import Trigger
             self.stats_service = self.create_service(Trigger, 'sahi/get_statistics', self._stats_srv_cb)
             self.health_service = self.create_service(Trigger, 'sahi/get_health', self._health_srv_cb)
-
-            self.waypoint_subscription = self.create_subscription(
-                WaypointReached, "/mavros/mission/reached", self._waypoint_cb, 10,
-            )
+            # subber
+            self.waypoint_subscription = self.create_subscription(WaypointReached, "/mavros/mission/reached", self._waypoint_cb, 10,)
 
             # Worker thread
             self.worker_stop.clear()
@@ -270,7 +263,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.destroy_timer(obj)
                 setattr(self, attr, None)
 
-        for attr in ('publisher', 'detection_publisher', 'detection_pub'):
+        for attr in ('detection_pub',):
             obj = getattr(self, attr, None)
             if obj is not None:
                 self.destroy_publisher(obj)
@@ -493,15 +486,15 @@ class SAHIObjectDetectionNode(LifecycleNode):
     # Publishing (message format consumed by main.py)
 
     def _publish_results(self, annotated: np.ndarray, detections: List[Dict], image_path: str) -> None:
-        """Publish annotated image, ImageResult, and detection-info JSON."""
-        if self.publisher is None or self.detection_pub is None or self.bridge is None:
+        """Publish ImageResult on /image_detection for main.py."""
+        if self.detection_pub is None or self.bridge is None:
             return
 
         try:
+            # Build a header with a current timestamp (used throughout the message)
             image_msg = self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
             image_msg.header.stamp = self.get_clock().now().to_msg()
             image_msg.header.frame_id = 'camera'
-            self.publisher.publish(image_msg)
 
             original_filename = os.path.basename(image_path)
             name, ext = os.path.splitext(original_filename)
@@ -557,25 +550,6 @@ class SAHIObjectDetectionNode(LifecycleNode):
             ir.descriptions = descriptions
 
             self.detection_pub.publish(ir)
-
-            n_people = sum(1 for d in detections if d['class'] == 'person')
-            n_tents = sum(1 for d in detections if d['class'] == 'tent')
-            n_objects = sum(1 for d in detections if d['class'] == 'object')
-
-            info = {
-                'image': original_filename,
-                'timestamp': datetime.now().isoformat(),
-                'num_people': n_people,
-                'num_tents': n_tents,
-                'num_objects': n_objects,
-                'total_detections': len(detections),
-                'method': method,
-                'slice_size': f"{self.slice_height}x{self.slice_width}",
-                'overlap': f"{self.overlap_height_ratio}x{self.overlap_width_ratio}",
-            }
-            info_msg = String()
-            info_msg.data = json.dumps(info, separators=(",", ":"))
-            self.detection_publisher.publish(info_msg)
 
         except Exception as e:
             self.get_logger().error(f"Publish error: {e}")
@@ -660,8 +634,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.overlap_width_ratio = DEFAULT_OVERLAP
         if self.check_interval < 0.1:
             self.check_interval = DEFAULT_CHECK_INTERVAL
-        if self.max_images_per_cycle < 1:
-            self.max_images_per_cycle = 1
+        self.max_images_per_cycle = max(self.max_images_per_cycle, 1)
 
     @staticmethod
     def _is_file_ready(path: str, min_age: float = 0.2) -> bool:

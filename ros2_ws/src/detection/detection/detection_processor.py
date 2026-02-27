@@ -22,15 +22,11 @@ except ImportError:
 # location. Only add classes you have empirically validated from aerial views.
 
 # Direct YOLO classes that map to "person"
-PERSON_CLASSES = frozenset({'person'})
+PERSON_CLASSES = frozenset({'person', 'mannequin'})
 
 # Classes that legitimately look like people from altitude (mannequins)
 PERSON_LIKE_CLASSES = frozenset({'doll', 'teddy bear'})
 
-# Classes that look like tents/tarps/shelters from aerial view.
-# NOTE: 'car', 'truck', 'bus', 'airplane', 'bench', 'surfboard', 'frisbee'
-# were previously included but are NOT tents. Including them causes dangerous
-# false positives where the drone flies to a parked car thinking it's a tent.
 TENT_LIKE_CLASSES = frozenset({
     'umbrella',   # umbrella canopy from above ≈ tent top
     'kite',       # flat fabric object from above
@@ -81,8 +77,7 @@ def run_sahi_detection(frame, model, slice_height, slice_width, overlap_h, overl
             detections.append(det)
 
     # Periodic GPU cache cleanup (every 10 images)
-    if enable_gpu_cleanup and device.startswith('cuda') and TORCH_AVAILABLE:
-        if images_processed % 10 == 0:
+    if enable_gpu_cleanup and device.startswith('cuda') and TORCH_AVAILABLE and images_processed % 10 == 0:
             cleanup_gpu()
 
     return detections

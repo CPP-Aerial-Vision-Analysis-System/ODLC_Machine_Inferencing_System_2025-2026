@@ -1,8 +1,7 @@
 import os
 import sys
 import gc
-from contextlib import contextmanager
-
+from contextlib import contextmanager, suppress
 try:
     import torch
     TORCH_AVAILABLE = True
@@ -38,22 +37,18 @@ def detect_device(logger) -> str:
 
     if torch.cuda.is_available():
         logger.info(f"CUDA GPU detected: {torch.cuda.get_device_name(0)}")
-        try:
+        with suppress(OSError, IOError):
             with open('/proc/device-tree/model', 'r') as f:
                 model = f.read()
                 if 'jetson' in model.lower():
                     logger.info(f"Platform: NVIDIA Jetson ({model.strip()})")
-        except (OSError, IOError, FileNotFoundError):
-            pass
         return "cuda:0"
 
     logger.warn("No GPU detected, using CPU")
-    try:
+    with suppress(OSError, IOError, FileNotFoundError):
         with open('/proc/device-tree/model', 'r') as f:
             if 'jetson' in f.read().lower():
                 logger.error("Jetson detected but GPU not available! Check CUDA install.")
-    except (OSError, IOError, FileNotFoundError):
-        pass
     return "cpu"
 
 
@@ -126,12 +121,10 @@ def optimize_gpu_memory(device, slice_height, slice_width, overlap_h, overlap_w,
 
 def cleanup_gpu():
     if TORCH_AVAILABLE:
-        try:
+        with suppress(Exception):
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-        except Exception:
-            pass
 
 
 def _estimate_slice_count(img_w, img_h, slice_w, slice_h, overlap_w, overlap_h):
