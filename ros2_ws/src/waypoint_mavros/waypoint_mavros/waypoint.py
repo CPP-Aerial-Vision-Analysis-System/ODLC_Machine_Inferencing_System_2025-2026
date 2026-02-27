@@ -181,7 +181,7 @@ class WaypointManager(Node):
                     new_waypoint.command = 16  # MAV_CMD_NAV_WAYPOINT
                     new_waypoint.is_current = False
                     new_waypoint.autocontinue = True
-                    new_waypoint.param1 = float(15)  # Hold time in seconds
+                    new_waypoint.param1 = float(3)  # Hold time in seconds
                     new_waypoint.param2 = float(0)  # Acceptance radius in meters
                     new_waypoint.param3 = float(0)  # Pass through waypoint
                     new_waypoint.param4 = float('nan')  # Yaw angle

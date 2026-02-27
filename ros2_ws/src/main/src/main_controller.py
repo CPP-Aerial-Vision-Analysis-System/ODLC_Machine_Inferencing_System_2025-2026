@@ -150,26 +150,26 @@ class MainController(Node):
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
-        if self.waypoint_reached == self.human_wp:
-            self.get_logger().info("Reached human waypoint, activating servo...")
-            self.send_ack("Reached human waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_human_servo() # Placeholder when testing out in simulation
-            # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
-            # time.sleep(2)
-            # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
-            # time.sleep(2)
-            self.change_mode("AUTO")
-        if self.waypoint_reached == self.tent_wp:
-            self.get_logger().info("Reached tent waypoint, activating servo...")
-            self.send_ack("Reached tent waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_tent_servo()
-            # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
-            # time.sleep(2)
-            # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
-            # time.sleep(2)
-            self.change_mode("AUTO")
+        # if self.waypoint_reached == self.human_wp:
+        #     self.get_logger().info("Reached human waypoint, activating servo...")
+        #     self.send_ack("Reached human waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_human_servo() # Placeholder when testing out in simulation
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
+        # if self.waypoint_reached == self.tent_wp:
+        #     self.get_logger().info("Reached tent waypoint, activating servo...")
+        #     self.send_ack("Reached tent waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_tent_servo()
+        #     # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
             
         
     def valid_detection(self, type):
