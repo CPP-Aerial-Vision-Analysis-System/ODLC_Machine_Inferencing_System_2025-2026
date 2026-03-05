@@ -51,7 +51,7 @@ MIN_FREE_SPACE_MB = 50
 REQUIRED_DOWNLOAD_SPACE_MB = 10
 WORKSPACE_SUBDIR = "video_cam"
 MAPPING_SUBDIR = "mapping_photos"  # Single directory for all images
-TRACKING_STATE_FILE = ".tracking_state.json"
+TRACKING_STATE_FILE = ".tracking_state.json" # redundant for now
 MIN_FILE_SIZE_BYTES = 1000
 ATOMIC_WRITE_SUFFIX = ".tmp"
 

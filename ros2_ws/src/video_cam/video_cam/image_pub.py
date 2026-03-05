@@ -84,7 +84,7 @@ class SiyiA8Publisher(Node):
             os.makedirs(self.mapping_photo_path)
         
         # Real camera flag
-        self.use_real_camera = False
+        self.use_real_camera = True
         self.get_logger().info(f"Using real camera: {self.use_real_camera}")
 
         # Altitude threshold flag
