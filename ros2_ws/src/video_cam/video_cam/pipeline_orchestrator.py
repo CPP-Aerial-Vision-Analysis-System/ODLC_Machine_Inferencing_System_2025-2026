@@ -41,12 +41,29 @@ class PipelineOrchestrator:
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
         
-        self._load_tracking_state()
+        # self._load_tracking_state()
         self._log('info', "Pipeline orchestrator initialized")
     
     def _log(self, level: str, message: str):
-        if self.logger:
-            getattr(self.logger, level, lambda x: None)(message)
+        if not self.logger:
+            return
+
+        try:
+            if level.lower() == 'info':
+                self.logger.info(message)
+            elif level.lower() == 'warn' or level.lower() == 'warning':
+                self.logger.warn(message)
+            elif level.lower() == 'error':
+                self.logger.error(message)
+            elif level.lower() == 'debug':
+                self.logger.debug(message)
+            else:
+                # fallback to info
+                self.logger.info(message)
+        except ValueError:
+            # ROS 2 logger can't change severity between calls
+            # fallback: print to console
+            print(f"{level.upper()}: {message}")
     
     @contextmanager
     def _acquire_pipeline(self):
@@ -84,6 +101,7 @@ class PipelineOrchestrator:
         
         try:
             directories = self.camera.get_directories()
+            # print (directories)
             if directories:
                 self.current_photo_dir = directories[-1]['path']
                 self._log('info', f"Photo directory: {self.current_photo_dir}")
@@ -112,18 +130,18 @@ class PipelineOrchestrator:
         except Exception as e:
             self._log('warn', f"Could not load existing files: {e}")
     
-    def _load_tracking_state(self):
-        """Load persistent tracking state"""
-        downloaded_files, last_photo_count = self.storage.load_tracking_state()
-        with self.download_lock:
-            self.downloaded_files = downloaded_files
-        self.last_photo_count = last_photo_count
+    # def _load_tracking_state(self):
+    #     """Load persistent tracking state"""
+    #     downloaded_files, last_photo_count = self.storage.load_tracking_state()
+    #     with self.download_lock:
+    #         self.downloaded_files = downloaded_files
+    #     self.last_photo_count = last_photo_count
     
-    def _save_tracking_state(self):
-        """Save persistent tracking state"""
-        with self.download_lock:
-            files_copy = self.downloaded_files.copy()
-        self.storage.save_tracking_state(files_copy, self.last_photo_count, self.photo_count)
+    # def _save_tracking_state(self):
+    #     """Save persistent tracking state"""
+    #     with self.download_lock:
+    #         files_copy = self.downloaded_files.copy()
+    #     self.storage.save_tracking_state(files_copy, self.last_photo_count, self.photo_count)
     
     def execute_pipeline(self) -> bool:
         """Execute complete 4-phase capture pipeline"""
@@ -165,7 +183,7 @@ class PipelineOrchestrator:
             
             elapsed = time.time() - start_time
             self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
-            self._save_tracking_state()
+            # self._save_tracking_state()
             return True
             
         except Exception as e:
