@@ -118,3 +118,9 @@ ros2 topic pub /camera/trigger std_msgs/msg/Bool "data: true" --once
 # Launch detection
 ros2 run detection object_detection_sahi
 ```
+
+ros2 topic echo /rosout | grep -i "siyi\|phase\|pipeline\|capture\|download\|index"
+
+ros2 topic echo /camera/status
+
+ros2 topic echo /mavros/statustext/send

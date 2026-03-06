@@ -40,7 +40,6 @@ class MainController(Node):
         super().__init__('main_controller')
 
         # Subscribers
-        # qos = quality of service
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, detection_qos)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 10)
@@ -102,7 +101,7 @@ class MainController(Node):
                     #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
-    
+
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
@@ -173,14 +172,12 @@ class MainController(Node):
             
         
     def valid_detection(self, type):
-        # if confidence is > 0 ? why
         if type in self.detections:
             if self.detections[type].confidence > 0:
                 return True
         return False
         
     def waypoints_cb(self, msg: WaypointList):
-        # stores wp list from mavros
         self.waypoints = msg.waypoints
         self._update_last_nav_before_rtl()
 
@@ -188,7 +185,7 @@ class MainController(Node):
         """Find the last actual NAV waypoint index before RTL.
         DigiCamCtrl (cmd 203) and other DO_ commands don't trigger WaypointReached,
         so we need the index of the last physical navigation waypoint."""
-        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
+        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}
         self.last_nav_before_rtl = -1
         if self.rtl_index > 0 and len(self.waypoints) > 0:
             for i in range(self.rtl_index - 1, -1, -1):
@@ -201,8 +198,7 @@ class MainController(Node):
                 f"(last_before_rtl={self.last_before_rtl}, rtl={self.rtl_index})"
             )
 
-    def get_waypoint(self, waypoint_index):
-        # get lat, lon, alt of an existing waypoint
+    def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
             lat = wp.x_lat
@@ -218,6 +214,7 @@ class MainController(Node):
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
             self.send_ack(f"{len(msg.detections.detections)} object(s) detected!")
             
+            #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
                 for result in detection.results:
                     obj_id = result.hypothesis.class_id
@@ -225,8 +222,6 @@ class MainController(Node):
                         obj_class = "person"
                     elif obj_id == "1":
                         obj_class = "tent"
-                    else:
-                        continue  # skip non-target detections (class_id "2" = object)
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS

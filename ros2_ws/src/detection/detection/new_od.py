@@ -78,7 +78,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
         self.declare_parameter('max_images_per_cycle', 5)
-        self.declare_parameter('max_camera_feed_images', 100)
+        self.declare_parameter('max_camera_feed_images', 1000)
         self.declare_parameter('min_detection_area', 25)
         self.declare_parameter('max_detection_area', 1000000)
         self.declare_parameter('min_aspect_ratio', 0.1)
@@ -137,6 +137,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self._model_wait_log_count = 0
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
+        #this is automatically called when we run node.trigger_configure() != TransitionCallbackReturn.SUCCESS:
         self.get_logger().info("Configuring node...")
         try:
             self._load_parameters()
@@ -185,15 +186,14 @@ class SAHIObjectDetectionNode(LifecycleNode):
             return TransitionCallbackReturn.FAILURE
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Activating node...")
+         #this is automatically called when we run node.trigger_activate() != TransitionCallbackReturn.SUCCESS:
+        self.get_logger().info("Activating Object Detection...")
         try:
             self._active = True
 
             # Background model load (may involve TRT conversion)
             self._model_ready.clear()
-            self._model_load_thread = threading.Thread(
-                target=self._background_model_load, daemon=True, name="model_loader",
-            )
+            self._model_load_thread = threading.Thread(target=self._background_model_load, daemon=True, name="model_loader",)
             self._model_load_thread.start()
             self.get_logger().info("Model loading in background...")
 
@@ -564,6 +564,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
         """Load model in a daemon thread so on_activate returns immediately."""
         try:
             self.get_logger().info("Resolving model path...")
+            initial_time = time.time()
+            
             resolved, fmt = resolve_model_path(
                 self.model_path, self.model_format, self.auto_convert_tensorrt,
                 self.slice_height, self.slice_width, self.tensorrt_workspace,
@@ -588,6 +590,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 model, self.slice_height, self.slice_width,
                 self.overlap_height_ratio, self.overlap_width_ratio, self.get_logger(),
             )
+
+            
+            self.get_logger().info("Log started at {initial_datetime}")
             self.get_logger().info("Model ready -- processing can begin")
         except Exception as e:
             import traceback
