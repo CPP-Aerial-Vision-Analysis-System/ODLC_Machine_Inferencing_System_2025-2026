@@ -123,6 +123,7 @@ class MainController(Node):
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
             self.wait_to_send_wp = False
+            self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
             self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
@@ -137,6 +138,7 @@ class MainController(Node):
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
+                self.send_ack(f"Only detected person, going to human @ {self.detections["person"].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
@@ -147,6 +149,7 @@ class MainController(Node):
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
+                self.send_ack(f"Only detected tent, going to tent @ {self.detections["tent"].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
