@@ -40,7 +40,6 @@ class MainController(Node):
         super().__init__('main_controller')
 
         # Subscribers
-        # qos = quality of service
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, detection_qos)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 10)
@@ -71,7 +70,6 @@ class MainController(Node):
         self.tent_wp = -1
         self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
         self.last_nav_before_rtl = -1  # last physical nav waypoint before RTL
-        
         self.param_manager = ParameterManager()
 
         self.fetch_mission_indices()
@@ -100,61 +98,94 @@ class MainController(Node):
                 value = changed_param.value
 
                 if name in {"num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"}:
+                    #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
     
+
     def update_waypoint_reached(self, msg):
-        self.waypoint_reached = msg.wp_seq
+        self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
         # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
         # since DigiCamCtrl commands don't fire WaypointReached.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
-        if self.waypoint_reached != trigger_wp or not self.wait_to_send_wp:
-            return
-
-        # Build the waypoint list from whatever was detected
-        wp_list = []
-        insert_index = self.last_before_rtl + 1
-
-        if self.valid_detection("person"):
-            result = self.get_waypoint(self.detections["person"].waypoint_index)
-            if result:
-                lat, lon, alt = result
-                self.human_wp = insert_index
-                wp_list.append({"lat": lat, "lon": lon, "alt": alt, "index": insert_index})
-
-        if self.valid_detection("tent"):
-            result = self.get_waypoint(self.detections["tent"].waypoint_index)
-            if result:
-                lat, lon, alt = result
-                self.tent_wp = insert_index
-                wp_list.append({"lat": lat, "lon": lon, "alt": alt, "index": insert_index})
-
-        if wp_list:
-            self.get_logger().info(f"Sending {len(wp_list)} waypoint(s) after index {self.last_before_rtl}")
-            self.send_waypoint_data(wp_list)
+        if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
+            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
+            self.human_wp = self.last_before_rtl + 1
+            self.tent_wp = self.last_before_rtl + 2
+            
+            self.send_waypoint_data([
+                {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
+                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
+            ])
             self.wait_to_send_wp = False
+            self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
+            self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
-        else:
-            self.get_logger().info("Trigger WP reached but no valid detections to send.")
 
+        elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
+            # If only one detection is valid, send that object waypoint
+            if self.valid_detection("person"):
+                person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                self.human_wp = self.last_before_rtl + 1
+                self.get_logger().info("Only person was detected")
+                self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
+                self.send_waypoint_data([
+                    {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
+                ])
+                self.wait_to_send_wp = False
+                self.send_ack(f"Only detected person, going to human @ {self.detections["person"].waypoint_index}")
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
+                self.last_before_rtl = -1
 
+            elif self.valid_detection("tent"):
+                tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                self.tent_wp = self.last_before_rtl + 1
+                self.send_waypoint_data([
+                    {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
+                ])
+                self.wait_to_send_wp = False
+                self.send_ack(f"Only detected tent, going to tent @ {self.detections["tent"].waypoint_index}")
+                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
+                self.last_before_rtl = -1
+        
+        # if self.waypoint_reached == self.human_wp:
+        #     self.get_logger().info("Reached human waypoint, activating servo...")
+        #     self.send_ack("Reached human waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_human_servo() # Placeholder when testing out in simulation
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
+        # if self.waypoint_reached == self.tent_wp:
+        #     self.get_logger().info("Reached tent waypoint, activating servo...")
+        #     self.send_ack("Reached tent waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_tent_servo()
+        #     # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
+            
+        
     def valid_detection(self, type):
-        # if confidence is > 0 ?
         if type in self.detections:
             if self.detections[type].confidence > 0:
                 return True
         return False
         
     def waypoints_cb(self, msg: WaypointList):
-        # stores wp list from mavros
         self.waypoints = msg.waypoints
         self._update_last_nav_before_rtl()
 
     def _update_last_nav_before_rtl(self):
-        # im so confused about this method
         """Find the last actual NAV waypoint index before RTL.
         DigiCamCtrl (cmd 203) and other DO_ commands don't trigger WaypointReached,
         so we need the index of the last physical navigation waypoint."""
@@ -171,8 +202,7 @@ class MainController(Node):
                 f"(last_before_rtl={self.last_before_rtl}, rtl={self.rtl_index})"
             )
 
-    def get_waypoint(self, waypoint_index):
-        # get lat, lon, alt of an existing waypoint
+    def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
             lat = wp.x_lat
@@ -186,8 +216,8 @@ class MainController(Node):
     def image_result_cb(self, msg):
         if msg.detections.detections:
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
-            self.send_ack(f"{len(msg.detections.detections)} object(s) detected!")
             
+            #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
                 for result in detection.results:
                     obj_id = result.hypothesis.class_id
@@ -195,8 +225,6 @@ class MainController(Node):
                         obj_class = "person"
                     elif obj_id == "1":
                         obj_class = "tent"
-                    else:
-                        continue  # skip non-target detections (class_id "2" = object)
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
