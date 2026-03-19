@@ -7,17 +7,13 @@ class ParameterManager(Node):
     def __init__(self):
         super().__init__('parameter_manager')
 
-        # self.tracknode_client = self.create_client(GetParameters, "tracker_node/get_parameters")
         self.waypoint_client = self.create_client(GetParameters, "waypoint_manager/get_parameters")
 
         self._wait_for_services()
 
         # Wait for all services to be available
     def _wait_for_services(self):
-        clients = [
-            # ('tracker_node/get_parameters', self.tracknode_client),
-            ('waypoint_manager/get_parameters', self.waypoint_client),
-        ]
+        clients = [('waypoint_manager/get_parameters', self.waypoint_client),]
         for name, client in clients:
             while not client.wait_for_service(timeout_sec=1.0):
                 self.get_logger().info(f'{name} service not available, waiting...')

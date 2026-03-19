@@ -207,6 +207,7 @@ class StorageManager:
             
         except Exception:
             return False
+   
     def verify_image_integrity(self, img: np.ndarray) -> bool:
         """Verify image is not corrupted (minimum dimension check)."""
         try:

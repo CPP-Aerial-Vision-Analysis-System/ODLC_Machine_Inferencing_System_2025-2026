@@ -124,3 +124,43 @@ ros2 topic echo /rosout | grep -i "siyi\|phase\|pipeline\|capture\|download\|ind
 ros2 topic echo /camera/status
 
 ros2 topic echo /mavros/statustext/send
+
+## Use these exactly (all currently supported command names in /camera/command):
+```bash
+
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'capture', parameter: '4K'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'autofocus', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_manual', parameter: 'in'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_absolute', parameter: '4.5'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_auto', parameter: '8.0'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_range', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_current', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'focus_manual', parameter: 'far'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_rotate', parameter: '30,-20'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_stop', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_center', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_attitude', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_set_angles', parameter: '15,-25'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_set_axis', parameter: 'yaw,10'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_mode_get', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_mode_set', parameter: 'lock'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_distance', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_target', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_state_get', parameter: ''}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_state_set', parameter: 'on'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_stream', parameter: 'enable,4'}"
+ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'sd_format', parameter: 'yes'}"
+```
+
+### Useful valid parameter alternatives:
+```bash
+
+autofocus supports "640,360" (x,y touch point).
+zoom_manual supports in, out, stop.
+focus_manual supports far, near, stop.
+gimbal_set_axis supports yaw,angle or pitch,angle.
+gimbal_mode_set supports lock, follow, fpv.
+laser_state_set supports on/off (also true/false, 1/0, enable/disable).
+laser_stream supports "", "disable", "4", or "enable,4".
+capture supports "" (defaults to 4K), or 4K / 2.7K / 1080P.
+```
