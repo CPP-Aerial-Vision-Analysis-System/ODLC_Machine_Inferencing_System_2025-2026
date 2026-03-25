@@ -1,0 +1,13 @@
+# we probably dont need this, will need to take a look at it 
+
+# Request
+string command      # e.g. capture, autofocus, zoom_manual, gimbal_rotate,
+					# gimbal_set_angles, laser_distance, sd_format
+string parameter    # Optional command parameter, usually CSV text
+					# e.g. "15,-20", "lock", "on", "yes"
+
+---
+
+# Response
+bool success        # True if command executed successfully
+string message      # JSON payload with detailed result or error

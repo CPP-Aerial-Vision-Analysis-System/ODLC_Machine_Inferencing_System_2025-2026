@@ -8,12 +8,13 @@ from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
 
+import json
 import os
 import cv2
 import time
 import numpy as np
 from threading import Lock, Event, Thread
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 try:
     from cv_bridge import CvBridge
@@ -34,7 +35,7 @@ from .config import (
     DEFAULT_MIN_FREE_SPACE_MB,
     PHOTO_RESOLUTIONS,
 )
-from .camera_interface import CameraInterface
+from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
 from .pipeline_orchestrator import PipelineOrchestrator, PipelineError
 
@@ -59,6 +60,9 @@ class SIYINode(Node):
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
+
+        # Unified command topic for camera/gimbal controls from other nodes or CLI
+        self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
         
         # Simulation mode subscriber
         if not self.use_real_camera:
@@ -67,6 +71,7 @@ class SIYINode(Node):
         # State
         self.camera_enabled = True
         self.config_lock = Lock()
+        self.camera_control_lock = Lock()
         self.capture_requested = Event()
         
         # Simulation mode
@@ -179,6 +184,7 @@ class SIYINode(Node):
     def _log_initialization_complete(self):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
         self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
+        self.get_logger().info("Command service ready at /camera/command")
     
     def _pipeline_loop(self):
         # Main execution loop. Execute capture pipeline when triggered (in separate thread)
@@ -214,7 +220,8 @@ class SIYINode(Node):
     def _execute_real_camera_capture(self):
         """Execute real camera capture pipeline"""
         try:
-            success = self.pipeline.execute_pipeline()
+            with self.camera_control_lock:
+                success = self.pipeline.execute_pipeline()
             
             if success:
                 stats = self.pipeline.get_stats()
@@ -234,6 +241,267 @@ class SIYINode(Node):
             self.get_logger().error(f"Pipeline error: {e}")
             self._send_status(f"FAILED: {e}")
             self._publish_camera_status(f"FAILURE: {e}")
+
+    @staticmethod
+    def _result_payload(ok: bool, **kwargs: Any) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {'ok': ok}
+        payload.update(kwargs)
+        return payload
+
+    @staticmethod
+    def _split_csv(parameter: str, expected_len: int) -> List[str]:
+        parts = [item.strip() for item in parameter.split(',') if item.strip()]
+        if len(parts) != expected_len:
+            raise ValueError(
+                f"Expected {expected_len} CSV values, got {len(parts)}"
+            )
+        return parts
+
+    @staticmethod
+    def _parse_switch(value: str) -> bool:
+        normalized = value.strip().lower()
+        if normalized in {'on', '1', 'true', 'enable', 'enabled'}:
+            return True
+        if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
+            return False
+        raise ValueError("Switch value must be on/off (or true/false, 1/0)")
+
+    def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
+        if not self.use_real_camera or self.camera is None:
+            return self._result_payload(
+                False,
+                error='Camera command service requires use_real_camera=true',
+            )
+
+        cmd = command.strip().lower().replace('-', '_')
+        param = parameter.strip()
+
+        # Capture command is queued through the existing pipeline trigger path.
+        if cmd == 'capture':
+            resolution = '4K'
+            if param:
+                resolution = param.upper()
+                if resolution not in PHOTO_RESOLUTIONS:
+                    raise ValueError(
+                        f"Invalid resolution '{resolution}'. Valid: {sorted(PHOTO_RESOLUTIONS.keys())}"
+                    )
+
+            if self.pipeline is not None:
+                if self.pipeline.is_busy():
+                    return self._result_payload(False, action='capture', error='Pipeline is busy')
+                self.pipeline.set_resolution(resolution)
+
+            self.capture_requested.set()
+            return self._result_payload(True, action='capture', queued=True,
+                                        resolution=resolution)
+
+        if self.pipeline is not None and self.pipeline.is_busy():
+            return self._result_payload(False, action=cmd, error='Pipeline is busy')
+
+        if cmd == 'autofocus':
+            x = 0
+            y = 0
+            if param:
+                x_raw, y_raw = self._split_csv(param, 2)
+                x = int(x_raw)
+                y = int(y_raw)
+            ok = self.camera.auto_focus(touch_x=x, touch_y=y)
+            return self._result_payload(ok, action='autofocus', touch_x=x, touch_y=y)
+
+        if cmd == 'zoom_manual':
+            direction_map = {'in': 1, 'out': -1, 'stop': 0}
+            direction = param.lower()
+            if direction not in direction_map:
+                raise ValueError("zoom_manual parameter must be one of: in, out, stop")
+            value = self.camera.manual_zoom(direction_map[direction])
+            return self._result_payload(
+                value is not None,
+                action='zoom_manual',
+                direction=direction,
+                zoom_x=value,
+            )
+
+        if cmd in {'zoom_absolute', 'zoom_auto'}:
+            if not param:
+                raise ValueError(f"{cmd} requires a zoom multiple, e.g. 4.5")
+            multiple = float(param)
+            ok = self.camera.absolute_zoom_autofocus(multiple)
+            return self._result_payload(ok, action=cmd, target_zoom_x=multiple)
+
+        if cmd == 'zoom_range':
+            data = self.camera.get_supported_zoom_range()
+            return self._result_payload(data is not None, action='zoom_range', data=data)
+
+        if cmd == 'zoom_current':
+            value = self.camera.get_current_zoom_magnification()
+            return self._result_payload(value is not None, action='zoom_current', zoom_x=value)
+
+        if cmd == 'focus_manual':
+            direction_map = {'far': 1, 'near': -1, 'stop': 0}
+            direction = param.lower()
+            if direction not in direction_map:
+                raise ValueError("focus_manual parameter must be one of: far, near, stop")
+            ok = self.camera.manual_focus(direction_map[direction])
+            return self._result_payload(ok, action='focus_manual', direction=direction)
+
+        if cmd == 'gimbal_rotate':
+            yaw_raw, pitch_raw = self._split_csv(param, 2)
+            yaw = int(yaw_raw)
+            pitch = int(pitch_raw)
+            ok = self.camera.rotate_gimbal(yaw_speed=yaw, pitch_speed=pitch)
+            return self._result_payload(ok, action='gimbal_rotate', yaw=yaw, pitch=pitch)
+
+        if cmd == 'gimbal_stop':
+            ok = self.camera.stop_gimbal_rotation()
+            return self._result_payload(ok, action='gimbal_stop')
+
+        if cmd == 'gimbal_center':
+            ok = self.camera.center_gimbal()
+            return self._result_payload(ok, action='gimbal_center')
+
+        if cmd == 'gimbal_attitude':
+            data = self.camera.request_gimbal_attitude()
+            return self._result_payload(data is not None, action='gimbal_attitude', data=data)
+
+        if cmd == 'gimbal_set_angles':
+            yaw_raw, pitch_raw = self._split_csv(param, 2)
+            yaw = float(yaw_raw)
+            pitch = float(pitch_raw)
+            data = self.camera.set_gimbal_angles(yaw_deg=yaw, pitch_deg=pitch)
+            return self._result_payload(
+                data is not None,
+                action='gimbal_set_angles',
+                target_yaw_deg=yaw,
+                target_pitch_deg=pitch,
+                data=data,
+            )
+
+        if cmd == 'gimbal_set_axis':
+            axis_raw, angle_raw = self._split_csv(param, 2)
+            axis = axis_raw.lower()
+            angle = float(angle_raw)
+            data = self.camera.set_single_axis_angle(axis=axis, angle_deg=angle)
+            return self._result_payload(
+                data is not None,
+                action='gimbal_set_axis',
+                axis=axis,
+                target_angle_deg=angle,
+                data=data,
+            )
+
+        if cmd == 'gimbal_mode_get':
+            mode = self.camera.get_gimbal_mode()
+            return self._result_payload(mode is not None, action='gimbal_mode_get', mode=mode)
+
+        if cmd == 'gimbal_mode_set':
+            if not param:
+                raise ValueError("gimbal_mode_set requires one of: lock, follow, fpv")
+            mode = param.lower()
+            ok = self.camera.set_gimbal_motion_mode(mode)
+            mode_after = self.camera.get_gimbal_mode()
+            return self._result_payload(
+                ok,
+                action='gimbal_mode_set',
+                mode_requested=mode,
+                mode_after=mode_after,
+            )
+
+        if cmd == 'laser_distance':
+            distance_m = self.camera.request_laser_distance_measurement()
+            return self._result_payload(
+                distance_m is not None,
+                action='laser_distance',
+                distance_m=distance_m,
+            )
+
+        if cmd == 'laser_target':
+            data = self.camera.request_laser_target_longitude_latitude()
+            return self._result_payload(data is not None, action='laser_target', data=data)
+
+        if cmd == 'laser_state_get':
+            state = self.camera.get_laser_state()
+            return self._result_payload(state is not None, action='laser_state_get', laser_on=state)
+
+        if cmd == 'laser_state_set':
+            if not param:
+                raise ValueError("laser_state_set requires parameter on/off")
+            enabled = self._parse_switch(param)
+            ok = self.camera.set_laser_state(enabled)
+            state = self.camera.get_laser_state()
+            return self._result_payload(
+                ok,
+                action='laser_state_set',
+                requested='on' if enabled else 'off',
+                laser_on=state,
+            )
+
+        if cmd == 'laser_stream':
+            if not param:
+                enable = True
+                frequency = 4
+            else:
+                parts = [item.strip() for item in param.split(',') if item.strip()]
+                if len(parts) == 1:
+                    if parts[0].isdigit():
+                        enable = True
+                        frequency = int(parts[0])
+                    else:
+                        enable = self._parse_switch(parts[0])
+                        frequency = 4
+                elif len(parts) == 2:
+                    enable = self._parse_switch(parts[0])
+                    frequency = int(parts[1])
+                else:
+                    raise ValueError("laser_stream format: enable,4 or disable")
+
+            ok = self.camera.configure_laser_distance_stream(enable=enable, frequency=frequency)
+            return self._result_payload(
+                ok,
+                action='laser_stream',
+                enable=enable,
+                frequency=frequency,
+            )
+
+        if cmd == 'sd_format':
+            if param.lower() != 'yes':
+                raise ValueError("sd_format is destructive; pass parameter yes to continue")
+            ok = self.camera.format_sd_card()
+            return self._result_payload(ok, action='sd_format')
+
+        raise ValueError(f"Unsupported command: {command}")
+
+    def camera_command_callback(self, msg: String):
+        """Handle camera control commands from topic."""
+        try:
+            # Try parsing as JSON first
+            try:
+                data = json.loads(msg.data)
+                command = data.get('command', '')
+                parameter = data.get('parameter', '')
+            except json.JSONDecodeError:
+                # Fallback to simple format block: "command parameter"
+                parts = msg.data.split(' ', 1)
+                command = parts[0]
+                parameter = parts[1] if len(parts) > 1 else ''
+            
+            with self.camera_control_lock:
+                result = self._execute_camera_command(command, parameter)
+
+            success = bool(result.get('ok', False))
+            
+            if success:
+                self._publish_camera_status(f"CMD SUCCESS: {command}")
+                self.get_logger().info(f"Camera command success: {command}")
+            else:
+                self._publish_camera_status(f"CMD FAILED: {command} - {result.get('error', 'Unknown')}")
+                self.get_logger().error(f"Camera command failed: {command} - {result.get('error', 'Unknown')}")
+
+        except (ValueError, CameraConnectionError, OSError) as exc:
+            self._publish_camera_status(f"CMD ERROR: {msg.data}")
+            self.get_logger().error(f"Camera command error for {msg.data}: {exc}")
+        except Exception as exc:
+            self.get_logger().error(f"Unexpected camera command error for {msg.data}: {exc}")
+            self._publish_camera_status(f"CMD ERROR: {msg.data}")
     
     def _execute_simulation_capture(self):
         """Execute simulation capture (save current image)"""
@@ -247,6 +515,9 @@ class SIYINode(Node):
                 cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
             else:
                 cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
+            
+            # Rotate image to fix upside-down physical mounting
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
             
             # Save to mapping directory
             timestamp = time.strftime("%Y%m%d-%H%M%S")

@@ -3,8 +3,9 @@ from rclpy.node import Node
 
 from mavros_msgs.msg import StatusText
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
-
+from std_msgs.msg import Bool
 import os
+import shutil
 
 class KillNode(Node):
     
@@ -21,7 +22,12 @@ class KillNode(Node):
         #create a publisher to send kill commands
         self.message_sender = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
+        # Instance variables for photo transfering
+        self.src_folder = "/home/astra-dev/astra/ros2_ws/src/video_cam/mapping_photos"
+        self.dst_folder = "/home/astra-dev/astra/ros2_ws/src/video_cam/camera_feed"
+        
         self.get_logger().info('KillNode initialized and listening for shutdown commands.')     
+        self.send_back("Killnode is here")
 
 
     def listener_callback(self, msg):
@@ -29,9 +35,13 @@ class KillNode(Node):
             self.get_logger().warn('Jetson Shutdown Triggered. Shutting down...')
             self.send_back("Shutdown command received.") #send feedback to gcs
             #self.shutdown_nodes() #shutdown all nodes
+            # First transfers all the photos
+            self.transfer_photos()
+            self.get_logger().info("Transfering completed")
+            self.send_back("Transfering Completed, shutting down now")
             self.shutdown_jetson() #shutdown the jetson
 
-    
+
     def send_back(self, text):
         # feedback to gcs (mission planner in messages tab)
         msg = StatusText()
@@ -56,6 +66,14 @@ class KillNode(Node):
     #           except subprocess.CalledProcessError as e:
     #                self.get_logger().warn(f'Failed to kill node {node_name}: {e}')
                 
+    def transfer_photos(self):
+        os.makedirs(self.dst_folder, exist_ok = True)
+        
+        for file in os.listdir(self.src_folder):
+            if file.lower().endswith((".png", ".jpg", ".jpeg")):
+                src_path = os.path.join(self.src_folder, file)
+                dst_path = os.path.join(self.dst_folder, file)
+                shutil.move(src_path, dst_path)
 
     def shutdown_jetson(self):
         self.get_logger().info('Executing Jetson shutdown command...')

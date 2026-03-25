@@ -32,7 +32,7 @@ fi
 #   UDP (SITL / companion):    udp://:14552@localhost:14552
 FCU_URL="${FCU_URL:-/dev/ttyUSB0:115200}"
 
-MAVROS_CMD="ros2 launch mavros apm.launch fcu_url:=$FCU_URL"
+MAVROS_CMD="ros2 launch mavros px4.launch fcu_url:=$FCU_URL"
 # MAVROS_CMD="ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552"
 
 # Use the project's own tracker launch (main package)

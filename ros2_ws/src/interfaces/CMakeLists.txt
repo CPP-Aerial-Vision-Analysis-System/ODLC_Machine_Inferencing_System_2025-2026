@@ -17,6 +17,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/DelWaypoint.srv"
   "srv/UpdateMission.srv"
   "srv/GetGPSData.srv"
+  "srv/CameraCommand.srv"
 )
 
 if(BUILD_TESTING)
