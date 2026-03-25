@@ -49,6 +49,9 @@ class SIYINode(Node):
         self._declare_parameters()
         self._load_parameters()
         
+        # Capture Flag
+        self.capture_flag = False
+
         # ROS Publishers
         self.image_pub = self.create_publisher(Image, 'image_raw', 10)
         self.status_pub = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
@@ -186,13 +189,14 @@ class SIYINode(Node):
         with self.config_lock:
             camera_enabled = self.camera_enabled
         
-        if not camera_enabled:
+        if not camera_enabled or not self.capture_flag:
             return
         
-        # Handle capture requests
-        if self.capture_requested.is_set():
-            self.capture_requested.clear()
-            self._handle_capture_request()
+        # # Handle capture requests
+        # if self.capture_requested.is_set():
+
+        self.capture_requested.clear()
+        self._handle_capture_request()
 
         self._publish_disk_status()
     
@@ -333,7 +337,8 @@ class SIYINode(Node):
         """Handle capture trigger requests"""
         if msg.data:
             self.get_logger().info("Capture trigger received!")
-            self.capture_requested.set()
+            self.capture_flag = msg.data
+            #self.capture_requested.set()
         else:
             self.get_logger().debug("Trigger received with data=False, ignoring")
     
