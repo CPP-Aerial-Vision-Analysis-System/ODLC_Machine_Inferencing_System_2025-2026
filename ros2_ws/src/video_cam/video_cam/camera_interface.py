@@ -209,7 +209,8 @@ class CameraInterface:
                 self._log('warn', 
                     f"Resolution {resolution} not verified - using 4K for safety")
                 resolution = '4K'
-            
+
+            # The .get in here is just a dictionary lookup. in CAPTURE_COMMANDS
             capture_command = CAPTURE_COMMANDS.get(resolution, CAPTURE_COMMANDS['4K'])
             
             # Send UDP packet for the camera (actual signal to capture)

@@ -60,6 +60,7 @@ class WaypointManager(Node):
                 if i - 1 > 0:
                     self.last_before_rtl = i - 1
 
+
         self.get_logger().info(f"Takeoff Index: {self.takeoff_index}, Next After Takeoff: {self.next_after_takeoff}, Last Before RTL: {self.last_before_rtl}, RTL Index: {self.rtl_index}")
         
         self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, len(self.waypoint_list.waypoints))])

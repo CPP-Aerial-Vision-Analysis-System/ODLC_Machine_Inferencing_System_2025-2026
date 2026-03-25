@@ -130,19 +130,6 @@ class PipelineOrchestrator:
         except Exception as e:
             self._log('warn', f"Could not load existing files: {e}")
     
-    # def _load_tracking_state(self):
-    #     """Load persistent tracking state"""
-    #     downloaded_files, last_photo_count = self.storage.load_tracking_state()
-    #     with self.download_lock:
-    #         self.downloaded_files = downloaded_files
-    #     self.last_photo_count = last_photo_count
-    
-    # def _save_tracking_state(self):
-    #     """Save persistent tracking state"""
-    #     with self.download_lock:
-    #         files_copy = self.downloaded_files.copy()
-    #     self.storage.save_tracking_state(files_copy, self.last_photo_count, self.photo_count)
-    
     def execute_pipeline(self) -> bool:
         """Execute complete 4-phase capture pipeline"""
         with self._acquire_pipeline():

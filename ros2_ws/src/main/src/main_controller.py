@@ -117,10 +117,11 @@ class MainController(Node):
             self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
             self.human_wp = self.last_before_rtl + 1
             self.tent_wp = self.last_before_rtl + 2
+            insert_base = self.last_before_rtl + 1
             
             self.send_waypoint_data([
-                {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
-                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
+                {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": insert_base},
+                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": insert_base + 1}
             ])
             self.wait_to_send_wp = False
             self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
