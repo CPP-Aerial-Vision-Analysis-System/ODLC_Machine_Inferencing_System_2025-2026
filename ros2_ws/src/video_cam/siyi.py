@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Downloads files from a Siyi camera connected via ethernet
+This is just a template script that downloads images from the SD to the jetson via ethernet.
 
 AP_FLAKE8_CLEAN
 """
