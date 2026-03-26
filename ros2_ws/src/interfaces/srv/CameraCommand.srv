@@ -1,5 +1,4 @@
-# Camera control service definition
-# Allows control of SIYI camera and gimbal functions from other ROS2 nodes
+# we probably dont need this, will need to take a look at it 
 
 # Request
 string command      # e.g. capture, autofocus, zoom_manual, gimbal_rotate,

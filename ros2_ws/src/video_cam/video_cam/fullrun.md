@@ -9,7 +9,7 @@ This guide shows how to capture images from the SIYI A8 Mini camera and automati
 cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
 colcon build 
 source install/setup.bash
-ros2 run video_cam siyi_unified_pipeline
+ros2 run video_cam siyi
 ```
 
 ### Terminal 2: Trigger Image Capture
@@ -32,34 +32,6 @@ When you trigger a capture, the unified pipeline executes:
 
 ## Where Images Are Saved
 
-Images are automatically saved to THREE locations:
-
-```
-ros2_ws/src/video_cam/
-├── downloaded_images/          # Original SD card filename (DSCF0001.JPG)
-├── camera_feed/               # Timestamped for processing
-└── mapping_photos/            # Timestamped for mapping + detection
-```
-
-**Example filenames:**
-- `downloaded_images/DSCF0001.JPG`
-- `camera_feed/photo_20260116-143022_DSCF0001.JPG`
-- `mapping_photos/mapping_photo_20260116-143022_DSCF0001.JPG`
-
-## Optional: Automatic Object Detection
-
-### Terminal 3: Launch Detection (Optional)
-```bash
-cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
-source install/setup.bash
-ros2 run detection object_detection_sahi
-```
-
-The detection node automatically:
-- Monitors `mapping_photos/` directory
-- Detects new images every 2 seconds
-- Processes with SAHI + YOLO26
-- Saves results to `src/detection/detection_results_sahi/`
 
 ## Using the Convenience Script
 
@@ -87,11 +59,12 @@ cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/video_cam
 # Set to 4K (default)
 ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '4K'"
 
-# Set to 2.7K
-ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '2.7K'"
+# not set for now 
+# # Set to 2.7K
+# ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '2.7K'"
 
-# Set to 1080P
-ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '1080P'"
+# # Set to 1080P
+# ros2 topic pub --once /camera/set_resolution std_msgs/msg/String "data: '1080P'"
 ```
 
 ## Monitoring Status
@@ -107,49 +80,39 @@ ros2 topic hz /image_raw
 ros2 node list | grep siyi
 ```
 
-**Quick Command Reference:**
-```bash
-# Launch camera pipeline
-ros2 run video_cam siyi_unified_pipeline
-
-# Trigger capture
-ros2 topic pub /camera/trigger std_msgs/msg/Bool "data: true" --once
-
-# Launch detection
-ros2 run detection object_detection_sahi
-```
-
 ros2 topic echo /rosout | grep -i "siyi\|phase\|pipeline\|capture\|download\|index"
-
-ros2 topic echo /camera/status
 
 ros2 topic echo /mavros/statustext/send
 
 ## Use these exactly (all currently supported command names in /camera/command):
 ```bash
 
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'capture', parameter: '4K'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'autofocus', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_manual', parameter: 'in'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_absolute', parameter: '4.5'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_auto', parameter: '8.0'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_range', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'zoom_current', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'focus_manual', parameter: 'far'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_rotate', parameter: '30,-20'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_stop', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_center', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_attitude', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_set_angles', parameter: '15,-25'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_set_axis', parameter: 'yaw,10'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_mode_get', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'gimbal_mode_set', parameter: 'lock'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_distance', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_target', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_state_get', parameter: ''}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_state_set', parameter: 'on'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'laser_stream', parameter: 'enable,4'}"
-ros2 service call /camera/command interfaces/srv/CameraCommand "{command: 'sd_format', parameter: 'yes'}"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'capture 4K'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'autofocus'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_manual in'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_absolute 4.5'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_auto 8.0'" # this is what i use max is 30.0
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_range'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_current'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'focus_manual far'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'sd_format yes'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_absolute 1.0'"
+
+#  # all the gimbal and lazer commands are not working (for now)
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_rotate 30, -20'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_stop'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_center'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_attitude'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_angles 15,-25'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_set_axis yaw,10'" 
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_mode_get'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'gimbal_mode_set lock'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'laser_distance'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'laser_target'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'laser_state_get'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'laser_state_set on'"
+# ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'laser_stream enable,4'"
+
 ```
 
 ### Useful valid parameter alternatives:

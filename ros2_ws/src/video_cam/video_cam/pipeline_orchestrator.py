@@ -3,6 +3,7 @@
 
 import time
 import numpy as np
+import cv2
 from threading import Lock
 from contextlib import contextmanager
 from typing import Optional, Set, Dict
@@ -259,10 +260,12 @@ class PipelineOrchestrator:
         return self.camera.download_image(file_info.get('url', ''))
     
     def _decode_and_verify(self, image_bytes: bytes) -> Optional[np.ndarray]:
-        """Decode and verify image"""
+        """Decode, verify, and rotate image (camera is mounted upside down)"""
         img = self.camera.decode_image(image_bytes)
         if img is None:
             return None
+        # I did this because the camera is upside down all the time (might not need this if its gonna work properly during flight)    
+        img = cv2.rotate(img, cv2.ROTATE_180)
         
         if not self.storage.verify_image_dimensions(img, self.current_resolution):
             self._log('warn', f"Image dimensions below expected for {self.current_resolution}")

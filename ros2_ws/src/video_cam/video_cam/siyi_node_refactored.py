@@ -62,8 +62,8 @@ class SIYINode(Node):
         self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
 
-        # Unified command service for camera/gimbal controls from other nodes
-        self.create_service(CameraCommand, '/camera/command', self.camera_command_callback)
+        # Unified command topic for camera/gimbal controls from other nodes or CLI
+        self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
         
         # Simulation mode subscriber
         if not self.use_real_camera:
@@ -471,35 +471,38 @@ class SIYINode(Node):
 
         raise ValueError(f"Unsupported command: {command}")
 
-    def camera_command_callback(self, request: CameraCommand.Request,
-                                response: CameraCommand.Response
-                                ) -> CameraCommand.Response:
-        """Handle camera control service calls from other ROS nodes."""
+    def camera_command_callback(self, msg: String):
+        """Handle camera control commands from topic."""
         try:
+            # Try parsing as JSON first
+            try:
+                data = json.loads(msg.data)
+                command = data.get('command', '')
+                parameter = data.get('parameter', '')
+            except json.JSONDecodeError:
+                # Fallback to simple format block: "command parameter"
+                parts = msg.data.split(' ', 1)
+                command = parts[0]
+                parameter = parts[1] if len(parts) > 1 else ''
+            
             with self.camera_control_lock:
-                result = self._execute_camera_command(request.command, request.parameter)
+                result = self._execute_camera_command(command, parameter)
 
-            response.success = bool(result.get('ok', False))
-            response.message = json.dumps(result, sort_keys=True)
-
-            if response.success:
-                self._publish_camera_status(f"CMD SUCCESS: {request.command}")
+            success = bool(result.get('ok', False))
+            
+            if success:
+                self._publish_camera_status(f"CMD SUCCESS: {command}")
+                self.get_logger().info(f"Camera command success: {command}")
             else:
-                self._publish_camera_status(f"CMD FAILED: {request.command}")
+                self._publish_camera_status(f"CMD FAILED: {command} - {result.get('error', 'Unknown')}")
+                self.get_logger().error(f"Camera command failed: {command} - {result.get('error', 'Unknown')}")
 
         except (ValueError, CameraConnectionError, OSError) as exc:
-            payload = self._result_payload(False, error=str(exc), command=request.command)
-            response.success = False
-            response.message = json.dumps(payload, sort_keys=True)
-            self._publish_camera_status(f"CMD ERROR: {request.command}")
+            self._publish_camera_status(f"CMD ERROR: {msg.data}")
+            self.get_logger().error(f"Camera command error for {msg.data}: {exc}")
         except Exception as exc:
-            self.get_logger().error(f"Unexpected camera command error: {exc}")
-            payload = self._result_payload(False, error=f"unexpected: {exc}")
-            response.success = False
-            response.message = json.dumps(payload, sort_keys=True)
-            self._publish_camera_status(f"CMD ERROR: {request.command}")
-
-        return response
+            self.get_logger().error(f"Unexpected camera command error for {msg.data}: {exc}")
+            self._publish_camera_status(f"CMD ERROR: {msg.data}")
     
     def _execute_simulation_capture(self):
         """Execute simulation capture (save current image)"""
@@ -513,6 +516,9 @@ class SIYINode(Node):
                 cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
             else:
                 cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
+            
+            # Rotate image to fix upside-down physical mounting
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
             
             # Save to mapping directory
             timestamp = time.strftime("%Y%m%d-%H%M%S")
