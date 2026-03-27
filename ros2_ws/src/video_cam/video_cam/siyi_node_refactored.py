@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIYI A8 Mini ROS2 Node."""
+"""SIYI Camera ROS2 Node."""
 
 import rclpy
 from rclpy.node import Node
@@ -222,25 +222,21 @@ class SIYINode(Node):
         """Execute real camera capture pipeline"""
         try:
             with self.camera_control_lock:
-                success = self.pipeline.execute_pipeline()
+                self.pipeline.execute_pipeline()
             
-            if success:
-                stats = self.pipeline.get_stats()
-                self._send_status(
-                    f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
-                self._publish_camera_status(
-                    f"SUCCESS: {stats['resolution']} image captured")
-                
-                # Publish the captured image
-                # Get the last saved image and publish it
-                self._publish_captured_image()
-            else:
-                self._send_status("FAILED: Capture pipeline error")
-                self._publish_camera_status("FAILURE: Capture pipeline error")
+            stats = self.pipeline.get_stats()
+            self._send_status(
+                f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
+            self._publish_camera_status(
+                f"SUCCESS: {stats['resolution']} image captured")
+            
+            # Publish the captured image
+            # Get the last saved image and publish it
+            self._publish_captured_image()
                 
         except PipelineError as e:
-            self.get_logger().error(f"Pipeline error: {e}")
-            self._send_status(f"FAILED: {e}")
+            self.get_logger().error(f"Pipeline error: {e}") # sends an error to  ROS logger so you see in the terminal 
+            self._send_status(f"FAILED: {e}") # publishes error as a mavros_msgs/msg/StatusText on the topic /mavros/statustext/send
             self._publish_camera_status(f"FAILURE: {e}")
 
     @staticmethod

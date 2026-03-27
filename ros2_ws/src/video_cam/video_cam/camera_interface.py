@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIYI A8 Mini camera interface — SDK + HTTP communication."""
+"""SIYI Camera interface —> SDK + HTTP communication."""
 
 import binascii #ask
 import cv2

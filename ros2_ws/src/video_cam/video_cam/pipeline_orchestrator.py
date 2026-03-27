@@ -19,7 +19,8 @@ from .storage_manager import StorageManager
 
 
 class PipelineError(Exception):
-    """Raised when pipeline execution fails"""
+    """Raised when pipeline execution fails
+        This gets assigned as {e} when we get errors, we give it some value then send it to execute"""
     pass
 
 class PipelineOrchestrator:
@@ -31,7 +32,7 @@ class PipelineOrchestrator:
         self.logger = logger
         
         self.pipeline_state = CaptureState.IDLE
-        self.state_lock = Lock()
+        self.state_lock = Lock() # pyhton built in thread locking class used to let only one thread enter at a time
         
         # Simple filename-only tracking
         self.downloaded_files: Set[str] = set()
@@ -66,12 +67,12 @@ class PipelineOrchestrator:
             # fallback: print to console
             print(f"{level.upper()}: {message}")
     
-    @contextmanager
+    @contextmanager # Decorator that introduces "with"
     def _acquire_pipeline(self):
         """Context manager for pipeline state. Always resets to IDLE on exit."""
-        with self.state_lock:
+        with self.state_lock: # study
             if self.pipeline_state != CaptureState.IDLE:
-                raise PipelineError("Pipeline already running")
+                raise PipelineError("Pipeline already running") 
             self.pipeline_state = CaptureState.CAPTURING
 
         try:
@@ -131,31 +132,33 @@ class PipelineOrchestrator:
         except Exception as e:
             self._log('warn', f"Could not load existing files: {e}")
     
-    def execute_pipeline(self) -> bool:
-        """Execute complete 4-phase capture pipeline"""
+    def execute_pipeline(self) -> None:
+        """Execute complete 3-phase capture pipeline. This is the start of everything"""
         with self._acquire_pipeline():
-            return self._run_phases()
+            self._run_phases()
     
-    def _run_phases(self) -> bool:
-        """Run all pipeline phases"""
-        start_time = time.time()
+    def _run_phases(self) -> None:
+        """Run all pipeline phases
+            calls all the phases one by one, if not, throw an error"""
+        start_time = time.time() # save time right before we begin our procedure
         
         try:
             self._log('info', "STARTING CAPTURE PIPELINE")
-            
+
             # Phase 1: Trigger capture
             if not self._phase1_capture():
-                raise PipelineError("Capture command failed")
+                raise PipelineError("Capture command failed") 
             
             time.sleep(0.5)  # Brief wait for SD write
             
             # Phase 2: Find new image on SD
+            # state lock, this is so the pipeline_state dont change
             with self.state_lock:
                 self.pipeline_state = CaptureState.INDEXING
             
             file_info = self._phase2_index()
             if not file_info:
-                raise PipelineError("Image not found on SD card")
+                raise PipelineError("Image not found on SD card") 
             
             # Phase 3: Download and save
             with self.state_lock:
@@ -163,7 +166,7 @@ class PipelineOrchestrator:
             
             filename, img = self._phase3_download(file_info)
             if not filename:
-                raise PipelineError("Download failed")
+                raise PipelineError("Download failed") 
             
             # Mark as downloaded
             with self.download_lock:
@@ -172,12 +175,15 @@ class PipelineOrchestrator:
             elapsed = time.time() - start_time
             self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
             # self._save_tracking_state()
-            return True
             
-        except Exception as e:
+        except PipelineError as e:
             elapsed = time.time() - start_time
             self._log('error', f"PIPELINE FAILED after {elapsed:.1f}s: {e}")
-            return False
+            raise
+        except Exception as e:
+            elapsed = time.time() - start_time
+            self._log('error', f"PIPELINE FAILED (Unknown Error) after {elapsed:.1f}s: {e}")
+            raise PipelineError(f"Unexpected error: {e}")
     
     def _phase1_capture(self) -> bool:
         """Phase 1: Trigger camera capture"""

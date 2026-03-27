@@ -153,33 +153,7 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"File verification error: {e}")
             return False
-   
-    # def save_tracking_state(self, downloaded_files: Set[str], last_photo_count: int, photo_count: int = 0, max_tracked_files: int = 500):
-    #     # This makes sure we dont redownload photos after we crash, restart, mission pause, etc..
-    #     try:
-    #         # Prune old entries
-    #         if len(downloaded_files) > max_tracked_files:
-    #             old_count = len(downloaded_files)
-    #             downloaded_files = set(list(downloaded_files)[:max_tracked_files])
-    #             self._log('info', f"Pruned tracking state: {old_count} → {max_tracked_files}")
             
-    #         data = {
-    #             'downloaded_files': list(downloaded_files),
-    #             'last_photo_count': last_photo_count,
-    #             'last_operation_time': time.strftime("%Y-%m-%d %H:%M:%S"),
-    #             'photo_count': photo_count
-    #         }
-            
-    #         # Atomic write
-    #         tmp_file = self.tracking_file + ATOMIC_WRITE_SUFFIX
-    #         with open(tmp_file, 'w') as f:
-    #             json.dump(data, f, indent=2)
-            
-    #         os.replace(tmp_file, self.tracking_file)
-            
-    #     except Exception as e:
-    #         self._log('warn', f"Could not save tracking state: {e}")
-    
     def get_mapping_dir(self) -> str:
         return self.mapping_dir
 
@@ -221,32 +195,3 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"Integrity check error: {e}")
             return True
-    # def load_tracking_state(self) -> Tuple[Set[str], int]:
-    #     """
-    #     Load persistent tracking state from disk.
-        
-    #     Returns:
-    #         Tuple of (downloaded_files_set, last_photo_count)
-    #     """
-    #     try:
-    #         if os.path.exists(self.tracking_file):
-    #             with open(self.tracking_file, 'r') as f:
-    #                 data = json.load(f)
-                
-    #             # Restore downloaded files set (simple filenames)
-    #             downloaded_files = set(data.get('downloaded_files', []))
-    #             last_photo_count = data.get('last_photo_count', 0)
-                
-    #             self._log('info', 
-    #                 f"Loaded tracking state: {len(downloaded_files)} files, "
-    #                 f"last count: {last_photo_count}")
-                
-    #             return downloaded_files, last_photo_count
-    #         else:
-    #             self._log('info', "No tracking state file found")
-    #             return set(), 0
-                
-    #     except Exception as e:
-    #         self._log('warn', f"Could not load tracking state: {e}")
-    #         return set(), 0
-    
