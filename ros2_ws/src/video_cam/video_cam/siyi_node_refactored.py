@@ -529,7 +529,7 @@ class SIYINode(Node):
             
             # Save to mapping directory
             timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"{self.latest_gps.latitude} , {self.latest_gps.longitude} , .jpg"
+            filename = f"{self.latest_gps.latitude} , {self.latest_gps.longitude}.jpg"
             mapping_dir = self.storage.get_mapping_dir()
             filepath = os.path.join(mapping_dir, filename)
             
