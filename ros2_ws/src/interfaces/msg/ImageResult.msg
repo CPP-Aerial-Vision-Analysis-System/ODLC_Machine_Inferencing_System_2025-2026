@@ -14,6 +14,8 @@ string method
 string slice_size
 string overlap
 int32 waypoint_index
+float32 longitude
+float32 latitude
 
 # ====== Optional object summary ======
 # (if you want to explicitly include the object info)

@@ -506,6 +506,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
             original_filename = os.path.basename(image_path)
             name, ext = os.path.splitext(original_filename)
+            parse_name = name.split(' , ')
+            lat = parse_name[0] if len(parse_name) > 0 else "Unknown"
+            long = parse_name[1] if len(parse_name) > 1 else "Unknown"
             output_path = os.path.join(self.detection_results_path, f"sahi_detected_{name}{ext}")
             cv2.imwrite(output_path, annotated)
 
@@ -524,6 +527,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
             ir.slice_size = f"{self.slice_height}x{self.slice_width}"
             ir.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
             ir.waypoint_index = self.waypoint_reached
+            ir.latitude = float(lat) if lat != "Unknown" else 0.0
+            ir.longitude = float(long) if long != "Unknown" else 0.0
 
             det_array = Detection2DArray()
             det_array.header = image_msg.header

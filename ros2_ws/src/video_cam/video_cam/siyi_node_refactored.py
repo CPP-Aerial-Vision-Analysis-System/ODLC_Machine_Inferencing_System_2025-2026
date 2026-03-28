@@ -3,7 +3,7 @@
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, NavSatFix
 from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
@@ -60,6 +60,7 @@ class SIYINode(Node):
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
+        self.create_subscription(NavSatFix,'/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
 
         # Unified command topic for camera/gimbal controls from other nodes or CLI
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
@@ -91,6 +92,8 @@ class SIYINode(Node):
         self.pipeline_timer = self.create_timer(NODE_LOOP_PERIOD, self._pipeline_loop)
         
         self._log_initialization_complete()
+
+        self.latest_gps = None
     
     def _declare_parameters(self):
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
@@ -265,6 +268,11 @@ class SIYINode(Node):
         if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
             return False
         raise ValueError("Switch value must be on/off (or true/false, 1/0)")
+
+    def gps_cb(self, msg):
+        """Callback to store the latest GPS data."""
+        self.latest_gps = msg
+        # self.get_logger().info(f"{self.latest_gps}")
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -521,7 +529,7 @@ class SIYINode(Node):
             
             # Save to mapping directory
             timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"mapping_photo_{timestamp}.jpg"
+            filename = f"{self.latest_gps.latitude} , {self.latest_gps.longitude} , .jpg"
             mapping_dir = self.storage.get_mapping_dir()
             filepath = os.path.join(mapping_dir, filename)
             

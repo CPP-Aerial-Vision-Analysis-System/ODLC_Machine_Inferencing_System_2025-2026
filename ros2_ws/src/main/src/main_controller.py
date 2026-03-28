@@ -30,10 +30,12 @@ TENT_SERVO_CHANNEL_2 = 12
 TENT_SERVOS_PWM= 1500
 
 class Detection_Object:
-    def __init__(self, type, confidence, waypoint_index):
+    def __init__(self, type, confidence, latitude, longitude):
         self.type = type          # person or tent
         self.confidence = confidence     
-        self.waypoint_index = waypoint_index # index > 0
+        # self.waypoint_index = waypoint_index # index > 0
+        self.lat = latitude
+        self.long = longitude
         
 class MainController(Node):
     def __init__(self):
@@ -76,8 +78,8 @@ class MainController(Node):
 
         self.waypoints = []
         self.detections = {
-            "person": Detection_Object(type="person", confidence=0, waypoint_index=0),
-            "tent": Detection_Object(type="tent", confidence=0, waypoint_index=0) 
+            "person": Detection_Object(type="person", confidence=0, latitude=0.0, longitude=0.0),
+            "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0) 
         }
 
     def fetch_mission_indices(self):
@@ -112,8 +114,14 @@ class MainController(Node):
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
         if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
-            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            person_lat = self.detections[obj_class].lat
+            person_lon = self.detections[obj_class].long 
+            person_alt = ALT
+
+            tent_lat = self.detections[obj_class].lat
+            tent_lon = self.detections[obj_class].long
+            tent_alt = ALT
+
             self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
             self.human_wp = self.last_before_rtl + 1
             self.tent_wp = self.last_before_rtl + 2
@@ -123,14 +131,16 @@ class MainController(Node):
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
             self.wait_to_send_wp = False
-            self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
+            # self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
             self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
         elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
-                person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                person_lat = self.detections[obj_class].lat
+                person_lon = self.detections[obj_class].long 
+                person_alt = ALT
                 self.human_wp = self.last_before_rtl + 1
                 self.get_logger().info("Only person was detected")
                 self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
@@ -138,18 +148,20 @@ class MainController(Node):
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected person, going to human @ {self.detections["person"].waypoint_index}")
+                # self.send_ack(f"Only detected person, going to human @ {self.detections['person'].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
             elif self.valid_detection("tent"):
-                tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                tent_lat = self.detections[obj_class].lat
+                tent_lon = self.detections[obj_class].long
+                tent_alt = ALT
                 self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected tent, going to tent @ {self.detections["tent"].waypoint_index}")
+                # self.send_ack(f"Only detected tent, going to tent @ {self.detections['tent'].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
@@ -234,7 +246,10 @@ class MainController(Node):
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
-                            self.detections[obj_class].waypoint_index = msg.waypoint_index
+                            # self.detections[obj_class].waypoint_index = msg.waypoint_index
+                            self.detections[obj_class].lat = msg.latitude
+                            self.detections[obj_class].long = msg.longitude
+                            self.get_logger().info(f"Obj at long: {self.detections[obj_class].long}, lat: {self.detections[obj_class].lat}")
         else:
             self.get_logger().info("No objects detected.")
 
