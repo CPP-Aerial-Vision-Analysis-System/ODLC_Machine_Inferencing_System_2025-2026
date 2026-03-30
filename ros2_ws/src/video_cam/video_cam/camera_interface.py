@@ -7,6 +7,7 @@ import socket
 import struct #ask
 import requests
 import numpy as np
+from threading import Lock
 from typing import Optional, List, Dict, Set, Any
 from .config import (
     CAMERA_IP,
@@ -66,7 +67,13 @@ class CameraInterface:
         self.media_port = media_port
         self.http_timeout = http_timeout
         self.logger = logger
-        self.sdk_seq = 0 #ask
+        self.sdk_seq = 0 
+        
+        # SD Card Tracking
+        self.current_photo_dir: Optional[str] = None
+        self.last_photo_count: int = 0
+        self.downloaded_files: Set[str] = set()
+        self.download_lock = Lock()
         
         # API base URL
         self.base_url = f"http://{self.camera_ip}:{self.media_port}/cgi-bin/media.cgi/api/v1"
@@ -90,8 +97,8 @@ class CameraInterface:
         self.http_session.mount('http://', adapter)
 
     def _next_seq(self) -> int:
-        seq = self.sdk_seq
-        self.sdk_seq = (self.sdk_seq + 1) & 0xFFFF
+        seq = self.sdk_seq # packet number to track commands and responses
+        self.sdk_seq = (self.sdk_seq + 1) & 0xFFFF # increase the sequence number and have a cap of 16 bits
         return seq
 
     def _compute_crc16(self, payload: bytes) -> int:
@@ -100,6 +107,7 @@ class CameraInterface:
 
     def _build_sdk_packet(self, cmd_id: int, data: bytes = b'',
                           need_ack: bool = True) -> bytes:
+        # 0x01 = camera should reply back, 0x00 = no need to reply
         ctrl = 0x01 if need_ack else 0x00
         data_len = len(data)
         seq = self._next_seq()
@@ -422,57 +430,6 @@ class CameraInterface:
 
         return True
 
-    def request_laser_distance_measurement(self) -> Optional[float]:
-        """Query laser rangefinder distance in meters."""
-        response = self._send_sdk_command(CMD_LASER_DISTANCE)
-        if not response or len(response['data']) < 2:
-            return None
-
-        distance_dm = struct.unpack('<H', response['data'][:2])[0]
-        return distance_dm / 10.0
-
-    def request_laser_target_longitude_latitude(self
-                                                ) -> Optional[Dict[str, float]]:
-        """Query laser target geolocation as WGS84 longitude/latitude."""
-        response = self._send_sdk_command(CMD_LASER_TARGET_GEO)
-        if not response or len(response['data']) < 8:
-            return None
-
-        lon_deg_e7, lat_deg_e7 = struct.unpack('<ii', response['data'][:8])
-        return {
-            'longitude_deg': lon_deg_e7 / 1e7,
-            'latitude_deg': lat_deg_e7 / 1e7,
-        }
-
-    def get_laser_state(self) -> Optional[bool]:
-        """Return laser state (True ON, False OFF)."""
-        response = self._send_sdk_command(CMD_LASER_STATE_QUERY)
-        if not response or not response['data']:
-            return None
-
-        return response['data'][0] == 1
-
-    def set_laser_state(self, enabled: bool) -> bool:
-        """Set laser ON/OFF."""
-        payload = bytes([1 if enabled else 0])
-        response = self._send_sdk_command(CMD_LASER_STATE_SET, payload)
-        return self._status_ok(response)
-
-    def configure_laser_distance_stream(self, enable: bool = True,
-                                        frequency: int = 4) -> bool:
-        """Configure gimbal stream command for laser distance output."""
-        if not enable:
-            frequency = 0
-        frequency = max(0, min(7, int(frequency)))
-
-        payload = bytes([STREAM_TYPE_LASER, frequency])
-        response = self._send_sdk_command(CMD_STREAM_CONFIG, payload)
-
-        if not response or not response['data']:
-            return False
-
-        return response['data'][0] == STREAM_TYPE_LASER
-
     def format_sd_card(self) -> bool:
         """Format camera SD card (destructive operation)."""
         response = self._send_sdk_command(CMD_FORMAT_SD_CARD)
@@ -581,6 +538,69 @@ class CameraInterface:
         except Exception as e:
             self._log('error', f"Image decode error: {e}")
             return None
+            
+    def initialize_sd_card(self):
+        """Initialize SD card state from camera"""
+        self._log('info', "Initializing SD card...")
+        
+        try:
+            directories = self.get_directories()
+            if directories:
+                self.current_photo_dir = directories[-1]['path']
+                self._log('info', f"Photo directory: {self.current_photo_dir}")
+                
+                if self.last_photo_count == 0:
+                    count = self.get_media_count(self.current_photo_dir)
+                    if count is not None:
+                        self.last_photo_count = count
+                    self._load_existing_sd_files()
+            else:
+                self.current_photo_dir = "A:/DCIM/100MEDIA"
+        except Exception as e:
+            self._log('warn', f"SD card init error: {e}")
+            self.current_photo_dir = "A:/DCIM/100MEDIA"
+    
+    def _load_existing_sd_files(self):
+        """Mark existing SD files as seen"""
+        try:
+            files = self.get_media_list(self.current_photo_dir)
+            with self.download_lock:
+                for file_info in files:
+                    filename = file_info.get('name', '')
+                    if filename:
+                        self.downloaded_files.add(filename)
+            self._log('info', f"Marked {len(files)} existing files as seen")
+        except Exception as e:
+            self._log('warn', f"Could not load existing files: {e}")
+
+    def get_new_file(self) -> Optional[Dict]:
+        """Find first undownloaded file"""
+        if not self.current_photo_dir:
+            return None
+            
+        try:
+            file_list = self.get_media_list(self.current_photo_dir)
+            current_count = len(file_list)
+            
+            if current_count > self.last_photo_count:
+                with self.download_lock: # download all the files that has not been yet downloaded
+                    for file_info in reversed(file_list):
+                        filename = file_info.get('name', '')
+                        if filename and filename not in self.downloaded_files:
+                            self.last_photo_count = current_count
+                            return file_info
+        except Exception:
+            pass
+        return None
+        
+    def mark_file_downloaded(self, filename: str):
+        """Mark a file as downloaded"""
+        with self.download_lock:
+            self.downloaded_files.add(filename)
+            
+    def get_downloaded_count(self) -> int:
+        with self.download_lock:
+            return len(self.downloaded_files)
     
     def close(self):
         """Close all connections and release resources."""

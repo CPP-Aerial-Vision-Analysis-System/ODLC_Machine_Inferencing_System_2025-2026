@@ -34,12 +34,6 @@ class PipelineOrchestrator:
         self.pipeline_state = CaptureState.IDLE
         self.state_lock = Lock() # pyhton built in thread locking class used to let only one thread enter at a time
         
-        # Simple filename-only tracking
-        self.downloaded_files: Set[str] = set()
-        self.download_lock = Lock()
-        
-        self.current_photo_dir: Optional[str] = None
-        self.last_photo_count: int = 0
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
         
@@ -70,7 +64,7 @@ class PipelineOrchestrator:
     @contextmanager # Decorator that introduces "with"
     def _acquire_pipeline(self):
         """Context manager for pipeline state. Always resets to IDLE on exit."""
-        with self.state_lock: # study
+        with self.state_lock: 
             if self.pipeline_state != CaptureState.IDLE:
                 raise PipelineError("Pipeline already running") 
             self.pipeline_state = CaptureState.CAPTURING
@@ -98,39 +92,7 @@ class PipelineOrchestrator:
         self._log('info', f"Resolution set to: {resolution}")
     
     def initialize_sd_card(self):
-        """Initialize SD card state from camera"""
-        self._log('info', "Initializing SD card...")
-        
-        try:
-            directories = self.camera.get_directories()
-            # print (directories)
-            if directories:
-                self.current_photo_dir = directories[-1]['path']
-                self._log('info', f"Photo directory: {self.current_photo_dir}")
-                
-                if self.last_photo_count == 0:
-                    count = self.camera.get_media_count(self.current_photo_dir)
-                    if count is not None:
-                        self.last_photo_count = count
-                    self._load_existing_sd_files()
-            else:
-                self.current_photo_dir = "A:/DCIM/100MEDIA"
-        except Exception as e:
-            self._log('warn', f"SD card init error: {e}")
-            self.current_photo_dir = "A:/DCIM/100MEDIA"
-    
-    def _load_existing_sd_files(self):
-        """Mark existing SD files as seen"""
-        try:
-            files = self.camera.get_media_list(self.current_photo_dir)
-            with self.download_lock:
-                for file_info in files:
-                    filename = file_info.get('name', '')
-                    if filename:
-                        self.downloaded_files.add(filename)
-            self._log('info', f"Marked {len(files)} existing files as seen")
-        except Exception as e:
-            self._log('warn', f"Could not load existing files: {e}")
+        self.camera.initialize_sd_card()
     
     def execute_pipeline(self) -> None:
         """Execute complete 3-phase capture pipeline. This is the start of everything"""
@@ -138,8 +100,7 @@ class PipelineOrchestrator:
             self._run_phases()
     
     def _run_phases(self) -> None:
-        """Run all pipeline phases
-            calls all the phases one by one, if not, throw an error"""
+        """Run all pipeline phases, calls all the phases one by one"""
         start_time = time.time() # save time right before we begin our procedure
         
         try:
@@ -168,9 +129,8 @@ class PipelineOrchestrator:
             if not filename:
                 raise PipelineError("Download failed") 
             
-            # Mark as downloaded
-            with self.download_lock:
-                self.downloaded_files.add(filename)
+            # Mark as downloaded in camera status tracker
+            self.camera.mark_file_downloaded(filename)
             
             elapsed = time.time() - start_time
             self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
@@ -202,30 +162,13 @@ class PipelineOrchestrator:
         self._log('info', f"[Phase 2] Polling SD card...")
         start_time = time.time()
         
-        while (time.time() - start_time) < timeout:
-            if new_file := self._find_new_file():
+        while (time.time() - start_time) < timeout: # 15s
+            if new_file := self.camera.get_new_file(): 
                 self._log('info', f"Found new image: {new_file.get('name')}")
                 return new_file
             time.sleep(SD_POLL_INTERVAL)
         
         self._log('error', f"Timeout after {timeout}s")
-        return None
-    
-    def _find_new_file(self) -> Optional[Dict]:
-        """Find first undownloaded file"""
-        try:
-            file_list = self.camera.get_media_list(self.current_photo_dir)
-            current_count = len(file_list)
-            
-            if current_count > self.last_photo_count:
-                with self.download_lock:
-                    for file_info in reversed(file_list):
-                        filename = file_info.get('name', '')
-                        if filename and filename not in self.downloaded_files:
-                            self.last_photo_count = current_count
-                            return file_info
-        except Exception:
-            pass
         return None
     
     def _phase3_download(self, file_info: Dict) -> tuple:
@@ -270,7 +213,7 @@ class PipelineOrchestrator:
         img = self.camera.decode_image(image_bytes)
         if img is None:
             return None
-        # I did this because the camera is upside down all the time (might not need this if its gonna work properly during flight)    
+        # this is here because the camera is upside down all the time (might not need this if its gonna work properly during flight)    
         img = cv2.rotate(img, cv2.ROTATE_180)
         
         if not self.storage.verify_image_dimensions(img, self.current_resolution):
@@ -280,13 +223,11 @@ class PipelineOrchestrator:
     
     def get_stats(self) -> Dict:
         """Get pipeline statistics"""
-        with self.download_lock:
-            num_downloaded = len(self.downloaded_files)
         
         return {
             'state': self.get_state(),
             'photo_count': self.photo_count,
-            'downloaded_files': num_downloaded,
-            'current_directory': self.current_photo_dir,
+            'downloaded_files': self.camera.get_downloaded_count(),
+            'current_directory': self.camera.current_photo_dir,
             'resolution': self.current_resolution,
         }
