@@ -528,18 +528,66 @@ class SIYINode(Node):
             cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
             
             # Save to mapping directory
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"{self.latest_gps.latitude} , {self.latest_gps.longitude}.jpg"
             mapping_dir = self.storage.get_mapping_dir()
+            filename = self._generate_gps_filename(use_timestamp=False)
+            if filename is None:
+                filename = f"sim_{time.strftime('%Y%m%d-%H%M%S')}.jpg"
             filepath = os.path.join(mapping_dir, filename)
             
             cv2.imwrite(filepath, cv_image)
             self.get_logger().info(f"Simulation photo saved: {filepath}")
-            self._send_status(f"Simulation photo captured: {timestamp}")
+            self._send_status(f"Simulation photo captured: {time.strftime('%Y%m%d-%H%M%S')}")
             
         except Exception as e:
             self.get_logger().error(f"Failed to save simulation image: {e}")
-    
+
+    def _generate_gps_filename(self, use_timestamp: bool = False) -> Optional[str]:
+        """Generate a safe GPS-based filename for the latest location."""
+        if self.latest_gps is None:
+            return None
+        try:
+            lat = float(self.latest_gps.latitude)
+            lon = float(self.latest_gps.longitude)
+        except Exception:
+            return None
+
+        filename = f"{lat:.6f} , {lon:.6f}"
+        if use_timestamp:
+            filename += f"_{time.strftime('%Y%m%d-%H%M%S')}"
+        return f"{filename}.jpg"
+
+    def _rename_captured_image_to_gps(self, image_path: str) -> str:
+        """Rename a downloaded image file to a GPS-based filename if possible."""
+        gps_filename = self._generate_gps_filename(use_timestamp=False)
+        if gps_filename is None:
+            return image_path
+
+        mapping_dir = self.storage.get_mapping_dir()
+        target_path = os.path.join(mapping_dir, gps_filename)
+        if image_path == target_path:
+            return image_path
+
+        if os.path.exists(target_path):
+            base, ext = os.path.splitext(gps_filename)
+            count = 1
+            while True:
+                candidate = f"{base}_{count}{ext}"
+                candidate_path = os.path.join(mapping_dir, candidate)
+                if not os.path.exists(candidate_path):
+                    target_path = candidate_path
+                    break
+                count += 1
+
+        try:
+            os.replace(image_path, target_path)
+            self.get_logger().info(
+                f"Renamed captured image to GPS filename: {os.path.basename(target_path)}")
+            return target_path
+        except Exception as exc:
+            self.get_logger().warn(
+                f"Could not rename captured image to GPS filename: {exc}")
+            return image_path
+
     def _publish_captured_image(self):
         """Publish the most recently captured image to ROS"""
         try:
@@ -554,6 +602,7 @@ class SIYINode(Node):
                 return
 
             latest_file = max(image_files, key=os.path.getmtime)
+            latest_file = self._rename_captured_image_to_gps(latest_file)
             img = cv2.imread(latest_file)
             if img is None:
                 self.get_logger().error(f"Failed to read image: {latest_file}")
