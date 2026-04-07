@@ -18,7 +18,7 @@ from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
 
 
-class PipelineError(Exception):
+class PipelineError(Exception): # custom error used for pipeline related failures
     """Raised when pipeline execution fails
         This gets assigned as {e} when we get errors, we give it some value then send it to execute"""
     pass
@@ -163,7 +163,7 @@ class PipelineOrchestrator:
         start_time = time.time()
         
         while (time.time() - start_time) < timeout: # 15s
-            if new_file := self.camera.get_new_file(): 
+            if new_file := self.camera.get_new_file(): # := is the walrus op. means assign and check at the same time.
                 self._log('info', f"Found new image: {new_file.get('name')}")
                 return new_file
             time.sleep(SD_POLL_INTERVAL)
@@ -172,7 +172,7 @@ class PipelineOrchestrator:
         return None
     
     def _phase3_download(self, file_info: Dict) -> tuple:
-        """Phase 3: Download and save (simplified)"""
+        """Phase 3: Download and save"""
         filename = file_info.get('name', '')
         file_url = file_info.get('url', '')
         

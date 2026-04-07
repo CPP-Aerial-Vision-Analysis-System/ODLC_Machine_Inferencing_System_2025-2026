@@ -459,7 +459,7 @@ class CameraInterface:
             return []
     
     def get_media_list(self, dir_path: str, media_type: MediaTypes = MediaTypes.IMAGE, start: int = 0, count: int = 9999) -> List[Dict]:
-        # Get list of media files in directory.
+        # Sends HTTP req saying give me the media files inside this directory.
         try:
             url = f"{self.base_url}/getmedialist"
             params = {

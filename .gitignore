@@ -50,3 +50,6 @@ ros2_ws/src/video_cam/Documentation
 *.trt
 
 .DS_Store
+
+GUIDE.md
+

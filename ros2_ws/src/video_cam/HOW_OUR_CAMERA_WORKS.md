@@ -1,6 +1,6 @@
 mission planner publishes /camera/trigger
 
-siyi_node_refactored.py camera_trigger_callback and capture_requested.set
+siyi_node.py camera_trigger_callback and capture_requested.set
     this calls pipeline_loop
         this calls pipelineOrchestrator's execute_pipeline
 
