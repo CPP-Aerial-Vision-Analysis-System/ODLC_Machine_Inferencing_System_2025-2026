@@ -104,10 +104,9 @@ class MainController(Node):
                     self.fetch_mission_indices()
                     break
     
-
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
+        # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
         # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
         # since DigiCamCtrl commands don't fire WaypointReached.
@@ -122,16 +121,18 @@ class MainController(Node):
             tent_lon = self.detections[obj_class].long
             tent_alt = ALT
 
-            self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
-            self.human_wp = self.last_before_rtl + 1
-            self.tent_wp = self.last_before_rtl + 2
+            message = f"Both person and tent detected!"
+            self.get_logger().info(message)
+            self.send_ack(message)
+            self.human_wp = self.last_before_rtl + 2
+            self.tent_wp = self.last_before_rtl + 1
             
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
             self.wait_to_send_wp = False
-            # self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
+            self.send_ack(f"Going to tent FIRST, then human")
             self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
@@ -142,7 +143,11 @@ class MainController(Node):
                 person_lon = self.detections[obj_class].long 
                 person_alt = ALT
                 self.human_wp = self.last_before_rtl + 1
-                self.get_logger().info("Only person was detected")
+
+                message = f"Only person detected!"
+                self.get_logger().info(message)
+                self.send_ack(message)
+
                 self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
                 self.send_waypoint_data([
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
@@ -157,6 +162,11 @@ class MainController(Node):
                 tent_lon = self.detections[obj_class].long
                 tent_alt = ALT
                 self.tent_wp = self.last_before_rtl + 1
+
+                message = f"Only tent detected!"
+                self.get_logger().info(message)
+                self.send_ack(message)
+
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
@@ -242,7 +252,7 @@ class MainController(Node):
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
-                            self.send_ack(f"Detected {obj_class} at waypoint {msg.waypoint_index}")
+                            self.send_ack(f"Detected {obj_class}")
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
@@ -252,6 +262,7 @@ class MainController(Node):
                             self.get_logger().info(f"Obj at long: {self.detections[obj_class].long}, lat: {self.detections[obj_class].lat}")
         else:
             self.get_logger().info("No objects detected.")
+            self.send_ack("No objects detected.")
 
     def change_mode(self, mode):
         # set_mode service should already be ready from self._wait_for_services
