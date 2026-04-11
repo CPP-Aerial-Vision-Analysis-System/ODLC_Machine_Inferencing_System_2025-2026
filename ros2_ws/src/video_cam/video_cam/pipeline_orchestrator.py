@@ -5,8 +5,7 @@ import time
 import numpy as np
 import cv2
 from threading import Lock
-from contextlib import contextmanager
-from typing import Optional, Set, Dict
+from typing import Optional, Set, Dict, Tuple
 from .config import (
     CaptureState,
     CAPTURE_TIMEOUT_SECONDS,
@@ -29,10 +28,22 @@ class PipelineOrchestrator:
         self.camera = camera
         self.storage = storage
         self.logger = logger
-        
+
         self.pipeline_state = CaptureState.IDLE
         self.state_lock = Lock()
-        
+
+        # Serializes phases 1+2 (fire shutter + index SD card) across
+        # concurrent threads. Phase 3 (HTTP download) deliberately runs
+        # OUTSIDE this lock so the next capture's shutter can overlap with
+        # the previous capture's download.
+        #
+        # Acquired non-blocking so a trigger that arrives while another
+        # capture is mid-shutter is dropped (with a warning) rather than
+        # queued. The node is expected to spawn one worker thread per
+        # trigger; this lock prevents those threads from stomping on the
+        # camera's UDP SDK or on _find_new_file's compare-and-claim logic.
+        self.capture_lock = Lock()
+
         # Simple filename-only tracking
         self.downloaded_files: Set[str] = set()
         self.download_lock = Lock()
@@ -41,7 +52,12 @@ class PipelineOrchestrator:
         self.last_photo_count: int = 0
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
-        
+
+        # Absolute path of the file written by the most recent successful
+        # execute_pipeline() call. The node uses this to publish the image
+        # on /image_raw without having to scan the mapping directory.
+        self.last_saved_path: Optional[str] = None
+
         # self._load_tracking_state()
         self._log('info', "Pipeline orchestrator initialized")
     
@@ -66,31 +82,19 @@ class PipelineOrchestrator:
             # fallback: print to console
             print(f"{level.upper()}: {message}")
     
-    @contextmanager
-    def _acquire_pipeline(self):
-        """Context manager for pipeline state. Always resets to IDLE on exit."""
-        with self.state_lock:
-            if self.pipeline_state != CaptureState.IDLE:
-                raise PipelineError("Pipeline already running")
-            self.pipeline_state = CaptureState.CAPTURING
-
-        try:
-            yield
-        except Exception:
-            with self.state_lock:
-                self.pipeline_state = CaptureState.FAILED
-            time.sleep(1.0)
-            raise
-        finally:
-            with self.state_lock:
-                self.pipeline_state = CaptureState.IDLE
-    
     def get_state(self) -> CaptureState:
         with self.state_lock:
             return self.pipeline_state
-    
+
     def is_busy(self) -> bool:
-        return self.get_state() != CaptureState.IDLE
+        """Return True iff phases 1+2 (shutter + SD indexing) are in progress.
+
+        Phase 3 (HTTP download) is deliberately NOT considered "busy" so
+        that the next capture's shutter can overlap with a previous
+        capture's download. Callers that want to gate a new trigger on
+        "nothing going on at all" should not use this method.
+        """
+        return self.capture_lock.locked()
     
     def set_resolution(self, resolution: str):
         self.current_resolution = resolution
@@ -131,53 +135,104 @@ class PipelineOrchestrator:
         except Exception as e:
             self._log('warn', f"Could not load existing files: {e}")
     
-    def execute_pipeline(self) -> bool:
-        """Execute complete 4-phase capture pipeline"""
-        with self._acquire_pipeline():
-            return self._run_phases()
-    
-    def _run_phases(self) -> bool:
-        """Run all pipeline phases"""
+    def execute_pipeline(self, filename_override: Optional[str] = None) -> bool:
+        """Convenience wrapper: run phases 1+2+3 in sequence.
+
+        This is the original "capture everything in one call" API and is
+        kept for callers (e.g. the sim path) that don't care about
+        pipelining. For pipelined captures — phase 3 of call N overlapping
+        with phases 1+2 of call N+1 — call capture_and_index() and
+        download_and_save() directly instead.
+        """
+        file_info = self.capture_and_index()
+        if file_info is None:
+            return False
+        result = self.download_and_save(
+            file_info, filename_override=filename_override
+        )
+        return result is not None
+
+    def capture_and_index(self) -> Optional[Dict]:
+        """Phases 1+2: fire shutter, poll SD card for the new file.
+
+        Serialized via non-blocking capture_lock so that a trigger arriving
+        while another capture is mid-shutter is dropped rather than queued.
+        Phase 3 (HTTP download) runs OUTSIDE this lock, so the next
+        capture's shutter can overlap with the previous capture's download.
+
+        Returns the file_info dict on success, or None on failure / lock
+        contention.
+        """
+        if not self.capture_lock.acquire(blocking=False):
+            self._log('warn',
+                      "capture_and_index: another capture is mid-shutter, dropping trigger")
+            return None
+
         start_time = time.time()
-        
         try:
-            self._log('info', "STARTING CAPTURE PIPELINE")
-            
-            # Phase 1: Trigger capture
+            self._log('info', "STARTING CAPTURE (phases 1+2)")
+
+            # Phase 1: trigger camera
             if not self._phase1_capture():
-                raise PipelineError("Capture command failed")
-            
+                self._log('error', "Phase 1 failed: capture command rejected")
+                return None
+
             time.sleep(0.5)  # Brief wait for SD write
-            
-            # Phase 2: Find new image on SD
+
+            # Phase 2: index SD card
             with self.state_lock:
                 self.pipeline_state = CaptureState.INDEXING
-            
+
             file_info = self._phase2_index()
             if not file_info:
-                raise PipelineError("Image not found on SD card")
-            
-            # Phase 3: Download and save
-            with self.state_lock:
-                self.pipeline_state = CaptureState.DOWNLOADING
-            
-            filename, img = self._phase3_download(file_info)
-            if not filename:
-                raise PipelineError("Download failed")
-            
-            # Mark as downloaded
-            with self.download_lock:
-                self.downloaded_files.add(filename)
-            
+                self._log('error', "Phase 2 failed: new image not found on SD card")
+                return None
+
             elapsed = time.time() - start_time
-            self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
-            # self._save_tracking_state()
-            return True
-            
+            self._log('info', f"Phases 1+2 complete in {elapsed:.1f}s")
+            return file_info
         except Exception as e:
-            elapsed = time.time() - start_time
-            self._log('error', f"PIPELINE FAILED after {elapsed:.1f}s: {e}")
-            return False
+            self._log('error', f"capture_and_index exception: {e}")
+            return None
+        finally:
+            self.capture_lock.release()
+
+    def download_and_save(
+        self,
+        file_info: Dict,
+        filename_override: Optional[str] = None,
+    ) -> Optional[Tuple[str, np.ndarray]]:
+        """Phase 3: download bytes, decode, save atomically.
+
+        Runs OUTSIDE capture_lock, so it can overlap with the NEXT call's
+        phases 1+2. The file has already been claimed in downloaded_files
+        by _find_new_file (claim-at-find-time), so concurrent captures
+        will not pick it up again even though this download is still in
+        flight.
+
+        Returns (absolute_saved_path, decoded_image) on success, or None
+        on failure.
+        """
+        start_time = time.time()
+        with self.state_lock:
+            self.pipeline_state = CaptureState.DOWNLOADING
+
+        try:
+            saved_path, img = self._phase3_download(
+                file_info, filename_override=filename_override
+            )
+        except Exception as e:
+            self._log('error', f"download_and_save exception: {e}")
+            return None
+
+        if not saved_path or img is None:
+            self._log('error', "Phase 3 failed: download or save error")
+            return None
+
+        self.last_saved_path = saved_path
+        elapsed = time.time() - start_time
+        self._log('info', f"Phase 3 complete in {elapsed:.1f}s: {saved_path}")
+        return saved_path, img
     
     def _phase1_capture(self) -> bool:
         """Phase 1: Trigger camera capture"""
@@ -206,47 +261,71 @@ class PipelineOrchestrator:
         return None
     
     def _find_new_file(self) -> Optional[Dict]:
-        """Find first undownloaded file"""
+        """Find first unclaimed file and claim it atomically.
+
+        Claim-at-find-time: the returned file's name is added to
+        downloaded_files *before* phase 3 runs. This is what enables
+        pipelined captures — a concurrent capture_and_index() walker will
+        see the file as claimed and skip it, even though its download has
+        not started yet.
+        """
         try:
             file_list = self.camera.get_media_list(self.current_photo_dir)
-            current_count = len(file_list)
-            
-            if current_count > self.last_photo_count:
-                with self.download_lock:
-                    for file_info in reversed(file_list):
-                        filename = file_info.get('name', '')
-                        if filename and filename not in self.downloaded_files:
-                            self.last_photo_count = current_count
-                            return file_info
+
+            with self.download_lock:
+                for file_info in reversed(file_list):
+                    filename = file_info.get('name', '')
+                    if filename and filename not in self.downloaded_files:
+                        # Claim now so concurrent walkers skip this file
+                        # while phase 3 is still downloading it.
+                        self.downloaded_files.add(filename)
+                        self.last_photo_count = len(file_list)
+                        return file_info
         except Exception:
             pass
         return None
     
-    def _phase3_download(self, file_info: Dict) -> tuple:
-        """Phase 3: Download and save (simplified)"""
-        filename = file_info.get('name', '')
+    def _phase3_download(
+        self,
+        file_info: Dict,
+        filename_override: Optional[str] = None,
+    ) -> tuple:
+        """Phase 3: Download and save.
+        Returns (saved_absolute_path, img) on success, (None, None) on failure.
+        """
+        original_name = file_info.get('name', '')
         file_url = file_info.get('url', '')
-        
-        if not filename or not file_url:
+
+        if not original_name or not file_url:
             return None, None
-        
-        self._log('info', f"[Phase 3] Downloading: {filename}")
-        
+
+        save_name = filename_override or original_name
+
+        if save_name != original_name:
+            self._log('info',
+                      f"[Phase 3] Downloading {original_name} (saving as {save_name})")
+        else:
+            self._log('info', f"[Phase 3] Downloading: {original_name}")
+
         # Download
         image_bytes = self._download_bytes(file_info)
         if not image_bytes:
             return None, None
-        
+
         # Decode and verify
         img = self._decode_and_verify(image_bytes)
         if img is None:
             return None, None
-        
-        # Save
-        if not self.storage.save_image(filename, img, self.current_resolution):
+
+        # Save under the target name. storage.save_image returns the full
+        # absolute path on success or None on failure.
+        saved_path = self.storage.save_image(save_name, img, self.current_resolution)
+        if saved_path is None:
             return None, None
-        
-        return filename, img
+
+        # Note: the file was already claimed in downloaded_files by
+        # _find_new_file (claim-at-find-time). No need to re-add here.
+        return saved_path, img
     
     def _download_bytes(self, file_info: Dict) -> Optional[bytes]:
         """Download image bytes with disk space check"""

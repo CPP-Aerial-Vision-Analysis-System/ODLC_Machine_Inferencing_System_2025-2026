@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIYI A8 Mini ROS2 Node."""
+"""SIYI Camera ROS2 Node."""
 
 import rclpy
 from rclpy.node import Node
@@ -208,11 +208,17 @@ class SIYINode(Node):
     def _handle_capture_request(self):
         """Handle capture request (executed in separate thread)"""
         if self.use_real_camera:
-            # Check if previous pipeline is still running
+            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
+            # index). Phase 3 (HTTP download) is intentionally not counted
+            # as busy, so a new trigger arriving while the previous
+            # capture is still downloading will proceed and overlap its
+            # shutter with that download — this is the whole point of the
+            # pipelined-capture design.
             if self.pipeline.is_busy():
-                self.get_logger().warn("Previous pipeline still running, skipping request")
+                self.get_logger().warn(
+                    "Previous capture still in shutter/index phase, skipping request")
                 return
-            
+
             # Execute pipeline in separate thread (non-blocking)
             capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
             capture_thread.start()
@@ -221,25 +227,66 @@ class SIYINode(Node):
             self._execute_simulation_capture()
     
     def _execute_real_camera_capture(self):
-        """Execute real camera capture pipeline"""
+        """Execute real camera capture pipeline with pipelined phases.
+
+        Phases 1+2 (UDP shutter + SD index) run under camera_control_lock so
+        they are serialized with other camera commands. Phase 3 (HTTP download
+        on a separate port) runs OUTSIDE the lock, so the NEXT capture's
+        shutter and the previous capture's download can overlap — cutting
+        back-to-back capture latency roughly in half.
+        """
         try:
-            with self.camera_control_lock:
-                success = self.pipeline.execute_pipeline()
-            
-            if success:
-                stats = self.pipeline.get_stats()
+            # Snapshot a GPS-based filename BEFORE the pipeline runs so that
+            # phase 3 saves the downloaded image directly under its final
+            # "<lat> , <lon>.jpg" name. This avoids a race where new_od
+            # would see the file under its SD card name and enqueue it
+            # before a post-hoc rename could happen. It also pins the
+            # lat/lon to ~shutter time (phase 1 fires immediately after
+            # this call) rather than to download-completion time, which
+            # can be 2-3s later -- ~40-60m of drift at airspeed.
+            gps_filename = self._generate_gps_filename()
+            if gps_filename is None:
+                self.get_logger().warn(
+                    "No valid GPS info "
+                    "/mavros/global_position/global; using the SD name")
                 self._send_status(
-                    f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
-                self._publish_camera_status(
-                    f"SUCCESS: {stats['resolution']} image captured")
-                
-                # Publish the captured image
-                # Get the last saved image and publish it
-                self._publish_captured_image()
-            else:
-                self._send_status("FAILED: Capture pipeline error")
-                self._publish_camera_status("FAILURE: Capture pipeline error")
-                
+                    "WARN: No GPS fix - image will not have lat/lon name")
+
+            # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
+            # control lock here so gimbal/zoom commands can't race with
+            # the UDP capture command.
+            with self.camera_control_lock:
+                file_info = self.pipeline.capture_and_index()
+
+            if file_info is None:
+                self._send_status("FAILED: Capture shutter/index error")
+                self._publish_camera_status("FAILURE: Capture shutter/index error")
+                return
+
+            # Phase 3: HTTP download on port 82. Intentionally NOT holding
+            # camera_control_lock here so that (a) gimbal/zoom commands can
+            # run concurrently and (b) the next capture's phases 1+2 can
+            # overlap with this download.
+            result = self.pipeline.download_and_save(
+                file_info, filename_override=gps_filename
+            )
+
+            if result is None:
+                self._send_status("FAILED: Capture download error")
+                self._publish_camera_status("FAILURE: Capture download error")
+                return
+
+            saved_path, img = result
+            stats = self.pipeline.get_stats()
+            self._send_status(
+                f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
+            self._publish_camera_status(
+                f"SUCCESS: {stats['resolution']} image captured")
+
+            # Publish the in-memory decoded ndarray directly — no disk
+            # re-read, no directory scan, no rename.
+            self._publish_captured_image(img, saved_path)
+
         except PipelineError as e:
             self.get_logger().error(f"Pipeline error: {e}")
             self._send_status(f"FAILED: {e}")
@@ -272,7 +319,6 @@ class SIYINode(Node):
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
-        # self.get_logger().info(f"{self.latest_gps}")
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -529,7 +575,7 @@ class SIYINode(Node):
             
             # Save to mapping directory
             mapping_dir = self.storage.get_mapping_dir()
-            filename = self._generate_gps_filename(use_timestamp=False)
+            filename = self._generate_gps_filename()
             if filename is None:
                 filename = f"sim_{time.strftime('%Y%m%d-%H%M%S')}.jpg"
             filepath = os.path.join(mapping_dir, filename)
@@ -541,71 +587,54 @@ class SIYINode(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to save simulation image: {e}")
 
-    def _generate_gps_filename(self, use_timestamp: bool = False) -> Optional[str]:
-        """Generate a safe GPS-based filename for the latest location."""
+    def _generate_gps_filename(self) -> Optional[str]:
+        """Build a '<lat> , <lon>.jpg' filename from the latest cached fix.
+
+        IMPORTANT: the '" , "' delimiter (space-comma-space) is parsed by
+        detection/new_od.py on the consuming side via `name.split(' , ')`,
+        which then does `float()` on each half to populate
+        ImageResult.latitude / ImageResult.longitude. Do NOT change the
+        delimiter or append anything else to the stem without updating
+        new_od's parser in lockstep, or main_controller will start placing
+        detection waypoints at (0.0, 0.0).
+        """
         if self.latest_gps is None:
             return None
+
         try:
             lat = float(self.latest_gps.latitude)
             lon = float(self.latest_gps.longitude)
-        except Exception:
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(
+                f"Cached NavSatFix has invalid coordinates: {exc}")
             return None
 
-        filename = f"{lat:.6f} , {lon:.6f}"
-        if use_timestamp:
-            filename += f"_{time.strftime('%Y%m%d-%H%M%S')}"
-        return f"{filename}.jpg"
-
-    def _rename_captured_image_to_gps(self, image_path: str) -> str:
-        """Rename a downloaded image file to a GPS-based filename if possible."""
-        gps_filename = self._generate_gps_filename(use_timestamp=False)
-        if gps_filename is None:
-            return image_path
-
-        mapping_dir = self.storage.get_mapping_dir()
-        target_path = os.path.join(mapping_dir, gps_filename)
-        if image_path == target_path:
-            return image_path
-
-        if os.path.exists(target_path):
-            base, ext = os.path.splitext(gps_filename)
-            count = 1
-            while True:
-                candidate = f"{base}_{count}{ext}"
-                candidate_path = os.path.join(mapping_dir, candidate)
-                if not os.path.exists(candidate_path):
-                    target_path = candidate_path
-                    break
-                count += 1
-
-        try:
-            os.replace(image_path, target_path)
-            self.get_logger().info(
-                f"Renamed captured image to GPS filename: {os.path.basename(target_path)}")
-            return target_path
-        except Exception as exc:
+        # Null Island: the FCU publishes (0.0, 0.0) before GPS lock, so
+        # treat it as "no fix" rather than baking it into a filename.
+        if lat == 0.0 and lon == 0.0:
             self.get_logger().warn(
-                f"Could not rename captured image to GPS filename: {exc}")
-            return image_path
+                "Cached GPS fix is (0.0, 0.0) - treating as no fix")
+            return None
 
-    def _publish_captured_image(self):
-        """Publish the most recently captured image to ROS"""
+        return f"{lat:.6f} , {lon:.6f}.jpg"
+
+    def _publish_captured_image(self, img: np.ndarray, saved_path: str):
+        """Publish an already-decoded image to ROS /image_raw.
+
+        The pipeline's download_and_save() hands back the decoded ndarray
+        directly, so this method publishes it without a round-trip through
+        cv2.imread(). Saves one full-resolution disk read per capture.
+
+        Args:
+            img: Decoded BGR image (as returned by download_and_save).
+            saved_path: Absolute path the pipeline wrote — used only for
+                the log line and the ROS header's frame_id context.
+        """
         try:
-            mapping_dir = self.storage.get_mapping_dir()
-            # Find the most recently modified image file
-            image_files = [
-                os.path.join(mapping_dir, f) for f in os.listdir(mapping_dir)
-                if f.lower().endswith(('.jpg', '.jpeg', '.png'))
-            ]
-            if not image_files:
-                self.get_logger().warn("No image files found to publish")
-                return
-
-            latest_file = max(image_files, key=os.path.getmtime)
-            latest_file = self._rename_captured_image_to_gps(latest_file)
-            img = cv2.imread(latest_file)
             if img is None:
-                self.get_logger().error(f"Failed to read image: {latest_file}")
+                self.get_logger().warn(
+                    "Pipeline handed back a None image; "
+                    "nothing to publish on /image_raw")
                 return
 
             if self.bridge is not None:
@@ -616,39 +645,10 @@ class SIYINode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
             self.image_pub.publish(msg)
-            self.get_logger().info(f"Published image to image_raw: {os.path.basename(latest_file)}")
+            self.get_logger().info(
+                f"Published image to image_raw: {os.path.basename(saved_path)}")
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
-    
-    def _publish_video_stream(self):
-        """Publish live video stream - DISABLED (not needed for capture workflow)"""
-        # RTSP video streaming commented out - only needed for live preview
-        # Uncomment this entire method if you need continuous video feed
-        # Current workflow: trigger capture → save to SD → download → detect
-        # This doesn't require continuous RTSP streaming
-        pass
-        # if self.use_real_camera:
-        #     if self.camera is None:
-        #         return
-        #     
-        #     frame = self.camera.read_video_frame()
-        #     if frame is not None:
-        #         # Convert to ROS message
-        #         if self.bridge is not None:
-        #             msg = self.bridge.cv2_to_imgmsg(frame, 'bgr8')
-        #         else:
-        #             msg = self._cv2_to_imgmsg_manual(frame, 'bgr8')
-        #         
-        #         msg.header.stamp = self.get_clock().now().to_msg()
-        #         msg.header.frame_id = "camera_link"
-        #         
-        #         self.image_pub.publish(msg)
-        # else:
-        #     # Simulation mode: republish simulation image
-        #     if self.latest_image_msg is not None:
-        #         self.get_logger().info(
-        #             "Publishing simulation image", throttle_duration_sec=10.0)
-        #         self.image_pub.publish(self.latest_image_msg)
     
     def _publish_disk_status(self):
         """Publish disk space status"""
