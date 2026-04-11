@@ -31,17 +31,6 @@ class PipelineOrchestrator:
 
         self.pipeline_state = CaptureState.IDLE
         self.state_lock = Lock()
-
-        # Serializes phases 1+2 (fire shutter + index SD card) across
-        # concurrent threads. Phase 3 (HTTP download) deliberately runs
-        # OUTSIDE this lock so the next capture's shutter can overlap with
-        # the previous capture's download.
-        #
-        # Acquired non-blocking so a trigger that arrives while another
-        # capture is mid-shutter is dropped (with a warning) rather than
-        # queued. The node is expected to spawn one worker thread per
-        # trigger; this lock prevents those threads from stomping on the
-        # camera's UDP SDK or on _find_new_file's compare-and-claim logic.
         self.capture_lock = Lock()
 
         # Simple filename-only tracking
@@ -53,9 +42,6 @@ class PipelineOrchestrator:
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
 
-        # Absolute path of the file written by the most recent successful
-        # execute_pipeline() call. The node uses this to publish the image
-        # on /image_raw without having to scan the mapping directory.
         self.last_saved_path: Optional[str] = None
 
         # self._load_tracking_state()
@@ -136,14 +122,7 @@ class PipelineOrchestrator:
             self._log('warn', f"Could not load existing files: {e}")
     
     def execute_pipeline(self, filename_override: Optional[str] = None) -> bool:
-        """Convenience wrapper: run phases 1+2+3 in sequence.
-
-        This is the original "capture everything in one call" API and is
-        kept for callers (e.g. the sim path) that don't care about
-        pipelining. For pipelined captures — phase 3 of call N overlapping
-        with phases 1+2 of call N+1 — call capture_and_index() and
-        download_and_save() directly instead.
-        """
+        """Convenience wrapper: run phases 1+2+3 in sequence.""" 
         file_info = self.capture_and_index()
         if file_info is None:
             return False
@@ -153,16 +132,7 @@ class PipelineOrchestrator:
         return result is not None
 
     def capture_and_index(self) -> Optional[Dict]:
-        """Phases 1+2: fire shutter, poll SD card for the new file.
-
-        Serialized via non-blocking capture_lock so that a trigger arriving
-        while another capture is mid-shutter is dropped rather than queued.
-        Phase 3 (HTTP download) runs OUTSIDE this lock, so the next
-        capture's shutter can overlap with the previous capture's download.
-
-        Returns the file_info dict on success, or None on failure / lock
-        contention.
-        """
+        """Phases 1+2: fire shutter, poll SD card for the new file."""
         if not self.capture_lock.acquire(blocking=False):
             self._log('warn',
                       "capture_and_index: another capture is mid-shutter, dropping trigger")
@@ -202,17 +172,7 @@ class PipelineOrchestrator:
         file_info: Dict,
         filename_override: Optional[str] = None,
     ) -> Optional[Tuple[str, np.ndarray]]:
-        """Phase 3: download bytes, decode, save atomically.
-
-        Runs OUTSIDE capture_lock, so it can overlap with the NEXT call's
-        phases 1+2. The file has already been claimed in downloaded_files
-        by _find_new_file (claim-at-find-time), so concurrent captures
-        will not pick it up again even though this download is still in
-        flight.
-
-        Returns (absolute_saved_path, decoded_image) on success, or None
-        on failure.
-        """
+        """Phase 3: download bytes, decode, save atomically."""
         start_time = time.time()
         with self.state_lock:
             self.pipeline_state = CaptureState.DOWNLOADING
@@ -261,14 +221,7 @@ class PipelineOrchestrator:
         return None
     
     def _find_new_file(self) -> Optional[Dict]:
-        """Find first unclaimed file and claim it atomically.
-
-        Claim-at-find-time: the returned file's name is added to
-        downloaded_files *before* phase 3 runs. This is what enables
-        pipelined captures — a concurrent capture_and_index() walker will
-        see the file as claimed and skip it, even though its download has
-        not started yet.
-        """
+        """Find first unclaimed file and claim it atomically."""
         try:
             file_list = self.camera.get_media_list(self.current_photo_dir)
 
@@ -290,9 +243,7 @@ class PipelineOrchestrator:
         file_info: Dict,
         filename_override: Optional[str] = None,
     ) -> tuple:
-        """Phase 3: Download and save.
-        Returns (saved_absolute_path, img) on success, (None, None) on failure.
-        """
+        """Phase 3: Download and save."""
         original_name = file_info.get('name', '')
         file_url = file_info.get('url', '')
 

@@ -128,3 +128,54 @@ laser_state_set supports on/off (also true/false, 1/0, enable/disable).
 laser_stream supports "", "disable", "4", or "enable,4".
 capture supports "" (defaults to 4K), or 4K / 2.7K / 1080P.
 ```
+
+# Some info
+
+
+        # Serializes phases 1+2 (fire shutter + index SD card) across
+        # concurrent threads. Phase 3 (HTTP download) deliberately runs
+        # OUTSIDE this lock so the next capture's shutter can overlap with
+        # the previous capture's download.
+        #
+        # Acquired non-blocking so a trigger that arrives while another
+        # capture is mid-shutter is dropped (with a warning) rather than
+        # queued. The node is expected to spawn one worker thread per
+        # trigger; this lock prevents those threads from stomping on the
+        # camera's UDP SDK or on _find_new_file's compare-and-claim logic.
+
+
+        # Absolute path of the file written by the most recent successful
+        # execute_pipeline() call. The node uses this to publish the image
+        # on /image_raw without having to scan the mapping directory.
+
+
+        In pipeline_orchestrator
+
+        execute_pipeline - is the original "capture everything in one call" API and is
+        kept for callers (e.g. the sim path) that don't care about
+        pipelining. For pipelined captures — phase 3 of call N overlapping
+        with phases 1+2 of call N+1 — call capture_and_index() and
+        download_and_save() directly instead.
+
+        capture_and_index - is serialized via non-blocking capture_lock so that a trigger arriving
+        while another capture is mid-shutter is dropped rather than queued.
+        Phase 3 (HTTP download) runs OUTSIDE this lock, so the next
+        capture's shutter can overlap with the previous capture's download.
+
+        Returns the file_info dict on success, or None on failure / lock
+        contention.
+
+        in download and save - Runs OUTSIDE capture_lock, so it can overlap with the NEXT call's
+        phases 1+2. The file has already been claimed in downloaded_files
+        by _find_new_file (claim-at-find-time), so concurrent captures
+        will not pick it up again even though this download is still in
+        flight.
+
+        Returns (absolute_saved_path, decoded_image) on success, or None
+        on failure.
+
+        in find new file - Claim-at-find-time: the returned file's name is added to
+        downloaded_files *before* phase 3 runs. This is what enables
+        pipelined captures — a concurrent capture_and_index() walker will
+        see the file as claimed and skip it, even though its download has
+        not started yet.
