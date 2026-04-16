@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import qos_profile_sensor_data, QoSProfile #For GPS
 from ultralytics_ros.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
@@ -29,35 +29,46 @@ TENT_SERVO_CHANNEL_1 = 11
 TENT_SERVO_CHANNEL_2 = 12
 TENT_SERVOS_PWM= 1500
 
+# MODIFY TO INCLUDE IMAGE
 class Detection_Object:
     def __init__(self, type, confidence, waypoint_index):
         self.type = type          # person or tent
         self.confidence = confidence     
         self.waypoint_index = waypoint_index # index > 0
+        self.img = ""       # path of highest conf img
+        self.img_path = ""
+        self.bbox_center_x = 0
+        self.bbox_center_y = 0
+        self.waypoint_sent = False
         
 class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
 
         # Subscribers
-        detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-        self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, detection_qos)
-        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 10)
+        self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, 1)
+        self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 1)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
+        # GPS
+        self.create_subscription(NavSatFix,'/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
         # Publishers
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         # Clients
         self.set_mode_client = self.create_client(SetMode, "/mavros/set_mode")
-        while not self.set_mode_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info(f"Set mode service not available, waiting ...")
+        # while not self.set_mode_client.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info(f"Set mode service not available, waiting ...")
         self.add_wp_client = self.create_client(AddWaypoint, "/addWaypoint")
-        while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info(f"Waiting for add waypoint service ..s.")
+        # while not self.add_wp_client.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info(f"Waiting for add waypoint service ...")
+        # self.gps_client = self.create_client(GetGPSData, "/get_drone_data")
+        # while not self.gps_client.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info(f"Waiting for gps service...")
         
         self.command_client = self.create_client(CommandLong, '/mavros/cmd/command')
+        self.get_logger().info("Service clients created (will attempt connection when needed)")
 
         # variables
         self.last_before_rtl = 0
@@ -69,10 +80,23 @@ class MainController(Node):
         self.human_wp = -1
         self.tent_wp = -1
         self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
-        self.last_nav_before_rtl = -1  # last physical nav waypoint before RTL
         self.param_manager = ParameterManager()
+        # self.search_wp = -1         # used ONLY for gps calc of objects
+        self.latest_gps = None
 
-        self.fetch_mission_indices()
+        # camera variable
+        self.IMG_WIDTH = 3480
+        self.IMG_HEIGHT = 2160
+
+        try:
+            self.fetch_mission_indices()
+        except Exception as e:
+            self.get_logger().warn(f"Could not fetch mission indices: {e}. Will retry on parameter updates.")
+            self.num_waypoints = 0
+            self.takeoff_index = 0
+            self.rtl_index = 0
+            self.next_after_takeoff = 0
+            self.last_before_rtl = 0
 
         self.waypoints = []
         self.detections = {
@@ -90,6 +114,7 @@ class MainController(Node):
         self.rtl_index = int(rtl_index)
         self.next_after_takeoff = int(next_after_takeoff)
         self.last_before_rtl = int(last_before_rtl)
+        # self.search_wp = self.last_before_rtl
 
     def parameter_event_cb(self, msg: ParameterEvent):
         if msg.node == "/waypoint_manager":
@@ -101,20 +126,16 @@ class MainController(Node):
                     #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
-    
 
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
-        # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
-        # since DigiCamCtrl commands don't fire WaypointReached.
-        trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
-
-        if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
+        # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
+        if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
             person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
             tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
-            self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
+            # Update new_wp for both detections (MIGHT WORK LMAO)
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
             self.human_wp = self.last_before_rtl + 1
             self.tent_wp = self.last_before_rtl + 2
             
@@ -123,11 +144,10 @@ class MainController(Node):
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
             ])
             self.wait_to_send_wp = False
-            self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
-            self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
+            self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
-        elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
+        elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
                 person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
@@ -138,41 +158,39 @@ class MainController(Node):
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected person, going to human @ {self.detections["person"].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
-            elif self.valid_detection("tent"):
+            if self.valid_detection("tent"):
                 tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
                 self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected tent, going to tent @ {self.detections["tent"].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
-        # if self.waypoint_reached == self.human_wp:
-        #     self.get_logger().info("Reached human waypoint, activating servo...")
-        #     self.send_ack("Reached human waypoint, activating servo")
-        #     self.change_mode("GUIDED")
-        #     self.move_human_servo() # Placeholder when testing out in simulation
-        #     # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     self.change_mode("AUTO")
-        # if self.waypoint_reached == self.tent_wp:
-        #     self.get_logger().info("Reached tent waypoint, activating servo...")
-        #     self.send_ack("Reached tent waypoint, activating servo")
-        #     self.change_mode("GUIDED")
-        #     self.move_tent_servo()
-        #     # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     self.change_mode("AUTO")
+        if self.waypoint_reached == self.human_wp:
+            self.get_logger().info("Reached human waypoint, activating servo...")
+            self.send_ack("Reached human waypoint, activating servo")
+            self.change_mode("GUIDED")
+            self.move_human_servo() # Placeholder when testing out in simulation
+            # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+            # time.sleep(2)
+            # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
+            # time.sleep(2)
+            self.change_mode("AUTO")
+        if self.waypoint_reached == self.tent_wp:
+            self.get_logger().info("Reached tent waypoint, activating servo...")
+            self.send_ack("Reached tent waypoint, activating servo")
+            self.change_mode("GUIDED")
+            self.move_tent_servo()
+            # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+            # time.sleep(2)
+            # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
+            # time.sleep(2)
+            self.change_mode("AUTO")
             
         
     def valid_detection(self, type):
@@ -183,27 +201,9 @@ class MainController(Node):
         
     def waypoints_cb(self, msg: WaypointList):
         self.waypoints = msg.waypoints
-        self._update_last_nav_before_rtl()
-
-    def _update_last_nav_before_rtl(self):
-        """Find the last actual NAV waypoint index before RTL.
-        DigiCamCtrl (cmd 203) and other DO_ commands don't trigger WaypointReached,
-        so we need the index of the last physical navigation waypoint."""
-        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
-        self.last_nav_before_rtl = -1
-        if self.rtl_index > 0 and len(self.waypoints) > 0:
-            for i in range(self.rtl_index - 1, -1, -1):
-                if self.waypoints[i].command in NAV_COMMANDS:
-                    self.last_nav_before_rtl = i
-                    break
-        if self.last_nav_before_rtl >= 0:
-            self.get_logger().info(
-                f"Last nav WP before RTL: index {self.last_nav_before_rtl} "
-                f"(last_before_rtl={self.last_before_rtl}, rtl={self.rtl_index})"
-            )
 
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
-        if 0 < waypoint_index < len(self.waypoints):
+        if 0 <= waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
             lat = wp.x_lat
             lon = wp.y_long
@@ -219,6 +219,9 @@ class MainController(Node):
             
             #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
+                cx = detection.bbox.center.position.x
+                cy = detection.bbox.center.position.y
+
                 for result in detection.results:
                     obj_id = result.hypothesis.class_id
                     if obj_id == "0":
@@ -235,8 +238,104 @@ class MainController(Node):
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
                             self.detections[obj_class].waypoint_index = msg.waypoint_index
+                            
+                        ##########################
+                        # THIS IS FOR LAST YEAR'S OBJ DETECTION
+                        ##########################
+                        if obj_conf > 0.70 and not self.detections[obj_class].waypoint_sent:         # if detection is greater than 70%
+                            self.get_logger().info(f"{obj_class} detected @ {obj_conf:.2f} confidence")
+                            self.get_logger().info(f"Waypoint {msg.waypoint_index}")
+                            # save img filename
+                            self.detections[obj_class].img = msg.image_name
+                            self.detections[obj_class].img_path = msg.saved_to
+                            # save bbox center
+                            self.detections[obj_class].bbox_center_x = cx
+                            self.detections[obj_class].bbox_center_y = cy
+
+                            self.go_new_detection_now(cx, cy)
+                            self.detections[obj_class].waypoint_sent = True
+
         else:
             self.get_logger().info("No objects detected.")
+
+    def go_new_detection_now(self, cx, cy):
+        if self.latest_gps is None:
+            self.get_logger().warn("No GPS data available yet")
+            return
+        gps_data = self.latest_gps      # get drone gps
+        # For now, use drone's current position as waypoint target
+        # Need to calculate offset based on pixel position and camera angle
+        obj_lat = gps_data.latitude
+        obj_lon = gps_data.longitude
+
+        self.send_waypoint_data([
+                {"lat": obj_lat, "lon": obj_lon, "alt": gps_data.altitude, "index": self.waypoint_reached + 1}
+            ])
+
+    # def get_gps(self):
+    #     request = GetGPSData.Request()
+    #     future = self.gps_client.call_async(request)
+    #     rclpy.spin_until_future_complete(self, future)
+    #     response = future.result()
+    #     if not (response.latitude == 0.0 and response.longitude == 0.0 and response.altitude == 0.0 and response.yaw == 0.0):
+    #         return response
+    #     else:
+    #         self.get_logger().warn('No GPS data received.')
+
+    def gps_cb(self, msg):
+        """Callback to store the latest GPS data."""
+        self.latest_gps = msg
+        # self.get_logger().info(f"{self.latest_gps}")
+
+    # Need to Implement GPS calculation from pixel coordinates
+    # For simulation, we're using the drone's current GPS position as target
+    # Future: convert pixel position to GPS offset based on camera FOV and altitude
+
+    # calculate GPS coordinates 
+    # different this year since our camera is not pointed straight down
+    # def gps_calc(self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees):
+        # # Max GPS shift from center to edge (in degrees)
+        # max_deg_shift = 0.00001373  # ~5 feet
+
+        # # Compute center of the image
+        # image_center_x = img_width / 2.0
+        # image_center_y = img_height / 2.0
+
+        # # Pixel displacement from center
+        # dx_pixels = target_x - image_center_x
+        # dy_pixels = (
+        #     target_y - image_center_y
+        # )  # don't invert; use image convention consistently
+
+        # # Max possible pixel distance (diagonal from center to corner)
+        # max_pixel_distance = math.sqrt((image_center_x) ** 2 + (image_center_y) ** 2)
+
+        # # Actual pixel distance from center to target
+        # actual_pixel_distance = math.sqrt(dx_pixels**2 + dy_pixels**2)
+
+        # # Normalize displacement (0 to 1 scale)
+        # norm_dx = dx_pixels / max_pixel_distance
+        # norm_dy = dy_pixels / max_pixel_distance
+
+        # # Scale normalized values to GPS degree shift (max 0.00030 degrees)
+        # raw_shift_lon = norm_dx * max_deg_shift
+        # raw_shift_lat = norm_dy * max_deg_shift
+
+        # # Apply yaw rotation (so direction matches drone orientation)
+        # yaw_rad = math.radians(yaw_degrees)
+        # rotated_lon = raw_shift_lon * math.cos(yaw_rad) - raw_shift_lat * math.sin(
+        #     yaw_rad
+        # )
+        # rotated_lat = raw_shift_lon * math.sin(yaw_rad) + raw_shift_lat * math.cos(
+        #     yaw_rad
+        # )
+
+        # # Apply shift to original GPS coordinates
+        # new_gps_lat = gps_lat - rotated_lat
+        # new_gps_lon = gps_lon + rotated_lon
+
+        # return new_gps_lat, new_gps_lon
+        pass
 
     def change_mode(self, mode):
         # set_mode service should already be ready from self._wait_for_services
@@ -245,13 +344,13 @@ class MainController(Node):
             req = SetMode.Request()
             req.custom_mode = mode
             future = self.set_mode_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
-            response = future.result()
+            # rclpy.spin_until_future_complete(self, future)
+            # response = future.result()
             
-            if response.mode_sent:
-                self.get_logger().info(f"Mode changed to {mode}")
-            else:
-                self.get_logger().error("Failed to change mode")
+            # if response.mode_sent:
+            #     self.get_logger().info(f"Mode changed to {mode}")
+            # else:
+            #     self.get_logger().error("Failed to change mode")
         except Exception as e:
             self.get_logger().error(str(e))
 
@@ -284,10 +383,18 @@ class MainController(Node):
             self.get_logger().error(f"Error sending waypoints: {str(e)}")
 
     def move_human_servo(self):
-        pass
+        """Activate servo(s) to mark detected person."""
+        self.get_logger().info("[SERVO] Activating human detection marker")
+        # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+        # time.sleep(0.5)
+        # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
 
     def move_tent_servo(self):
-        pass
+        """Activate servo(s) to mark detected tent."""
+        self.get_logger().info("[SERVO] Activating tent detection marker")
+        # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+        # time.sleep(0.5)
+        # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
     
     def move_servo(self, channel, pwm):
         try:
@@ -325,6 +432,10 @@ class MainController(Node):
         msg.text = text
         self.status_publisher.publish(msg)
         self.get_logger().info(f"Status: {text}")
+    
+    def send_status(self, text):
+        #Send_ack for backwards compatibility.
+        self.send_ack(text)
 
 if __name__ == "__main__":
     rclpy.init()
