@@ -252,6 +252,12 @@ class MainController(Node):
                             self.detections[obj_class].bbox_center_x = cx
                             self.detections[obj_class].bbox_center_y = cy
 
+                            # get gps
+                            self.latest_gps = self.get_gps()
+
+                            # call gps_calc
+                            self.gps_calc(self.latest_gps.latitude, self.latest_gps.longitude, cx, cy, self.IMG_WIDTH, self.IMG_HEIGHT, self.latest_gps.altitude, self.latest_gps.yaw)
+
                             self.go_new_detection_now(cx, cy)
                             self.detections[obj_class].waypoint_sent = True
 
@@ -272,15 +278,15 @@ class MainController(Node):
                 {"lat": obj_lat, "lon": obj_lon, "alt": gps_data.altitude, "index": self.waypoint_reached + 1}
             ])
 
-    # def get_gps(self):
-    #     request = GetGPSData.Request()
-    #     future = self.gps_client.call_async(request)
-    #     rclpy.spin_until_future_complete(self, future)
-    #     response = future.result()
-    #     if not (response.latitude == 0.0 and response.longitude == 0.0 and response.altitude == 0.0 and response.yaw == 0.0):
-    #         return response
-    #     else:
-    #         self.get_logger().warn('No GPS data received.')
+    def get_gps(self):
+        request = GetGPSData.Request()
+        future = self.gps_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        response = future.result()
+        if not (response.latitude == 0.0 and response.longitude == 0.0 and response.altitude == 0.0 and response.yaw == 0.0):
+            return response
+        else:
+            self.get_logger().warn('No GPS data received.')
 
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
@@ -292,8 +298,7 @@ class MainController(Node):
     # Future: convert pixel position to GPS offset based on camera FOV and altitude
 
     # calculate GPS coordinates 
-    # different this year since our camera is not pointed straight down
-    # def gps_calc(self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, yaw_degrees):
+    def gps_calc(self, gps_lat, gps_lon, target_x, target_y, img_width, img_height, altitude, yaw_degrees):
         # # Max GPS shift from center to edge (in degrees)
         # max_deg_shift = 0.00001373  # ~5 feet
 
