@@ -72,6 +72,12 @@ class MainController(Node):
         self.tent_wp = -1
         self.wait_to_send_wp = True # wait to send new waypoints until reaching last_before_rtl
         self.last_nav_before_rtl = -1  # last physical nav waypoint before RTL
+        self.buffer_wp = -1            # NAV waypoint before trigger, for GUIDED hold
+        self.processed_image_names = set()  # image filenames received via /image_detection
+        self.waiting_for_processing = False  # True when in GUIDED waiting for processing
+        self.auto_resumed = False      # set True after one-time AUTO resume; prevents re-triggering
+        self.processing_check_timer = None
+        self.camera_feed_path = self._resolve_camera_feed_path()
         self.param_manager = ParameterManager()
 
         self.fetch_mission_indices()
@@ -108,17 +114,28 @@ class MainController(Node):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
+        if (self.buffer_wp >= 0
+                and self.waypoint_reached == self.buffer_wp
+                and not self.waiting_for_processing
+                and not self.auto_resumed):
+            self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
+            self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
+            self.change_mode("GUIDED")
+            self.waiting_for_processing = True
+            if self.processing_check_timer is None:
+                self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
+
         # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
         # since DigiCamCtrl commands don't fire WaypointReached.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
         if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat = self.detections[obj_class].lat
-            person_lon = self.detections[obj_class].long 
+            person_lat = self.detections["person"].lat
+            person_lon = self.detections["person"].long 
             person_alt = ALT
 
-            tent_lat = self.detections[obj_class].lat
-            tent_lon = self.detections[obj_class].long
+            tent_lat = self.detections["tent"].lat
+            tent_lon = self.detections["tent"].long
             tent_alt = ALT
 
             message = f"Both person and tent detected!"
@@ -139,8 +156,8 @@ class MainController(Node):
         elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
-                person_lat = self.detections[obj_class].lat
-                person_lon = self.detections[obj_class].long 
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long 
                 person_alt = ALT
                 self.human_wp = self.last_before_rtl + 1
 
@@ -158,8 +175,8 @@ class MainController(Node):
                 self.last_before_rtl = -1
 
             elif self.valid_detection("tent"):
-                tent_lat = self.detections[obj_class].lat
-                tent_lon = self.detections[obj_class].long
+                tent_lat = self.detections["tent"].lat  
+                tent_lon = self.detections["tent"].long
                 tent_alt = ALT
                 self.tent_wp = self.last_before_rtl + 1
 
@@ -208,21 +225,93 @@ class MainController(Node):
         self._update_last_nav_before_rtl()
 
     def _update_last_nav_before_rtl(self):
-        """Find the last actual NAV waypoint index before RTL.
-        DigiCamCtrl (cmd 203) and other DO_ commands don't trigger WaypointReached,
+        """Find the last actual NAV waypoint index before RTL, and the buffer
+        waypoint (one NAV waypoint before that) used for GUIDED processing hold.
+        DigiCamCtrl and other DO_ commands don't trigger WaypointReached,
         so we need the index of the last physical navigation waypoint."""
         NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
         self.last_nav_before_rtl = -1
+        self.buffer_wp = -1
         if self.rtl_index > 0 and len(self.waypoints) > 0:
+            found_last = False
             for i in range(self.rtl_index - 1, -1, -1):
                 if self.waypoints[i].command in NAV_COMMANDS:
-                    self.last_nav_before_rtl = i
-                    break
+                    if not found_last:
+                        self.last_nav_before_rtl = i
+                        found_last = True
+                    else:
+                        self.buffer_wp = i
+                        break
         if self.last_nav_before_rtl >= 0:
             self.get_logger().info(
                 f"Last nav WP before RTL: index {self.last_nav_before_rtl} "
                 f"(last_before_rtl={self.last_before_rtl}, rtl={self.rtl_index})"
             )
+
+        if self.buffer_wp >= 0:
+            self.get_logger().info(f"Buffer WP (GUIDED processing hold): index {self.buffer_wp}")
+    
+    def _resolve_camera_feed_path(self):
+        """Resolve camera_feed folder path."""
+        current_file = os.path.abspath(__file__)
+        search_dir = os.path.dirname(current_file)
+        ros2_ws_dir = None
+        for _ in range(10):
+            if (os.path.exists(os.path.join(search_dir, "install")) and
+                    os.path.exists(os.path.join(search_dir, "src"))):
+                ros2_ws_dir = search_dir
+                break
+            parent = os.path.dirname(search_dir)
+            if (os.path.exists(os.path.join(parent, "install")) and
+                    os.path.exists(os.path.join(parent, "src"))):
+                ros2_ws_dir = parent
+                break
+            search_dir = os.path.dirname(search_dir)
+            if search_dir == "/":
+                break
+        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
+            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/astra/ros2_ws/src"
+        path = os.path.join(ros2_ws_dir, "video_cam", "mapping_photos")
+        return path
+
+    def _check_all_images_processed(self):
+        """Periodically check if all images in camera_feed have been processed.
+        Switches to AUTO exactly once when done, then cancels itself."""
+        if self.auto_resumed or not self.waiting_for_processing:
+            if self.processing_check_timer:
+                self.processing_check_timer.cancel()
+                self.processing_check_timer = None
+            return
+
+        try:
+            if not os.path.exists(self.camera_feed_path):
+                self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
+                return
+
+            image_files = set()
+            for f in os.listdir(self.camera_feed_path):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    image_files.add(f)
+
+            total = len(image_files)
+            processed = len(self.processed_image_names & image_files)
+            remaining = total - processed
+
+            self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
+
+            if remaining <= 0:
+                self.get_logger().info("All images processed! Switching to AUTO (one-time)")
+                self.send_ack(f"All {total} images processed, resuming AUTO")
+                self.change_mode("AUTO")
+                self.auto_resumed = True
+                self.waiting_for_processing = False
+                if self.processing_check_timer:
+                    self.processing_check_timer.cancel()
+                    self.processing_check_timer = None
+        except Exception as e:
+            self.get_logger().error(f"Error checking processing status: {e}")
 
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
@@ -236,6 +325,10 @@ class MainController(Node):
             return None
 
     def image_result_cb(self, msg):
+         # Track all processed image names for processing completion check
+        if msg.image_name:
+            self.processed_image_names.add(msg.image_name)
+
         if msg.detections.detections:
             self.get_logger().info(f"{len(msg.detections.detections)} object(s) detected!")
             
@@ -271,10 +364,10 @@ class MainController(Node):
             req = SetMode.Request()
             req.custom_mode = mode
             future = self.set_mode_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            # rclpy.spin_until_future_complete(self, future)
             response = future.result()
             
-            if response.mode_sent:
+            if response.mode:
                 self.get_logger().info(f"Mode changed to {mode}")
             else:
                 self.get_logger().error("Failed to change mode")

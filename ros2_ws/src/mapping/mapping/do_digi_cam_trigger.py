@@ -23,40 +23,40 @@ class MissionCameraTrigger(Node):
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
 
-        self.last_before_rtl = 0
+        self.buffer_wp = -1
         self.waypoint_reached = 0
 
         self.param_manager = ParameterManager()
         self.fetch_mission_indices()
     
     def fetch_mission_indices(self):
-        wp_params = ['last_before_rtl']
+        wp_params = ['buffer_wp']
         params = self.param_manager.get_param(self.param_manager.waypoint_client, list_params=wp_params)
-        if not params or 'last_before_rtl' not in params:
-            self.get_logger().warning('Could not fetch last_before_rtl, using default 0')
-            self.last_before_rtl = 0
+        if not params or 'buffer_wp' not in params:
+            self.get_logger().warning('Could not fetch buffer_wp, using default -1')
+            self.buffer_wp = -1
             return
 
         try:
-            self.last_before_rtl = int(params['last_before_rtl'])
+            self.buffer_wp = int(params['buffer_wp'])
         except (TypeError, ValueError) as exc:
-            self.get_logger().error(f'Invalid parameter last_before_rtl: {exc}')
-            self.last_before_rtl = 0
-    
+            self.get_logger().error(f'Invalid parameter buffer_wp: {exc}')
+            self.buffer_wp = -1
+
     def parameter_event_cb(self, msg: ParameterEvent):
         if msg.node == "/waypoint_manager":
             for changed_param in msg.changed_parameters:
                 name = changed_param.name
                 value = changed_param.value
 
-                if name in {"last_before_rtl"}:
+                if name in {"buffer_wp"}:
                     #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
     
     def update_waypoint_reached(self, msg):
          self.waypoint_reached = msg.wp_seq  
-         if self.waypoint_reached == self.last_before_rtl:
+         if self.waypoint_reached == self.buffer_wp:
               self.timer.cancel()    
               self.send_ack(f"Camera trigger STOPPED")
 
@@ -65,7 +65,7 @@ class MissionCameraTrigger(Node):
             match = re.search(r"Mission:\s*(\d+)", msg.text)
             wp = match.group(1) if match else "?"
             # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
-            self.timer = self.create_timer(3.0, self.trigger_camera)
+            self.timer = self.create_timer(5.0, self.trigger_camera)
             self.send_ack(f"Camera trigger STARTED")
 
     def trigger_camera(self):
