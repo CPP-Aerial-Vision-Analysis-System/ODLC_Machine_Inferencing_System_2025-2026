@@ -31,16 +31,16 @@ TENT_SERVOS_PWM= 1500
 
 # MODIFY TO INCLUDE IMAGE
 class Detection_Object:
-    def __init__(self, type, confidence, waypoint_index):
+    def __init__(self, type, confidence, latitude, longitude, center_x, center_y, new_lat=0.0, new_long=0.0):
         self.type = type          # person or tent
-        self.confidence = confidence     
-        self.waypoint_index = waypoint_index # index > 0
-        self.img = ""       # path of highest conf img
-        self.img_path = ""
-        self.bbox_center_x = 0
-        self.bbox_center_y = 0
-        self.waypoint_sent = False
-        
+        self.confidence = confidence 
+        self.lat = latitude
+        self.long = longitude    
+        self.cx= center_x
+        self.cy = center_y
+        self.new_lat = new_lat
+        self.new_long = new_long
+
 class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
@@ -100,8 +100,8 @@ class MainController(Node):
 
         self.waypoints = []
         self.detections = {
-            "person": Detection_Object(type="person", confidence=0, waypoint_index=0),
-            "tent": Detection_Object(type="tent", confidence=0, waypoint_index=0) 
+            "person": Detection_Object(type="person", confidence=0, latitude=0.0, longitude=0.0, center_x=0.0, center_y=0.0, new_lat=0.0, new_long=0.0),
+            "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0, center_x=0.0, center_y=0.0, new_lat=0.0, new_long=0.0)
         }
 
     def fetch_mission_indices(self):
@@ -219,9 +219,6 @@ class MainController(Node):
             
             #self.get_logger().info(f"{msg}")
             for detection in msg.detections.detections:
-                cx = detection.bbox.center.position.x
-                cy = detection.bbox.center.position.y
-
                 for result in detection.results:
                     obj_id = result.hypothesis.class_id
                     if obj_id == "0":
@@ -237,29 +234,20 @@ class MainController(Node):
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
-                            self.detections[obj_class].waypoint_index = msg.waypoint_index
-                            
-                        ##########################
-                        # THIS IS FOR LAST YEAR'S OBJ DETECTION
-                        ##########################
-                        if obj_conf > 0.70 and not self.detections[obj_class].waypoint_sent:         # if detection is greater than 70%
-                            self.get_logger().info(f"{obj_class} detected @ {obj_conf:.2f} confidence")
-                            self.get_logger().info(f"Waypoint {msg.waypoint_index}")
-                            # save img filename
-                            self.detections[obj_class].img = msg.image_name
-                            self.detections[obj_class].img_path = msg.saved_to
-                            # save bbox center
-                            self.detections[obj_class].bbox_center_x = cx
-                            self.detections[obj_class].bbox_center_y = cy
+                            self.detections[obj_class].lat = msg.latitude
+                            self.detections[obj_class].long = msg.longitude
+                            self.detections[obj_class].cx = msg.center_x
+                            self.detections[obj_class].cy = msg.center_y
+                            self.detections[obj_class].new_lat, self.detections[obj_class].new_long = self.gps_calc(msg.latitude, 
+                                                                                                                    msg.longitude, 
+                                                                                                                    msg.center_x, 
+                                                                                                                    msg.center_y, 
+                                                                                                                    self.IMG_WIDTH, 
+                                                                                                                    self.IMG_HEIGHT, 
+                                                                                                                    ALT, 
+                                                                                                                    0) # TODO: get actual yaw from gps data instead of hardcoding 0
 
-                            # get gps
-                            self.latest_gps = self.get_gps()
-
-                            # call gps_calc
-                            self.gps_calc(self.latest_gps.latitude, self.latest_gps.longitude, cx, cy, self.IMG_WIDTH, self.IMG_HEIGHT, self.latest_gps.altitude, self.latest_gps.yaw)
-
-                            self.go_new_detection_now(cx, cy)
-                            self.detections[obj_class].waypoint_sent = True
+                        
 
         else:
             self.get_logger().info("No objects detected.")
