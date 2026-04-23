@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(brew list *)",
+      "Bash(pip3 list *)",
+      "Bash(pip3 install *)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(/usr/bin/python3 -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(/usr/bin/python3 -m pip install --user pypdf)",
+      "Bash(/usr/bin/python3 -c ' *)"
+    ]
+  }
+}

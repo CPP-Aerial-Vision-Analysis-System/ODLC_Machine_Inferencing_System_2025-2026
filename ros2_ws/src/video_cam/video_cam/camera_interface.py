@@ -373,6 +373,8 @@ class CameraInterface:
     def set_single_axis_angle(self, axis: str, angle_deg: float
                               ) -> Optional[Dict[str, float]]:
         """Set a single axis angle (yaw or pitch) using command 0x41."""
+        # Per SDK appendix, A8 mini acknowledges 0x41 with cmd_id 0x0E,
+        # so we accept either cmd_id as a valid ACK.
         axis_norm = axis.strip().lower()
         if axis_norm == 'yaw':
             axis_flag = 0
@@ -384,7 +386,11 @@ class CameraInterface:
         angle_raw = int(round(float(angle_deg) * 10.0))
         payload = struct.pack('<hB', angle_raw, axis_flag)
 
-        response = self._send_sdk_command(CMD_SINGLE_AXIS_CONTROL, payload)
+        response = self._send_sdk_command(
+            CMD_SINGLE_AXIS_CONTROL,
+            payload,
+            expected_cmd_ids={CMD_SINGLE_AXIS_CONTROL, CMD_SET_GIMBAL_ANGLES},
+        )
         if not response or len(response['data']) < 6:
             return None
 
@@ -432,8 +438,9 @@ class CameraInterface:
 
     def format_sd_card(self) -> bool:
         """Format camera SD card (destructive operation)."""
-        response = self._send_sdk_command(CMD_FORMAT_SD_CARD)
-        return self._status_ok(response)
+        # A8 mini (and ZT30/ZR30) do not respond to 0x48 per SDK appendix.
+        self._send_sdk_command(CMD_FORMAT_SD_CARD, expect_ack=False)
+        return True
     
     def get_directories(self, media_type: MediaTypes = MediaTypes.IMAGE) -> List[Dict]:
         # Get list of directories on SD card.

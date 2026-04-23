@@ -197,9 +197,9 @@ class SIYINode(Node):
             return
         
         # Handle capture requests
-        if self.capture_requested.is_set():
-            self.capture_requested.clear()
-            self._handle_capture_request()
+        if self.capture_requested.is_set(): # checks if someone requested a capture
+            self.capture_requested.clear()  # turns flag off after a request has been noticed
+            self._handle_capture_request()  
 
         self._publish_disk_status()
     
@@ -215,8 +215,10 @@ class SIYINode(Node):
             capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
             capture_thread.start()
         else:
+            return
             # Simulation mode: save current image
-            self._execute_simulation_capture()
+            # Commented out for now
+            # self._execute_simulation_capture()
     
     def _execute_real_camera_capture(self):
         """Execute real camera capture pipeline"""
@@ -240,13 +242,13 @@ class SIYINode(Node):
             self._publish_camera_status(f"FAILURE: {e}")
 
     @staticmethod
-    def _result_payload(ok: bool, **kwargs: Any) -> Dict[str, Any]:
+    def _result_payload(ok: bool, **kwargs: Any) -> Dict[str, Any]: # just to keep it all consistent
         payload: Dict[str, Any] = {'ok': ok}
         payload.update(kwargs)
         return payload
 
     @staticmethod
-    def _split_csv(parameter: str, expected_len: int) -> List[str]:
+    def _split_csv(parameter: str, expected_len: int) -> List[str]: # turns strings "10, 20" into string lists [10, 20]
         parts = [item.strip() for item in parameter.split(',') if item.strip()]
         if len(parts) != expected_len:
             raise ValueError(
@@ -254,14 +256,14 @@ class SIYINode(Node):
             )
         return parts
 
-    @staticmethod
-    def _parse_switch(value: str) -> bool:
-        normalized = value.strip().lower()
-        if normalized in {'on', '1', 'true', 'enable', 'enabled'}:
-            return True
-        if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
-            return False
-        raise ValueError("Switch value must be on/off (or true/false, 1/0)")
+    # @staticmethod
+    # def _parse_switch(value: str) -> bool:
+    #     normalized = value.strip().lower()
+    #     if normalized in {'on', '1', 'true', 'enable', 'enabled'}:
+    #         return True
+    #     if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
+    #         return False
+    #     raise ValueError("Switch value must be on/off (or true/false, 1/0)")
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -273,7 +275,7 @@ class SIYINode(Node):
         cmd = command.strip().lower().replace('-', '_')
         param = parameter.strip()
 
-        # Capture command is queued through the existing pipeline trigger path.
+        # Capture command is not queued through the existing pipeline trigger path anymore.
         if cmd == 'capture':
             resolution = '4K'
             if param:
@@ -444,34 +446,34 @@ class SIYINode(Node):
             self.get_logger().error(f"Unexpected camera command error for {msg.data}: {exc}")
             self._publish_camera_status(f"CMD ERROR: {msg.data}")
     
-    def _execute_simulation_capture(self):
-        """Execute simulation capture (save current image)"""
-        if self.latest_image_msg is None:
-            self.get_logger().warn("Trigger received but no simulation image available")
-            return
+    # def _execute_simulation_capture(self):
+    #     """Execute simulation capture (save current image)"""
+    #     if self.latest_image_msg is None:
+    #         self.get_logger().warn("Trigger received but no simulation image available")
+    #         return
         
-        try:
-            # Convert ROS Image to OpenCV format
-            if self.bridge is not None:
-                cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
-            else:
-                cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
+    #     try:
+    #         # Convert ROS Image to OpenCV format
+    #         if self.bridge is not None:
+    #             cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
+    #         else:
+    #             cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
             
-            # Rotate image to fix upside-down physical mounting
-            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
+    #         # Rotate image to fix upside-down physical mounting
+    #         cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
             
-            # Save to mapping directory
-            timestamp = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"mapping_photo_{timestamp}.jpg"
-            mapping_dir = self.storage.get_mapping_dir()
-            filepath = os.path.join(mapping_dir, filename)
+    #         # Save to mapping directory
+    #         timestamp = time.strftime("%Y%m%d-%H%M%S")
+    #         filename = f"mapping_photo_{timestamp}.jpg"
+    #         mapping_dir = self.storage.get_mapping_dir()
+    #         filepath = os.path.join(mapping_dir, filename)
             
-            cv2.imwrite(filepath, cv_image)
-            self.get_logger().info(f"Simulation photo saved: {filepath}")
-            self._send_status(f"Simulation photo captured: {timestamp}")
+    #         cv2.imwrite(filepath, cv_image)
+    #         self.get_logger().info(f"Simulation photo saved: {filepath}")
+    #         self._send_status(f"Simulation photo captured: {timestamp}")
             
-        except Exception as e:
-            self.get_logger().error(f"Failed to save simulation image: {e}")
+    #     except Exception as e:
+    #         self.get_logger().error(f"Failed to save simulation image: {e}")
     
     def _publish_captured_image(self):
         """Publish the most recently captured image to ROS"""
@@ -569,7 +571,6 @@ class SIYINode(Node):
         self.get_logger().info(f"Status: {text}")
     
     def _publish_camera_status(self, text: str):
-        """Publish camera-specific status"""
         msg = String()
         msg.data = text
         self.camera_status_pub.publish(msg)
@@ -602,7 +603,6 @@ class SIYINode(Node):
         return cv_image
     
     def shutdown(self):
-        """Proper shutdown handler"""
         try:
             self.get_logger().info("Shutting down SIYI pipeline...")
         except Exception:
@@ -622,7 +622,6 @@ class SIYINode(Node):
 
 
 def main(args=None):
-    """Main entry point"""
     rclpy.init(args=args)
     node = SIYINode()
     
