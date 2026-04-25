@@ -65,9 +65,9 @@ class SIYINode(Node):
         # Unified command topic for camera/gimbal controls from other nodes or CLI
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
         
-        # Simulation mode subscriber
-        if not self.use_real_camera:
-            self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
+        # # Simulation mode subscriber
+        # if not self.use_real_camera:
+        #     self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
         
         # State
         self.camera_enabled = True
@@ -186,7 +186,7 @@ class SIYINode(Node):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
         self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
         self.get_logger().info("Command service ready at /camera/command")
-    
+    # assist
     def _pipeline_loop(self):
         # Main execution loop. Execute capture pipeline when triggered (in separate thread)
         # Check if camera is enabled (altitude check)
@@ -197,12 +197,12 @@ class SIYINode(Node):
             return
         
         # Handle capture requests
-        if self.capture_requested.is_set(): # checks if someone requested a capture
+        if self.capture_requested.is_set(): # checks if someone requested a capture. method camera_trigger_callback
             self.capture_requested.clear()  # turns flag off after a request has been noticed
             self._handle_capture_request()  
 
         self._publish_disk_status()
-    
+    # assist
     def _handle_capture_request(self):
         """Handle capture request (executed in separate thread)"""
         if self.use_real_camera:
@@ -415,6 +415,7 @@ class SIYINode(Node):
 
     def camera_command_callback(self, msg: String):
         """Handle camera control commands from topic."""
+        # checks for json type command, if not, uses regular, then locks the camera before executing, then execute
         try:
             # Try parsing as JSON first
             try:
@@ -477,6 +478,8 @@ class SIYINode(Node):
     
     def _publish_captured_image(self):
         """Publish the most recently captured image to ROS"""
+        # finds folde rwhere its stored, finds all the images( diff types), choose newest image, 
+        read image using opencv, convert opencv to ros2, add metadata like time, size, etc, publishes to ros2
         try:
             mapping_dir = self.storage.get_mapping_dir()
             # Find the most recently modified image file
@@ -506,25 +509,25 @@ class SIYINode(Node):
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
     
-    def _publish_video_stream(self):
-        # We are not streaming anymore
-        pass
+    # def _publish_video_stream(self):
+    #     # We are not streaming anymore
+    #     pass
 
     def _publish_disk_status(self):
-        """Publish disk space status"""
         free_mb = self.storage.get_free_space_mb()
         msg = Float64()
         msg.data = free_mb
         self.disk_status_pub.publish(msg)
-    
+    # assist
     def camera_trigger_callback(self, msg: Bool):
-        """Handle capture trigger requests"""
+        # this handles drigger and sets a flag with set()
+        # basically says a picture has been requested
         if msg.data:
             self.get_logger().info("Capture trigger received!")
             self.capture_requested.set()
         else:
             self.get_logger().debug("Trigger received with data=False, ignoring")
-    
+    # assist
     def set_resolution_callback(self, msg: String):
         """Handle resolution change requests"""
         resolution = msg.data.upper()
@@ -558,12 +561,12 @@ class SIYINode(Node):
                         "Camera DISABLED")
                     self._send_status("Below altitude threshold - Camera disabled")
     
-    def sim_image_callback(self, msg: Image):
+    # def sim_image_callback(self, msg: Image):
         """Callback for simulation images"""
         self.latest_image_msg = msg
     
     def _send_status(self, text: str):
-        """Send status message to MAVROS"""
+        """Send status message to MAVROS, mission planner, ardupilot messages tab"""
         msg = StatusText()
         msg.severity = 6
         msg.text = text
