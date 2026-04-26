@@ -132,12 +132,12 @@ class MainController(Node):
 
         # UNCOMMENT TO TEST DATA RECEIVED FROM /image_detection
         if self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
-            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+            person_lat, person_lon, person_alt = self.detections["person"].new_lat, self.detections["person"].new_long, ALT
+            tent_lat, tent_lon, tent_alt = self.detections["tent"].new_lat, self.detections["tent"].new_long, ALT
             # Update new_wp for both detections (MIGHT WORK LMAO)
             self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
-            self.human_wp = self.last_before_rtl + 1
-            self.tent_wp = self.last_before_rtl + 2
+            self.human_wp = self.last_before_rtl + 2
+            self.tent_wp = self.last_before_rtl + 1
             
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
@@ -150,7 +150,7 @@ class MainController(Node):
         elif self.waypoint_reached == self.last_before_rtl and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
-                person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                person_lat, person_lon, person_alt = self.detections["person"].new_lat, self.detections["person"].new_long, ALT
                 self.human_wp = self.last_before_rtl + 1
                 self.get_logger().info("Only person was detected")
                 self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
@@ -162,7 +162,7 @@ class MainController(Node):
                 self.last_before_rtl = -1
 
             if self.valid_detection("tent"):
-                tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                tent_lat, tent_lon, tent_alt = self.detections["tent"].new_lat, self.detections["tent"].new_long, ALT
                 self.tent_wp = self.last_before_rtl + 1
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
@@ -171,26 +171,26 @@ class MainController(Node):
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
-        if self.waypoint_reached == self.human_wp:
-            self.get_logger().info("Reached human waypoint, activating servo...")
-            self.send_ack("Reached human waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_human_servo() # Placeholder when testing out in simulation
-            # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
-            # time.sleep(2)
-            # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
-            # time.sleep(2)
-            self.change_mode("AUTO")
-        if self.waypoint_reached == self.tent_wp:
-            self.get_logger().info("Reached tent waypoint, activating servo...")
-            self.send_ack("Reached tent waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_tent_servo()
-            # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
-            # time.sleep(2)
-            # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
-            # time.sleep(2)
-            self.change_mode("AUTO")
+        # if self.waypoint_reached == self.human_wp:
+        #     self.get_logger().info("Reached human waypoint, activating servo...")
+        #     self.send_ack("Reached human waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_human_servo() # Placeholder when testing out in simulation
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
+        # if self.waypoint_reached == self.tent_wp:
+        #     self.get_logger().info("Reached tent waypoint, activating servo...")
+        #     self.send_ack("Reached tent waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_tent_servo()
+        #     # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
+        #     # time.sleep(2)
+        #     self.change_mode("AUTO")
             
         
     def valid_detection(self, type):
@@ -230,7 +230,7 @@ class MainController(Node):
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
-                            self.send_ack(f"Detected {obj_class} at waypoint {msg.waypoint_index}")
+                            self.send_ack(f"Detected {obj_class}")
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
@@ -252,29 +252,6 @@ class MainController(Node):
         else:
             self.get_logger().info("No objects detected.")
 
-    def go_new_detection_now(self, cx, cy):
-        if self.latest_gps is None:
-            self.get_logger().warn("No GPS data available yet")
-            return
-        gps_data = self.latest_gps      # get drone gps
-        # For now, use drone's current position as waypoint target
-        # Need to calculate offset based on pixel position and camera angle
-        obj_lat = gps_data.latitude
-        obj_lon = gps_data.longitude
-
-        self.send_waypoint_data([
-                {"lat": obj_lat, "lon": obj_lon, "alt": gps_data.altitude, "index": self.waypoint_reached + 1}
-            ])
-
-    def get_gps(self):
-        request = GetGPSData.Request()
-        future = self.gps_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
-        response = future.result()
-        if not (response.latitude == 0.0 and response.longitude == 0.0 and response.altitude == 0.0 and response.yaw == 0.0):
-            return response
-        else:
-            self.get_logger().warn('No GPS data received.')
 
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
@@ -426,9 +403,6 @@ class MainController(Node):
         self.status_publisher.publish(msg)
         self.get_logger().info(f"Status: {text}")
     
-    def send_status(self, text):
-        #Send_ack for backwards compatibility.
-        self.send_ack(text)
 
 if __name__ == "__main__":
     rclpy.init()
