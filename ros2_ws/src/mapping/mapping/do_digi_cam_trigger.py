@@ -56,16 +56,19 @@ class MissionCameraTrigger(Node):
     
     def update_waypoint_reached(self, msg):
          self.waypoint_reached = msg.wp_seq  
-         if self.waypoint_reached == self.buffer_wp:
-              self.timer.cancel()    
-              self.send_ack(f"Camera trigger STOPPED")
+         if self.waypoint_reached == self.last_before_rtl:
+            self.timer.cancel()    
+            self.last_before_rtl = -1
+            self.get_logger().info("Camera trigger STOPPED")
+            self.send_ack(f"Camera trigger STOPPED")
 
     def statustext_callback(self, msg):
         if "DigiCamCtrl" in msg.text:
             match = re.search(r"Mission:\s*(\d+)", msg.text)
             wp = match.group(1) if match else "?"
             # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
-            self.timer = self.create_timer(5.0, self.trigger_camera)
+            self.timer = self.create_timer(1, self.trigger_camera)
+            self.get_logger().info("Camera trigger STARTED")
             self.send_ack(f"Camera trigger STARTED")
 
     def trigger_camera(self):

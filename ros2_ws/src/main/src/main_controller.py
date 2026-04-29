@@ -129,6 +129,9 @@ class MainController(Node):
         # since DigiCamCtrl commands don't fire WaypointReached.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
+        # if self.waypoint_reached == self.last_before_rtl - 1:
+        #     self.change_mode("GUIDED")
+
         if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
             person_lat = self.detections["person"].lat
             person_lon = self.detections["person"].long 

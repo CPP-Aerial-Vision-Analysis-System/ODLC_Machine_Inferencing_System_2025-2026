@@ -214,6 +214,12 @@ class SIYINode(Node):
             # capture is still downloading will proceed and overlap its
             # shutter with that download — this is the whole point of the
             # pipelined-capture design.
+            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
+            # index). Phase 3 (HTTP download) is intentionally not counted
+            # as busy, so a new trigger arriving while the previous
+            # capture is still downloading will proceed and overlap its
+            # shutter with that download — this is the whole point of the
+            # pipelined-capture design.
             if self.pipeline.is_busy():
                 self.get_logger().warn(
                     "Previous capture still in shutter/index phase, skipping request")
@@ -245,6 +251,7 @@ class SIYINode(Node):
             # this call) rather than to download-completion time, which
             # can be 2-3s later -- ~40-60m of drift at airspeed.
             gps_filename = self._generate_gps_filename()
+            # self.get_logger().info(self._generate_gps_filename())
             if gps_filename is None:
                 self.get_logger().warn(
                     "No valid GPS info "
@@ -604,6 +611,7 @@ class SIYINode(Node):
         try:
             lat = float(self.latest_gps.latitude)
             lon = float(self.latest_gps.longitude)
+            self.get_logger().info(f"{self.latest_gps.latitude}, {self.latest_gps.longitude}")
         except (TypeError, ValueError) as exc:
             self.get_logger().warn(
                 f"Cached NavSatFix has invalid coordinates: {exc}")

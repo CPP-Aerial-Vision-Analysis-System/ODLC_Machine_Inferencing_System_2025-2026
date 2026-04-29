@@ -7,3 +7,9 @@ ros2_ws/*.parm
 ros2_ws/*.tlog
 ros2_ws/*.tlog.raw
 .vscode/
+__pycache__/
+*.py[cod]
+docs/
+.DS_Store
+GUIDE.md
+interview.md
