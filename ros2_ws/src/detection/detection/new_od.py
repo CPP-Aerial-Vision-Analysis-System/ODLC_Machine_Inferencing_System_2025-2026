@@ -82,7 +82,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
         self.declare_parameter('max_images_per_cycle', 5)
-        self.declare_parameter('max_camera_feed_images', 100)
+        self.declare_parameter('max_camera_feed_images', 1000000000)
         self.declare_parameter('min_detection_area', 25)
         self.declare_parameter('max_detection_area', 1000000)
         self.declare_parameter('min_aspect_ratio', 0.1)
