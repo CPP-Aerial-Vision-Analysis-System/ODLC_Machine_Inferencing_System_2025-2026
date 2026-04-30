@@ -56,7 +56,7 @@ class MissionCameraTrigger(Node):
     
     def update_waypoint_reached(self, msg):
          self.waypoint_reached = msg.wp_seq  
-         if self.waypoint_reached == self.last_before_rtl:
+         if self.waypoint_reached == self.buffer_wp:
             self.timer.cancel()    
             self.last_before_rtl = -1
             self.get_logger().info("Camera trigger STOPPED")

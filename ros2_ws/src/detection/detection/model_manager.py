@@ -92,17 +92,29 @@ def resolve_model_path(model_path, model_format, auto_convert, slice_height,
     if model_format == MODEL_FORMAT_AUTO:
         base = os.path.splitext(model_path)[0]
         engine_path = f"{base}.engine"
+        pt_path = f"{base}.pt"
+
+        # Prefer existing engine
         if os.path.exists(engine_path):
             logger.info(f"Found TensorRT engine: {engine_path}")
             return engine_path, MODEL_FORMAT_TENSORRT
-        if (
-            model_path.endswith('.pt')
-            and auto_convert
-            and TENSORRT_AVAILABLE
-        ):
-            if _convert_pt_to_trt(model_path, engine_path, slice_height, slice_width, tensorrt_workspace, device, logger):
+
+        # No engine yet — try to build from .pt (whether the user asked for
+        # .engine or .pt; the goal is the engine).
+        if os.path.exists(pt_path) and auto_convert and TENSORRT_AVAILABLE:
+            if _convert_pt_to_trt(pt_path, engine_path, slice_height, slice_width, tensorrt_workspace, device, logger):
                 return engine_path, MODEL_FORMAT_TENSORRT
-            logger.warn("TensorRT conversion failed, using PyTorch")
+            logger.warn("TensorRT conversion failed, falling back to PyTorch")
+            return pt_path, MODEL_FORMAT_PYTORCH
+
+        # No engine, no .pt to convert — let SAHI/Ultralytics try whatever
+        # was requested (e.g. download .pt).
+        if model_path.endswith('.engine') and not os.path.exists(model_path):
+            logger.warn(
+                f"Engine {engine_path} missing and {pt_path} not found; "
+                "falling back to PyTorch by name"
+            )
+            return pt_path, MODEL_FORMAT_PYTORCH
         return model_path, detected_fmt
 
     if model_format == MODEL_FORMAT_TENSORRT:
@@ -140,6 +152,13 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device, l
             torch.cuda.synchronize()
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.enabled = True
+            # FP32 matmul → TF32 on Ampere (Orin). Free precision/perf trade.
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            try:
+                torch.set_float32_matmul_precision('high')
+            except AttributeError:
+                pass  # older torch versions
         except Exception as e:
             logger.debug(f"GPU pre-load setup: {e}")
 
@@ -258,3 +277,4 @@ def _convert_pt_to_trt(pt_path, engine_path, slice_h, slice_w, workspace_gb, dev
         import traceback
         logger.error(traceback.format_exc())
         return False
+
