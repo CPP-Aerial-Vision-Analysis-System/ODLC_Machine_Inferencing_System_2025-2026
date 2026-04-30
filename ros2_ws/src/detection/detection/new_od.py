@@ -36,6 +36,7 @@ from detection.gpu_utils import (
     detect_device,
     optimize_gpu_memory,
     cleanup_gpu,
+    check_jetson_power_mode,
     TORCH_AVAILABLE,
 )
 from detection.model_manager import (
@@ -54,7 +55,7 @@ from detection.annotation import annotate_frame, save_top_matches_crop
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
-DEFAULT_OVERLAP = 0.25
+DEFAULT_OVERLAP = 0.15
 DEFAULT_CHECK_INTERVAL = 2.0
 CLASS_ID = {"person": "0", "tent": "1", "object": "2"}
 
@@ -133,7 +134,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.shutdown_requested = False
         self._active = False
 
-        self.declare_parameter('model_path', 'yolo26m.pt')
+        # Default to .engine; resolver falls back to .pt if engine missing
+        # and (when auto_convert_tensorrt=True) builds the engine on first run.
+        self.declare_parameter('model_path', 'yolo26m.engine')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)
         self.declare_parameter('auto_convert_tensorrt', True)
         self.declare_parameter('tensorrt_workspace', 4)
@@ -145,7 +148,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
         self.declare_parameter('max_images_per_cycle', 5)
-        self.declare_parameter('max_camera_feed_images', 1000)
+        self.declare_parameter('max_camera_feed_images', 1000000000)
         self.declare_parameter('min_detection_area', 25)
         self.declare_parameter('max_detection_area', 1000000)
         self.declare_parameter('min_aspect_ratio', 0.1)
@@ -209,6 +212,10 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 self.device = detect_device(self.get_logger())
             self.get_logger().info(f"Device: {self.device}")
 
+            # Jetson power/clocks check — free perf if user runs the commands
+            check_jetson_power_mode(self.get_logger())
+
+            # GPU memory tuning (returns possibly-adjusted slice params)
             if self.device.startswith('cuda'):
                 self.slice_height, self.slice_width, self.overlap_height_ratio, self.overlap_width_ratio = (
                     optimize_gpu_memory(
@@ -445,7 +452,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
         h, w = frame.shape[:2]
         self.get_logger().info(f"Processing: {os.path.basename(image_path)} ({w}x{h})")
 
-        frame_orig = frame.copy()
+        # No frame.copy() — annotate_frame copies internally, so `frame`
+        # itself is never mutated and can be reused for the crops below.
 
         detections = run_sahi_detection(
             frame=frame,
@@ -474,7 +482,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.model_format_detected or MODEL_FORMAT_PYTORCH,
         )
 
-        save_top_matches_crop(frame_orig, detections, image_path, self.detection_results_path)
+        save_top_matches_crop(frame, detections, image_path, self.detection_results_path)
 
         self._publish_results(annotated, detections, image_path)
 

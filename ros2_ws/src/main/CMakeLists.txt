@@ -33,8 +33,7 @@ find_package(PCL REQUIRED)
 # Messages are now defined in the interfaces package, not here
 
 install(PROGRAMS
-  src/main.py
-  ../ultralytics_ros/script/main_controller.py
+  src/main_controller.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

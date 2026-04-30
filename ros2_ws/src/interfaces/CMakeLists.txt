@@ -20,6 +20,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/UpdateMission.srv"
   "srv/GetGPSData.srv"
   "srv/CameraCommand.srv"
+  DEPENDENCIES std_msgs sensor_msgs vision_msgs
 )
 
 if(BUILD_TESTING)

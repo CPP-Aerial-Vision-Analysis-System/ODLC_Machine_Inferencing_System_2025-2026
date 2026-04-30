@@ -40,6 +40,7 @@ class WaypointManager(Node):
         self.declare_parameter('rtl_index', -1)
         self.declare_parameter('next_after_takeoff', -1)
         self.declare_parameter('last_before_rtl', -1)
+        self.declare_parameter('buffer_wp', -1)
 
     def state_callback(self, msg):
         """Callback function for state updates."""
@@ -68,6 +69,8 @@ class WaypointManager(Node):
         self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, self.next_after_takeoff)])
         self.set_parameters([rclpy.parameter.Parameter('rtl_index', rclpy.Parameter.Type.INTEGER, self.rtl_index)])
         self.set_parameters([rclpy.parameter.Parameter('last_before_rtl', rclpy.Parameter.Type.INTEGER, self.last_before_rtl)])
+        self.set_parameters([rclpy.parameter.Parameter('buffer_wp', rclpy.Parameter.Type.INTEGER, self.last_before_rtl - 1)])
+
     
     def reset_indices(self):
         self.num_waypoints = 0
@@ -75,12 +78,13 @@ class WaypointManager(Node):
         self.rtl_index = -1
         self.next_after_takeoff = -1
         self.last_before_rtl = -1
-
+        self.buffer_wp = -1
         self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, 0)])
         self.set_parameters([rclpy.parameter.Parameter('takeoff_index', rclpy.Parameter.Type.INTEGER, -1)])
         self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, -1)])
         self.set_parameters([rclpy.parameter.Parameter('rtl_index', rclpy.Parameter.Type.INTEGER, -1)])
         self.set_parameters([rclpy.parameter.Parameter('last_before_rtl', rclpy.Parameter.Type.INTEGER, -1)])
+        self.set_parameters([rclpy.parameter.Parameter('buffer_wp', rclpy.Parameter.Type.INTEGER, -1)])
 
     def push_waypoints(self):
         # infinite loop until the waypoint push service is available(toFix)

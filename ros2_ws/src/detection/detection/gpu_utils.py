@@ -1,7 +1,9 @@
 import os
 import sys
 import gc
-from contextlib import contextmanager, suppress
+import subprocess
+from contextlib import contextmanager
+
 try:
     import torch
     TORCH_AVAILABLE = True
@@ -60,21 +62,24 @@ def optimize_gpu_memory(device, slice_height, slice_width, overlap_h, overlap_w,
     try:
         total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
 
-        if total_memory < 4:  # Jetson Nano
+        # Recommendations tuned for TensorRT FP16 inference. Larger slices =
+        # fewer inference passes per image; FP16 + Ampere kernel on Orin
+        # handles 640x640 batches well within 8GB unified memory.
+        if total_memory < 4:  # Jetson Nano (Maxwell)
             recommended_slice = 640
             recommended_overlap = 0.10
             max_fraction = 0.7
             logger.warn("Jetson Nano detected: large slices + low overlap for stability")
-        elif total_memory < 8:  # Jetson Xavier NX / TX2
-            recommended_slice = 512
+        elif total_memory < 7:  # Jetson Xavier NX / TX2
+            recommended_slice = 640
             recommended_overlap = 0.15
-            max_fraction = 0.75
-            logger.info("Jetson Xavier NX/TX2 detected: balanced settings")
-        else:  # Jetson AGX / Orin
-            recommended_slice = 416
-            recommended_overlap = 0.20
-            max_fraction = 0.8
-            logger.info("Jetson AGX/Orin detected: moderate slices")
+            max_fraction = 0.80
+            logger.info("Jetson Xavier NX/TX2 detected: 640 slice / 0.15 overlap")
+        else:  # Jetson Orin Nano 8GB / Orin NX / AGX Orin
+            recommended_slice = 640
+            recommended_overlap = 0.15
+            max_fraction = 0.85
+            logger.info("Jetson Orin detected: 640 slice / 0.15 overlap / 85% mem")
 
         # Estimate slice counts for a worst-case 4K image
         current_slices = _estimate_slice_count(
@@ -117,6 +122,55 @@ def optimize_gpu_memory(device, slice_height, slice_width, overlap_h, overlap_w,
         logger.warn(f"GPU memory optimization failed: {e}")
 
     return slice_height, slice_width, overlap_h, overlap_w
+
+
+def check_jetson_power_mode(logger) -> None:
+    """Warn if Jetson is not in MAXN power mode or jetson_clocks is not active.
+
+    Free 20-40% on Orin: MAXN unlocks all CPU/GPU clocks, jetson_clocks pins
+    them to max. Without this, the platform throttles aggressively.
+    """
+    is_jetson = False
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            is_jetson = 'jetson' in f.read().lower()
+    except (OSError, IOError, FileNotFoundError):
+        return  # not a Jetson, nothing to check
+
+    if not is_jetson:
+        return
+
+    # Power mode (nvpmodel)
+    try:
+        out = subprocess.run(
+            ['nvpmodel', '-q'], capture_output=True, text=True, timeout=2
+        )
+        text = (out.stdout or '') + (out.stderr or '')
+        if 'MAXN' not in text.upper():
+            logger.warn(
+                "Jetson not in MAXN power mode. For best performance: "
+                "`sudo nvpmodel -m 0`"
+            )
+        else:
+            logger.info("Jetson power mode: MAXN")
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        logger.debug("nvpmodel not available; skipping power-mode check")
+
+    # jetson_clocks lock
+    try:
+        out = subprocess.run(
+            ['jetson_clocks', '--show'], capture_output=True, text=True, timeout=2
+        )
+        # If clocks aren't locked, governor is "schedutil" or similar.
+        # The presence of `cur=` matching `max=` is the giveaway, but the
+        # easiest practical check is just to remind the user.
+        if out.returncode == 0:
+            logger.info(
+                "jetson_clocks accessible. If clocks are not locked, run: "
+                "`sudo jetson_clocks` to pin to max."
+            )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        logger.debug("jetson_clocks not available; skipping clocks check")
 
 
 def cleanup_gpu():

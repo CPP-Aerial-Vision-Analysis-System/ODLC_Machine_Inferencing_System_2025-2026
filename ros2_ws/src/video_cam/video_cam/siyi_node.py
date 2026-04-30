@@ -3,7 +3,7 @@
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, NavSatFix
 from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
@@ -60,6 +60,9 @@ class SIYINode(Node):
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
+        self.create_subscription(NavSatFix,'/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
+
+        # Unified command topic for camera/gimbal controls from other nodes or CLI
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
 
         # State
@@ -87,6 +90,8 @@ class SIYINode(Node):
 
         self._log_initialization_complete()
 
+        self.latest_gps = None
+    
     def _declare_parameters(self):
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
         self.declare_parameter('min_altitude_agl', DEFAULT_MIN_ALTITUDE_AGL)
@@ -175,34 +180,93 @@ class SIYINode(Node):
             self._handle_capture_request()
 
     def _handle_capture_request(self):
-        if not self.use_real_camera:
-            return
+        """Handle capture request (executed in separate thread)"""
+        if self.use_real_camera:
+            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
+            # index). Phase 3 (HTTP download) is intentionally not counted
+            # as busy, so a new trigger arriving while the previous
+            # capture is still downloading will proceed and overlap its
+            # shutter with that download — this is the whole point of the
+            # pipelined-capture design.
+            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
+            # index). Phase 3 (HTTP download) is intentionally not counted
+            # as busy, so a new trigger arriving while the previous
+            # capture is still downloading will proceed and overlap its
+            # shutter with that download — this is the whole point of the
+            # pipelined-capture design.
+            if self.pipeline.is_busy():
+                self.get_logger().warn(
+                    "Previous capture still in shutter/index phase, skipping request")
+                return
 
-        if not self.camera_connected:
-            self.get_logger().warn("Camera unreachable, skipping capture request")
-            self._publish_camera_status("UNREACHABLE: Capture request dropped")
-            return
-
-        if not self.capture_lock.acquire(blocking=False):
-            self.get_logger().warn("Capture already in flight, skipping request")
-            self._publish_camera_status("BUSY: Capture request dropped, capture in flight")
-            return
-
-        capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
-        capture_thread.start()
-
+            # Execute pipeline in separate thread (non-blocking)
+            capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
+            capture_thread.start()
+        else:
+            # Simulation mode: save current image
+            self._execute_simulation_capture()
+    
     def _execute_real_camera_capture(self):
-        try:
-            with self.camera_control_lock:
-                filepath = self.pipeline.execute_pipeline()
+        """Execute real camera capture pipeline with pipelined phases.
 
+        Phases 1+2 (UDP shutter + SD index) run under camera_control_lock so
+        they are serialized with other camera commands. Phase 3 (HTTP download
+        on a separate port) runs OUTSIDE the lock, so the NEXT capture's
+        shutter and the previous capture's download can overlap — cutting
+        back-to-back capture latency roughly in half.
+        """
+        try:
+            # Snapshot a GPS-based filename BEFORE the pipeline runs so that
+            # phase 3 saves the downloaded image directly under its final
+            # "<lat> , <lon>.jpg" name. This avoids a race where new_od
+            # would see the file under its SD card name and enqueue it
+            # before a post-hoc rename could happen. It also pins the
+            # lat/lon to ~shutter time (phase 1 fires immediately after
+            # this call) rather than to download-completion time, which
+            # can be 2-3s later -- ~40-60m of drift at airspeed.
+            gps_filename = self._generate_gps_filename()
+            # self.get_logger().info(self._generate_gps_filename())
+            if gps_filename is None:
+                self.get_logger().warn(
+                    "No valid GPS info "
+                    "/mavros/global_position/global; using the SD name")
+                self._send_status(
+                    "WARN: No GPS fix - image will not have lat/lon name")
+
+            # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
+            # control lock here so gimbal/zoom commands can't race with
+            # the UDP capture command.
+            with self.camera_control_lock:
+                file_info = self.pipeline.capture_and_index()
+
+            if file_info is None:
+                self._send_status("FAILED: Capture shutter/index error")
+                self._publish_camera_status("FAILURE: Capture shutter/index error")
+                return
+
+            # Phase 3: HTTP download on port 82. Intentionally NOT holding
+            # camera_control_lock here so that (a) gimbal/zoom commands can
+            # run concurrently and (b) the next capture's phases 1+2 can
+            # overlap with this download.
+            result = self.pipeline.download_and_save(
+                file_info, filename_override=gps_filename
+            )
+
+            if result is None:
+                self._send_status("FAILED: Capture download error")
+                self._publish_camera_status("FAILURE: Capture download error")
+                return
+
+            saved_path, img = result
             stats = self.pipeline.get_stats()
             self._send_status(
                 f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
             self._publish_camera_status(
                 f"SUCCESS: {stats['resolution']} image captured")
 
-            self._publish_captured_image(filepath)
+            # Publish the in-memory decoded ndarray directly — no disk
+            # re-read, no directory scan, no rename.
+            self._publish_captured_image(img, saved_path)
 
         except PipelineError as e:
             self.get_logger().error(f"Pipeline error: {e}")
@@ -225,6 +289,19 @@ class SIYINode(Node):
                 f"Expected {expected_len} CSV values, got {len(parts)}"
             )
         return parts
+
+    @staticmethod
+    def _parse_switch(value: str) -> bool:
+        normalized = value.strip().lower()
+        if normalized in {'on', '1', 'true', 'enable', 'enabled'}:
+            return True
+        if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
+            return False
+        raise ValueError("Switch value must be on/off (or true/false, 1/0)")
+
+    def gps_cb(self, msg):
+        """Callback to store the latest GPS data."""
+        self.latest_gps = msg
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -410,13 +487,86 @@ class SIYINode(Node):
         except Exception as exc:
             self.get_logger().error(f"Unexpected camera command error for {msg.data}: {exc}")
             self._publish_camera_status(f"CMD ERROR: {msg.data}")
-
-    def _publish_captured_image(self, filepath: str):
-        """Publish a captured image to ROS by its filepath."""
+    
+    def _execute_simulation_capture(self):
+        """Execute simulation capture (save current image)"""
+        if self.latest_image_msg is None:
+            self.get_logger().warn("Trigger received but no simulation image available")
+            return
+        
         try:
-            img = cv2.imread(filepath)
+            # Convert ROS Image to OpenCV format
+            if self.bridge is not None:
+                cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
+            else:
+                cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
+            
+            # Rotate image to fix upside-down physical mounting
+            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
+            
+            # Save to mapping directory
+            mapping_dir = self.storage.get_mapping_dir()
+            filename = self._generate_gps_filename()
+            if filename is None:
+                filename = f"sim_{time.strftime('%Y%m%d-%H%M%S')}.jpg"
+            filepath = os.path.join(mapping_dir, filename)
+            
+            cv2.imwrite(filepath, cv_image)
+            self.get_logger().info(f"Simulation photo saved: {filepath}")
+            self._send_status(f"Simulation photo captured: {time.strftime('%Y%m%d-%H%M%S')}")
+            
+        except Exception as e:
+            self.get_logger().error(f"Failed to save simulation image: {e}")
+
+    def _generate_gps_filename(self) -> Optional[str]:
+        """Build a '<lat> , <lon>.jpg' filename from the latest cached fix.
+
+        IMPORTANT: the '" , "' delimiter (space-comma-space) is parsed by
+        detection/new_od.py on the consuming side via `name.split(' , ')`,
+        which then does `float()` on each half to populate
+        ImageResult.latitude / ImageResult.longitude. Do NOT change the
+        delimiter or append anything else to the stem without updating
+        new_od's parser in lockstep, or main_controller will start placing
+        detection waypoints at (0.0, 0.0).
+        """
+        if self.latest_gps is None:
+            return None
+
+        try:
+            lat = float(self.latest_gps.latitude)
+            lon = float(self.latest_gps.longitude)
+            self.get_logger().info(f"{self.latest_gps.latitude}, {self.latest_gps.longitude}")
+        except (TypeError, ValueError) as exc:
+            self.get_logger().warn(
+                f"Cached NavSatFix has invalid coordinates: {exc}")
+            return None
+
+        # Null Island: the FCU publishes (0.0, 0.0) before GPS lock, so
+        # treat it as "no fix" rather than baking it into a filename.
+        if lat == 0.0 and lon == 0.0:
+            self.get_logger().warn(
+                "Cached GPS fix is (0.0, 0.0) - treating as no fix")
+            return None
+
+        return f"{lat:.6f} , {lon:.6f}.jpg"
+
+    def _publish_captured_image(self, img: np.ndarray, saved_path: str):
+        """Publish an already-decoded image to ROS /image_raw.
+
+        The pipeline's download_and_save() hands back the decoded ndarray
+        directly, so this method publishes it without a round-trip through
+        cv2.imread(). Saves one full-resolution disk read per capture.
+
+        Args:
+            img: Decoded BGR image (as returned by download_and_save).
+            saved_path: Absolute path the pipeline wrote — used only for
+                the log line and the ROS header's frame_id context.
+        """
+        try:
             if img is None:
-                self.get_logger().error(f"Failed to read image: {filepath}")
+                self.get_logger().warn(
+                    "Pipeline handed back a None image; "
+                    "nothing to publish on /image_raw")
                 return
 
             if self.bridge is not None:
@@ -427,10 +577,11 @@ class SIYINode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
             self.image_pub.publish(msg)
-            self.get_logger().info(f"Published image to image_raw: {os.path.basename(filepath)}")
+            self.get_logger().info(
+                f"Published image to image_raw: {os.path.basename(saved_path)}")
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
-
+    
     def _publish_disk_status(self):
         free_mb = self.storage.get_free_space_mb()
         msg = Float64()

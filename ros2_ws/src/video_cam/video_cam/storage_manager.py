@@ -47,9 +47,14 @@ class StorageManager:
     
     def _log(self, level: str, message: str):
         if self.logger:
-            log_func = getattr(self.logger, level, None)
-            if log_func:
-                log_func(message)
+            if level == 'info':
+                self.logger.info(message)
+            elif level == 'warn' or level == 'warning':
+                self.logger.warn(message)
+            elif level == 'error':
+                self.logger.error(message)
+            elif level == 'debug':
+                self.logger.debug(message)
     
     def check_disk_space(self, required_mb: float = MIN_FREE_SPACE_MB) -> bool:
         try:
@@ -153,7 +158,7 @@ class StorageManager:
         except Exception as e:
             self._log('warn', f"File verification error: {e}")
             return False
-            
+   
     def get_mapping_dir(self) -> str:
         return self.mapping_dir
 

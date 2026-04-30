@@ -30,10 +30,12 @@ TENT_SERVO_CHANNEL_2 = 12
 TENT_SERVOS_PWM= 1500
 
 class Detection_Object:
-    def __init__(self, type, confidence, waypoint_index):
+    def __init__(self, type, confidence, latitude, longitude):
         self.type = type          # person or tent
         self.confidence = confidence     
-        self.waypoint_index = waypoint_index # index > 0
+        # self.waypoint_index = waypoint_index # index > 0
+        self.lat = latitude
+        self.long = longitude
         
 class MainController(Node):
     def __init__(self):
@@ -82,8 +84,8 @@ class MainController(Node):
 
         self.waypoints = []
         self.detections = {
-            "person": Detection_Object(type="person", confidence=0, waypoint_index=0),
-            "tent": Detection_Object(type="tent", confidence=0, waypoint_index=0) 
+            "person": Detection_Object(type="person", confidence=0, latitude=0.0, longitude=0.0),
+            "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0) 
         }
 
     def fetch_mission_indices(self):
@@ -107,11 +109,21 @@ class MainController(Node):
                     #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
-
-
+    
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
+        # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
+
+        if (self.buffer_wp >= 0
+                and self.waypoint_reached == self.buffer_wp
+                and not self.waiting_for_processing
+                and not self.auto_resumed):
+            self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
+            self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
+            self.change_mode("GUIDED")
+            self.waiting_for_processing = True
+            if self.processing_check_timer is None:
+                self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
 
         # Buffer waypoint: switch to GUIDED to wait for image processing to finish
         if (self.buffer_wp >= 0
@@ -129,46 +141,69 @@ class MainController(Node):
         # since DigiCamCtrl commands don't fire WaypointReached.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
+        # if self.waypoint_reached == self.last_before_rtl - 1:
+        #     self.change_mode("GUIDED")
+
         if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
-            tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
-            self.get_logger().info(f"Both detected! Inserting waypoints after index {self.last_before_rtl}")
-            self.human_wp = self.last_before_rtl + 1
-            self.tent_wp = self.last_before_rtl + 2
-            insert_base = self.last_before_rtl + 1
+            person_lat = self.detections["person"].lat
+            person_lon = self.detections["person"].long 
+            person_alt = ALT
+
+            tent_lat = self.detections["tent"].lat
+            tent_lon = self.detections["tent"].long
+            tent_alt = ALT
+
+            message = f"Both person and tent detected!"
+            self.get_logger().info(message)
+            self.send_ack(message)
+            self.human_wp = self.last_before_rtl + 2
+            self.tent_wp = self.last_before_rtl + 1
             
             self.send_waypoint_data([
                 {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": insert_base},
                 {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": insert_base + 1}
             ])
             self.wait_to_send_wp = False
-            self.send_ack(f"Going to human FIRST @ {self.detections['person'].waypoint_index}, then tent @ {self.detections['tent'].waypoint_index}")
+            self.send_ack(f"Going to tent FIRST, then human")
             self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
             self.last_before_rtl = -1
 
         elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
             # If only one detection is valid, send that object waypoint
             if self.valid_detection("person"):
-                person_lat, person_lon, person_alt = self.get_waypoint(self.detections["person"].waypoint_index)
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long 
+                person_alt = ALT
                 self.human_wp = self.last_before_rtl + 1
-                self.get_logger().info("Only person was detected")
+
+                message = f"Only person detected!"
+                self.get_logger().info(message)
+                self.send_ack(message)
+
                 self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
                 self.send_waypoint_data([
                     {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected person, going to human @ {self.detections["person"].waypoint_index}")
+                # self.send_ack(f"Only detected person, going to human @ {self.detections['person'].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
             elif self.valid_detection("tent"):
-                tent_lat, tent_lon, tent_alt = self.get_waypoint(self.detections["tent"].waypoint_index)
+                tent_lat = self.detections["tent"].lat  
+                tent_lon = self.detections["tent"].long
+                tent_alt = ALT
                 self.tent_wp = self.last_before_rtl + 1
+
+                message = f"Only tent detected!"
+                self.get_logger().info(message)
+                self.send_ack(message)
+
                 self.send_waypoint_data([
                     {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Only detected tent, going to tent @ {self.detections["tent"].waypoint_index}")
+                # self.send_ack(f"Only detected tent, going to tent @ {self.detections['tent'].waypoint_index}")
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
@@ -292,6 +327,71 @@ class MainController(Node):
         except Exception as e:
             self.get_logger().error(f"Error checking processing status: {e}")
 
+        if self.buffer_wp >= 0:
+            self.get_logger().info(f"Buffer WP (GUIDED processing hold): index {self.buffer_wp}")
+    
+    def _resolve_camera_feed_path(self):
+        """Resolve camera_feed folder path."""
+        current_file = os.path.abspath(__file__)
+        search_dir = os.path.dirname(current_file)
+        ros2_ws_dir = None
+        for _ in range(10):
+            if (os.path.exists(os.path.join(search_dir, "install")) and
+                    os.path.exists(os.path.join(search_dir, "src"))):
+                ros2_ws_dir = search_dir
+                break
+            parent = os.path.dirname(search_dir)
+            if (os.path.exists(os.path.join(parent, "install")) and
+                    os.path.exists(os.path.join(parent, "src"))):
+                ros2_ws_dir = parent
+                break
+            search_dir = os.path.dirname(search_dir)
+            if search_dir == "/":
+                break
+        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
+            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
+        if ros2_ws_dir is None:
+            ros2_ws_dir = "/astra/ros2_ws/src"
+        path = os.path.join(ros2_ws_dir, "video_cam", "mapping_photos")
+        return path
+
+    def _check_all_images_processed(self):
+        """Periodically check if all images in camera_feed have been processed.
+        Switches to AUTO exactly once when done, then cancels itself."""
+        if self.auto_resumed or not self.waiting_for_processing:
+            if self.processing_check_timer:
+                self.processing_check_timer.cancel()
+                self.processing_check_timer = None
+            return
+
+        try:
+            if not os.path.exists(self.camera_feed_path):
+                self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
+                return
+
+            image_files = set()
+            for f in os.listdir(self.camera_feed_path):
+                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    image_files.add(f)
+
+            total = len(image_files)
+            processed = len(self.processed_image_names & image_files)
+            remaining = total - processed
+
+            self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
+
+            if remaining <= 0:
+                self.get_logger().info("All images processed! Switching to AUTO (one-time)")
+                self.send_ack(f"All {total} images processed, resuming AUTO")
+                self.change_mode("AUTO")
+                self.auto_resumed = True
+                self.waiting_for_processing = False
+                if self.processing_check_timer:
+                    self.processing_check_timer.cancel()
+                    self.processing_check_timer = None
+        except Exception as e:
+            self.get_logger().error(f"Error checking processing status: {e}")
+
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
@@ -304,7 +404,7 @@ class MainController(Node):
             return None
 
     def image_result_cb(self, msg):
-        # Track all processed image names for processing completion check
+         # Track all processed image names for processing completion check
         if msg.image_name:
             self.processed_image_names.add(msg.image_name)
 
@@ -324,13 +424,17 @@ class MainController(Node):
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
-                            self.send_ack(f"Detected {obj_class} at waypoint {msg.waypoint_index}")
+                            self.send_ack(f"Detected {obj_class}")
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
-                            self.detections[obj_class].waypoint_index = msg.waypoint_index
+                            # self.detections[obj_class].waypoint_index = msg.waypoint_index
+                            self.detections[obj_class].lat = msg.latitude
+                            self.detections[obj_class].long = msg.longitude
+                            self.get_logger().info(f"Obj at long: {self.detections[obj_class].long}, lat: {self.detections[obj_class].lat}")
         else:
             self.get_logger().info("No objects detected.")
+            self.send_ack("No objects detected.")
 
     def change_mode(self, mode):
         # set_mode service should already be ready from self._wait_for_services
@@ -339,10 +443,10 @@ class MainController(Node):
             req = SetMode.Request()
             req.custom_mode = mode
             future = self.set_mode_client.call_async(req)
-            rclpy.spin_until_future_complete(self, future)
+            # rclpy.spin_until_future_complete(self, future)
             response = future.result()
             
-            if response.mode_sent:
+            if response.mode:
                 self.get_logger().info(f"Mode changed to {mode}")
             else:
                 self.get_logger().error("Failed to change mode")

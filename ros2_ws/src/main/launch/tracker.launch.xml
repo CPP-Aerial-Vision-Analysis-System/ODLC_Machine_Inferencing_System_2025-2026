@@ -45,9 +45,16 @@
 
   <node pkg="waypoint_mavros" exec="waypoint" output="screen"></node>
 
-  <node pkg="ultralytics_ros" exec="main_controller.py" output="screen"></node>
+  <!-- <node pkg="wp_sender" exec="send_wp" output="screen"></node> -->
 
-  <node pkg="detection" exec="new_od" output="screen"></node>
+  <!-- <node pkg="wp_sender" exec="test_param" output="screen"></node> -->
+
+  <node pkg="gps_ros2" exec="gpstest" output="screen"></node>
+
+  <!-- <node pkg="detection" exec="object_detection_sahi" output="screen"></node> -->
+  
+  <!-- this is for test purposes, turn back the detection after its done-->
+  <node pkg="detection" exec="new_od" output="screen"></node> 
 
   <node pkg="video_cam" exec="siyi" output="screen"></node>
 
