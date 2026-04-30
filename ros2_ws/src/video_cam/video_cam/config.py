@@ -90,7 +90,8 @@ SD_POLL_INTERVAL = 0.5
 MAX_PIPELINE_DURATION = 60.0
 HTTP_TIMEOUT_SECONDS = 10.0
 SDK_SOCKET_TIMEOUT_SECONDS = 2.0
-NODE_LOOP_PERIOD = 1.0  # Main loop period (1 Hz is plenty for capture polling + disk status)
+NODE_LOOP_PERIOD = 1.0  # Main loop period (1 Hz for capture polling)
+HEALTH_CHECK_PERIOD = 5.0  # Camera health + disk status check interval
 
 # Storage
 MIN_FREE_SPACE_MB = 50

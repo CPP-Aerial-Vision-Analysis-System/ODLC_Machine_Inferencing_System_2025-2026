@@ -7,15 +7,13 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
-from interfaces.srv import CameraCommand
 
 import json
 import os
 import cv2
-import time
 import numpy as np
 from threading import Lock, Event, Thread
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 
 try:
     from cv_bridge import CvBridge
@@ -26,6 +24,7 @@ except Exception as e:
 
 from .config import (
     NODE_LOOP_PERIOD,
+    HEALTH_CHECK_PERIOD,
     DEFAULT_USE_REAL_CAMERA,
     DEFAULT_MIN_ALTITUDE_AGL,
     DEFAULT_CAMERA_IP,
@@ -43,56 +42,51 @@ from .pipeline_orchestrator import PipelineOrchestrator, PipelineError
 
 class SIYINode(Node):
     """ROS2 node wrapper for SIYI camera pipeline"""
-    
+
     def __init__(self):
         super().__init__('siyi_unified_pipeline')
-        
-        # ROS Parameters
+
         self._declare_parameters()
         self._load_parameters()
-        
-        # ROS Publishers
+
+        # Publishers
         self.image_pub = self.create_publisher(Image, 'image_raw', 10)
         self.status_pub = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
         self.camera_status_pub = self.create_publisher(String, '/camera/status', 10)
         self.disk_status_pub = self.create_publisher(Float64, '/camera/disk_free_mb', 10)
-        
-        # ROS Subscribers
+        self.health_pub = self.create_publisher(String, '/camera/health', 10)
+
+        # Subscribers
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
-
-        # Unified command topic for camera/gimbal controls from other nodes or CLI
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
-        
-        # # Simulation mode subscriber
-        # if not self.use_real_camera:
-        #     self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
-        
+
         # State
         self.camera_enabled = True
+        self.camera_connected = self.use_real_camera
         self.config_lock = Lock()
         self.camera_control_lock = Lock()
+        self.capture_lock = Lock()
         self.capture_requested = Event()
-        
-        # Simulation mode
-        self.latest_image_msg: Optional[Image] = None
-        
+
         # CV Bridge
         if CV_BRIDGE_AVAILABLE:
             self.bridge = CvBridge()
         else:
             self.bridge = None
             self.get_logger().warn("cv_bridge not available, using alternative conversion")
-        
-        # Initialize components
+
         self._initialize_components()
-        
-        # Start main loop
+
+        # Capture polling timer (1 Hz)
         self.pipeline_timer = self.create_timer(NODE_LOOP_PERIOD, self._pipeline_loop)
-        
+
+        # Health + disk status on a slower cadence
+        self.health_timer = self.create_timer(HEALTH_CHECK_PERIOD, self._health_check)
+
         self._log_initialization_complete()
-    
+
     def _declare_parameters(self):
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
         self.declare_parameter('min_altitude_agl', DEFAULT_MIN_ALTITUDE_AGL)
@@ -102,7 +96,8 @@ class SIYINode(Node):
         self.declare_parameter('http_timeout_sec', DEFAULT_HTTP_TIMEOUT)
         self.declare_parameter('capture_timeout_sec', DEFAULT_CAPTURE_TIMEOUT)
         self.declare_parameter('min_free_space_mb', DEFAULT_MIN_FREE_SPACE_MB)
-    
+        self.declare_parameter('workspace_path', '')
+
     def _load_parameters(self):
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
@@ -112,16 +107,17 @@ class SIYINode(Node):
         self.http_timeout = self.get_parameter('http_timeout_sec').value
         self.capture_timeout = self.get_parameter('capture_timeout_sec').value
         self.min_free_space_mb = self.get_parameter('min_free_space_mb').value
-    
+        self.workspace_path = self.get_parameter('workspace_path').value
+
     def _initialize_components(self):
-        # Find workspace root
-        workspace_root = self._find_ros2_workspace()
-        
-        # Initialize storage manager
+        if self.workspace_path:
+            workspace_root = self.workspace_path
+        else:
+            workspace_root = self._find_ros2_workspace()
+
         self.storage = StorageManager(workspace_root, logger=self.get_logger())
-        
+
         if self.use_real_camera:
-            # Initialize camera interface
             self.camera = CameraInterface(
                 camera_ip=self.camera_ip,
                 ctrl_port=self.ctrl_port,
@@ -129,141 +125,106 @@ class SIYINode(Node):
                 http_timeout=self.http_timeout,
                 logger=self.get_logger()
             )
-            
-            # Initialize pipeline orchestrator
+
             self.pipeline = PipelineOrchestrator(
                 camera=self.camera,
                 storage=self.storage,
                 logger=self.get_logger()
             )
-            
+
             self._send_status("Real camera initialized")
-            
-            # Initialize SD card
             self.pipeline.initialize_sd_card()
         else:
-            # Simulation mode
             self.camera = None
             self.pipeline = None
-            self.get_logger().info("Simulation mode: Waiting for images on /camera/image...")
+            self.get_logger().info("Simulation mode: No real camera configured")
             self._send_status("Simulation camera initialized")
-    
+
     def _find_ros2_workspace(self) -> str:
         current_file = os.path.abspath(__file__)
-        current_dir = os.path.dirname(current_file)
-        
-        # Navigate up to find ros2_ws (look for install/ or src/ directories)
-        search_dir = current_dir
-        ros2_ws_dir = None
-        
-        for _ in range(10):  # Limit search depth
-            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
-                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
-                    ros2_ws_dir = search_dir
-                    break
-                parent = os.path.dirname(search_dir)
-                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
-                    ros2_ws_dir = parent
-                    break
-            search_dir = os.path.dirname(search_dir)
-            if search_dir == "/":
-                break
+        search_dir = os.path.dirname(current_file)
 
-        
-        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-            
-        # Fallback: construct path directly
-        if ros2_ws_dir is None:
-            ros2_ws_dir = "/astra/ros2_ws/src"
-        
-        video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
-        os.makedirs(video_cam_dir, exist_ok=True)
-        
-        return video_cam_dir
+        for _ in range(10):
+            if (os.path.exists(os.path.join(search_dir, "install")) and
+                    os.path.exists(os.path.join(search_dir, "src"))):
+                return os.path.join(search_dir, "src", "video_cam")
+            parent = os.path.dirname(search_dir)
+            if parent == search_dir:
+                break
+            search_dir = parent
+
+        raise RuntimeError(
+            "Could not auto-detect ROS2 workspace (no directory with both install/ and src/). "
+            "Set the 'workspace_path' parameter."
+        )
 
     def _log_initialization_complete(self):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
         self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
         self.get_logger().info("Command service ready at /camera/command")
-    # assist
+
     def _pipeline_loop(self):
-        # Main execution loop. Execute capture pipeline when triggered (in separate thread)
-        # Check if camera is enabled (altitude check)
         with self.config_lock:
             camera_enabled = self.camera_enabled
-        
+
         if not camera_enabled:
             return
-        
-        # Handle capture requests
-        if self.capture_requested.is_set(): # checks if someone requested a capture. method camera_trigger_callback
-            self.capture_requested.clear()  # turns flag off after a request has been noticed
-            self._handle_capture_request()  
 
-        self._publish_disk_status()
-    # assist
+        if self.capture_requested.is_set():
+            self.capture_requested.clear()
+            self._handle_capture_request()
+
     def _handle_capture_request(self):
-        """Handle capture request (executed in separate thread)"""
-        if self.use_real_camera:
-            # Check if previous pipeline is still running
-            if self.pipeline.is_busy():
-                self.get_logger().warn("Previous pipeline still running, skipping request")
-                return
-            
-            # Execute pipeline in separate thread (non-blocking)
-            capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
-            capture_thread.start()
-        else:
+        if not self.use_real_camera:
             return
-            # Simulation mode: save current image
-            # Commented out for now
-            # self._execute_simulation_capture()
-    
+
+        if not self.camera_connected:
+            self.get_logger().warn("Camera unreachable, skipping capture request")
+            self._publish_camera_status("UNREACHABLE: Capture request dropped")
+            return
+
+        if not self.capture_lock.acquire(blocking=False):
+            self.get_logger().warn("Capture already in flight, skipping request")
+            self._publish_camera_status("BUSY: Capture request dropped, capture in flight")
+            return
+
+        capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
+        capture_thread.start()
+
     def _execute_real_camera_capture(self):
-        """Execute real camera capture pipeline"""
         try:
             with self.camera_control_lock:
-                self.pipeline.execute_pipeline()
-            
+                filepath = self.pipeline.execute_pipeline()
+
             stats = self.pipeline.get_stats()
             self._send_status(
                 f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
             self._publish_camera_status(
                 f"SUCCESS: {stats['resolution']} image captured")
-            
-            # Publish the captured image
-            # Get the last saved image and publish it
-            self._publish_captured_image()
-                
+
+            self._publish_captured_image(filepath)
+
         except PipelineError as e:
-            self.get_logger().error(f"Pipeline error: {e}") # sends an error to  ROS logger so you see in the terminal 
-            self._send_status(f"FAILED: {e}") # publishes error as a mavros_msgs/msg/StatusText on the topic /mavros/statustext/send
+            self.get_logger().error(f"Pipeline error: {e}")
+            self._send_status(f"FAILED: {e}")
             self._publish_camera_status(f"FAILURE: {e}")
+        finally:
+            self.capture_lock.release()
 
     @staticmethod
-    def _result_payload(ok: bool, **kwargs: Any) -> Dict[str, Any]: # just to keep it all consistent
+    def _result_payload(ok: bool, **kwargs: Any) -> Dict[str, Any]:
         payload: Dict[str, Any] = {'ok': ok}
         payload.update(kwargs)
         return payload
 
     @staticmethod
-    def _split_csv(parameter: str, expected_len: int) -> List[str]: # turns strings "10, 20" into string lists [10, 20]
+    def _split_csv(parameter: str, expected_len: int) -> List[str]:
         parts = [item.strip() for item in parameter.split(',') if item.strip()]
         if len(parts) != expected_len:
             raise ValueError(
                 f"Expected {expected_len} CSV values, got {len(parts)}"
             )
         return parts
-
-    # @staticmethod
-    # def _parse_switch(value: str) -> bool:
-    #     normalized = value.strip().lower()
-    #     if normalized in {'on', '1', 'true', 'enable', 'enabled'}:
-    #         return True
-    #     if normalized in {'off', '0', 'false', 'disable', 'disabled'}:
-    #         return False
-    #     raise ValueError("Switch value must be on/off (or true/false, 1/0)")
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -275,7 +236,6 @@ class SIYINode(Node):
         cmd = command.strip().lower().replace('-', '_')
         param = parameter.strip()
 
-        # Capture command is not queued through the existing pipeline trigger path anymore.
         if cmd == 'capture':
             resolution = '4K'
             if param:
@@ -285,9 +245,10 @@ class SIYINode(Node):
                         f"Invalid resolution '{resolution}'. Valid: {sorted(PHOTO_RESOLUTIONS.keys())}"
                     )
 
+            if self.capture_lock.locked():
+                return self._result_payload(False, action='capture', error='Capture already in flight')
+
             if self.pipeline is not None:
-                if self.pipeline.is_busy():
-                    return self._result_payload(False, action='capture', error='Pipeline is busy')
                 self.pipeline.set_resolution(resolution)
 
             self.capture_requested.set()
@@ -414,25 +375,28 @@ class SIYINode(Node):
         raise ValueError(f"Unsupported command: {command}")
 
     def camera_command_callback(self, msg: String):
-        """Handle camera control commands from topic."""
-        # checks for json type command, if not, uses regular, then locks the camera before executing, then execute
         try:
-            # Try parsing as JSON first
             try:
                 data = json.loads(msg.data)
                 command = data.get('command', '')
                 parameter = data.get('parameter', '')
             except json.JSONDecodeError:
-                # Fallback to simple format block: "command parameter"
                 parts = msg.data.split(' ', 1)
                 command = parts[0]
                 parameter = parts[1] if len(parts) > 1 else ''
-            
-            with self.camera_control_lock:
+
+            if not self.camera_control_lock.acquire(blocking=False):
+                self._publish_camera_status(f"CMD BUSY: {command}")
+                self.get_logger().warn(f"Camera busy, command dropped: {command}")
+                return
+
+            try:
                 result = self._execute_camera_command(command, parameter)
+            finally:
+                self.camera_control_lock.release()
 
             success = bool(result.get('ok', False))
-            
+
             if success:
                 self._publish_camera_status(f"CMD SUCCESS: {command}")
                 self.get_logger().info(f"Camera command success: {command}")
@@ -446,55 +410,13 @@ class SIYINode(Node):
         except Exception as exc:
             self.get_logger().error(f"Unexpected camera command error for {msg.data}: {exc}")
             self._publish_camera_status(f"CMD ERROR: {msg.data}")
-    
-    # def _execute_simulation_capture(self):
-    #     """Execute simulation capture (save current image)"""
-    #     if self.latest_image_msg is None:
-    #         self.get_logger().warn("Trigger received but no simulation image available")
-    #         return
-        
-    #     try:
-    #         # Convert ROS Image to OpenCV format
-    #         if self.bridge is not None:
-    #             cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
-    #         else:
-    #             cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
-            
-    #         # Rotate image to fix upside-down physical mounting
-    #         cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
-            
-    #         # Save to mapping directory
-    #         timestamp = time.strftime("%Y%m%d-%H%M%S")
-    #         filename = f"mapping_photo_{timestamp}.jpg"
-    #         mapping_dir = self.storage.get_mapping_dir()
-    #         filepath = os.path.join(mapping_dir, filename)
-            
-    #         cv2.imwrite(filepath, cv_image)
-    #         self.get_logger().info(f"Simulation photo saved: {filepath}")
-    #         self._send_status(f"Simulation photo captured: {timestamp}")
-            
-    #     except Exception as e:
-    #         self.get_logger().error(f"Failed to save simulation image: {e}")
-    
-    def _publish_captured_image(self):
-        """Publish the most recently captured image to ROS"""
-        # finds folde rwhere its stored, finds all the images( diff types), choose newest image, 
-        read image using opencv, convert opencv to ros2, add metadata like time, size, etc, publishes to ros2
-        try:
-            mapping_dir = self.storage.get_mapping_dir()
-            # Find the most recently modified image file
-            image_files = [
-                os.path.join(mapping_dir, f) for f in os.listdir(mapping_dir)
-                if f.lower().endswith(('.jpg', '.jpeg', '.png'))
-            ]
-            if not image_files:
-                self.get_logger().warn("No image files found to publish")
-                return
 
-            latest_file = max(image_files, key=os.path.getmtime)
-            img = cv2.imread(latest_file)
+    def _publish_captured_image(self, filepath: str):
+        """Publish a captured image to ROS by its filepath."""
+        try:
+            img = cv2.imread(filepath)
             if img is None:
-                self.get_logger().error(f"Failed to read image: {latest_file}")
+                self.get_logger().error(f"Failed to read image: {filepath}")
                 return
 
             if self.bridge is not None:
@@ -505,47 +427,62 @@ class SIYINode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
             self.image_pub.publish(msg)
-            self.get_logger().info(f"Published image to image_raw: {os.path.basename(latest_file)}")
+            self.get_logger().info(f"Published image to image_raw: {os.path.basename(filepath)}")
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
-    
-    # def _publish_video_stream(self):
-    #     # We are not streaming anymore
-    #     pass
 
     def _publish_disk_status(self):
         free_mb = self.storage.get_free_space_mb()
         msg = Float64()
         msg.data = free_mb
         self.disk_status_pub.publish(msg)
-    # assist
+
+    def _health_check(self):
+        """Periodic camera connectivity check + disk status (runs on slow timer)."""
+        if not self.use_real_camera or self.camera is None:
+            return
+
+        was_connected = self.camera_connected
+        self.camera_connected = self.camera.ping()
+
+        health_msg = String()
+        if self.camera_connected:
+            health_msg.data = "connected"
+            if not was_connected:
+                self.get_logger().info("Camera connection restored")
+                self._send_status("Camera connection restored")
+        else:
+            health_msg.data = "unreachable"
+            if was_connected:
+                self.get_logger().warn("Camera connection lost")
+                self._send_status("WARNING: Camera unreachable")
+
+        self.health_pub.publish(health_msg)
+        self._publish_disk_status()
+
     def camera_trigger_callback(self, msg: Bool):
-        # this handles drigger and sets a flag with set()
-        # basically says a picture has been requested
         if msg.data:
             self.get_logger().info("Capture trigger received!")
             self.capture_requested.set()
         else:
             self.get_logger().debug("Trigger received with data=False, ignoring")
-    # assist
+
     def set_resolution_callback(self, msg: String):
-        """Handle resolution change requests"""
         resolution = msg.data.upper()
-        
+
         if resolution in PHOTO_RESOLUTIONS:
             if self.pipeline is not None:
                 self.pipeline.set_resolution(resolution)
             self._send_status(f"Resolution set to {resolution}")
         else:
             self.get_logger().warn(f"Invalid resolution: {resolution}")
-    
+
     def altitude_callback(self, msg: Float64):
-        """Handle altitude updates for camera enable/disable"""
         current_alt = msg.data
-        
+
         with self.config_lock:
             was_enabled = self.camera_enabled
-            
+
             if current_alt >= self.altitude_threshold:
                 self.camera_enabled = True
                 if not was_enabled:
@@ -560,11 +497,7 @@ class SIYINode(Node):
                         f"Altitude {current_alt:.2f}m < {self.altitude_threshold:.2f}m - "
                         "Camera DISABLED")
                     self._send_status("Below altitude threshold - Camera disabled")
-    
-    # def sim_image_callback(self, msg: Image):
-        """Callback for simulation images"""
-        self.latest_image_msg = msg
-    
+
     def _send_status(self, text: str):
         """Send status message to MAVROS, mission planner, ardupilot messages tab"""
         msg = StatusText()
@@ -572,14 +505,13 @@ class SIYINode(Node):
         msg.text = text
         self.status_pub.publish(msg)
         self.get_logger().info(f"Status: {text}")
-    
+
     def _publish_camera_status(self, text: str):
         msg = String()
         msg.data = text
         self.camera_status_pub.publish(msg)
-    
+
     def _cv2_to_imgmsg_manual(self, cv_image: np.ndarray, encoding: str = 'bgr8') -> Image:
-        """Convert OpenCV image to ROS message without cv_bridge"""
         msg = Image()
         msg.height = cv_image.shape[0]
         msg.width = cv_image.shape[1]
@@ -590,34 +522,24 @@ class SIYINode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "camera_link"
         return msg
-    
-    def _imgmsg_to_cv2_manual(self, img_msg: Image, desired_encoding: str = 'bgr8') -> np.ndarray:
-        """Convert ROS Image message to OpenCV image without cv_bridge"""
-        if img_msg.encoding != desired_encoding:
-            self.get_logger().warn(
-                f'Image encoding mismatch: {img_msg.encoding} vs {desired_encoding}')
-        
-        dtype = np.uint8
-        n_channels = 3 if desired_encoding == 'bgr8' else 1
-        
-        img_buf = np.asarray(img_msg.data, dtype=dtype)
-        cv_image = img_buf.reshape(img_msg.height, img_msg.width, n_channels)
-        
-        return cv_image
-    
+
     def shutdown(self):
         try:
             self.get_logger().info("Shutting down SIYI pipeline...")
         except Exception:
             pass
-        
-        # Close camera interface
+
+        if hasattr(self, 'pipeline_timer'):
+            self.pipeline_timer.cancel()
+        if hasattr(self, 'health_timer'):
+            self.health_timer.cancel()
+
         if self.camera is not None:
             try:
                 self.camera.close()
             except Exception:
                 pass
-        
+
         try:
             self.get_logger().info("Shutdown complete")
         except Exception:
@@ -627,7 +549,7 @@ class SIYINode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = SIYINode()
-    
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
@@ -636,7 +558,7 @@ def main(args=None):
         node.get_logger().info("Initiating shutdown...")
         node.shutdown()
         node.destroy_node()
-        
+
         if rclpy.ok():
             rclpy.shutdown()
 

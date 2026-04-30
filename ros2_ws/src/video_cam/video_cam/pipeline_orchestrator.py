@@ -94,48 +94,46 @@ class PipelineOrchestrator:
     def initialize_sd_card(self):
         self.camera.initialize_sd_card()
     
-    def execute_pipeline(self) -> None:
-        """Execute complete 3-phase capture pipeline. This is the start of everything"""
+    def execute_pipeline(self) -> str:
+        """Execute complete 3-phase capture pipeline. Returns saved filepath."""
         with self._acquire_pipeline():
-            self._run_phases()
+            return self._run_phases()
     
-    def _run_phases(self) -> None:
-        """Run all pipeline phases, calls all the phases one by one"""
-        start_time = time.time() # save time right before we begin our procedure
-        
+    def _run_phases(self) -> str:
+        """Run all pipeline phases. Returns saved filepath."""
+        start_time = time.time()
+
         try:
             self._log('info', "STARTING CAPTURE PIPELINE")
 
             # Phase 1: Trigger capture
             if not self._phase1_capture():
-                raise PipelineError("Capture command failed") 
-            
+                raise PipelineError("Capture command failed")
+
             time.sleep(0.5)  # Brief wait for SD write
-            
+
             # Phase 2: Find new image on SD
-            # state lock, this is so the pipeline_state dont change
             with self.state_lock:
                 self.pipeline_state = CaptureState.INDEXING
-            
+
             file_info = self._phase2_index()
             if not file_info:
-                raise PipelineError("Image not found on SD card") 
-            
+                raise PipelineError("Image not found on SD card")
+
             # Phase 3: Download and save
             with self.state_lock:
                 self.pipeline_state = CaptureState.DOWNLOADING
-            
-            filename, img = self._phase3_download(file_info)
-            if not filename:
-                raise PipelineError("Download failed") 
-            
-            # Mark as downloaded in camera status tracker
-            self.camera.mark_file_downloaded(filename)
-            
+
+            filepath, img = self._phase3_download(file_info)
+            if not filepath:
+                raise PipelineError("Download failed")
+
+            self.camera.mark_file_downloaded(file_info.get('name', ''))
+
             elapsed = time.time() - start_time
             self._log('info', f"PIPELINE COMPLETED in {elapsed:.1f}s")
-            # self._save_tracking_state()
-            
+            return filepath
+
         except PipelineError as e:
             elapsed = time.time() - start_time
             self._log('error', f"PIPELINE FAILED after {elapsed:.1f}s: {e}")
@@ -172,30 +170,28 @@ class PipelineOrchestrator:
         return None
     
     def _phase3_download(self, file_info: Dict) -> tuple:
-        """Phase 3: Download and save"""
+        """Phase 3: Download and save. Returns (filepath, img) or (None, None)."""
         filename = file_info.get('name', '')
         file_url = file_info.get('url', '')
-        
+
         if not filename or not file_url:
             return None, None
-        
+
         self._log('info', f"[Phase 3] Downloading: {filename}")
-        
-        # Download
+
         image_bytes = self._download_bytes(file_info)
         if not image_bytes:
             return None, None
-        
-        # Decode and verify
+
         img = self._decode_and_verify(image_bytes)
         if img is None:
             return None, None
-        
-        # Save
-        if not self.storage.save_image(filename, img, self.current_resolution):
+
+        filepath = self.storage.save_image(filename, img, self.current_resolution)
+        if not filepath:
             return None, None
-        
-        return filename, img
+
+        return filepath, img
     
     def _download_bytes(self, file_info: Dict) -> Optional[bytes]:
         """Download image bytes with disk space check"""

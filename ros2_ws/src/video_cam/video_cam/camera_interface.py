@@ -609,6 +609,14 @@ class CameraInterface:
         with self.download_lock:
             return len(self.downloaded_files)
     
+    def ping(self) -> bool:
+        """Quick connectivity check via SDK gimbal attitude request."""
+        try:
+            response = self._send_sdk_command(CMD_GIMBAL_ATTITUDE, timeout=1.0)
+            return response is not None
+        except Exception:
+            return False
+
     def close(self):
         """Close all connections and release resources."""
         if self.http_session:
