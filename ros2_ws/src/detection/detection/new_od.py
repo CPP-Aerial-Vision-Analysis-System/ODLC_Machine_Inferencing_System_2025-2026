@@ -38,6 +38,7 @@ from detection.gpu_utils import (
     detect_device,
     optimize_gpu_memory,
     cleanup_gpu,
+    check_jetson_power_mode,
     TORCH_AVAILABLE,
 )
 from detection.model_manager import (
@@ -56,7 +57,7 @@ from detection.annotation import annotate_frame, save_top_matches_crop
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
-DEFAULT_OVERLAP = 0.25
+DEFAULT_OVERLAP = 0.15
 DEFAULT_CHECK_INTERVAL = 2.0
 CLASS_ID = {"person": "0", "tent": "1", "object": "2"}
 
@@ -70,7 +71,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.shutdown_requested = False
         self._active = False
 
-        self.declare_parameter('model_path', 'yolo26m.pt')
+        # Default to .engine; resolver falls back to .pt if engine missing
+        # and (when auto_convert_tensorrt=True) builds the engine on first run.
+        self.declare_parameter('model_path', 'yolo26m.engine')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)
         self.declare_parameter('auto_convert_tensorrt', True)
         self.declare_parameter('tensorrt_workspace', 4)
@@ -168,6 +171,9 @@ class SAHIObjectDetectionNode(LifecycleNode):
             if self.device == 'auto':
                 self.device = detect_device(self.get_logger())
             self.get_logger().info(f"Device: {self.device}")
+
+            # Jetson power/clocks check — free perf if user runs the commands
+            check_jetson_power_mode(self.get_logger())
 
             # GPU memory tuning (returns possibly-adjusted slice params)
             if self.device.startswith('cuda'):
@@ -437,7 +443,8 @@ class SAHIObjectDetectionNode(LifecycleNode):
         h, w = frame.shape[:2]
         self.get_logger().info(f"Processing: {os.path.basename(image_path)} ({w}x{h})")
 
-        frame_orig = frame.copy()
+        # No frame.copy() — annotate_frame copies internally, so `frame`
+        # itself is never mutated and can be reused for the crops below.
 
         detections = run_sahi_detection(
             frame=frame,
@@ -466,7 +473,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             self.model_format_detected or MODEL_FORMAT_PYTORCH,
         )
 
-        save_top_matches_crop(frame_orig, detections, image_path, self.detection_results_path)
+        save_top_matches_crop(frame, detections, image_path, self.detection_results_path)
 
         self._publish_results(annotated, detections, image_path)
 
@@ -506,9 +513,6 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
             original_filename = os.path.basename(image_path)
             name, ext = os.path.splitext(original_filename)
-            parse_name = name.split(' , ')
-            lat = parse_name[0] if len(parse_name) > 0 else "Unknown"
-            long = parse_name[1] if len(parse_name) > 1 else "Unknown"
             output_path = os.path.join(self.detection_results_path, f"sahi_detected_{name}{ext}")
             cv2.imwrite(output_path, annotated)
 
@@ -527,8 +531,6 @@ class SAHIObjectDetectionNode(LifecycleNode):
             ir.slice_size = f"{self.slice_height}x{self.slice_width}"
             ir.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
             ir.waypoint_index = self.waypoint_reached
-            ir.latitude = float(lat) if lat != "Unknown" else 0.0
-            ir.longitude = float(long) if long != "Unknown" else 0.0
 
             det_array = Detection2DArray()
             det_array.header = image_msg.header

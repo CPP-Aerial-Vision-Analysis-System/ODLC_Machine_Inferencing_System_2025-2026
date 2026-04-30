@@ -44,6 +44,8 @@ def run_sahi_detection(frame, model, slice_height, slice_width, overlap_h, overl
     if not SAHI_AVAILABLE or model is None:
         return []
 
+    # SAHI requires RGB. cv2.cvtColor uses SIMD and runs ~10-20ms on a 4K
+    # frame — the cheapest contiguous BGR→RGB path on Jetson.
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     result = get_sliced_prediction(
@@ -53,6 +55,12 @@ def run_sahi_detection(frame, model, slice_height, slice_width, overlap_h, overl
         slice_width=slice_width,
         overlap_height_ratio=overlap_h,
         overlap_width_ratio=overlap_w,
+        # Skip the redundant full-image inference pass — for high-res aerial
+        # imagery the small targets don't survive the resize to 640×640
+        # anyway, so the slice pass already covers them.
+        perform_standard_pred=False,
+        # Use the slice size we passed; don't let SAHI override it.
+        auto_slice_resolution=False,
         postprocess_type="NMS",
         postprocess_match_metric="IOS",
         postprocess_match_threshold=0.5,
