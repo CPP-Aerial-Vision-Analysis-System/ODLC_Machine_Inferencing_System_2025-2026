@@ -139,7 +139,7 @@ class SIYINode(Node):
                 logger=self.get_logger()
             )
             
-            self._send_status("Real camera initialized")
+            # self._send_status("Real camera initialized")
             
             # Initialize SD card
             self.pipeline.initialize_sd_card()
@@ -186,8 +186,8 @@ class SIYINode(Node):
 
     def _log_initialization_complete(self):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
-        self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
-        self.get_logger().info("Command service ready at /camera/command")
+        # self.get_logger().info(f"SIYI pipeline initialized ({mode}). Waiting for triggers.")
+        # self.get_logger().info("Command service ready at /camera/command")
     
     def _pipeline_loop(self):
         # Main execution loop. Execute capture pipeline when triggered (in separate thread)
@@ -287,8 +287,8 @@ class SIYINode(Node):
             stats = self.pipeline.get_stats()
             self._send_status(
                 f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
-            self._publish_camera_status(
-                f"SUCCESS: {stats['resolution']} image captured")
+            # self._publish_camera_status(
+            #     f"SUCCESS: {stats['resolution']} image captured")
 
             # Publish the in-memory decoded ndarray directly — no disk
             # re-read, no directory scan, no rename.
@@ -552,7 +552,7 @@ class SIYINode(Node):
             
             if success:
                 self._publish_camera_status(f"CMD SUCCESS: {command}")
-                self.get_logger().info(f"Camera command success: {command}")
+                # self.get_logger().info(f"Camera command success: {command}")
             else:
                 self._publish_camera_status(f"CMD FAILED: {command} - {result.get('error', 'Unknown')}")
                 self.get_logger().error(f"Camera command failed: {command} - {result.get('error', 'Unknown')}")
@@ -653,8 +653,8 @@ class SIYINode(Node):
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
             self.image_pub.publish(msg)
-            self.get_logger().info(
-                f"Published image to image_raw: {os.path.basename(saved_path)}")
+            # self.get_logger().info(
+            #     f"Published image to image_raw: {os.path.basename(saved_path)}")
         except Exception as e:
             self.get_logger().error(f"Failed to publish captured image: {e}")
     
@@ -753,10 +753,10 @@ class SIYINode(Node):
     
     def shutdown(self):
         """Proper shutdown handler"""
-        try:
-            self.get_logger().info("Shutting down SIYI pipeline...")
-        except Exception:
-            pass
+        # try:
+        #     self.get_logger().info("Shutting down SIYI pipeline...")
+        # except Exception:
+        #     pass
         
         # Close camera interface
         if self.camera is not None:

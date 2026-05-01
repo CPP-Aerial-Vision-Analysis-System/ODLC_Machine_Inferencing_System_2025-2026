@@ -56,7 +56,7 @@
   <!-- <node pkg="detection" exec="object_detection_sahi" output="screen"></node> -->
   
   <!-- this is for test purposes, turn back the detection after its done-->
-  <node pkg="detection" exec="new_od" output="screen"></node> 
+  <!-- <node pkg="detection" exec="new_od" output="screen"></node>  -->
 
   <node pkg="main" exec="main_controller.py" output="screen"></node>
 

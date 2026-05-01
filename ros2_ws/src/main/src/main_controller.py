@@ -114,16 +114,16 @@ class MainController(Node):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
 
-        if (self.buffer_wp >= 0
-                and self.waypoint_reached == self.buffer_wp
-                and not self.waiting_for_processing
-                and not self.auto_resumed):
-            self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
-            self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
-            self.change_mode("GUIDED")
-            self.waiting_for_processing = True
-            if self.processing_check_timer is None:
-                self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
+        # if (self.buffer_wp >= 0
+        #         and self.waypoint_reached == self.buffer_wp
+        #         and not self.waiting_for_processing
+        #         and not self.auto_resumed):
+        #     self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
+        #     self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
+        #     self.change_mode("GUIDED")
+        #     self.waiting_for_processing = True
+        #     if self.processing_check_timer is None:
+        #         self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
 
         # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
         # since DigiCamCtrl commands don't fire WaypointReached.
