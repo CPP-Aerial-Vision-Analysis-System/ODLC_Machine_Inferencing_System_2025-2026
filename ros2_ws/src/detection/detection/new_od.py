@@ -480,7 +480,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             output_path = os.path.join(self.detection_results_path, f"sahi_detected_{name}{ext}") # joins path name with file name
             cv2.imwrite(output_path, annotated) # saved anotated image to a path
 
-            ir = ImageResult()
+            ir = ImageResult() # ir is now an imageResult object
             ir.header = image_msg.header
             ir.image_name = original_filename
             ir.timestamp = datetime.now().isoformat()
@@ -488,8 +488,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             ir.saved_to = output_path
             ir.method = (
                 'sahi+yolo+tensorrt' if self.model_format_detected == MODEL_FORMAT_TENSORRT
-                else 'sahi+yolo'
-            )
+                else 'sahi+yolo') # text label saved in ImageResult
             ir.slice_size = f"{self.slice_height}x{self.slice_width}"
             ir.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
             ir.waypoint_index = self.waypoint_reached
@@ -499,34 +498,36 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
             classes, confidences, areas, descriptions = [], [], [], []
 
+            # go through each detected obj, create ros 2d detection message with timestamp/frame
             for det in detections:
                 d2d = Detection2D()
                 d2d.header = image_msg.header
-                x1, y1, x2, y2 = det['bbox']
-                d2d.bbox.center.position.x = float(x1 + x2) / 2.0
+                x1, y1, x2, y2 = det['bbox'] # bounding box
+                d2d.bbox.center.position.x = float(x1 + x2) / 2.0 # calc center of the box
                 d2d.bbox.center.position.y = float(y1 + y2) / 2.0
-                d2d.bbox.size_x = float(x2 - x1)
+                d2d.bbox.size_x = float(x2 - x1) # calc width/height of the box
                 d2d.bbox.size_y = float(y2 - y1)
 
-                hypo = ObjectHypothesisWithPose()
-                hypo.hypothesis.class_id = CLASS_ID.get(det['class'], "2")
+                hypo = ObjectHypothesisWithPose() # confidence holder
+                hypo.hypothesis.class_id = CLASS_ID.get(det['class'], "2") # convert class name to id
                 hypo.hypothesis.score = float(det['confidence'])
-                d2d.results.append(hypo)
+                d2d.results.append(hypo) # adds obj info to ros detection array
                 det_array.detections.append(d2d)
 
+                # send object info to ros detection array
                 classes.append(det['class'])
                 confidences.append(float(det['confidence']))
                 areas.append(float(det.get('area', 0)))
                 descriptions.append(det.get('description', det['class']))
 
             ir.detections = det_array
-            ir.masks = []
+            # ir.masks = []
             ir.classes = classes
             ir.confidences = confidences
             ir.areas = areas
             ir.descriptions = descriptions
 
-            self.detection_pub.publish(ir)
+            self.detection_pub.publish(ir) # publish the imageResult message ir to the /image_detection topic
 
         except Exception as e:
             self.get_logger().error(f"Publish error: {e}\n{traceback.format_exc()}")
