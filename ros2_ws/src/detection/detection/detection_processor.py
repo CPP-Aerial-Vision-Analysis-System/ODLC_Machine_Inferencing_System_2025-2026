@@ -25,7 +25,7 @@ except ImportError:
 PERSON_CLASSES = frozenset({'person', 'mannequin'})
 
 # Classes that legitimately look like people from altitude (mannequins)
-PERSON_LIKE_CLASSES = frozenset({'doll', 'teddy bear'})
+PERSON_LIKE_CLASSES = frozenset({'doll'})
 
 TENT_LIKE_CLASSES = frozenset({
     'umbrella',   # umbrella canopy from above ≈ tent top
