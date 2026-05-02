@@ -46,7 +46,7 @@ class PipelineOrchestrator:
         self.last_saved_path: Optional[str] = None
 
         # self._load_tracking_state()
-        self._log('info', "Pipeline orchestrator initialized")
+        # self._log('info', "Pipeline orchestrator initialized")
     
     def _log(self, level: str, message: str):
         if not self.logger:
@@ -96,7 +96,7 @@ class PipelineOrchestrator:
             # print (directories)
             if directories:
                 self.current_photo_dir = directories[-1]['path']
-                self._log('info', f"Photo directory: {self.current_photo_dir}")
+                # self._log('info', f"Photo directory: {self.current_photo_dir}")
                 
                 if self.last_photo_count == 0:
                     count = self.camera.get_media_count(self.current_photo_dir)
@@ -118,7 +118,7 @@ class PipelineOrchestrator:
                     filename = file_info.get('name', '')
                     if filename:
                         self.downloaded_files.add(filename)
-            self._log('info', f"Marked {len(files)} existing files as seen")
+            # self._log('info', f"Marked {len(files)} existing files as seen")
         except Exception as e:
             self._log('warn', f"Could not load existing files: {e}")
     
@@ -141,7 +141,7 @@ class PipelineOrchestrator:
 
         start_time = time.time()
         try:
-            self._log('info', "STARTING CAPTURE (phases 1+2)")
+            # self._log('info', "STARTING CAPTURE (phases 1+2)")
 
             # Phase 1: trigger camera
             if not self._phase1_capture():
@@ -160,7 +160,7 @@ class PipelineOrchestrator:
                 return None
 
             elapsed = time.time() - start_time
-            self._log('info', f"Phases 1+2 complete in {elapsed:.1f}s")
+            # self._log('info', f"Phases 1+2 complete in {elapsed:.1f}s")
             return file_info
         except Exception as e:
             self._log('error', f"capture_and_index exception: {e}")
@@ -192,7 +192,7 @@ class PipelineOrchestrator:
 
         self.last_saved_path = saved_path
         elapsed = time.time() - start_time
-        self._log('info', f"Phase 3 complete in {elapsed:.1f}s: {saved_path}")
+        # self._log('info', f"Phase 3 complete in {elapsed:.1f}s: {saved_path}")
         return saved_path, img
     
     def _phase1_capture(self) -> bool:
@@ -201,7 +201,7 @@ class PipelineOrchestrator:
             self.camera.send_capture_command(self.current_resolution)
             with self.state_lock:
                 self.photo_count += 1
-            self._log('info', f"[Phase 1] Capture command sent (photo #{self.photo_count})")
+            # self._log('info', f"[Phase 1] Capture command sent (photo #{self.photo_count})")
             return True
         except CameraConnectionError as e:
             self._log('error', f"[Phase 1] Failed: {e}")
@@ -209,7 +209,7 @@ class PipelineOrchestrator:
     
     def _phase2_index(self, timeout: float = CAPTURE_TIMEOUT_SECONDS) -> Optional[Dict]:
         """Phase 2: Poll SD card for new image (simplified - no backoff)"""
-        self._log('info', f"[Phase 2] Polling SD card...")
+        # self._log('info', f"[Phase 2] Polling SD card...")
         start_time = time.time()
         
         while (time.time() - start_time) < timeout: # 15s
@@ -253,11 +253,11 @@ class PipelineOrchestrator:
 
         save_name = filename_override or original_name
 
-        if save_name != original_name:
-            self._log('info',
-                      f"[Phase 3] Downloading {original_name} (saving as {save_name})")
-        else:
-            self._log('info', f"[Phase 3] Downloading: {original_name}")
+        # if save_name != original_name:
+        #     self._log('info',
+        #               f"[Phase 3] Downloading {original_name} (saving as {save_name})")
+        # else:
+        #     self._log('info', f"[Phase 3] Downloading: {original_name}")
 
         # Download
         image_bytes = self._download_bytes(file_info)

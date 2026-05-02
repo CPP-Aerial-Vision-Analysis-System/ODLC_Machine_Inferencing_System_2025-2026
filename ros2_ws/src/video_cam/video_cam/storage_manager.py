@@ -43,7 +43,7 @@ class StorageManager:
         # Prevents duplicate downloads
         # self.tracking_file = os.path.join(self.mapping_dir, TRACKING_STATE_FILE)
         
-        self._log('info', "Storage manager initialized")
+        # self._log('info', "Storage manager initialized")
     
     def _log(self, level: str, message: str):
         if self.logger:

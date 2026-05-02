@@ -240,7 +240,7 @@ class CameraInterface:
                     self._log('error', f"Camera feedback indicates capture/record failure ({info_type})")
                     return False
 
-            self._log('info', "Camera feedback: capture command accepted")
+            # self._log('info', "Camera feedback: capture command accepted")
             return True
                 
         except Exception as e:
