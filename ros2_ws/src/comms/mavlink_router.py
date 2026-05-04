@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 MAVLINK_ROUTER_BIN = os.environ.get("MAVLINK_ROUTER_BIN", "mavlink-routerd")
-PIXHAWK_BAUD = os.environ.get("PIXHAWK_BAUD", "57600")
+PIXHAWK_BAUD = os.environ.get("PIXHAWK_BAUD", "115200")
 
 
 def find_pixhawk_serial():
