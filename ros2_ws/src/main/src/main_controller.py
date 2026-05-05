@@ -64,7 +64,7 @@ class MainController(Node):
         self.next_after_takeoff = 0
         self.takeoff_index = 0
         self.rtl_index = 0
-        self.lap = 0
+        # self.lap = 0
         self.waypoint_reached = 0
         self.wait_to_send_wp = True
         self.last_nav_before_rtl = -1  # last physical nav waypoint before RTL
@@ -75,6 +75,7 @@ class MainController(Node):
         self.processing_check_timer = None
         self.camera_feed_path = self._resolve_camera_feed_path()
         self.param_manager = ParameterManager()
+        self.trigger_wp = -1
 
         self.fetch_mission_indices()
 
@@ -108,20 +109,8 @@ class MainController(Node):
     
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
-
-        # if (self.buffer_wp >= 0
-        #         and self.waypoint_reached == self.buffer_wp
-        #         and not self.waiting_for_processing
-        #         and not self.auto_resumed):
-        #     self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
-        #     self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
-        #     self.change_mode("GUIDED")
-        #     self.waiting_for_processing = True
-        #     if self.processing_check_timer is None:
-        #         self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
-
         # Buffer waypoint: switch to GUIDED to wait for image processing to finish
+
         if (self.buffer_wp >= 0
                 and self.waypoint_reached == self.buffer_wp
                 and not self.waiting_for_processing
@@ -135,54 +124,59 @@ class MainController(Node):
 
         # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
         # since DigiCamCtrl commands don't fire WaypointReached.
-        trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
+        
+        if self.last_nav_before_rtl >= 0:
+            trigger_wp = self.last_nav_before_rtl
+        else:
+            trigger_wp = self.last_before_rtl
 
         # if self.waypoint_reached == self.last_before_rtl - 1:
         #     self.change_mode("GUIDED")
 
-        if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            person_lat = self.detections["person"].lat
-            person_lon = self.detections["person"].long
-            person_alt = ALT
+        if self.waypoint_reached == trigger_wp and self.wait_to_send_wp:
 
-            tent_lat = self.detections["tent"].lat
-            tent_lon = self.detections["tent"].long
-            tent_alt = ALT
+            invalid_detection_message = f"No valid object was detected."
+            both_detected_message     = f"Both person and tent detected!"
+            person_detected_message   = f"Only person detected!"
+            tent_detected_message     = f"Only a tent was detected!"
 
-            message = f"Both person and tent detected!"
-            self.get_logger().info(message)
-            self.send_ack(message)
-
-            insert_base = self.last_before_rtl + 1
-
-            # Mission sequence: fly to tent → release both tent servos → fly to person → release both human servos
-            self.send_waypoint_data([
-                {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": insert_base},
-                {"command": 183, "channel": TENT_SERVO_CHANNEL_1, "pwm": TENT_SERVOS_PWM, "index": insert_base + 1},
-                {"command": 183, "channel": TENT_SERVO_CHANNEL_2, "pwm": TENT_SERVOS_PWM, "index": insert_base + 2},
-                {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": person_alt, "index": insert_base + 3},
-                {"command": 183, "channel": HUMAN_SERVO_CHANNEL_1, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 4},
-                {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 5},
-            ])
-            self.wait_to_send_wp = False
-            self.send_ack(f"Mission: tent drop → person drop (all in AUTO)")
-            self.get_logger().info(f"Waypoints+servos sent. last_before_rtl was: {self.last_before_rtl}")
-            self.last_before_rtl = -1
-
-        elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
-            insert_base = self.last_before_rtl + 1
-
-            if self.valid_detection("person"):
+            if  (self.valid_detection("person") and self.valid_detection("tent")):
                 person_lat = self.detections["person"].lat
                 person_lon = self.detections["person"].long
-                person_alt = ALT
 
-                message = f"Only person detected!"
-                self.get_logger().info(message)
-                self.send_ack(message)
+                tent_lat = self.detections["tent"].lat
+                tent_lon = self.detections["tent"].long
+
+                
+                self.get_logger().info(both_detected_message)
+                self.send_ack(both_detected_message)
+
+                insert_base = self.last_before_rtl + 1
+
+                # Mission sequence: fly to tent → release both tent servos → fly to person → release both human servos
+                self.send_waypoint_data([
+                    {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": ALT, "index": insert_base},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_1, "pwm": TENT_SERVOS_PWM, "index": insert_base + 1},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_2, "pwm": TENT_SERVOS_PWM, "index": insert_base + 2},
+                    {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": ALT, "index": insert_base + 3},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_1, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 4},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 5},
+                ])
+                self.wait_to_send_wp = False
+                self.send_ack(f"Mission: tent drop → person drop (all in AUTO)")
+                self.get_logger().info(f"Waypoints+servos sent. last_before_rtl was: {self.last_before_rtl}")
+                self.last_before_rtl = -1
+
+            elif (self.valid_detection("person")):
+                insert_base = self.last_before_rtl + 1
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long
+
+                self.get_logger().info(person_detected_message)
+                self.send_ack(person_detected_message)
 
                 self.send_waypoint_data([
-                    {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": person_alt, "index": insert_base},
+                    {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": ALT, "index": insert_base},
                     {"command": 183, "channel": HUMAN_SERVO_CHANNEL_1, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 1},
                     {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 2},
                 ])
@@ -192,26 +186,28 @@ class MainController(Node):
             elif self.valid_detection("tent"):
                 tent_lat = self.detections["tent"].lat
                 tent_lon = self.detections["tent"].long
-                tent_alt = ALT
 
-                message = f"Only tent detected!"
-                self.get_logger().info(message)
-                self.send_ack(message)
+                self.get_logger().info(tent_detected_message)
+                self.send_ack(tent_detected_message)
 
                 self.send_waypoint_data([
-                    {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": insert_base},
+                    {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": ALT, "index": insert_base},
                     {"command": 183, "channel": TENT_SERVO_CHANNEL_1, "pwm": TENT_SERVOS_PWM, "index": insert_base + 1},
                     {"command": 183, "channel": TENT_SERVO_CHANNEL_2, "pwm": TENT_SERVOS_PWM, "index": insert_base + 2},
                 ])
                 self.wait_to_send_wp = False
                 self.last_before_rtl = -1
+            else:
+                self.get_logger().info(invalid_detection_message)
+                self.send_ack(invalid_detection_message)
+                return
+
+            self.wait_to_send_wp = False
+            self.last_before_rtl = -1
             
         
-    def valid_detection(self, type):
-        if type in self.detections:
-            if self.detections[type].confidence > 0:
-                return True
-        return False
+    def valid_detection(self, obj_type):
+        return obj_type in self.detections and self.detections[obj_type].confidence > 0
         
     def waypoints_cb(self, msg: WaypointList):
         self.waypoints = msg.waypoints
