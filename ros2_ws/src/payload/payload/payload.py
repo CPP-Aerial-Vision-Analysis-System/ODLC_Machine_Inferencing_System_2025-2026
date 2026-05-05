@@ -36,7 +36,7 @@ class ServoController(Node):
         super().__init__('servo_controller')
 
         # Service clients
-        self.command_client = self.create_client(CommandLong, '/mavros/cmd/command')
+        self.command_client = self.create_client(CommandLong, '/mavros/cmd/command') 
         self.set_mode = self.create_client(SetMode, "/mavros/set_mode")
         self.wait_for_services()
 

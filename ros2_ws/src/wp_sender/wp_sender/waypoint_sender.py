@@ -29,21 +29,42 @@ class WaypointClient(Node):
                 self.get_logger().info(f'{name} service not available, waiting...')
     
 
-    # AddWayPoint returns response
     def send_AddWP_request(self, long, lat, alt, index):
         self.get_logger().info("AddWayPoint function called")
         try:
             request = AddWaypoint.Request()
+            request.command = 16  # NAV_WAYPOINT
             request.latitude = lat
             request.longitude = long
             request.altitude = alt
             request.index = index
+            request.channel = 0
+            request.pwm = 0
 
             response = self.add_wp_client.call_async(request)
             rclpy.spin_until_future_complete(self, response)
             return response.result()
         except Exception as e:
             self.get_logger().info(f"AddWayPoint service call failed: {e}")
+
+    def send_ServoWP_request(self, channel, pwm, index):
+        """Insert a DO_SET_SERVO mission item at the given index."""
+        self.get_logger().info(f"Adding DO_SET_SERVO: ch={channel}, pwm={pwm}, index={index}")
+        try:
+            request = AddWaypoint.Request()
+            request.command = 183  # MAV_CMD_DO_SET_SERVO
+            request.latitude = 0.0
+            request.longitude = 0.0
+            request.altitude = 0.0
+            request.index = index
+            request.channel = channel
+            request.pwm = pwm
+
+            response = self.add_wp_client.call_async(request)
+            rclpy.spin_until_future_complete(self, response)
+            return response.result()
+        except Exception as e:
+            self.get_logger().info(f"ServoWP service call failed: {e}")
     
     # DelWayPoint returns response
     def send_DelWP_request(self, index):

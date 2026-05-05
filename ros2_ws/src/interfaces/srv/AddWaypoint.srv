@@ -1,6 +1,9 @@
-float64 latitude
-float64 longitude
-float64 altitude
-int32 index
+int32 command        # 16 = NAV_WAYPOINT, 183 = DO_SET_SERVO
+float64 latitude     # For NAV: lat. For SERVO: unused (0.0)
+float64 longitude    # For NAV: lon. For SERVO: unused (0.0)
+float64 altitude     # For NAV: alt. For SERVO: unused (0.0)
+int32 index          # Insertion index in mission list
+int32 channel        # For SERVO: output channel (9=AUX1, 10=AUX2). NAV: 0
+int32 pwm            # For SERVO: pulse width μs (e.g. 1900). NAV: 0
 ---
 bool success

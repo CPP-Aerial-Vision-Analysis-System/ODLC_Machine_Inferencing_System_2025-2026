@@ -138,62 +138,67 @@ class WaypointManager(Node):
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
     
-    def insert_new_waypoint(self, lat, lon, alt, index):
-        """Insert new waypoint into the waypoint list and push the updated list"""
+    def insert_new_waypoint(self, wp_list):
+        """Insert new waypoints (NAV + DO_SET_SERVO) into the mission and push.
+
+        wp_list: list of dicts, each with keys:
+            - 'command': int (16 for NAV_WAYPOINT, 183 for DO_SET_SERVO)
+            - 'index': int (insertion index in mission list)
+            For NAV_WAYPOINT (command=16):
+                - 'lat', 'lon', 'alt': float
+            For DO_SET_SERVO (command=183):
+                - 'channel': int (servo output channel, e.g. 9 = AUX1)
+                - 'pwm': int (pulse width in μs, e.g. 1900)
+        """
         try:
-            # First make sure we have the latest waypoint list
-           # self.get_logger().info("Pulling current waypoint list...")
-          #  self.pull_waypoints()
-            self.get_logger().info("Pulling current waypoint list...")
-            
-            if len(wp_list) > 0:
-                # Store original list in case we need to revert
-                original_waypoints = self.waypoint_list.waypoints.copy()
-                
-                # Insert all new waypoints
-                for wp in wp_list:
-                    self.get_logger().info(f"Preparing waypoint at index {wp['index']}: Lat:{wp['lat']}, Lon:{wp['lon']}, Alt:{wp['alt']}")
-                    new_waypoint = Waypoint()
-                    new_waypoint.frame = 3  # Global relative altitude
-                    new_waypoint.command = 16  # MAV_CMD_NAV_WAYPOINT
-                    new_waypoint.is_current = False
-                    new_waypoint.autocontinue = True
-                    new_waypoint.param1 = float(3)  # Hold time in seconds
-                    new_waypoint.param2 = float(0)  # Acceptance radius in meters
-                    new_waypoint.param3 = float(0)  # Pass through waypoint
-                    new_waypoint.param4 = float('nan')  # Yaw angle
+            if len(wp_list) == 0:
+                self.get_logger().warn("No waypoints to insert")
+                return False
+
+            original_waypoints = self.waypoint_list.waypoints.copy()
+
+            for wp in wp_list:
+                command = wp.get('command', 16)
+                index = wp['index']
+
+                if index > len(self.waypoint_list.waypoints):
+                    self.get_logger().error(f"Index {index} is out of range")
+                    self.waypoint_list.waypoints = original_waypoints
+                    return False
+
+                new_waypoint = Waypoint()
+                new_waypoint.is_current = False
+                new_waypoint.autocontinue = True
+
+                if command == 183:  # MAV_CMD_DO_SET_SERVO
+                    new_waypoint.frame = 3
+                    new_waypoint.command = 183
+                    new_waypoint.param1 = float(wp['channel'])
+                    new_waypoint.param2 = float(wp['pwm'])
+                    new_waypoint.param3 = 0.0
+                    new_waypoint.param4 = 0.0
+                    new_waypoint.x_lat = 0.0
+                    new_waypoint.y_long = 0.0
+                    new_waypoint.z_alt = 0.0
+                    self.get_logger().info(f"Inserting DO_SET_SERVO at index {index}: ch={wp['channel']}, pwm={wp['pwm']}")
+                else:  # MAV_CMD_NAV_WAYPOINT
+                    new_waypoint.frame = 3
+                    new_waypoint.command = 16
+                    new_waypoint.param1 = float(3)  # Hold time
+                    new_waypoint.param2 = 0.0
+                    new_waypoint.param3 = 0.0
+                    new_waypoint.param4 = float('nan')
                     new_waypoint.x_lat = float(wp['lat'])
                     new_waypoint.y_long = float(wp['lon'])
                     new_waypoint.z_alt = float(wp['alt'])
-                    index = wp['index']
-                    
-                    # Make sure index is valid
-                    if index > len(self.waypoint_list.waypoints):
-                        self.get_logger().error(f"Index {index} is out of range")
-                        return False
-                        
-                    self.waypoint_list.waypoints.insert(index, new_waypoint)
+                    self.get_logger().info(f"Inserting NAV_WAYPOINT at index {index}: lat={wp['lat']}, lon={wp['lon']}, alt={wp['alt']}")
 
-                self.push_waypoints()
-                self.get_logger().info(f"Successfully pushed {len(wp_list)} new waypoints")
-                self.set_current_waypoint(wp_list[0]['index'])
+                self.waypoint_list.waypoints.insert(index, new_waypoint)
 
-                # Try to push the updated list
-                # if self.push_waypoints():
-                #     self.get_logger().info(f"Successfully pushed {len(wp_list)} new waypoints")
-                    
-                #     # Only set current waypoint if push was successful
-                #     self.set_current_waypoint(wp_list[0]['index'])
-                #     return True
-                # else:
-                #     # If push failed, restore original list
-                #     self.get_logger().warn("Push failed, reverting waypoint list")
-                #     self.waypoint_list.waypoints = original_waypoints
-                #     return False
-            else:
-                self.get_logger().warn("No waypoints to insert")
-                return False
-                
+            self.push_waypoints()
+            self.get_logger().info(f"Successfully pushed {len(wp_list)} mission items")
+            return True
+
         except Exception as e:
             self.get_logger().error(f"Error inserting waypoints: {str(e)}")
             return False
@@ -241,12 +246,19 @@ class WaypointManager(Node):
         self.get_logger().info(f"Status: {text}")
 
     def handle_wp_req(self, request, response):
-        """Handle AddWaypoint service request"""
-        self.get_logger().info(f"Received AddWaypoint request: lat={request.latitude}, lon={request.longitude}, alt={request.altitude}, index={request.index}")
+        """Handle AddWaypoint service request (NAV_WAYPOINT or DO_SET_SERVO)"""
+        command = request.command if request.command != 0 else 16
 
         response = AddWaypoint.Response()
         try:
-            self.insert_new_waypoint(request.latitude, request.longitude, request.altitude, request.index)
+            if command == 183:
+                self.get_logger().info(f"Received DO_SET_SERVO request: ch={request.channel}, pwm={request.pwm}, index={request.index}")
+                wp_list = [{"command": 183, "channel": request.channel, "pwm": request.pwm, "index": request.index}]
+            else:
+                self.get_logger().info(f"Received NAV_WAYPOINT request: lat={request.latitude}, lon={request.longitude}, alt={request.altitude}, index={request.index}")
+                wp_list = [{"command": 16, "lat": request.latitude, "lon": request.longitude, "alt": request.altitude, "index": request.index}]
+
+            self.insert_new_waypoint(wp_list)
             response.success = True
         except Exception as e:
             self.get_logger().error(f"Failed to add waypoint: {e}")
