@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# SAHI Object Detection ROS2 Node
+# publishes results on /image_detection for main.py (MainController).
+
 import os
 os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 os.environ['YOLO_AUTOINSTALL'] = '0'
@@ -7,23 +10,21 @@ os.environ.setdefault('TRT_LOG_LEVEL', '2')
 os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')
 
 import time
-import traceback
 import threading
 import queue
-from collections import OrderedDict
-from dataclasses import dataclass, field
+import json
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 
 import rclpy
-from rclpy.lifecycle import LifecycleNode, State, TransitionCallbackReturn
+from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.parameter import Parameter
-from rclpy.node import SetParametersResult
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from cv_bridge import CvBridge
-from std_srvs.srv import Trigger
-from interfaces.msg import ImageResult
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+from ultralytics_ros.msg import ImageResult
 from mavros_msgs.msg import WaypointReached
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 
@@ -58,72 +59,12 @@ DEFAULT_CHECK_INTERVAL = 2.0
 CLASS_ID = {"person": "0", "tent": "1", "object": "2"}
 
 
-@dataclass
-class NodeStats:
-    total_images_processed: int = 0
-    total_detections: int = 0
-    total_tents: int = 0
-    total_people: int = 0
-    avg_processing_time: float = 0.0
-    last_processing_time: float = 0.0
-    node_start_time: float = field(default_factory=time.time)
-    errors: int = 0
-    is_healthy: bool = True
-    last_successful_detection: Optional[float] = None
-    consecutive_errors: int = 0
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
-
-    def record_detection(self, elapsed: float, n_people: int, n_tents: int, n_detections: int):
-        with self._lock:
-            self.total_images_processed += 1
-            self.total_detections += n_detections
-            self.total_people += n_people
-            self.total_tents += n_tents
-            self.last_processing_time = elapsed
-            n = self.total_images_processed
-            self.avg_processing_time = (self.avg_processing_time * (n - 1) + elapsed) / n
-            self.last_successful_detection = time.time()
-            self.consecutive_errors = 0
-            self.is_healthy = True
-
-    def record_error(self):
-        with self._lock:
-            self.errors += 1
-            self.consecutive_errors += 1
-
-    def summary(self) -> str:
-        with self._lock:
-            return (
-                f"Images: {self.total_images_processed}, "
-                f"Detections: {self.total_detections}, "
-                f"People: {self.total_people}, Tents: {self.total_tents}, "
-                f"AvgTime: {self.avg_processing_time:.2f}s, "
-                f"Errors: {self.errors}, "
-                f"Uptime: {time.time() - self.node_start_time:.0f}s"
-            )
-
-    def final_summary(self) -> str:
-        with self._lock:
-            uptime = time.time() - self.node_start_time
-            return (
-                f"  Images Processed: {self.total_images_processed}\n"
-                f"  Detections: {self.total_detections}\n"
-                f"  People: {self.total_people}\n"
-                f"  Tents: {self.total_tents}\n"
-                f"  Avg Time: {self.avg_processing_time:.2f}s\n"
-                f"  Errors: {self.errors}\n"
-                f"  Uptime: {uptime:.1f}s"
-            )
-
-
-class SAHIObjectDetectionNode(LifecycleNode):
+class SAHIObjectDetectionNode(Node):
 
     def __init__(self):
         super().__init__('new_od')
 
-        self.shutdown_requested = False
-        self._active = False
-
+        # Parameters
         self.declare_parameter('model_path', 'yolo26m.engine')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)
         self.declare_parameter('auto_convert_tensorrt', True)
@@ -145,203 +86,129 @@ class SAHIObjectDetectionNode(LifecycleNode):
         self.declare_parameter('camera_feed_path', '')
         self.declare_parameter('detection_results_path', '')
 
-        self.bridge = None
-        self.detection_pub = None
-        self.timer = None
-        self.gpu_cleanup_timer = None
-        self.stats_service = None
-        self.health_service = None
-        self.waypoint_subscription = None
+        self.model_path = self.get_parameter('model_path').value
+        self.model_format = self.get_parameter('model_format').value.lower()
+        self.auto_convert_tensorrt = self.get_parameter('auto_convert_tensorrt').value
+        self.tensorrt_workspace = self.get_parameter('tensorrt_workspace').value
+        self.confidence_threshold = self.get_parameter('confidence_threshold').value
+        self.slice_height = self.get_parameter('slice_height').value
+        self.slice_width = self.get_parameter('slice_width').value
+        self.overlap_height_ratio = self.get_parameter('overlap_height_ratio').value
+        self.overlap_width_ratio = self.get_parameter('overlap_width_ratio').value
+        self.check_interval = self.get_parameter('check_interval').value
+        self.device = self.get_parameter('device').value
+        self.max_images_per_cycle = self.get_parameter('max_images_per_cycle').value
+        self.max_camera_feed_images = self.get_parameter('max_camera_feed_images').value
+        self.min_detection_area = self.get_parameter('min_detection_area').value
+        self.max_detection_area = self.get_parameter('max_detection_area').value
+        self.min_aspect_ratio = self.get_parameter('min_aspect_ratio').value
+        self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
+        self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
+
+        self._validate_parameters()
+
+        # Directories
+        ros2_ws = get_ros2_ws_directory()
+        cam = self.get_parameter('camera_feed_path').value
+        out = self.get_parameter('detection_results_path').value
+        self.camera_feed_path = cam or os.path.join(ros2_ws, "video_cam", "mapping_photos")
+        self.detection_results_path = out or os.path.join(ros2_ws, "video_cam", "detection_results_sahi")
+        os.makedirs(self.detection_results_path, exist_ok=True)
+        if not os.path.exists(self.camera_feed_path):
+            self.get_logger().warn(f"Camera feed dir missing, creating: {self.camera_feed_path}")
+            os.makedirs(self.camera_feed_path, exist_ok=True)
+        self.get_logger().info(f"Results dir: {self.detection_results_path}")
+
+        # OpenCV hints for Jetson
+        cv2.setNumThreads(0)
+        cv2.ocl.setUseOpenCL(False)
+
+        # Device selection & GPU tuning
+        if self.device == 'auto':
+            self.device = detect_device(self.get_logger())
+        self.get_logger().info(f"Device: {self.device}")
+        check_jetson_power_mode(self.get_logger())
+
+        if self.device.startswith('cuda'):
+            self.slice_height, self.slice_width, self.overlap_height_ratio, self.overlap_width_ratio = (
+                optimize_gpu_memory(
+                    self.device,
+                    self.slice_height, self.slice_width,
+                    self.overlap_height_ratio, self.overlap_width_ratio,
+                    self.get_logger(),
+                )
+            )
+
+        self.bridge = CvBridge()
+        self.add_on_set_parameters_callback(self._parameter_callback)
+
+        # Publishers
+        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        self.publisher = self.create_publisher(Image, '/sahi_detection_results', qos)
+        self.detection_publisher = self.create_publisher(String, '/sahi_detection_info', qos)
+        self.detection_pub = self.create_publisher(ImageResult, '/image_detection', qos)
+
+        # Services
+        from std_srvs.srv import Trigger
+        self.stats_service = self.create_service(Trigger, 'sahi/get_statistics', self._stats_srv_cb)
+        self.health_service = self.create_service(Trigger, 'sahi/get_health', self._health_srv_cb)
+
+        # Subscribers
+        self.create_subscription(WaypointReached, "/mavros/mission/reached", self._waypoint_cb, 10)
+
+        # State
         self.detection_model = None
-
-        self._model_ready = threading.Event()
-        self._model_load_thread = None
-
-        self.work_q: queue.Queue = queue.Queue(maxsize=50)
-        self.worker_thread = None
-        self.worker_stop = threading.Event()
-
-        self.processed_images: OrderedDict[str, float] = OrderedDict()
-        self.stats = NodeStats()
-
-        self.waypoint_reached = 0
-
-        self.camera_feed_path = None
-        self.detection_results_path = None
-        self.device = None
         self.model_format_detected = None
+        self.waypoint_reached = 0
         self._check_count = 0
         self._model_wait_log_count = 0
+        self._stats_lock = threading.Lock()
+        self.processed_images: Dict[str, float] = {}
 
+        self.stats = {
+            'total_images_processed': 0,
+            'total_detections': 0,
+            'total_tents': 0,
+            'total_people': 0,
+            'avg_processing_time': 0.0,
+            'last_processing_time': 0.0,
+            'node_start_time': time.time(),
+            'errors': 0,
+        }
 
-    def on_configure(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Configuring node...")
-        try:
-            self._load_parameters()
+        self.health_status = {
+            'is_healthy': True,
+            'last_successful_detection': None,
+            'consecutive_errors': 0,
+        }
 
-            ros2_ws = get_ros2_ws_directory()
-            cam = self.get_parameter('camera_feed_path').value
-            out = self.get_parameter('detection_results_path').value
-            self.camera_feed_path = cam or os.path.join(ros2_ws, "video_cam", "mapping_photos")
-            self.detection_results_path = out or os.path.join(ros2_ws, "src", "detection", "detection_results_sahi")
+        # Background model loading (may involve TRT conversion)
+        self._model_ready = threading.Event()
+        self._model_load_thread = threading.Thread(
+            target=self._background_model_load, daemon=True, name="model_loader",
+        )
+        self._model_load_thread.start()
+        self.get_logger().info("Model loading in background...")
 
-            os.makedirs(self.detection_results_path, exist_ok=True)
-            if not os.path.exists(self.camera_feed_path):
-                self.get_logger().warn(f"Camera feed dir missing, creating: {self.camera_feed_path}")
-                os.makedirs(self.camera_feed_path, exist_ok=True)
+        # Worker thread for processing images off the timer callback
+        self.work_q: queue.Queue = queue.Queue(maxsize=50)
+        self.worker_stop = threading.Event()
+        self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self.worker_thread.start()
 
-            cv2.setNumThreads(0)
-            cv2.ocl.setUseOpenCL(False)
-
-            if self.device == 'auto':
-                self.device = detect_device(self.get_logger())
-
-            check_jetson_power_mode(self.get_logger())
-
-            if self.device.startswith('cuda'):
-                self.slice_height, self.slice_width, self.overlap_height_ratio, self.overlap_width_ratio = (
-                    optimize_gpu_memory(
-                        self.device,
-                        self.slice_height, self.slice_width,
-                        self.overlap_height_ratio, self.overlap_width_ratio,
-                        self.get_logger(),
-                    )
-                )
-
-            self.bridge = CvBridge()
-            self.add_on_set_parameters_callback(self._parameter_callback)
-
-            self.get_logger().info("Object detection configuration complete")
-            return TransitionCallbackReturn.SUCCESS
-        except Exception as e:
-            self.get_logger().error(f"Configuration failed: {e}")
-            return TransitionCallbackReturn.FAILURE
-
-    def on_activate(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Activating Object Detection...")
-        try:
-            self._active = True
-
-            self._model_ready.clear()
-            self._model_load_thread = threading.Thread(
-                target=self._background_model_load, daemon=True, name="model_loader"
-            )
-            self._model_load_thread.start()
-
-            qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-            self.detection_pub = self.create_publisher(ImageResult, '/image_detection', qos)
-            self.stats_service = self.create_service(Trigger, 'sahi/get_statistics', self._stats_srv_cb)
-            self.health_service = self.create_service(Trigger, 'sahi/get_health', self._health_srv_cb)
-            self.waypoint_subscription = self.create_subscription(
-                WaypointReached, "/mavros/mission/reached", self._waypoint_cb, 10
-            )
-
-            self.worker_stop.clear()
-            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-            self.worker_thread.start()
-
-            self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
-
-            if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
-                self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
-
-            self.stats.node_start_time = time.time()
-            self.get_logger().info("Object detection node activated and ready")
-            return TransitionCallbackReturn.SUCCESS
-        except Exception as e:
-            self.get_logger().error(f"Activation failed: {e}\n{traceback.format_exc()}")
-            return TransitionCallbackReturn.FAILURE
-
-    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Deactivating node...")
-        self._active = False
-
-        if self._model_load_thread and self._model_load_thread.is_alive():
-            self._model_load_thread.join(timeout=10.0)
-
-        self.worker_stop.set()
-        if self.worker_thread and self.worker_thread.is_alive():
-            self.worker_thread.join(timeout=5.0)
-
-        if self.timer is not None:
-            self.timer.cancel()
-            self.timer = None
-        if self.gpu_cleanup_timer is not None:
-            self.gpu_cleanup_timer.cancel()
+        # Timers
+        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+        if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
+            self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
+        else:
             self.gpu_cleanup_timer = None
 
-        self.get_logger().info("Node deactivated")
-        return TransitionCallbackReturn.SUCCESS
+        self.get_logger().info("Node initialized and ready")
 
-    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Cleaning up node...")
-
-        if self._model_load_thread and self._model_load_thread.is_alive():
-            self._model_load_thread.join(timeout=10.0)
-        self.worker_stop.set()
-        if self.worker_thread and self.worker_thread.is_alive():
-            self.worker_thread.join(timeout=5.0)
-
-        for name, destroy_fn in [
-            ('timer', self.destroy_timer),
-            ('gpu_cleanup_timer', self.destroy_timer),
-            ('detection_pub', self.destroy_publisher),
-            ('stats_service', self.destroy_service),
-            ('health_service', self.destroy_service),
-            ('waypoint_subscription', self.destroy_subscription),
-        ]:
-            obj = getattr(self, name, None)
-            if obj is not None:
-                destroy_fn(obj)
-                setattr(self, name, None)
-
-        if self.detection_model is not None:
-            del self.detection_model
-            self.detection_model = None
-
-        cleanup_gpu()
-        self.bridge = None
-        self.get_logger().info("Cleanup complete")
-        return TransitionCallbackReturn.SUCCESS
-
-    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
-        self.get_logger().info("Shutting down...")
-        self.shutdown_requested = True
-
-        try:
-            if self.timer is not None:
-                self.timer.cancel()
-                self.timer = None
-            if self.gpu_cleanup_timer is not None:
-                self.gpu_cleanup_timer.cancel()
-                self.gpu_cleanup_timer = None
-
-            if self.detection_model is not None:
-                del self.detection_model
-                self.detection_model = None
-
-            cleanup_gpu()
-            if TORCH_AVAILABLE:
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.synchronize()
-                except Exception:
-                    pass
-
-            self.get_logger().info("=" * 60)
-            self.get_logger().info("Final Statistics:")
-            self.get_logger().info(self.stats.final_summary())
-            self.get_logger().info("=" * 60)
-        except Exception as e:
-            self.get_logger().error(f"Shutdown error: {e}")
-
-        return TransitionCallbackReturn.SUCCESS
-
+    # Timer & Worker
 
     def check_for_new_images(self) -> None:
-        if not self._active or self.shutdown_requested:
-            return
+        """Timer callback: scan camera_feed and enqueue new images."""
         if not os.path.exists(self.camera_feed_path):
             return
 
@@ -395,9 +262,11 @@ class SAHIObjectDetectionNode(LifecycleNode):
 
         except Exception as e:
             self.get_logger().error(f"Error scanning images: {e}")
-            self.stats.record_error()
+            with self._stats_lock:
+                self.stats['errors'] += 1
 
     def _worker_loop(self):
+        """Background worker: dequeue and process images one at a time."""
         while not self.worker_stop.is_set():
             try:
                 path = self.work_q.get(timeout=0.2)
@@ -405,14 +274,21 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 continue
             try:
                 self._process_image(path)
+                self.health_status['last_successful_detection'] = time.time()
+                self.health_status['consecutive_errors'] = 0
+                self.health_status['is_healthy'] = True
             except Exception as e:
                 self.get_logger().error(f"Worker error ({os.path.basename(path)}): {e}")
-                self.stats.record_error()
+                with self._stats_lock:
+                    self.stats['errors'] += 1
+                self.health_status['consecutive_errors'] += 1
             finally:
                 self.work_q.task_done()
 
+    # Image processing
 
     def _process_image(self, image_path: str) -> None:
+        """Load, detect, annotate, publish for one image."""
         start = time.time()
 
         frame = cv2.imread(image_path)
@@ -438,7 +314,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             model_format=self.model_format_detected or MODEL_FORMAT_PYTORCH,
             device=self.device,
             enable_gpu_cleanup=self.enable_gpu_memory_cleanup,
-            images_processed=self.stats.total_images_processed,
+            images_processed=self.stats['total_images_processed'],
             logger=self.get_logger(),
         )
 
@@ -453,42 +329,53 @@ class SAHIObjectDetectionNode(LifecycleNode):
         save_top_matches_crop(frame, detections, image_path, self.detection_results_path)
         self._publish_results(annotated, detections, image_path)
 
-        # num of tents/people then how long, count of people and tent found, how many objs detected
         n_people = sum(1 for d in detections if d['class'] == 'person')
         n_tents = sum(1 for d in detections if d['class'] == 'tent')
-        self.stats.record_detection(elapsed, n_people, n_tents, len(detections))
+        n_objects = sum(1 for d in detections if d['class'] == 'object')
+
+        with self._stats_lock:
+            self.stats['total_images_processed'] += 1
+            self.stats['total_detections'] += len(detections)
+            self.stats['total_people'] += n_people
+            self.stats['total_tents'] += n_tents
+            self.stats['last_processing_time'] = elapsed
+            n = self.stats['total_images_processed']
+            self.stats['avg_processing_time'] = (
+                (self.stats['avg_processing_time'] * (n - 1) + elapsed) / n
+            )
 
         self.get_logger().info(
             f"Found {len(detections)} objects in {elapsed:.2f}s: "
-            f"{n_people} people, {n_tents} tents, "
-            f"{len(detections) - n_people - n_tents} other"
+            f"{n_people} people, {n_tents} tents, {n_objects} other"
         )
 
+    # Publishing (message format consumed by main.py)
 
     def _publish_results(self, annotated: np.ndarray, detections: List[Dict], image_path: str) -> None:
-        if self.detection_pub is None or self.bridge is None:
-            return
-
-        # convert opencv to ros image message with metadata
+        """Publish annotated image, ImageResult, and detection-info JSON."""
         try:
             image_msg = self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
             image_msg.header.stamp = self.get_clock().now().to_msg()
             image_msg.header.frame_id = 'camera'
+            self.publisher.publish(image_msg)
 
-            original_filename = os.path.basename(image_path) # get filename
-            name, ext = os.path.splitext(original_filename) # split filename and extension
-            output_path = os.path.join(self.detection_results_path, f"sahi_detected_{name}{ext}") # joins path name with file name
-            cv2.imwrite(output_path, annotated) # saved anotated image to a path
+            original_filename = os.path.basename(image_path)
+            name, ext = os.path.splitext(original_filename)
+            output_path = os.path.join(self.detection_results_path, f"sahi_detected_{name}{ext}")
+            cv2.imwrite(output_path, annotated)
 
-            ir = ImageResult() # ir is now an imageResult object
+            method = (
+                'sahi+yolo+tensorrt' if self.model_format_detected == MODEL_FORMAT_TENSORRT
+                else 'sahi+yolo'
+            )
+
+            ir = ImageResult()
             ir.header = image_msg.header
             ir.image_name = original_filename
             ir.timestamp = datetime.now().isoformat()
             ir.num_detections = len(detections)
             ir.saved_to = output_path
-            ir.method = (
-                'sahi+yolo+tensorrt' if self.model_format_detected == MODEL_FORMAT_TENSORRT
-                else 'sahi+yolo') # text label saved in ImageResult
+            ir.method = method
             ir.slice_size = f"{self.slice_height}x{self.slice_width}"
             ir.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
             ir.waypoint_index = self.waypoint_reached
@@ -496,49 +383,70 @@ class SAHIObjectDetectionNode(LifecycleNode):
             det_array = Detection2DArray()
             det_array.header = image_msg.header
 
-            classes, confidences, areas, descriptions = [], [], [], []
+            classes, confidences, areas, descriptions, masks = [], [], [], [], []
 
-            # go through each detected obj, create ros 2d detection message with timestamp/frame
             for det in detections:
                 d2d = Detection2D()
                 d2d.header = image_msg.header
-                x1, y1, x2, y2 = det['bbox'] # bounding box
-                d2d.bbox.center.position.x = float(x1 + x2) / 2.0 # calc center of the box
+                x1, y1, x2, y2 = det['bbox']
+                d2d.bbox.center.position.x = float(x1 + x2) / 2.0
                 d2d.bbox.center.position.y = float(y1 + y2) / 2.0
-                d2d.bbox.size_x = float(x2 - x1) # calc width/height of the box
+                d2d.bbox.size_x = float(x2 - x1)
                 d2d.bbox.size_y = float(y2 - y1)
 
-                hypo = ObjectHypothesisWithPose() # confidence holder
-                hypo.hypothesis.class_id = CLASS_ID.get(det['class'], "2") # convert class name to id
+                hypo = ObjectHypothesisWithPose()
+                class_id = 0 if det['class'] == 'person' else 1
+                hypo.hypothesis.class_id = str(class_id)
                 hypo.hypothesis.score = float(det['confidence'])
-                d2d.results.append(hypo) # adds obj info to ros detection array
+                d2d.results.append(hypo)
                 det_array.detections.append(d2d)
 
-                # send object info to ros detection array
                 classes.append(det['class'])
                 confidences.append(float(det['confidence']))
                 areas.append(float(det.get('area', 0)))
                 descriptions.append(det.get('description', det['class']))
 
             ir.detections = det_array
-            # ir.masks = []
+            ir.masks = masks
             ir.classes = classes
             ir.confidences = confidences
             ir.areas = areas
             ir.descriptions = descriptions
 
-            self.detection_pub.publish(ir) # publish the imageResult message ir to the /image_detection topic
+            self.detection_pub.publish(ir)
+
+            n_people = sum(1 for d in detections if d['class'] == 'person')
+            n_tents = sum(1 for d in detections if d['class'] == 'tent')
+            n_objects = sum(1 for d in detections if d['class'] == 'object')
+
+            info = {
+                'image': original_filename,
+                'timestamp': datetime.now().isoformat(),
+                'num_people': n_people,
+                'num_tents': n_tents,
+                'num_objects': n_objects,
+                'total_detections': len(detections),
+                'method': method,
+                'slice_size': f"{self.slice_height}x{self.slice_width}",
+                'overlap': f"{self.overlap_height_ratio}x{self.overlap_width_ratio}",
+            }
+            info_msg = String()
+            info_msg.data = json.dumps(info, separators=(",", ":"))
+            self.detection_publisher.publish(info_msg)
 
         except Exception as e:
-            self.get_logger().error(f"Publish error: {e}\n{traceback.format_exc()}")
-            self.stats.record_error()
+            self.get_logger().error(f"Publish error: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
+            with self._stats_lock:
+                self.stats['errors'] += 1
 
+    # Background model loading
 
     def _background_model_load(self):
+        """Load model in a daemon thread so the constructor returns immediately."""
         try:
             self.get_logger().info("Resolving model path...")
-            t0 = time.time()
-
             resolved, fmt = resolve_model_path(
                 self.model_path, self.model_format, self.auto_convert_tensorrt,
                 self.slice_height, self.slice_width, self.tensorrt_workspace,
@@ -546,7 +454,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
             )
             if resolved is None:
                 self.get_logger().error("Model path resolution failed")
-                self.stats.is_healthy = False
+                self.health_status['is_healthy'] = False
                 return
 
             self.model_format_detected = fmt
@@ -555,7 +463,7 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 resolved, fmt, self.confidence_threshold, self.device, self.get_logger(),
             )
             if model is None:
-                self.stats.is_healthy = False
+                self.health_status['is_healthy'] = False
                 return
 
             self.detection_model = model
@@ -563,40 +471,22 @@ class SAHIObjectDetectionNode(LifecycleNode):
                 model, self.slice_height, self.slice_width,
                 self.overlap_height_ratio, self.overlap_width_ratio, self.get_logger(),
             )
-
-            self.get_logger().info(f"Model loaded in {time.time() - t0:.1f}s")
             self.get_logger().info("Model ready -- processing can begin")
         except Exception as e:
+            import traceback
             self.get_logger().error(f"Model load failed: {e}\n{traceback.format_exc()}")
-            self.stats.is_healthy = False
+            self.health_status['is_healthy'] = False
         finally:
             self._model_ready.set()
 
+    # Utilities
 
-    def _load_parameters(self) -> None:
-        self.model_path = self.get_parameter('model_path').value
-        self.model_format = self.get_parameter('model_format').value.lower()
-        self.auto_convert_tensorrt = self.get_parameter('auto_convert_tensorrt').value
-        self.tensorrt_workspace = self.get_parameter('tensorrt_workspace').value
-        self.confidence_threshold = self.get_parameter('confidence_threshold').value
-        self.slice_height = self.get_parameter('slice_height').value
-        self.slice_width = self.get_parameter('slice_width').value
-        self.overlap_height_ratio = self.get_parameter('overlap_height_ratio').value
-        self.overlap_width_ratio = self.get_parameter('overlap_width_ratio').value
-        self.check_interval = self.get_parameter('check_interval').value
-        self.device = self.get_parameter('device').value
-        self.max_images_per_cycle = self.get_parameter('max_images_per_cycle').value
-        self.max_camera_feed_images = self.get_parameter('max_camera_feed_images').value
-        self.min_detection_area = self.get_parameter('min_detection_area').value
-        self.max_detection_area = self.get_parameter('max_detection_area').value
-        self.min_aspect_ratio = self.get_parameter('min_aspect_ratio').value
-        self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
-        self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
-
+    def _validate_parameters(self) -> None:
+        """Clamp out-of-range parameter values."""
         if self.model_format not in (MODEL_FORMAT_PYTORCH, MODEL_FORMAT_TENSORRT, MODEL_FORMAT_AUTO):
             self.get_logger().warn(f"Invalid model_format '{self.model_format}', using 'auto'")
             self.model_format = MODEL_FORMAT_AUTO
-        if not (0 < self.confidence_threshold <= 1.0):
+        if not 0 < self.confidence_threshold <= 1.0:
             self.get_logger().warn(f"Bad confidence {self.confidence_threshold}, using {DEFAULT_CONFIDENCE}")
             self.confidence_threshold = DEFAULT_CONFIDENCE
         if self.slice_height < 64 or self.slice_width < 64:
@@ -610,63 +500,55 @@ class SAHIObjectDetectionNode(LifecycleNode):
         if self.max_images_per_cycle < 1:
             self.max_images_per_cycle = 1
 
-    def _parameter_callback(self, params: List[Parameter]):
-        for p in params:
-            if p.name == 'confidence_threshold' and not (0 < p.value <= 1.0):
-                return SetParametersResult(successful=False, reason=f"Invalid value for {p.name}")
-            if p.name == 'check_interval' and p.value < 0.1:
-                return SetParametersResult(successful=False, reason=f"Invalid value for {p.name}")
-            if p.name == 'max_images_per_cycle' and p.value < 1:
-                return SetParametersResult(successful=False, reason=f"Invalid value for {p.name}")
-
-            if p.name in ('confidence_threshold', 'check_interval', 'max_images_per_cycle'):
-                setattr(self, p.name, p.value)
-                if p.name == 'check_interval' and self.timer is not None:
-                    self.timer.cancel()
-                    self.destroy_timer(self.timer)
-                    self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
-        return SetParametersResult(successful=True)
-
-
     @staticmethod
     def _is_file_ready(path: str, min_age: float = 0.2) -> bool:
+        """Return True if a file is fully written and stable."""
         try:
             st = os.stat(path)
-            return time.time() - st.st_mtime >= min_age and st.st_size > 0
+            if time.time() - st.st_mtime < min_age or st.st_size == 0:
+                return False
+            time.sleep(0.05)
+            return st.st_size == os.stat(path).st_size
         except OSError:
             return False
 
-    def _prune_processed(self, max_entries: int = 2000):
-        while len(self.processed_images) > max_entries:
-            self.processed_images.popitem(last=False)
+    def _prune_processed(self, max_age: float = 3600.0, max_entries: int = 2000):
+        """Evict old entries from processed_images to cap memory usage."""
+        now = time.time()
+        old = [k for k, v in self.processed_images.items() if now - v > max_age]
+        for k in old:
+            self.processed_images.pop(k, None)
+        if len(self.processed_images) > max_entries:
+            items = sorted(self.processed_images.items(), key=lambda kv: kv[1])
+            for k, _ in items[: len(self.processed_images) - max_entries]:
+                self.processed_images.pop(k, None)
 
     def _cleanup_old_images(self) -> None:
+        """Delete oldest images if camera_feed exceeds the configured limit."""
         if self.max_camera_feed_images <= 0:
             return
         try:
-            entries = []
+            files = []
             for f in os.listdir(self.camera_feed_path):
                 if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+                    fp = os.path.join(self.camera_feed_path, f)
                     try:
-                        entries.append((f, os.path.getmtime(os.path.join(self.camera_feed_path, f))))
+                        files.append((f, os.path.getmtime(fp)))
                     except OSError:
                         continue
-
-            excess = len(entries) - self.max_camera_feed_images
-            if excess <= 0:
-                return
-
-            entries.sort(key=lambda x: x[1])
-            removed = 0
-            for f, _ in entries[:excess]:
-                try:
-                    os.remove(os.path.join(self.camera_feed_path, f))
-                    self.processed_images.pop(f, None)
-                    removed += 1
-                except OSError:
-                    pass
-            if removed:
-                self.get_logger().info(f"Cleaned up {removed} old images")
+            files.sort(key=lambda x: x[1])
+            excess = len(files) - self.max_camera_feed_images
+            if excess > 0:
+                removed = 0
+                for f, _ in files[:excess]:
+                    try:
+                        os.remove(os.path.join(self.camera_feed_path, f))
+                        self.processed_images.pop(f, None)
+                        removed += 1
+                    except OSError:
+                        pass
+                if removed:
+                    self.get_logger().info(f"Cleaned up {removed} old images")
         except OSError as e:
             self.get_logger().debug(f"Image cleanup error: {e}")
 
@@ -676,20 +558,86 @@ class SAHIObjectDetectionNode(LifecycleNode):
     def _waypoint_cb(self, msg: WaypointReached) -> None:
         self.waypoint_reached = msg.wp_seq
 
+    def _parameter_callback(self, params: List[Parameter]):
+        from rclpy.node import SetParametersResult
+        for p in params:
+            try:
+                if p.name == 'confidence_threshold':
+                    if 0 < p.value <= 1.0:
+                        self.confidence_threshold = p.value
+                    else:
+                        return SetParametersResult(successful=False, reason="Must be 0..1")
+                elif p.name == 'check_interval':
+                    if p.value >= 0.1:
+                        self.check_interval = p.value
+                        if self.timer is not None:
+                            self.timer.cancel()
+                            self.destroy_timer(self.timer)
+                            self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+                    else:
+                        return SetParametersResult(successful=False, reason="Must be >= 0.1")
+                elif p.name == 'max_images_per_cycle':
+                    if p.value >= 1:
+                        self.max_images_per_cycle = p.value
+                    else:
+                        return SetParametersResult(successful=False, reason="Must be >= 1")
+            except Exception as e:
+                return SetParametersResult(successful=False, reason=str(e))
+        return SetParametersResult(successful=True)
+
     def _stats_srv_cb(self, request, response):
+        with self._stats_lock:
+            s = self.stats
+            txt = (
+                f"Images: {s['total_images_processed']}, "
+                f"Detections: {s['total_detections']}, "
+                f"People: {s['total_people']}, Tents: {s['total_tents']}, "
+                f"AvgTime: {s['avg_processing_time']:.2f}s, "
+                f"Errors: {s['errors']}, "
+                f"Uptime: {time.time() - s['node_start_time']:.0f}s"
+            )
         response.success = True
-        response.message = self.stats.summary()
+        response.message = txt
         return response
 
     def _health_srv_cb(self, request, response):
-        response.success = self.stats.is_healthy
-        response.message = (
-            f"Healthy: {self.stats.is_healthy}, "
-            f"ConsecErrors: {self.stats.consecutive_errors}, "
+        hs = self.health_status
+        txt = (
+            f"Healthy: {hs['is_healthy']}, "
+            f"ConsecErrors: {hs['consecutive_errors']}, "
             f"ModelLoaded: {self.detection_model is not None}, "
             f"Format: {self.model_format_detected}"
         )
+        response.success = hs['is_healthy']
+        response.message = txt
         return response
+
+    def shutdown(self):
+        """Clean up threads and GPU resources."""
+        self.worker_stop.set()
+        if self._model_load_thread and self._model_load_thread.is_alive():
+            self._model_load_thread.join(timeout=10.0)
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=5.0)
+
+        if self.detection_model is not None:
+            del self.detection_model
+            self.detection_model = None
+
+        cleanup_gpu()
+
+        self.get_logger().info("=" * 60)
+        self.get_logger().info("Final Statistics:")
+        with self._stats_lock:
+            self.get_logger().info(f"  Images Processed: {self.stats['total_images_processed']}")
+            self.get_logger().info(f"  Detections: {self.stats['total_detections']}")
+            self.get_logger().info(f"  People: {self.stats['total_people']}")
+            self.get_logger().info(f"  Tents: {self.stats['total_tents']}")
+            self.get_logger().info(f"  Avg Time: {self.stats['avg_processing_time']:.2f}s")
+            self.get_logger().info(f"  Errors: {self.stats['errors']}")
+        uptime = time.time() - self.stats['node_start_time']
+        self.get_logger().info(f"  Uptime: {uptime:.1f}s")
+        self.get_logger().info("=" * 60)
 
 
 def main(args=None):
@@ -708,43 +656,14 @@ def main(args=None):
     node = SAHIObjectDetectionNode()
 
     try:
-        if node.trigger_configure() != TransitionCallbackReturn.SUCCESS:
-            node.get_logger().error("Configure failed")
-            node.destroy_node()
-            if rclpy.ok():
-                rclpy.shutdown()
-            return
-
-        if node.trigger_activate() != TransitionCallbackReturn.SUCCESS:
-            node.get_logger().error("Activate failed")
-            node.trigger_cleanup()
-            node.destroy_node()
-            if rclpy.ok():
-                rclpy.shutdown()
-            return
-
         executor = MultiThreadedExecutor(num_threads=2)
         executor.add_node(node)
-        node.get_logger().info(
-            "Node active. 'ros2 lifecycle set /new_od deactivate' to pause."
-        )
         executor.spin()
-
     except KeyboardInterrupt:
         node.get_logger().info("Keyboard interrupt")
     finally:
-        if not node.shutdown_requested:
-            node.get_logger().info("Initiating lifecycle shutdown...")
-            try:
-                label = node.get_current_state().label
-                if label == 'active':
-                    node.trigger_deactivate()
-                    node.trigger_cleanup()
-                elif label == 'inactive':
-                    node.trigger_cleanup()
-            except Exception as e:
-                node.get_logger().error(f"Shutdown error: {e}")
-
+        node.get_logger().info("Initiating shutdown...")
+        node.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
