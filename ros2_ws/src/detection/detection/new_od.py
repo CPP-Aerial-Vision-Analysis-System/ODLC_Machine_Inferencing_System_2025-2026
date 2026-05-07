@@ -105,9 +105,9 @@ class SAHIObjectDetectionNode(Node):
         self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
         self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
 
-        self._validate_parameters()
+        self._validate_parameters() # check if the params are right
 
-        # Directories
+        # Setting up directories
         ros2_ws = get_ros2_ws_directory()
         cam = self.get_parameter('camera_feed_path').value
         out = self.get_parameter('detection_results_path').value
@@ -119,7 +119,7 @@ class SAHIObjectDetectionNode(Node):
             os.makedirs(self.camera_feed_path, exist_ok=True)
         self.get_logger().info(f"Results dir: {self.detection_results_path}")
 
-        # OpenCV hints for Jetson
+        # OpenCV hints for Jetson to not create its own cpu worker threads, ros already creates them, we dont want to overload the jetson CPU
         cv2.setNumThreads(0)
         cv2.ocl.setUseOpenCL(False)
 
@@ -481,8 +481,9 @@ class SAHIObjectDetectionNode(Node):
 
     # Utilities
 
+    # this is for when we use --ros-args -p
     def _validate_parameters(self) -> None:
-        """Clamp out-of-range parameter values."""
+        """Remove out-of-range parameter values."""
         if self.model_format not in (MODEL_FORMAT_PYTORCH, MODEL_FORMAT_TENSORRT, MODEL_FORMAT_AUTO):
             self.get_logger().warn(f"Invalid model_format '{self.model_format}', using 'auto'")
             self.model_format = MODEL_FORMAT_AUTO
@@ -556,7 +557,7 @@ class SAHIObjectDetectionNode(Node):
         cleanup_gpu()
 
     def _waypoint_cb(self, msg: WaypointReached) -> None:
-        self.waypoint_reached = msg.wp_seq
+        self.waypoint_reached = msg.wp_seq # wp_seq is a built in mavros message that means "waypoint sequence number that MAVROS says the drone just reached."
 
     def _parameter_callback(self, params: List[Parameter]):
         from rclpy.node import SetParametersResult
