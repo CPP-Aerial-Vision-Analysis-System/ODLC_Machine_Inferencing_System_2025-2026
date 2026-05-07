@@ -18,6 +18,9 @@ from wp_sender.parameter import ParameterManager
 
 import time, cv2, math, sys, os, subprocess
 
+from mavros_msgs.msg import StatusText
+msg.severity = StatusText.NOTICE
+
 ALT = 16.8      # in meters (this is ~55ft)
 
 # Servo channels and PWM for payload drops (each item held by 2 servos)
@@ -41,8 +44,10 @@ class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
 
+        # TODO: use reliable QoS for all the subscribers, but make sure they are mavros compatible
         # Subscribers
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        
         self.create_subscription(ImageResult, "/image_detection", self.image_result_cb, detection_qos)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_cb, 10)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
@@ -472,9 +477,12 @@ class MainController(Node):
 
     def send_ack(self, text):
         msg = StatusText()
-        msg.severity = 6  # INFO
+
+        msg.severity = StatusText.NOTICE
         msg.text = text
+
         self.status_publisher.publish(msg)
+
         self.get_logger().info(f"Status: {text}")
 
 if __name__ == "__main__":
