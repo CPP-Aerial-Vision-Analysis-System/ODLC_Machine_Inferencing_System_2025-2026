@@ -90,17 +90,19 @@ class MainController(Node):
             "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0) 
         }
 
+    # update the waypoint list that you have even if one of the parameters is changed. (looks like its overworking by changing everything once one of the waypoints is changed, chould only change that one if it will improve our workflow).
     def fetch_mission_indices(self):
         wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
         params = self.param_manager.get_param(self.param_manager.waypoint_client, list_params=wp_params)
         num_waypoints, takeoff_index, rtl_index, next_after_takeoff, last_before_rtl = params.values()
-        
+
         self.num_waypoints = int(num_waypoints)
         self.takeoff_index = int(takeoff_index)
         self.rtl_index = int(rtl_index)
         self.next_after_takeoff = int(next_after_takeoff)
         self.last_before_rtl = int(last_before_rtl)
 
+    # if waypoint_manager is called, check update the name and value with the changed_parameters, if they are one of these, then call fetch_mission_indices() 
     def parameter_event_cb(self, msg: ParameterEvent):
         if msg.node == "/waypoint_manager":
             for changed_param in msg.changed_parameters:
@@ -108,10 +110,10 @@ class MainController(Node):
                 value = changed_param.value
 
                 if name in {"num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"}:
-                    #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
-    
+
+    # called when /mavros/mission/reached is triggered, get the wp_sequence, check if we reached buffer_wp, switch to guided, starts a timer and calls _check_all_imgaes_processed()
     def update_waypoint_reached(self, msg):
         self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
         # Buffer waypoint: switch to GUIDED to wait for image processing to finish
@@ -127,16 +129,10 @@ class MainController(Node):
             if self.processing_check_timer is None:
                 self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
 
-        # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
-        # since DigiCamCtrl commands don't fire WaypointReached.
-        
         if self.last_nav_before_rtl >= 0:
             trigger_wp = self.last_nav_before_rtl
         else:
             trigger_wp = self.last_before_rtl
-
-        # if self.waypoint_reached == self.last_before_rtl - 1:
-        #     self.change_mode("GUIDED")
 
         if self.waypoint_reached == trigger_wp and self.wait_to_send_wp:
 
@@ -219,10 +215,8 @@ class MainController(Node):
         self._update_last_nav_before_rtl()
 
     def _update_last_nav_before_rtl(self):
-        """Find the last actual NAV waypoint index before RTL, and the buffer
-        waypoint (one NAV waypoint before that) used for GUIDED processing hold.
-        DigiCamCtrl and other DO_ commands don't trigger WaypointReached,
-        so we need the index of the last physical navigation waypoint."""
+        # Find the last actual NAV waypoint index before RTL, and the buffer waypoint, used for GUIDED processing hold.
+        # DigiCamCtrl and other DO_ commands don't trigger WaypointReached, so we need the index of the last physical navigation waypoint.
         NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
         self.last_nav_before_rtl = -1
         self.buffer_wp = -1
@@ -268,10 +262,10 @@ class MainController(Node):
             ros2_ws_dir = "/astra/ros2_ws/src"
         path = os.path.join(ros2_ws_dir, "video_cam", "mapping_photos")
         return path
-
+        
+    # called by update_waypoint_reached()
     def _check_all_images_processed(self):
-        """Periodically check if all images in camera_feed have been processed.
-        Switches to AUTO exactly once when done, then cancels itself."""
+        # check if the images are processed, if so, switches to AUTO (continue mission)
         if self.auto_resumed or not self.waiting_for_processing:
             if self.processing_check_timer:
                 self.processing_check_timer.cancel()
@@ -309,68 +303,7 @@ class MainController(Node):
         if self.buffer_wp >= 0:
             self.get_logger().info(f"Buffer WP (GUIDED processing hold): index {self.buffer_wp}")
     
-    def _resolve_camera_feed_path(self):
-        """Resolve camera_feed folder path."""
-        current_file = os.path.abspath(__file__)
-        search_dir = os.path.dirname(current_file)
-        ros2_ws_dir = None
-        for _ in range(10):
-            if (os.path.exists(os.path.join(search_dir, "install")) and
-                    os.path.exists(os.path.join(search_dir, "src"))):
-                ros2_ws_dir = search_dir
-                break
-            parent = os.path.dirname(search_dir)
-            if (os.path.exists(os.path.join(parent, "install")) and
-                    os.path.exists(os.path.join(parent, "src"))):
-                ros2_ws_dir = parent
-                break
-            search_dir = os.path.dirname(search_dir)
-            if search_dir == "/":
-                break
-        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-        if ros2_ws_dir is None:
-            ros2_ws_dir = "/astra/ros2_ws/src"
-        path = os.path.join(ros2_ws_dir, "video_cam", "mapping_photos")
-        return path
-
-    def _check_all_images_processed(self):
-        """Periodically check if all images in camera_feed have been processed.
-        Switches to AUTO exactly once when done, then cancels itself."""
-        if self.auto_resumed or not self.waiting_for_processing:
-            if self.processing_check_timer:
-                self.processing_check_timer.cancel()
-                self.processing_check_timer = None
-            return
-
-        try:
-            if not os.path.exists(self.camera_feed_path):
-                self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
-                return
-
-            image_files = set()
-            for f in os.listdir(self.camera_feed_path):
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
-                    image_files.add(f)
-
-            total = len(image_files)
-            processed = len(self.processed_image_names & image_files)
-            remaining = total - processed
-
-            self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
-
-            if remaining <= 0:
-                self.get_logger().info("All images processed! Switching to AUTO (one-time)")
-                self.send_ack(f"All {total} images processed, resuming AUTO")
-                self.change_mode("AUTO")
-                self.auto_resumed = True
-                self.waiting_for_processing = False
-                if self.processing_check_timer:
-                    self.processing_check_timer.cancel()
-                    self.processing_check_timer = None
-        except Exception as e:
-            self.get_logger().error(f"Error checking processing status: {e}")
-
+    # nobody is calling this method
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
@@ -433,12 +366,8 @@ class MainController(Node):
             self.get_logger().error(str(e))
 
     def send_waypoint_data(self, wp_list):
-        """Send mission items (NAV waypoints + DO_SET_SERVO) to the waypoint manager.
+        # Send mission items (NAV waypoints + DO_SET_SERVO) to the waypoint manager.
 
-        wp_list: list of dicts. Each dict must have 'command' and 'index'.
-            command=16:  also needs 'lat', 'lon', 'alt'
-            command=183: also needs 'channel', 'pwm'
-        """
         self.get_logger().info(f"Sending {len(wp_list)} mission items")
 
         try:
