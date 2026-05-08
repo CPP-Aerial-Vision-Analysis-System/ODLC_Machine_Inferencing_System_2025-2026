@@ -29,6 +29,13 @@ TENT_SERVO_CHANNEL_1 = 11
 TENT_SERVO_CHANNEL_2 = 12
 TENT_SERVOS_PWM= 1500
 
+SERVO_BOTTLE = 9       # AUX1 = Servo 9
+SERVO_BEACON = 10     # AUX2 = Servo 10
+PULLEY_OPEN_BOTTLE = 1900       #1050
+PULLEY_CLOSE_BOTTLE = 1400      #850
+PULLEY_OPEN_BEACON = 1900      #1050
+PULLEY_CLOSE_BEACON = 1400 
+
 class Detection_Object:
     def __init__(self, type, confidence, latitude, longitude):
         self.type = type          # person or tent
@@ -199,21 +206,16 @@ class MainController(Node):
         #     self.get_logger().info("Reached human waypoint, activating servo...")
         #     self.send_ack("Reached human waypoint, activating servo")
         #     self.change_mode("GUIDED")
-        #     self.move_human_servo() # Placeholder when testing out in simulation
-        #     # self.move_servo(HUMAN_SERVO_CHANNEL_1, HUMAN_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     # self.move_servo(HUMAN_SERVO_CHANNEL_2, HUMAN_SERVOS_PWM)
-        #     # time.sleep(2)
+        #     self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)
+        #     time.sleep(3)
         #     self.change_mode("AUTO")
         # if self.waypoint_reached == self.tent_wp:
         #     self.get_logger().info("Reached tent waypoint, activating servo...")
         #     self.send_ack("Reached tent waypoint, activating servo")
         #     self.change_mode("GUIDED")
         #     self.move_tent_servo()
-        #     # self.move_servo(TENT_SERVO_CHANNEL_1, TENT_SERVOS_PWM)
-        #     # time.sleep(2)
-        #     # self.move_servo(TENT_SERVO_CHANNEL_2, TENT_SERVOS_PWM)
-        #     # time.sleep(2)
+        #     self.move_servo(SERVO_BEACON, PULLEY_OPEN_BEACON)
+        #     time.sleep(3)
         #     self.change_mode("AUTO")
             
         
@@ -404,12 +406,6 @@ class MainController(Node):
                 self.get_logger().warn("Failed to add waypoints")
         except Exception as e:
             self.get_logger().error(f"Error sending waypoints: {str(e)}")
-
-    def move_human_servo(self):
-        pass
-
-    def move_tent_servo(self):
-        pass
     
     def move_servo(self, channel, pwm):
         try:
@@ -418,13 +414,13 @@ class MainController(Node):
             request.broadcast = False
             request.command = 183  # MAV_CMD_DO_SET_SERVO
             request.confirmation = 0
-            request.param1 = channel
-            request.param2 = pwm
-            request.param3 = 0
-            request.param4 = 0
-            request.param5 = 0
-            request.param6 = 0
-            request.param7 = 0
+            request.param1 = float(channel)
+            request.param2 = float(pwm)
+            request.param3 = float(0)
+            request.param4 = float(0)
+            request.param5 = float(0)
+            request.param6 = float(0)
+            request.param7 = float(0)
 
             # Get the response from the service
             future = self.command_client.call_async(request)
