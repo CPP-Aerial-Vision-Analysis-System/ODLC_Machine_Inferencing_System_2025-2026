@@ -170,7 +170,7 @@ class CameraInterface:
                     continue
                 if expected_cmd_ids and parsed['cmd_id'] not in expected_cmd_ids:
                     continue
-                return parsed
+                return parsed 
             return None
         except socket.timeout:
             return None
