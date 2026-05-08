@@ -7,6 +7,7 @@ import json
 import time
 import shutil
 import numpy as np
+import rclpy.logging
 from typing import Optional, Set, Tuple
 
 def get_ros2_ws_directory() -> str:
@@ -61,8 +62,7 @@ class StorageError(Exception):
 class StorageManager:
     
     def __init__(self, workspace_root: str, logger=None):
-        # logger: Optional logger (must have .info(), .warn(), .error() methods)
-        self.logger = logger
+        self.logger = logger or rclpy.logging.get_logger('StorageManager')
 
         # Save images into ros2_ws/video_cam/mapping_photos
         video_cam_dir = os.path.join(workspace_root)
@@ -72,35 +72,19 @@ class StorageManager:
         self.mapping_dir = os.path.join(video_cam_dir, MAPPING_SUBDIR)
         os.makedirs(self.mapping_dir, exist_ok=True)
         
-        # Prevents duplicate downloads
-        # self.tracking_file = os.path.join(self.mapping_dir, TRACKING_STATE_FILE)
-        
-        # self._log('info', "Storage manager initialized")
-    
-    def _log(self, level: str, message: str):
-        if self.logger:
-            if level == 'info':
-                self.logger.info(message)
-            elif level == 'warn' or level == 'warning':
-                self.logger.warn(message)
-            elif level == 'error':
-                self.logger.error(message)
-            elif level == 'debug':
-                self.logger.debug(message)
-    
     def check_disk_space(self, required_mb: float = MIN_FREE_SPACE_MB) -> bool:
         try:
             stat = shutil.disk_usage(self.mapping_dir)
             free_mb = stat.free / (1024 * 1024)
             
             if free_mb < required_mb:
-                self._log('error', 
+                self.logger.error(
                     f"Disk space critical: {free_mb:.1f}MB free (need {required_mb:.1f}MB)")
                 return False
             
             return True
         except Exception as e:
-            self._log('warn', f"Could not check disk space: {e}")
+            self.logger.warn(f"Could not check disk space: {e}")
             return True  # Assume OK if check fails
     
     def get_free_space_mb(self) -> float:
@@ -118,19 +102,19 @@ class StorageManager:
             
             # Atomic write
             if not self._atomic_write(filepath, img):
-                self._log('error', f"Failed to write: {filepath}")
+                self.logger.error(f"Failed to write: {filepath}")
                 return None
             
             # Verify saved file
             if not self.verify_file(filepath, resolution):
-                self._log('error', f"File verification failed: {filepath}")
+                self.logger.error(f"File verification failed: {filepath}")
                 return None
             
-            self._log('info', f"Saved: {filepath}")
+            self.logger.info(f"Saved: {filepath}")
             return filepath
             
         except Exception as e:
-            self._log('error', f"Save error: {e}")
+            self.logger.error(f"Save error: {e}")
             return None
     
     def _atomic_write(self, filepath: str, img: np.ndarray) -> bool:
@@ -159,7 +143,7 @@ class StorageManager:
             return True
             
         except Exception as e:
-            self._log('error', f"Atomic write error: {e}")
+            self.logger.error(f"Atomic write error: {e}")
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.remove(tmp_path)
@@ -181,14 +165,14 @@ class StorageManager:
             min_bytes = specs.get('min_file_size', MIN_FILE_SIZE_BYTES)
             
             if size < min_bytes:
-                self._log('warn', 
+                self.logger.warn(
                     f"File size {size} bytes below minimum {min_bytes} bytes for {resolution}")
                 return False
             
             return True
             
         except Exception as e:
-            self._log('warn', f"File verification error: {e}")
+            self.logger.warn(f"File verification error: {e}")
             return False
    
     def get_mapping_dir(self) -> str:
@@ -208,7 +192,7 @@ class StorageManager:
                 if w >= specs['min_width'] and h >= specs['min_height']:
                     return True
                 else:
-                    self._log('warn', 
+                    self.logger.warn(
                         f"Dimensions {w}x{h} below {resolution} threshold "
                         f"({specs['min_width']}x{specs['min_height']})")
                     return False
@@ -226,9 +210,9 @@ class StorageManager:
                 return False
             h, w = img.shape[:2]
             if h < 100 or w < 100:
-                self._log('error', f"Image too small: {w}x{h}")
+                self.logger.error(f"Image too small: {w}x{h}")
                 return False
             return True
         except Exception as e:
-            self._log('warn', f"Integrity check error: {e}")
+            self.logger.warn(f"Integrity check error: {e}")
             return True
