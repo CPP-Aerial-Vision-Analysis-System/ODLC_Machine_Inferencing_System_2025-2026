@@ -50,7 +50,7 @@ from detection.model_manager import (
     YOLO_AVAILABLE,
 )
 from detection.detection_processor import run_sahi_detection
-from detection.annotation import annotate_frame, save_top_matches_crop
+from detection.annotation import annotate_frame ''', save_top_matches_crop '''
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
@@ -127,17 +127,15 @@ class SAHIObjectDetectionNode(Node):
         if self.device == 'auto':
             self.device = detect_device(self.get_logger())
         self.get_logger().info(f"Device: {self.device}")
-        check_jetson_power_mode(self.get_logger())
+        check_jetson_power_mode(self.get_logger()) # check if youre using maxn and jetson_clocks (performance boost)
 
+        # Fixed settings for our Jetson  
         if self.device.startswith('cuda'):
-            self.slice_height, self.slice_width, self.overlap_height_ratio, self.overlap_width_ratio = (
-                optimize_gpu_memory(
-                    self.device,
-                    self.slice_height, self.slice_width,
-                    self.overlap_height_ratio, self.overlap_width_ratio,
-                    self.get_logger(),
-                )
-            )
+            self.slice_height = DEFAULT_SLICE
+            self.slice_width = DEFAULT_SLICE
+            self.overlap_height_ratio = DEFAULT_OVERLAP
+            self.overlap_width_ratio = DEFAULT_OVERLAP
+            self.get_logger().info("Using Jetson Orin settings: 640x640 slices, 15% overlap")
 
         self.bridge = CvBridge()
         self.add_on_set_parameters_callback(self._parameter_callback)
@@ -184,9 +182,7 @@ class SAHIObjectDetectionNode(Node):
 
         # Background model loading (may involve TRT conversion)
         self._model_ready = threading.Event()
-        self._model_load_thread = threading.Thread(
-            target=self._background_model_load, daemon=True, name="model_loader",
-        )
+        self._model_load_thread = threading.Thread(target=self._background_model_load, daemon=True, name="model_loader",)
         self._model_load_thread.start()
         self.get_logger().info("Model loading in background...")
 
@@ -204,8 +200,6 @@ class SAHIObjectDetectionNode(Node):
             self.gpu_cleanup_timer = None
 
         self.get_logger().info("Node initialized and ready")
-
-    # Timer & Worker
 
     def check_for_new_images(self) -> None:
         """Timer callback: scan camera_feed and enqueue new images."""
@@ -285,8 +279,6 @@ class SAHIObjectDetectionNode(Node):
             finally:
                 self.work_q.task_done()
 
-    # Image processing
-
     def _process_image(self, image_path: str) -> None:
         """Load, detect, annotate, publish for one image."""
         start = time.time()
@@ -326,7 +318,7 @@ class SAHIObjectDetectionNode(Node):
             self.model_format_detected or MODEL_FORMAT_PYTORCH,
         )
 
-        save_top_matches_crop(frame, detections, image_path, self.detection_results_path)
+        # save_top_matches_crop(frame, detections, image_path, self.detection_results_path)
         self._publish_results(annotated, detections, image_path)
 
         n_people = sum(1 for d in detections if d['class'] == 'person')
@@ -348,8 +340,6 @@ class SAHIObjectDetectionNode(Node):
             f"Found {len(detections)} objects in {elapsed:.2f}s: "
             f"{n_people} people, {n_tents} tents, {n_objects} other"
         )
-
-    # Publishing (message format consumed by main.py)
 
     def _publish_results(self, annotated: np.ndarray, detections: List[Dict], image_path: str) -> None:
         """Publish annotated image, ImageResult, and detection-info JSON."""
@@ -440,8 +430,6 @@ class SAHIObjectDetectionNode(Node):
             self.get_logger().error(traceback.format_exc())
             with self._stats_lock:
                 self.stats['errors'] += 1
-
-    # Background model loading
 
     def _background_model_load(self):
         """Load model in a daemon thread so the constructor returns immediately."""

@@ -1,12 +1,8 @@
 import cv2
-import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 from detection.gpu_utils import TORCH_AVAILABLE, cleanup_gpu
 from detection.model_manager import MODEL_FORMAT_TENSORRT
-
-if TORCH_AVAILABLE:
-    import torch
 
 # Optional deps
 try:
@@ -15,22 +11,19 @@ try:
 except ImportError:
     SAHI_AVAILABLE = False
 
-
 # ── Classification mappings ──────────────────────────────────────────────────
 #
 # KEEP THESE TIGHT. False positives here mean the drone flies to the wrong
 # location. Only add classes you have empirically validated from aerial views.
 
-# Direct YOLO classes that map to "person"
-PERSON_CLASSES = frozenset({'person', 'mannequin'})
+CLASS_MAP = {
+    'person': ('person', 'person', True),
+    'mannequin': ('person', 'person', True),
+    'doll': ('person', 'person-like (doll)', True),
 
-# Classes that legitimately look like people from altitude (mannequins)
-PERSON_LIKE_CLASSES = frozenset({'doll'})
-
-TENT_LIKE_CLASSES = frozenset({
-    'umbrella',   # umbrella canopy from above ≈ tent top
-    'kite',       # flat fabric object from above
-})
+    'umbrella': ('tent', 'tent-like (umbrella)', True),
+    'kite': ('tent', 'tent-like (kite)', True),
+}
 
 
 def run_sahi_detection(frame, model, slice_height, slice_width, overlap_h, overlap_w,
@@ -86,7 +79,7 @@ def run_sahi_detection(frame, model, slice_height, slice_width, overlap_h, overl
 
     # Periodic GPU cache cleanup (every 10 images)
     if enable_gpu_cleanup and device.startswith('cuda') and TORCH_AVAILABLE and images_processed % 10 == 0:
-            cleanup_gpu()
+        cleanup_gpu()
 
     return detections
 
@@ -100,29 +93,15 @@ def _categorize(class_name, confidence, bbox, conf_thresh, min_area, max_area,
     area = w * h
     aspect = w / h if h > 0 else 0.0
 
-    if area < min_area or area > max_area:
-        return None
-    if aspect < min_aspect or aspect > max_aspect:
-        return None
-    if confidence < conf_thresh:
+    if (area < min_area or area > max_area or aspect < min_aspect 
+        or confidence < conf_thresh 
+        or aspect > max_aspect):
         return None
 
-    if class_name in PERSON_CLASSES:
-        cat = 'person'
-        desc = 'person'
-        target = True
-    elif class_name in PERSON_LIKE_CLASSES:
-        cat = 'person'
-        desc = f'person-like ({class_name})'
-        target = True
-    elif class_name in TENT_LIKE_CLASSES:
-        cat = 'tent'
-        desc = f'tent-like ({class_name})'
-        target = True
-    else:
-        cat = 'object'
-        desc = f'detected: {class_name}'
-        target = False
+    cat, desc, target = CLASS_MAP.get(
+        class_name,
+        ('object', f'detected: {class_name}', False)
+    )
 
     return {
         'class': cat,
