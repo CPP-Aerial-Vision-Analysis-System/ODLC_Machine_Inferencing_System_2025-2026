@@ -16,6 +16,8 @@ import numpy as np
 from threading import Lock, Event, Thread
 from typing import Optional, Dict, Any, List
 
+from video_cam.storage_manager import get_ros2_ws_directory
+
 try:
     from cv_bridge import CvBridge
     CV_BRIDGE_AVAILABLE = True
@@ -122,37 +124,9 @@ class SIYINode(Node):
         self.get_logger().info(f"SIYI pipeline initialized ({mode})")
     
     def _find_ros2_workspace(self) -> str:
-        current_file = os.path.abspath(__file__)
-        current_dir = os.path.dirname(current_file)
-        
-        # Navigate up to find ros2_ws (look for install/ or src/ directories)
-        search_dir = current_dir
-        ros2_ws_dir = None
-        
-        for _ in range(10):  # Limit search depth
-            if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
-                if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
-                    ros2_ws_dir = search_dir
-                    break
-                parent = os.path.dirname(search_dir)
-                if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
-                    ros2_ws_dir = parent
-                    break
-            search_dir = os.path.dirname(search_dir)
-            if search_dir == "/":
-                break
-
-        
-        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-            
-        # Fallback: construct path directly
-        if ros2_ws_dir is None:
-            ros2_ws_dir = "/astra/ros2_ws/src"
-        
+        ros2_ws_dir = get_ros2_ws_directory()
         video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
         os.makedirs(video_cam_dir, exist_ok=True)
-        
         return video_cam_dir
 
     def _pipeline_loop(self):
