@@ -7,6 +7,7 @@ import socket
 import struct #ask
 import requests
 import numpy as np
+import rclpy.logging
 from threading import Lock
 from typing import Optional, List, Dict, Set, Any
 from .config import (
@@ -33,14 +34,10 @@ from .config import (
     CMD_GIMBAL_ATTITUDE,
     CMD_SET_GIMBAL_ANGLES,
     CMD_ABSOLUTE_ZOOM_AF,
-    CMD_LASER_DISTANCE,
     CMD_SUPPORTED_ZOOM_RANGE,
-    CMD_LASER_TARGET_GEO,
     CMD_CURRENT_ZOOM,
     CMD_GIMBAL_MODE,
     CMD_STREAM_CONFIG,
-    CMD_LASER_STATE_QUERY,
-    CMD_LASER_STATE_SET,
     CMD_SINGLE_AXIS_CONTROL,
     CMD_FORMAT_SD_CARD,
     GIMBAL_MODE_TO_FUNC_TYPE,
@@ -66,8 +63,8 @@ class CameraInterface:
         self.ctrl_port = ctrl_port
         self.media_port = media_port
         self.http_timeout = http_timeout
-        self.logger = logger
-        self.sdk_seq = 0 
+        self.logger = logger or rclpy.logging.get_logger('CameraInterface')
+        self.sdk_seq = 0
         
         # SD Card Tracking
         self.current_photo_dir: Optional[str] = None
@@ -142,7 +139,7 @@ class CameraInterface:
         crc_calc = self._compute_crc16(payload[:8 + data_len])
 
         if crc_recv != crc_calc:
-            self._log('warn',
+            self.logger.warn(
                       f"SDK CRC mismatch: recv={crc_recv:04x}, calc={crc_calc:04x}")
             return None
 
@@ -205,17 +202,11 @@ class CameraInterface:
 
         return data[0] == success_value
         
-    def _log(self, level: str, message: str):
-        if self.logger:
-            log_func = getattr(self.logger, level, None)
-            if log_func:
-                log_func(message)
-    
     def send_capture_command(self, resolution: str = '4K') -> bool:
         # Send capture command to camera via UDP SDK.
         try:
             if resolution not in VERIFIED_RESOLUTIONS:
-                self._log('warn', f"Resolution {resolution} not verified - using 4K for safety")
+                self.logger.warn( f"Resolution {resolution} not verified - using 4K for safety")
                 resolution = '4K'
 
             # The .get in here is just a dictionary lookup. in CAPTURE_COMMANDS
@@ -231,20 +222,20 @@ class CameraInterface:
             )
 
             if not feedback:
-                self._log('warn', "No capture feedback received (timeout), assuming success")
+                self.logger.warn( "No capture feedback received (timeout), assuming success")
                 return True
 
             if feedback['cmd_id'] == CMD_FUNCTION_FEEDBACK and feedback['data']:
                 info_type = feedback['data'][0]
                 if info_type in (1, 4):
-                    self._log('error', f"Camera feedback indicates capture/record failure ({info_type})")
+                    self.logger.error( f"Camera feedback indicates capture/record failure ({info_type})")
                     return False
 
             return True
                 
         except Exception as e:
             error_msg = f"Capture command failed: {e}"
-            self._log('error', error_msg)
+            self.logger.error( error_msg)
             raise CameraConnectionError(error_msg)
 
     def auto_focus(self, touch_x: int = 0, touch_y: int = 0) -> bool:
@@ -294,10 +285,6 @@ class CameraInterface:
         payload = struct.pack('<BB', zoom_int, zoom_float)
         response = self._send_sdk_command(CMD_ABSOLUTE_ZOOM_AF, payload)
         return self._status_ok(response)
-
-    def auto_zoom(self, zoom_multiple: float) -> bool:
-        """Alias for absolute zoom autofocus command."""
-        return self.absolute_zoom_autofocus(zoom_multiple)
 
     def get_supported_zoom_range(self) -> Optional[Dict[str, float]]:
         """Return current max supported zoom as {'max_zoom': value}."""
@@ -458,10 +445,10 @@ class CameraInterface:
             return []
             
         except requests.exceptions.ConnectionError as e:
-            self._log('error', f"Cannot connect to camera HTTP API: {e}")
+            self.logger.error( f"Cannot connect to camera HTTP API: {e}")
             return []
         except Exception as e:
-            self._log('warn', f"Directory query error: {e}")
+            self.logger.warn( f"Directory query error: {e}")
             return []
     
     def get_media_list(self, dir_path: str, media_type: MediaTypes = MediaTypes.IMAGE, start: int = 0, count: int = 9999) -> List[Dict]:
@@ -485,7 +472,7 @@ class CameraInterface:
             return []
             
         except Exception as e:
-            self._log('warn', f"Media list query error: {e}")
+            self.logger.warn( f"Media list query error: {e}")
             return []
     
     def get_media_count(self, dir_path: str,
@@ -510,7 +497,7 @@ class CameraInterface:
             return None
             
         except Exception as e:
-            self._log('warn', f"Photo count query error: {e}")
+            self.logger.warn( f"Photo count query error: {e}")
             return None
     
     def download_image(self, file_url: str) -> Optional[bytes]:
@@ -524,12 +511,12 @@ class CameraInterface:
             if response.status_code == 200:
                 return response.content
             else:
-                self._log('error', 
+                self.logger.error( 
                     f"Download failed: HTTP {response.status_code}: {response.reason}")
                 return None
                 
         except Exception as e:
-            self._log('error', f"Download error: {e}")
+            self.logger.error( f"Download error: {e}")
             return None
     
     def decode_image(self, image_bytes: bytes) -> Optional[np.ndarray]:
@@ -542,18 +529,18 @@ class CameraInterface:
             img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
             return img
         except Exception as e:
-            self._log('error', f"Image decode error: {e}")
+            self.logger.error( f"Image decode error: {e}")
             return None
             
     def initialize_sd_card(self):
         """Initialize SD card state from camera"""
-        self._log('info', "Initializing SD card...")
+        self.logger.info( "Initializing SD card...")
         
         try:
             directories = self.get_directories()
             if directories:
                 self.current_photo_dir = directories[-1]['path']
-                self._log('info', f"Photo directory: {self.current_photo_dir}")
+                self.logger.info( f"Photo directory: {self.current_photo_dir}")
                 
                 if self.last_photo_count == 0:
                     count = self.get_media_count(self.current_photo_dir)
@@ -563,7 +550,7 @@ class CameraInterface:
             else:
                 self.current_photo_dir = "A:/DCIM/100MEDIA"
         except Exception as e:
-            self._log('warn', f"SD card init error: {e}")
+            self.logger.warn( f"SD card init error: {e}")
             self.current_photo_dir = "A:/DCIM/100MEDIA"
     
     def _load_existing_sd_files(self):
@@ -575,9 +562,9 @@ class CameraInterface:
                     filename = file_info.get('name', '')
                     if filename:
                         self.downloaded_files.add(filename)
-            self._log('info', f"Marked {len(files)} existing files as seen")
+            self.logger.info( f"Marked {len(files)} existing files as seen")
         except Exception as e:
-            self._log('warn', f"Could not load existing files: {e}")
+            self.logger.warn( f"Could not load existing files: {e}")
 
     def get_new_file(self) -> Optional[Dict]:
         # Find first undownloaded file
@@ -622,4 +609,4 @@ class CameraInterface:
             self.http_session.close()
         if self.sdk_socket:
             self.sdk_socket.close()
-        self._log('info', "Camera interface closed")
+        self.logger.info( "Camera interface closed")
