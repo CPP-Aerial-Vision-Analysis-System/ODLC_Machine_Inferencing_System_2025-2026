@@ -23,7 +23,6 @@ class PipelineError(Exception):
     pass
 
 class PipelineOrchestrator:
-    """Orchestrates the image capture pipeline"""
     
     def __init__(self, camera: CameraInterface, storage: StorageManager, logger=None):
         self.camera = camera
@@ -44,10 +43,6 @@ class PipelineOrchestrator:
         self.current_resolution: str = '4K'
 
         self.last_saved_path: Optional[str] = None
-
-    def get_state(self) -> CaptureState:
-        with self.state_lock:
-            return self.pipeline_state
 
     def is_busy(self) -> bool:
         """Return True iff phases 1+2 (shutter + SD indexing) are in progress.
@@ -136,11 +131,7 @@ class PipelineOrchestrator:
         finally:
             self.capture_lock.release()
 
-    def download_and_save(
-        self,
-        file_info: Dict,
-        filename_override: Optional[str] = None,
-    ) -> Optional[Tuple[str, np.ndarray]]:
+    def download_and_save(self,file_info: Dict,filename_override: Optional[str] = None,) -> Optional[Tuple[str, np.ndarray]]:
         """Phase 3: download bytes, decode, save atomically."""
         with self.state_lock:
             self.pipeline_state = CaptureState.DOWNLOADING
@@ -257,10 +248,11 @@ class PipelineOrchestrator:
         return img if self.storage.verify_image_integrity(img) else None
     
     def get_stats(self) -> Dict:
-        """Get pipeline statistics"""
-        
+        with self.state_lock:
+            state =  self.pipeline_state
+            
         return {
-            'state': self.get_state(),
+            'state': state,
             'photo_count': self.photo_count,
             'downloaded_files': self.camera.get_downloaded_count(),
             'current_directory': self.camera.current_photo_dir,
