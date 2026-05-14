@@ -81,7 +81,7 @@ class CameraInterface:
         
         # SDK socket (UDP)
         # Creates network socket object the sends and receives packets
-        #af_inet = ipv4 address family, docker sock_dgram = udp diagram type, sock_stream would be tcp
+        # af_inet = ipv4 address family, docker sock_dgram = udp diagram type, sock_stream would be tcp
         self.sdk_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sdk_socket.settimeout(SDK_SOCKET_TIMEOUT_SECONDS) #2s time for recvfrom() to not freez forever
         
@@ -157,6 +157,7 @@ class CameraInterface:
                             expected_cmd_ids: Optional[Set[int]] = None,
                             timeout: Optional[float] = None,
                             max_frames: int = 8) -> Optional[Dict[str, Any]]:
+        # waits for a UDP reply from the camera
         original_timeout = self.sdk_socket.gettimeout()
         if timeout is None:
             timeout = original_timeout
@@ -211,7 +212,7 @@ class CameraInterface:
                 log_func(message)
     
     def send_capture_command(self, resolution: str = '4K') -> bool:
-        #Send capture command to camera via UDP SDK.
+        # Send capture command to camera via UDP SDK.
         try:
             if resolution not in VERIFIED_RESOLUTIONS:
                 self._log('warn', f"Resolution {resolution} not verified - using 4K for safety")
@@ -239,7 +240,6 @@ class CameraInterface:
                     self._log('error', f"Camera feedback indicates capture/record failure ({info_type})")
                     return False
 
-            # self._log('info', "Camera feedback: capture command accepted")
             return True
                 
         except Exception as e:
@@ -580,7 +580,7 @@ class CameraInterface:
             self._log('warn', f"Could not load existing files: {e}")
 
     def get_new_file(self) -> Optional[Dict]:
-        """Find first undownloaded file"""
+        # Find first undownloaded file
         if not self.current_photo_dir:
             return None
             

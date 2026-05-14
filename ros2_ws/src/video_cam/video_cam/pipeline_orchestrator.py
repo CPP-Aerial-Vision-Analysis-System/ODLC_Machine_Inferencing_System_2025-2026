@@ -101,7 +101,7 @@ class PipelineOrchestrator:
         return result is not None
 
     def capture_and_index(self) -> Optional[Dict]:
-        """Phases 1+2: fire shutter, poll SD card for the new file."""
+        # Phases 1+2: fire shutter, poll SD card for the new file.
         if not self.capture_lock.acquire(blocking=False):
             self.logger.warn("capture_and_index: another capture is mid-shutter, dropping trigger")
             return None
@@ -151,7 +151,7 @@ class PipelineOrchestrator:
         return saved_path, img
     
     def _phase1_capture(self) -> bool:
-        """Phase 1: Trigger camera capture"""
+        # Phase 1: Trigger camera capture
         try:
             self.camera.send_capture_command(self.current_resolution)
             with self.state_lock:
@@ -162,7 +162,7 @@ class PipelineOrchestrator:
             return False
     
     def _phase2_index(self, timeout: float = CAPTURE_TIMEOUT_SECONDS) -> Optional[Dict]:
-        """Phase 2: Poll SD card for new image (simplified - no backoff)"""
+        # Phase 2: Poll SD card for new image (simplified - no backoff)
         start_time = time.time()
         
         while (time.time() - start_time) < timeout: # 15s
