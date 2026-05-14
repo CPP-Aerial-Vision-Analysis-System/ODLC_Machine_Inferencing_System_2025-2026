@@ -44,13 +44,9 @@ def get_ros2_ws_directory() -> str:
 from .config import (
     MIN_FILE_SIZE_BYTES,
     ATOMIC_WRITE_SUFFIX,
-    WORKSPACE_SUBDIR,
     MAPPING_SUBDIR,
-    TRACKING_STATE_FILE, # removed for now 
     RESOLUTION_SPECS,
     MIN_FREE_SPACE_MB,
-    JPEG_HEADER_BYTES,
-    JPEG_FOOTER_BYTES,
 )
 
 
@@ -179,40 +175,28 @@ class StorageManager:
         return self.mapping_dir
 
     # The methods below may seem useless, but sometimes camera tweaks(cause of bandwith drops for example) and returns a junk data, this is neded to prevent it
-    def verify_image_dimensions(self, img: np.ndarray, resolution: str = '4K') -> bool:
-        """Verify image meets minimum dimension requirements"""
+    def verify_image(self, img: np.ndarray, resolution: str = '4K') -> bool:
+        """Verify image is not corrupted and meets minimum dimension requirements."""
         if img is None:
             return False
-        
+
         try:
             h, w = img.shape[:2]
-            
+
+            if h < 100 or w < 100:
+                self.logger.error(f"Image too small: {w}x{h}")
+                return False
+
             specs = RESOLUTION_SPECS.get(resolution)
             if specs:
-                if w >= specs['min_width'] and h >= specs['min_height']:
-                    return True
-                else:
+                if w < specs['min_width'] or h < specs['min_height']:
                     self.logger.warn(
                         f"Dimensions {w}x{h} below {resolution} threshold "
                         f"({specs['min_width']}x{specs['min_height']})")
                     return False
-            
-            # Fallback: just check that it's not too small
-            return w > 640 and h > 480
-            
-        except Exception:
-            return False
-   
-    def verify_image_integrity(self, img: np.ndarray) -> bool:
-        """Verify image is not corrupted (minimum dimension check)."""
-        try:
-            if img is None:
-                return False
-            h, w = img.shape[:2]
-            if h < 100 or w < 100:
-                self.logger.error(f"Image too small: {w}x{h}")
-                return False
+
             return True
+
         except Exception as e:
-            self.logger.warn(f"Integrity check error: {e}")
-            return True
+            self.logger.warn(f"Image verification error: {e}")
+            return False

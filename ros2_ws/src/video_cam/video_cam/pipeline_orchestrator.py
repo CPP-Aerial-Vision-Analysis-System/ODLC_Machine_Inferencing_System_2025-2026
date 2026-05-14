@@ -6,11 +6,10 @@ import numpy as np
 import cv2
 import rclpy.logging
 from threading import Lock
-from typing import Optional, Set, Dict, Tuple
+from typing import Optional, Dict, Tuple
 from .config import (
     CaptureState,
     CAPTURE_TIMEOUT_SECONDS,
-    MAX_PIPELINE_DURATION,
     SD_POLL_INTERVAL,
     REQUIRED_DOWNLOAD_SPACE_MB,
 )
@@ -33,12 +32,6 @@ class PipelineOrchestrator:
         self.state_lock = Lock()
         self.capture_lock = Lock()
 
-        # Simple filename-only tracking
-        self.downloaded_files: Set[str] = set()
-        self.download_lock = Lock()
-        
-        self.current_photo_dir: Optional[str] = None
-        self.last_photo_count: int = 0
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
 
@@ -60,36 +53,8 @@ class PipelineOrchestrator:
     
     def initialize_sd_card(self):
         """Initialize SD card state from camera"""
-        self.logger.info("Initializing SD card...")
-        
-        try:
-            directories = self.camera.get_directories()
-            # print (directories)
-            if directories:
-                self.current_photo_dir = directories[-1]['path']
-                if self.last_photo_count == 0:
-                    count = self.camera.get_media_count(self.current_photo_dir)
-                    if count is not None:
-                        self.last_photo_count = count
-                    self._load_existing_sd_files()
-            else:
-                self.current_photo_dir = "A:/DCIM/100MEDIA"
-        except Exception as e:
-            self.logger.warn(f"SD card init error: {e}")
-            self.current_photo_dir = "A:/DCIM/100MEDIA"
-    
-    def _load_existing_sd_files(self):
-        """Mark existing SD files as seen"""
-        try:
-            files = self.camera.get_media_list(self.current_photo_dir)
-            with self.download_lock:
-                for file_info in files:
-                    filename = file_info.get('name', '')
-                    if filename:
-                        self.downloaded_files.add(filename)
-        except Exception as e:
-            self.logger.warn(f"Could not load existing files: {e}")
-    
+        self.camera.initialize_sd_card()
+
     def execute_pipeline(self, filename_override: Optional[str] = None) -> bool:
         """Convenience wrapper: run phases 1+2+3 in sequence.""" 
         file_info = self.capture_and_index()
@@ -174,24 +139,6 @@ class PipelineOrchestrator:
         self.logger.error(f"Timeout after {timeout}s")
         return None
     
-    def _find_new_file(self) -> Optional[Dict]:
-        """Find first unclaimed file and claim it atomically."""
-        try:
-            file_list = self.camera.get_media_list(self.current_photo_dir)
-
-            with self.download_lock:
-                for file_info in reversed(file_list):
-                    filename = file_info.get('name', '')
-                    if filename and filename not in self.downloaded_files:
-                        # Claim now so concurrent walkers skip this file
-                        # while phase 3 is still downloading it.
-                        self.downloaded_files.add(filename)
-                        self.last_photo_count = len(file_list)
-                        return file_info
-        except Exception:
-            pass
-        return None
-    
     def _phase3_download(self, file_info: Dict, filename_override: Optional[str] = None,) -> tuple:
         """Phase 3: Download and save."""
         original_name = file_info.get('name', '')
@@ -241,10 +188,10 @@ class PipelineOrchestrator:
         # this is here because the camera is upside down all the time (might not need this if its gonna work properly during flight)    
         img = cv2.rotate(img, cv2.ROTATE_180)
         
-        if not self.storage.verify_image_dimensions(img, self.current_resolution):
-            self.logger.warn(f"Image dimensions below expected for {self.current_resolution}")
-        
-        return img if self.storage.verify_image_integrity(img) else None
+        if not self.storage.verify_image(img, self.current_resolution):
+            return None
+
+        return img
     
     def get_stats(self) -> Dict:
         with self.state_lock: # lock state_lock, copy into state, unlock

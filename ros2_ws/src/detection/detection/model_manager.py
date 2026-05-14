@@ -1,4 +1,5 @@
 import os
+import rclpy.logging
 from typing import Optional, Tuple
 
 from detection.gpu_utils import suppress_native_output, cleanup_gpu, TORCH_AVAILABLE
@@ -59,15 +60,13 @@ def get_ros2_ws_directory() -> str:
     # Fallback: construct path directly
     if ros2_ws_dir is None:
         ros2_ws_dir = "/astra/ros2_ws/src"
-    
-    video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
-    os.makedirs(video_cam_dir, exist_ok=True)
-    
+
     return ros2_ws_dir
 
 def resolve_model_path(model_path, model_format, auto_convert, slice_height,
-                       slice_width, tensorrt_workspace, device, logger):
+                       slice_width, tensorrt_workspace, device, logger=None):
     """Resolve model path and determine final format. Returns (path, format) or (None, None)."""
+    logger = logger or rclpy.logging.get_logger('model_manager')
     ros2_ws = get_ros2_ws_directory()
 
     # Resolve relative paths
@@ -82,9 +81,8 @@ def resolve_model_path(model_path, model_format, auto_convert, slice_height,
                 break
         else:
             if not os.path.exists(model_path):
-                logger.warn(
-                    f"Model file not found at {model_path}; "
-                    "will download from Ultralytics if needed"
+                logger.warn(f"Model file not found at {model_path}; "
+                "Will download from Ultralytics if needed"
                 )
 
     detected_fmt = _detect_format(model_path)
@@ -132,8 +130,9 @@ def resolve_model_path(model_path, model_format, auto_convert, slice_height,
     # PyTorch explicit
     return model_path, MODEL_FORMAT_PYTORCH
 
-def load_sahi_model(resolved_path, final_format, confidence_threshold, device, logger):
+def load_sahi_model(resolved_path, final_format, confidence_threshold, device, logger=None):
     """Load a SAHI-wrapped detection model. Returns model or None."""
+    logger = logger or rclpy.logging.get_logger('model_manager')
     if not SAHI_AVAILABLE:
         logger.error("SAHI not installed: pip install sahi")
         return None
@@ -204,17 +203,9 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device, l
                     logger.error(f"PyTorch fallback also failed: {e2}")
         return None
 
-def _setup_gpu_optimizations():
-    """Pre-configure GPU memory and CUDA settings for optimal performance."""
-    import gc
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cudnn.enabled = True
-
-def warmup_model(model, slice_h, slice_w, overlap_h, overlap_w, logger):
+def warmup_model(model, slice_h, slice_w, overlap_h, overlap_w, logger=None):
     """Run a dummy inference to warm up the model."""
+    logger = logger or rclpy.logging.get_logger('model_manager')
     if model is None:
         return
     logger.info("Warming up model...")

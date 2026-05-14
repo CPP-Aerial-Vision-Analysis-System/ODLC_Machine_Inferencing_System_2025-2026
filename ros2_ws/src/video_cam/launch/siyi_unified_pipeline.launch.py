@@ -42,7 +42,7 @@ def generate_launch_description():
     # Unified pipeline node
     pipeline_node = Node(
         package='video_cam',
-        executable='siyi_unified_pipeline_refactored',
+        executable='siyi',
         name='siyi_unified_pipeline',
         output='screen',
         emulate_tty=True,

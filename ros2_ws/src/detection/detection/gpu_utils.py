@@ -2,7 +2,8 @@ import os
 import sys
 import gc
 import subprocess
-from contextlib import contextmanager
+import rclpy.logging
+from contextlib import contextmanager, suppress
 
 try:
     import torch
@@ -30,8 +31,9 @@ def suppress_native_output():
         os.close(saved_stderr)
         os.close(devnull_fd)
 
-def detect_device(logger) -> str:
+def detect_device(logger=None) -> str:
     """Auto-detect compute device: CUDA or CPU."""
+    logger = logger or rclpy.logging.get_logger('gpu_utils')
     if not TORCH_AVAILABLE:
         logger.warn("PyTorch not available, falling back to CPU")
         return "cpu"
@@ -52,8 +54,9 @@ def detect_device(logger) -> str:
                 logger.error("Jetson detected but GPU not available! Check CUDA install.")
     return "cpu"
 
-def check_jetson_power_mode(logger) -> None:
+def check_jetson_power_mode(logger=None) -> None:
     # Warn if Jetson is not in MAXN power mode or jetson_clocks is not active. Free 20-40% on Orin: MAXN unlocks all CPU/GPU clocks, jetson_clocks pins them to max. Without this, the platform throttles aggressively.
+    logger = logger or rclpy.logging.get_logger('gpu_utils')
     is_jetson = False
     try:
         with open('/proc/device-tree/model', 'r') as f:

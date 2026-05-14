@@ -12,10 +12,8 @@ class MediaTypes(Enum):
 
 class CaptureState(Enum):
     IDLE = "idle"
-    CAPTURING = "capturing"
     INDEXING = "indexing"
     DOWNLOADING = "downloading"
-    FAILED = "failed"
 
 
 # Hardware
@@ -40,7 +38,6 @@ CMD_MANUAL_ZOOM_AF = 0x05
 CMD_MANUAL_FOCUS = 0x06
 CMD_GIMBAL_ROTATE = 0x07
 CMD_GIMBAL_CENTER = 0x08
-CMD_CAMERA_SYS_INFO = 0x0A
 CMD_FUNCTION_FEEDBACK = 0x0B
 CMD_CAPTURE_RECORD = 0x0C
 CMD_GIMBAL_ATTITUDE = 0x0D
@@ -70,7 +67,6 @@ GIMBAL_MODE_LABELS = {
     2: 'fpv',
 }
 
-STREAM_TYPE_ATTITUDE = 1
 STREAM_TYPE_LASER = 2
 
 # Image specs
@@ -83,7 +79,6 @@ RESOLUTION_SPECS: Dict[str, Dict[str, int]] = {
 # Timing
 CAPTURE_TIMEOUT_SECONDS = 15.0
 SD_POLL_INTERVAL = 0.5
-MAX_PIPELINE_DURATION = 60.0
 HTTP_TIMEOUT_SECONDS = 10.0
 SDK_SOCKET_TIMEOUT_SECONDS = 2.0
 NODE_LOOP_PERIOD = 1.0  # Main loop period (1 Hz for capture polling)
@@ -92,15 +87,9 @@ HEALTH_CHECK_PERIOD = 5.0  # Camera health + disk status check interval
 # Storage
 MIN_FREE_SPACE_MB = 50
 REQUIRED_DOWNLOAD_SPACE_MB = 10
-WORKSPACE_SUBDIR = "video_cam"
 MAPPING_SUBDIR = "mapping_photos"  # Single directory for all images
-TRACKING_STATE_FILE = ".tracking_state.json" # redundant for now
 MIN_FILE_SIZE_BYTES = 1000
 ATOMIC_WRITE_SUFFIX = ".tmp"
-
-# JPEG validation constants
-JPEG_HEADER_BYTES = b'\xff\xd8\xff'  # JPEG file signature (SOI + start of frame)
-JPEG_FOOTER_BYTES = b'\xff\xd9'      # JPEG end of image marker (EOI)
 
 # HTTP
 HTTP_POOL_CONNECTIONS = 1
