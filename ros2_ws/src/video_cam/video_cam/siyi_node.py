@@ -407,62 +407,6 @@ class SIYINode(Node):
                 mode_after=mode_after,
             )
 
-        if cmd == 'laser_distance':
-            distance_m = self.camera.request_laser_distance_measurement()
-            return self._result_payload(
-                distance_m is not None,
-                action='laser_distance',
-                distance_m=distance_m,
-            )
-
-        if cmd == 'laser_target':
-            data = self.camera.request_laser_target_longitude_latitude()
-            return self._result_payload(data is not None, action='laser_target', data=data)
-
-        if cmd == 'laser_state_get':
-            state = self.camera.get_laser_state()
-            return self._result_payload(state is not None, action='laser_state_get', laser_on=state)
-
-        if cmd == 'laser_state_set':
-            if not param:
-                raise ValueError("laser_state_set requires parameter on/off")
-            enabled = self._parse_switch(param)
-            ok = self.camera.set_laser_state(enabled)
-            state = self.camera.get_laser_state()
-            return self._result_payload(
-                ok,
-                action='laser_state_set',
-                requested='on' if enabled else 'off',
-                laser_on=state,
-            )
-
-        if cmd == 'laser_stream':
-            if not param:
-                enable = True
-                frequency = 4
-            else:
-                parts = [item.strip() for item in param.split(',') if item.strip()]
-                if len(parts) == 1:
-                    if parts[0].isdigit():
-                        enable = True
-                        frequency = int(parts[0])
-                    else:
-                        enable = self._parse_switch(parts[0])
-                        frequency = 4
-                elif len(parts) == 2:
-                    enable = self._parse_switch(parts[0])
-                    frequency = int(parts[1])
-                else:
-                    raise ValueError("laser_stream format: enable,4 or disable")
-
-            ok = self.camera.configure_laser_distance_stream(enable=enable, frequency=frequency)
-            return self._result_payload(
-                ok,
-                action='laser_stream',
-                enable=enable,
-                frequency=frequency,
-            )
-
         if cmd == 'sd_format':
             if param.lower() != 'yes':
                 raise ValueError("sd_format is destructive; pass parameter yes to continue")
