@@ -214,8 +214,7 @@ class CameraInterface:
         #Send capture command to camera via UDP SDK.
         try:
             if resolution not in VERIFIED_RESOLUTIONS:
-                self._log('warn', 
-                    f"Resolution {resolution} not verified - using 4K for safety")
+                self._log('warn', f"Resolution {resolution} not verified - using 4K for safety")
                 resolution = '4K'
 
             # The .get in here is just a dictionary lookup. in CAPTURE_COMMANDS

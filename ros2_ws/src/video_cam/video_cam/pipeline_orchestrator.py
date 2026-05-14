@@ -103,8 +103,7 @@ class PipelineOrchestrator:
     def capture_and_index(self) -> Optional[Dict]:
         """Phases 1+2: fire shutter, poll SD card for the new file."""
         if not self.capture_lock.acquire(blocking=False):
-            self.logger.warn(
-                      "capture_and_index: another capture is mid-shutter, dropping trigger")
+            self.logger.warn("capture_and_index: another capture is mid-shutter, dropping trigger")
             return None
 
         try:
@@ -248,7 +247,7 @@ class PipelineOrchestrator:
         return img if self.storage.verify_image_integrity(img) else None
     
     def get_stats(self) -> Dict:
-        with self.state_lock:
+        with self.state_lock: # lock state_lock, copy into state, unlock
             state =  self.pipeline_state
             
         return {

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""SIYI Camera ROS2 Node."""
 
 import rclpy
 from rclpy.node import Node
@@ -75,10 +74,10 @@ class SIYINode(Node):
         
         # Subscribers
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
-        self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         self.create_subscription(NavSatFix, '/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
+        # self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10) # ros2 topic pub /camera/set_resolution std_msgs/msg/String "{data: '4K'}" --once
         if not self.use_real_camera:
             self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
         
@@ -161,8 +160,7 @@ class SIYINode(Node):
             # shutter with that download — this is the whole point of the
             # pipelined-capture design.
             if self.pipeline.is_busy():
-                self.get_logger().warn(
-                    "Previous capture still in shutter/index phase, skipping request")
+                self.get_logger().warn("Previous capture still in shutter/index phase, skipping request")
                 return
 
             # Execute pipeline in separate thread (non-blocking)
@@ -191,13 +189,9 @@ class SIYINode(Node):
             # this call) rather than to download-completion time, which
             # can be 2-3s later -- ~40-60m of drift at airspeed.
             gps_filename = self._generate_gps_filename()
-            # self.get_logger().info(self._generate_gps_filename())
             if gps_filename is None:
-                self.get_logger().warn(
-                    "No valid GPS info "
-                    "/mavros/global_position/global; using the SD name")
-                self._send_status(
-                    "WARN: No GPS fix - image will not have lat/lon name")
+                self.get_logger().warn( "No valid GPS info /mavros/global_position/global; using the SD name")
+                self._send_status("WARN: No GPS fix - image will not have lat/lon name")
 
             # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
             # control lock here so gimbal/zoom commands can't race with
