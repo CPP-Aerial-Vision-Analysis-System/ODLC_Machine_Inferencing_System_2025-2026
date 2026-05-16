@@ -11,13 +11,7 @@ import rclpy.logging
 from typing import Optional, Set, Tuple
 
 def get_ros2_ws_directory() -> str:
-    """Helper method to determine the ros2_ws/src directory dynamically.
-
-    Walks up from this file looking for a directory containing both
-    `install/` and `src/` (the standard ROS2 workspace layout). Falls
-    back to the user's home directory so the package still functions on
-    machines whose workspace isn't laid out the expected way.
-    """
+    # Helper method to determine the ros2_ws/src directory dynamically.
     current_dir = os.path.dirname(os.path.abspath(__file__))
 
     search_dir = current_dir
