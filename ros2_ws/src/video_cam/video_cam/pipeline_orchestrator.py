@@ -8,7 +8,6 @@ import rclpy.logging
 from threading import Lock
 from typing import Optional, Dict, Tuple
 from .config import (
-    CaptureState,
     CAPTURE_TIMEOUT_SECONDS,
     SD_POLL_INTERVAL,
     REQUIRED_DOWNLOAD_SPACE_MB,
@@ -17,23 +16,19 @@ from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
 
 
-class PipelineError(Exception): 
-    # Raised when pipeline execution fails. This gets assigned as {e} when we get errors, we give it some value then send it to execute
-    pass
-
 class PipelineOrchestrator:
-    
-    def __init__(self, camera: CameraInterface, storage: StorageManager, logger=None):
+
+    def __init__(self, camera: CameraInterface, storage: StorageManager,
+                 rotate_180: bool = True, logger=None):
         self.camera = camera
         self.storage = storage
         self.logger = logger or rclpy.logging.get_logger('PipelineOrchestrator')
 
-        self.pipeline_state = CaptureState.IDLE
-        self.state_lock = Lock()
         self.capture_lock = Lock()
 
         self.photo_count: int = 0
         self.current_resolution: str = '4K'
+        self.rotate_180 = rotate_180
 
         self.last_saved_path: Optional[str] = None
 
@@ -55,16 +50,6 @@ class PipelineOrchestrator:
         """Initialize SD card state from camera"""
         self.camera.initialize_sd_card()
 
-    def execute_pipeline(self, filename_override: Optional[str] = None) -> bool:
-        """Convenience wrapper: run phases 1+2+3 in sequence.""" 
-        file_info = self.capture_and_index()
-        if file_info is None:
-            return False
-        result = self.download_and_save(
-            file_info, filename_override=filename_override
-        )
-        return result is not None
-
     def capture_and_index(self) -> Optional[Dict]:
         # Phases 1+2: fire shutter, poll SD card for the new file.
         if not self.capture_lock.acquire(blocking=False):
@@ -80,9 +65,6 @@ class PipelineOrchestrator:
             time.sleep(0.5)  # Brief wait for SD write
 
             # Phase 2: index SD card
-            with self.state_lock:
-                self.pipeline_state = CaptureState.INDEXING
-
             file_info = self._phase2_index()
             if not file_info:
                 self.logger.error("Phase 2 failed: new image not found on SD card")
@@ -97,9 +79,6 @@ class PipelineOrchestrator:
 
     def download_and_save(self,file_info: Dict,filename_override: Optional[str] = None,) -> Optional[Tuple[str, np.ndarray]]:
         """Phase 3: download bytes, decode, save atomically."""
-        with self.state_lock:
-            self.pipeline_state = CaptureState.DOWNLOADING
-
         try:
             saved_path, img = self._phase3_download(
                 file_info, filename_override=filename_override
@@ -114,13 +93,12 @@ class PipelineOrchestrator:
 
         self.last_saved_path = saved_path
         return saved_path, img
-    
+
     def _phase1_capture(self) -> bool:
         # Phase 1: Trigger camera capture
         try:
             self.camera.send_capture_command(self.current_resolution)
-            with self.state_lock:
-                self.photo_count += 1
+            self.photo_count += 1
             return True
         except CameraConnectionError as e:
             self.logger.error(f"[Phase 1] Failed: {e}")
@@ -185,20 +163,17 @@ class PipelineOrchestrator:
         img = self.camera.decode_image(image_bytes)
         if img is None:
             return None
-        # this is here because the camera is upside down all the time (might not need this if its gonna work properly during flight)    
-        img = cv2.rotate(img, cv2.ROTATE_180)
-        
+        # this is here because the camera is upside down all the time (might not need this if its gonna work properly during flight)
+        if self.rotate_180:
+            img = cv2.rotate(img, cv2.ROTATE_180)
+
         if not self.storage.verify_image(img, self.current_resolution):
             return None
 
         return img
-    
+
     def get_stats(self) -> Dict:
-        with self.state_lock: # lock state_lock, copy into state, unlock
-            state =  self.pipeline_state
-            
         return {
-            'state': state,
             'photo_count': self.photo_count,
             'downloaded_files': self.camera.get_downloaded_count(),
             'current_directory': self.camera.current_photo_dir,

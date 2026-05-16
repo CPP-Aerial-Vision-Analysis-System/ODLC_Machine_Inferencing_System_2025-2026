@@ -6,13 +6,13 @@
 
 Download and install the Remote Development Extension Pack for VSCode:
 
-🔗 [Remote Development Extension Pack](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.vscode-remote-extensionpack)
+ [Remote Development Extension Pack](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.vscode-remote-extensionpack)
 
 ### 2. Set Up XLaunch for GUI Support
 
 To use GUI applications on Windows, install **XLaunch**:
 
-🔗 [Download XLaunch (VcXsrv)](https://sourceforge.net/p/vcxsrv/wiki/VcXsrv%20%26%20Win10/)
+ [Download XLaunch (VcXsrv)](https://sourceforge.net/p/vcxsrv/wiki/VcXsrv%20%26%20Win10/)
 
 Once installed:
 - Launch **XLaunch** before opening the devcontainer.
@@ -30,7 +30,7 @@ git clone https://github.com/CPP-Aerial-Vision-Analysis-System/ODLC_Machine_Infe
 
 ### 2. Download Docker Desktop (on linux download docker engine)
 
-🔗 [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+ [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
 
 ### 3. Download the image (can skip to step 4. will auto-download there)
 

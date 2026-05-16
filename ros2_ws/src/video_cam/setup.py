@@ -24,8 +24,8 @@ setup(
     zip_safe=True,
     maintainer='ubuntu',
     maintainer_email='student.joshuaestrada@gmail.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='SIYI camera ROS2 driver: capture, download, and publish images.',
+    license='Apache-2.0',
     extras_require={
         'test': [
             'pytest',

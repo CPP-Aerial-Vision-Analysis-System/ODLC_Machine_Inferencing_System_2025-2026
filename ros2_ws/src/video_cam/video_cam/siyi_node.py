@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image, NavSatFix
 from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
 from rclpy.qos import qos_profile_sensor_data
+from cv_bridge import CvBridge
 
 import json
 import os
@@ -17,45 +18,42 @@ from typing import Optional, Dict, Any, List
 
 from video_cam.storage_manager import get_ros2_ws_directory
 
-try:
-    from cv_bridge import CvBridge
-    CV_BRIDGE_AVAILABLE = True
-except Exception as e:
-    print(f"Warning: cv_bridge import failed: {e}")
-    CV_BRIDGE_AVAILABLE = False
-
 from .config import (
     NODE_LOOP_PERIOD,
     DEFAULT_USE_REAL_CAMERA,
     DEFAULT_MIN_ALTITUDE_AGL,
-    DEFAULT_CAMERA_IP,
-    DEFAULT_CTRL_PORT,
-    DEFAULT_MEDIA_PORT,
-    DEFAULT_HTTP_TIMEOUT,
-    DEFAULT_CAPTURE_TIMEOUT,
-    DEFAULT_MIN_FREE_SPACE_MB,
+    DEFAULT_RESOLUTION,
+    DEFAULT_ROTATE_180,
+    CAMERA_IP,
+    CONTROL_PORT,
+    MEDIA_PORT,
+    HTTP_TIMEOUT_SECONDS,
+    CAPTURE_TIMEOUT_SECONDS,
+    MIN_FREE_SPACE_MB,
     PHOTO_RESOLUTIONS,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
-from .pipeline_orchestrator import PipelineOrchestrator, PipelineError
+from .pipeline_orchestrator import PipelineOrchestrator
 
 
 class SIYINode(Node):
     """ROS2 node wrapper for SIYI camera pipeline."""
     
     def __init__(self):
-        super().__init__('siyi_unified_pipeline')
+        super().__init__('siyi')
         
         # Parameters
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
         self.declare_parameter('min_altitude_agl', DEFAULT_MIN_ALTITUDE_AGL)
-        self.declare_parameter('camera_ip', DEFAULT_CAMERA_IP)
-        self.declare_parameter('ctrl_port', DEFAULT_CTRL_PORT)
-        self.declare_parameter('media_port', DEFAULT_MEDIA_PORT)
-        self.declare_parameter('http_timeout_sec', DEFAULT_HTTP_TIMEOUT)
-        self.declare_parameter('capture_timeout_sec', DEFAULT_CAPTURE_TIMEOUT)
-        self.declare_parameter('min_free_space_mb', DEFAULT_MIN_FREE_SPACE_MB)
+        self.declare_parameter('camera_ip', CAMERA_IP)
+        self.declare_parameter('ctrl_port', CONTROL_PORT)
+        self.declare_parameter('media_port', MEDIA_PORT)
+        self.declare_parameter('http_timeout_sec', HTTP_TIMEOUT_SECONDS)
+        self.declare_parameter('capture_timeout_sec', CAPTURE_TIMEOUT_SECONDS)
+        self.declare_parameter('min_free_space_mb', MIN_FREE_SPACE_MB)
+        self.declare_parameter('resolution', DEFAULT_RESOLUTION)
+        self.declare_parameter('rotate_180', DEFAULT_ROTATE_180)
 
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
@@ -65,6 +63,12 @@ class SIYINode(Node):
         self.http_timeout = self.get_parameter('http_timeout_sec').value
         self.capture_timeout = self.get_parameter('capture_timeout_sec').value
         self.min_free_space_mb = self.get_parameter('min_free_space_mb').value
+        self.resolution = self.get_parameter('resolution').value
+        self.rotate_180 = self.get_parameter('rotate_180').value
+        if self.resolution not in PHOTO_RESOLUTIONS:
+            self.get_logger().warn(
+                f"Invalid resolution '{self.resolution}', falling back to '{DEFAULT_RESOLUTION}'")
+            self.resolution = DEFAULT_RESOLUTION
         
         # Publishers
         self.image_pub = self.create_publisher(Image, 'image_raw', 10)
@@ -77,25 +81,21 @@ class SIYINode(Node):
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         self.create_subscription(NavSatFix, '/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
-        # self.create_subscription(String, '/camera/set_resolution', self.set_resolution_callback, 10) # ros2 topic pub /camera/set_resolution std_msgs/msg/String "{data: '4K'}" --once
         if not self.use_real_camera:
             self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
-        
+
         # State
         self.camera_enabled = True
-        self.config_lock = Lock()
         self.camera_control_lock = Lock()
         self.capture_requested = Event()
         self.latest_image_msg: Optional[Image] = None
         self.latest_gps = None
-        self.bridge = CvBridge() if CV_BRIDGE_AVAILABLE else None
-        if not CV_BRIDGE_AVAILABLE:
-            self.get_logger().warn("cv_bridge not available, using alternative conversion")
-        
+        self.bridge = CvBridge()
+
         # Components
         workspace_root = self._find_ros2_workspace()
         self.storage = StorageManager(workspace_root, logger=self.get_logger())
-        
+
         if self.use_real_camera:
             self.camera = CameraInterface(
                 camera_ip=self.camera_ip,
@@ -107,8 +107,10 @@ class SIYINode(Node):
             self.pipeline = PipelineOrchestrator(
                 camera=self.camera,
                 storage=self.storage,
+                rotate_180=self.rotate_180,
                 logger=self.get_logger()
             )
+            self.pipeline.set_resolution(self.resolution)
             self.pipeline.initialize_sd_card()
         else:
             self.camera = None
@@ -131,10 +133,7 @@ class SIYINode(Node):
     def _pipeline_loop(self):
         # Main execution loop. Execute capture pipeline when triggered (in separate thread)
         # Check if camera is enabled (altitude check)
-        with self.config_lock:
-            camera_enabled = self.camera_enabled
-        
-        if not camera_enabled:
+        if not self.camera_enabled:
             return
         
         # Handle capture requests
@@ -228,7 +227,7 @@ class SIYINode(Node):
             # re-read, no directory scan, no rename.
             self._publish_captured_image(img, saved_path)
 
-        except PipelineError as e:
+        except Exception as e:
             self.get_logger().error(f"Pipeline error: {e}")
             self._send_status(f"FAILED: {e}")
             self._publish_camera_status(f"FAILURE: {e}")
@@ -450,13 +449,11 @@ class SIYINode(Node):
         
         try:
             # Convert ROS Image to OpenCV format
-            if self.bridge is not None:
-                cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
-            else:
-                cv_image = self._imgmsg_to_cv2_manual(self.latest_image_msg, 'bgr8')
-            
+            cv_image = self.bridge.imgmsg_to_cv2(self.latest_image_msg, 'bgr8')
+
             # Rotate image to fix upside-down physical mounting
-            cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
+            if self.rotate_180:
+                cv_image = cv2.rotate(cv_image, cv2.ROTATE_180)
             
             # Save to mapping directory
             mapping_dir = self.storage.get_mapping_dir()
@@ -523,10 +520,7 @@ class SIYINode(Node):
                     "nothing to publish on /image_raw")
                 return
 
-            if self.bridge is not None:
-                msg = self.bridge.cv2_to_imgmsg(img, 'bgr8')
-            else:
-                msg = self._cv2_to_imgmsg_manual(img, 'bgr8')
+            msg = self.bridge.cv2_to_imgmsg(img, 'bgr8')
 
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = "camera_link"
@@ -551,38 +545,25 @@ class SIYINode(Node):
         else:
             self.get_logger().debug("Trigger received with data=False, ignoring")
     
-    def set_resolution_callback(self, msg: String):
-        """Handle resolution change requests"""
-        resolution = msg.data.upper()
-        
-        if resolution in PHOTO_RESOLUTIONS:
-            if self.pipeline is not None:
-                self.pipeline.set_resolution(resolution)
-            self._send_status(f"Resolution set to {resolution}")
-        else:
-            self.get_logger().warn(f"Invalid resolution: {resolution}")
-    
     def altitude_callback(self, msg: Float64):
         """Handle altitude updates for camera enable/disable"""
         current_alt = msg.data
-        
-        with self.config_lock:
-            was_enabled = self.camera_enabled
-            
-            if current_alt >= self.altitude_threshold:
-                self.camera_enabled = True
-                if not was_enabled:
-                    self.get_logger().info(
-                        f"Altitude {current_alt:.2f}m >= {self.altitude_threshold:.2f}m - "
-                        "Camera ENABLED")
-                    self._send_status("Altitude threshold reached - Camera enabled")
-            else:
-                self.camera_enabled = False
-                if was_enabled:
-                    self.get_logger().info(
-                        f"Altitude {current_alt:.2f}m < {self.altitude_threshold:.2f}m - "
-                        "Camera DISABLED")
-                    self._send_status("Below altitude threshold - Camera disabled")
+        was_enabled = self.camera_enabled
+
+        if current_alt >= self.altitude_threshold:
+            self.camera_enabled = True
+            if not was_enabled:
+                self.get_logger().info(
+                    f"Altitude {current_alt:.2f}m >= {self.altitude_threshold:.2f}m - "
+                    "Camera ENABLED")
+                self._send_status("Altitude threshold reached - Camera enabled")
+        else:
+            self.camera_enabled = False
+            if was_enabled:
+                self.get_logger().info(
+                    f"Altitude {current_alt:.2f}m < {self.altitude_threshold:.2f}m - "
+                    "Camera DISABLED")
+                self._send_status("Below altitude threshold - Camera disabled")
     
     def sim_image_callback(self, msg: Image):
         """Callback for simulation images"""
@@ -601,33 +582,6 @@ class SIYINode(Node):
         msg = String()
         msg.data = text
         self.camera_status_pub.publish(msg)
-    
-    def _cv2_to_imgmsg_manual(self, cv_image: np.ndarray, encoding: str = 'bgr8') -> Image:
-        """Convert OpenCV image to ROS message without cv_bridge"""
-        msg = Image()
-        msg.height = cv_image.shape[0]
-        msg.width = cv_image.shape[1]
-        msg.encoding = encoding
-        msg.is_bigendian = 0
-        msg.step = cv_image.shape[1] * cv_image.shape[2]
-        msg.data = cv_image.tobytes()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "camera_link"
-        return msg
-    
-    def _imgmsg_to_cv2_manual(self, img_msg: Image, desired_encoding: str = 'bgr8') -> np.ndarray:
-        """Convert ROS Image message to OpenCV image without cv_bridge"""
-        if img_msg.encoding != desired_encoding:
-            self.get_logger().warn(
-                f'Image encoding mismatch: {img_msg.encoding} vs {desired_encoding}')
-        
-        dtype = np.uint8
-        n_channels = 3 if desired_encoding == 'bgr8' else 1
-        
-        img_buf = np.asarray(img_msg.data, dtype=dtype)
-        cv_image = img_buf.reshape(img_msg.height, img_msg.width, n_channels)
-        
-        return cv_image
     
     def shutdown(self):
         """Proper shutdown handler"""

@@ -3,9 +3,9 @@
 <package format="3">
   <name>video_cam</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>SIYI camera ROS2 driver: capture, download, and publish images.</description>
   <maintainer email="student.joshuaestrada@gmail.com">ubuntu</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>cv_bridge</exec_depend>

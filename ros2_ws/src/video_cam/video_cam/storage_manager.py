@@ -11,35 +11,28 @@ import rclpy.logging
 from typing import Optional, Set, Tuple
 
 def get_ros2_ws_directory() -> str:
-    """Helper method to determine the ros2_ws/src directory dynamically."""
-    current_file = os.path.abspath(__file__)
-    current_dir = os.path.dirname(current_file)
-    
-    # Navigate up to find ros2_ws (look for install/ or src/ directories)
-    search_dir = current_dir
-    ros2_ws_dir = None
-    
-    for _ in range(10):  # Limit search depth
-        if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
-            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
-                ros2_ws_dir = search_dir
-                break
-            parent = os.path.dirname(search_dir)
-            if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
-                ros2_ws_dir = parent
-                break
-        search_dir = os.path.dirname(search_dir)
-        if search_dir == "/":
-            break
+    """Helper method to determine the ros2_ws/src directory dynamically.
 
-    if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-        ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-        
-    # Fallback: construct path directly
-    if ros2_ws_dir is None:
-        ros2_ws_dir = "/astra/ros2_ws/src"
-        
-    return ros2_ws_dir
+    Walks up from this file looking for a directory containing both
+    `install/` and `src/` (the standard ROS2 workspace layout). Falls
+    back to the user's home directory so the package still functions on
+    machines whose workspace isn't laid out the expected way.
+    """
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    search_dir = current_dir
+    for _ in range(10):  # Limit search depth
+        if (os.path.isdir(os.path.join(search_dir, "install"))
+                and os.path.isdir(os.path.join(search_dir, "src"))):
+            return os.path.join(search_dir, "src")
+        parent = os.path.dirname(search_dir)
+        if parent == search_dir:
+            break
+        search_dir = parent
+
+    # Fallback: user home, so we don't write to a hard-coded absolute path
+    # that only exists on one machine.
+    return os.path.expanduser("~")
 
 from .config import (
     MIN_FILE_SIZE_BYTES,
@@ -48,11 +41,6 @@ from .config import (
     RESOLUTION_SPECS,
     MIN_FREE_SPACE_MB,
 )
-
-
-class StorageError(Exception):
-    """Raised when storage operation fails"""
-    pass
 
 
 class StorageManager:
