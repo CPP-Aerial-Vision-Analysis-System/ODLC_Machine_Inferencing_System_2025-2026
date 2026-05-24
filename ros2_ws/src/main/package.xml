@@ -25,6 +25,7 @@
   <depend>std_msgs</depend>
   <depend>vision_msgs</depend>
   <depend>visualization_msgs</depend>
+  <depend>video_cam</depend>
 
   <!-- Optional runtime tools -->
   <exec_depend>image_view</exec_depend>

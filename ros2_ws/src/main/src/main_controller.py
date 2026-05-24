@@ -15,6 +15,8 @@ from cv_bridge import CvBridge
 
 from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
 from wp_sender.parameter import ParameterManager
+from video_cam.storage_manager import get_ros2_ws_directory
+from video_cam.config import MAPPING_SUBDIR
 
 import time, cv2, math, sys, os, subprocess
 
@@ -78,7 +80,7 @@ class MainController(Node):
         self.waiting_for_processing = False  # True when in GUIDED waiting for processing
         self.auto_resumed = False      # set True after one-time AUTO resume; prevents re-triggering
         self.processing_check_timer = None
-        self.camera_feed_path = self._resolve_camera_feed_path()
+        self.camera_feed_path = os.path.join(get_ros2_ws_directory(), "video_cam", MAPPING_SUBDIR)
         self.param_manager = ParameterManager()
         self.trigger_wp = -1
 
@@ -236,31 +238,6 @@ class MainController(Node):
         if self.buffer_wp >= 0:
             self.get_logger().info(f"Buffer WP (GUIDED processing hold): index {self.buffer_wp}")
 
-    def _resolve_camera_feed_path(self):
-        """Resolve camera_feed folder path."""
-        current_file = os.path.abspath(__file__)
-        search_dir = os.path.dirname(current_file)
-        ros2_ws_dir = None
-        for _ in range(10):
-            if (os.path.exists(os.path.join(search_dir, "install")) and
-                    os.path.exists(os.path.join(search_dir, "src"))):
-                ros2_ws_dir = search_dir
-                break
-            parent = os.path.dirname(search_dir)
-            if (os.path.exists(os.path.join(parent, "install")) and
-                    os.path.exists(os.path.join(parent, "src"))):
-                ros2_ws_dir = parent
-                break
-            search_dir = os.path.dirname(search_dir)
-            if search_dir == "/":
-                break
-        if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-            ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-        if ros2_ws_dir is None:
-            ros2_ws_dir = "/astra/ros2_ws/src"
-        path = os.path.join(ros2_ws_dir, "video_cam", "mapping_photos")
-        return path
-        
     # called by update_waypoint_reached()
     def _check_all_images_processed(self):
         # check if the images are processed, if so, switches to AUTO (continue mission)
