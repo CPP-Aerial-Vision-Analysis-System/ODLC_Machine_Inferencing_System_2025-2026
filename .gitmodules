@@ -1,0 +1,4 @@
+[submodule "ros2_ws/ultralytics_ros"]
+	path = ros2_ws/ultralytics_ros
+	url = https://github.com/Alpaca-zip/ultralytics_ros.git
+	branch = humble-devel

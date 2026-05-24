@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from ultralytics_ros.msg import ImageResult
+from interfaces.msg import ImageResult
 from mavros_msgs.srv import SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
 from sensor_msgs.msg import NavSatFix, Image

@@ -24,7 +24,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
-from ultralytics_ros.msg import ImageResult
+from interfaces.msg import ImageResult
 from mavros_msgs.msg import WaypointReached
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose
 
@@ -33,7 +33,6 @@ import numpy as np
 
 from detection.gpu_utils import (
     detect_device,
-    optimize_gpu_memory,
     cleanup_gpu,
     check_jetson_power_mode,
     TORCH_AVAILABLE,
@@ -50,6 +49,7 @@ from detection.model_manager import (
     YOLO_AVAILABLE,
 )
 from detection.detection_processor import run_sahi_detection
+from detection.batched_inference import run_batched_detection
 from detection.annotation import annotate_frame # save_top_matches_crop
 
 DEFAULT_CONFIDENCE = 0.25
@@ -85,6 +85,10 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('enable_gpu_memory_cleanup', True)
         self.declare_parameter('camera_feed_path', '')
         self.declare_parameter('detection_results_path', '')
+        # Toggle between SAHI's slicer/predict loop (default) and the manual
+        # slicer + batched-predict path in batched_inference.py.
+        self.declare_parameter('use_batched_inference', False)
+        self.declare_parameter('batch_size', 8)
 
         self.model_path = self.get_parameter('model_path').value
         self.model_format = self.get_parameter('model_format').value.lower()
@@ -104,6 +108,8 @@ class SAHIObjectDetectionNode(Node):
         self.min_aspect_ratio = self.get_parameter('min_aspect_ratio').value
         self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
         self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
+        self.use_batched_inference = self.get_parameter('use_batched_inference').value
+        self.batch_size = self.get_parameter('batch_size').value
 
         self._validate_parameters() # check if the params are right
 
@@ -199,6 +205,9 @@ class SAHIObjectDetectionNode(Node):
         else:
             self.gpu_cleanup_timer = None
 
+        path_label = ("manual batched (use_batched_inference=true)"
+                      if self.use_batched_inference else "SAHI (default)")
+        self.get_logger().info(f"Inference path: {path_label}, batch_size={self.batch_size}")
         self.get_logger().info("Node initialized and ready")
 
     def check_for_new_images(self) -> None:
@@ -291,7 +300,8 @@ class SAHIObjectDetectionNode(Node):
         h, w = frame.shape[:2]
         self.get_logger().info(f"Processing: {os.path.basename(image_path)} ({w}x{h})")
 
-        detections = run_sahi_detection(
+        detect_fn = run_batched_detection if self.use_batched_inference else run_sahi_detection
+        detect_kwargs = dict(
             frame=frame,
             model=self.detection_model,
             slice_height=self.slice_height,
@@ -309,6 +319,9 @@ class SAHIObjectDetectionNode(Node):
             images_processed=self.stats['total_images_processed'],
             logger=self.get_logger(),
         )
+        if self.use_batched_inference:
+            detect_kwargs['batch_size'] = self.batch_size
+        detections = detect_fn(**detect_kwargs)
 
         elapsed = time.time() - start
 
