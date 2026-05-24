@@ -8,6 +8,9 @@ os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 os.environ['YOLO_AUTOINSTALL'] = '0'
 os.environ.setdefault('TRT_LOG_LEVEL', '2')
 os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')
+# Keep severity but drop rcutils' epoch {time} and {name}; we re-insert them
+# in _install_wallclock_logging() so the time renders as HH:MM:SS.
+os.environ['RCUTILS_CONSOLE_OUTPUT_FORMAT'] = '[{severity}] {message}'
 
 import time
 import threading
@@ -63,6 +66,7 @@ class SAHIObjectDetectionNode(Node):
 
     def __init__(self):
         super().__init__('new_od')
+        self._install_wallclock_logging()
 
         # Parameters
         self.declare_parameter('model_path', 'yolo26m.engine')
@@ -481,6 +485,33 @@ class SAHIObjectDetectionNode(Node):
             self._model_ready.set()
 
     # Utilities
+
+    def _install_wallclock_logging(self) -> None:
+        # if you dont do this one by one, all my wraps landing on the same line will collide.
+        from rclpy.logging import LoggingSeverity
+        logger = self.get_logger()
+        name = getattr(logger, 'name', None) or self.get_name()
+
+        def _fmt(msg):
+            return f"[{time.strftime('%H:%M:%S')}] [{name}]: {msg}"
+
+        def _debug(msg, *a, **kw):
+            return logger.log(_fmt(msg), LoggingSeverity.DEBUG, **kw)
+        def _info(msg, *a, **kw):
+            return logger.log(_fmt(msg), LoggingSeverity.INFO, **kw)
+        def _warn(msg, *a, **kw):
+            return logger.log(_fmt(msg), LoggingSeverity.WARN, **kw)
+        def _error(msg, *a, **kw):
+            return logger.log(_fmt(msg), LoggingSeverity.ERROR, **kw)
+        def _fatal(msg, *a, **kw):
+            return logger.log(_fmt(msg), LoggingSeverity.FATAL, **kw)
+
+        logger.debug = _debug
+        logger.info = _info
+        logger.warn = _warn
+        logger.warning = _warn  # alias both to the same WARN wrapper
+        logger.error = _error
+        logger.fatal = _fatal
 
     # this is for when we use --ros-args -p
     def _validate_parameters(self) -> None:
