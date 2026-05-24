@@ -18,7 +18,9 @@ class MissionCameraTrigger(Node):
         super().__init__("mission_camera_trigger")
         self.create_subscription(StatusText,'/mavros/statustext/recv', self.statustext_callback, qos_profile_sensor_data)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.update_waypoint_reached, 1)
+
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
+        
         self.camera_trigger_pub = self.create_publisher(Bool, "/camera/trigger", 10) 
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 

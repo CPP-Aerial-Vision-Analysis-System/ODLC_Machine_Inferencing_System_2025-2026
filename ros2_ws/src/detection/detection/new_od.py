@@ -50,7 +50,7 @@ from detection.model_manager import (
     YOLO_AVAILABLE,
 )
 from detection.detection_processor import run_sahi_detection
-from detection.annotation import annotate_frame ''', save_top_matches_crop '''
+from detection.annotation import annotate_frame # save_top_matches_crop
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640

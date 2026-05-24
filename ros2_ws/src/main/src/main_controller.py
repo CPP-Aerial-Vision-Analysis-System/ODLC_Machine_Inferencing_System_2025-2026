@@ -107,7 +107,7 @@ class MainController(Node):
         if msg.node == "/waypoint_manager":
             for changed_param in msg.changed_parameters:
                 name = changed_param.name
-                value = changed_param.value
+                # value = changed_param.value
 
                 if name in {"num_waypoints", "takeoff_index", "rtl_index", "next_after_takeoff", "last_before_rtl"}:
                     self.fetch_mission_indices()
@@ -136,10 +136,10 @@ class MainController(Node):
 
         if self.waypoint_reached == trigger_wp and self.wait_to_send_wp:
 
-            invalid_detection_message = f"No valid object was detected."
-            both_detected_message     = f"Both person and tent detected!"
-            person_detected_message   = f"Only person detected!"
-            tent_detected_message     = f"Only a tent was detected!"
+            invalid_detection_message = "No valid object was detected."
+            both_detected_message     = "Both person and tent detected!"
+            person_detected_message   = "Only person detected!"
+            tent_detected_message     = "Only a tent was detected!"
 
             if  (self.valid_detection("person") and self.valid_detection("tent")):
                 person_lat = self.detections["person"].lat
@@ -164,7 +164,7 @@ class MainController(Node):
                     {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 5},
                 ])
                 self.wait_to_send_wp = False
-                self.send_ack(f"Mission: tent drop → person drop (all in AUTO)")
+                self.send_ack("Mission: tent drop → person drop (all in AUTO)")
                 self.get_logger().info(f"Waypoints+servos sent. last_before_rtl was: {self.last_before_rtl}")
                 self.last_before_rtl = -1
 
@@ -185,6 +185,7 @@ class MainController(Node):
                 self.last_before_rtl = -1
 
             elif self.valid_detection("tent"):
+                insert_base = self.last_before_rtl + 1
                 tent_lat = self.detections["tent"].lat
                 tent_lon = self.detections["tent"].long
 
@@ -203,9 +204,6 @@ class MainController(Node):
                 self.send_ack(invalid_detection_message)
                 return
 
-            self.wait_to_send_wp = False
-            self.last_before_rtl = -1
-            
         
     def valid_detection(self, obj_type):
         return obj_type in self.detections and self.detections[obj_type].confidence > 0
