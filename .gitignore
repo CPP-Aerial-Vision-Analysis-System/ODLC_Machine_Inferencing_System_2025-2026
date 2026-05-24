@@ -38,7 +38,7 @@ ros2_ws/detection/detection/detection_results_steroids
 # Documentations
 
 ros2_ws/src/video_cam/video_cam/documentations
-ros2_ws/src/detection/detection_results_sahi
+ros2_ws/src/video_cam/detection_results_sahi
 Docs
 ros2_ws/src/video_cam/mapping_photos
 ros2_ws/src/video_cam/Documentation
@@ -54,4 +54,5 @@ ros2_ws/src/video_cam/Documentation
 GUIDE.md
 interview.md
 
-GithubLearning.md
+GtihubLearning
+commonErrors.md
