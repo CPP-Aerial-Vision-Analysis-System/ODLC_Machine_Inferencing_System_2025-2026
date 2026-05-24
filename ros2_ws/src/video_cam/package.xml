@@ -4,7 +4,7 @@
   <name>video_cam</name>
   <version>0.0.0</version>
   <description>SIYI camera ROS2 driver: capture, download, and publish images.</description>
-  <maintainer email="student.joshuaestrada@gmail.com">ubuntu</maintainer>
+  <maintainer email="arhovumyan@gmail.com">ubuntu</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>

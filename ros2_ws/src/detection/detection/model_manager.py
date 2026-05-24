@@ -3,6 +3,7 @@ import rclpy.logging
 from typing import Optional, Tuple
 
 from detection.gpu_utils import suppress_native_output, cleanup_gpu, TORCH_AVAILABLE
+from video_cam.storage_manager import get_ros2_ws_directory
 # Optional deps
 try:
     from sahi import AutoDetectionModel
@@ -31,37 +32,6 @@ MODEL_FORMAT_TENSORRT = 'tensorrt'
 MODEL_FORMAT_AUTO = 'auto'
 _MAX_SEARCH_DEPTH = 10
 
-
-def get_ros2_ws_directory() -> str:
-    current_file = os.path.abspath(__file__)
-    current_dir = os.path.dirname(current_file)
-    
-    # Navigate up to find ros2_ws (look for install/ or src/ directories)
-    search_dir = current_dir
-    ros2_ws_dir = None
-    
-    for _ in range(10):  # Limit search depth
-        if os.path.exists(os.path.join(search_dir, "install")) or os.path.exists(os.path.join(search_dir, "src")):
-            if os.path.exists(os.path.join(search_dir, "install")) and os.path.exists(os.path.join(search_dir, "src")):
-                ros2_ws_dir = search_dir
-                break
-            parent = os.path.dirname(search_dir)
-            if os.path.exists(os.path.join(parent, "install")) and os.path.exists(os.path.join(parent, "src")):
-                ros2_ws_dir = parent
-                break
-        search_dir = os.path.dirname(search_dir)
-        if search_dir == "/":
-            break
-
-    
-    if ros2_ws_dir and os.path.exists(os.path.join(ros2_ws_dir, "src")):
-        ros2_ws_dir = os.path.join(ros2_ws_dir, "src")
-        
-    # Fallback: construct path directly
-    if ros2_ws_dir is None:
-        ros2_ws_dir = "/astra/ros2_ws/src"
-
-    return ros2_ws_dir
 
 def resolve_model_path(model_path, model_format, auto_convert, slice_height,
                        slice_width, tensorrt_workspace, device, logger=None):
