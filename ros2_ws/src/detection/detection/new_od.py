@@ -8,16 +8,19 @@ os.environ['PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION'] = 'python'
 os.environ['YOLO_AUTOINSTALL'] = '0'
 os.environ.setdefault('TRT_LOG_LEVEL', '2')
 os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')
-# Keep severity but drop rcutils' epoch {time} and {name}; we re-insert them
-# in _install_wallclock_logging() so the time renders as HH:MM:SS.
-os.environ['RCUTILS_CONSOLE_OUTPUT_FORMAT'] = '[{severity}] {message}'
+
+# Shared console-logging setup. configure_console_format() drops rcutils' epoch
+# {time}/{name}; install_wallclock_logging() (called in __init__) re-inserts a
+# readable HH:MM:SS time and the node name. Must run before rclpy is imported.
+from video_cam.logging_utils import configure_console_format, install_wallclock_logging
+configure_console_format()
 
 import time
 import threading
 import queue
 import json
 from datetime import datetime
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 import rclpy
 from rclpy.node import Node
@@ -66,7 +69,7 @@ class SAHIObjectDetectionNode(Node):
 
     def __init__(self):
         super().__init__('new_od')
-        self._install_wallclock_logging()
+        install_wallclock_logging(self)
 
         # Parameters
         self.declare_parameter('model_path', 'yolo26m.engine')
@@ -81,7 +84,11 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
         self.declare_parameter('max_images_per_cycle', 5)
-        self.declare_parameter('max_camera_feed_images', 1000000000)
+        # Bounds runaway disk growth in camera_feed (shared mapping_photos dir)
+        # without ever triggering in a normal mission: at ~3-5MB per 4K JPEG,
+        # 10k images is 30-50GB, far more than a single flight produces. Set to
+        # 0 to disable cleanup entirely (see _cleanup_old_images).
+        self.declare_parameter('max_camera_feed_images', 10000)
         self.declare_parameter('min_detection_area', 25)
         self.declare_parameter('max_detection_area', 1000000)
         self.declare_parameter('min_aspect_ratio', 0.1)
@@ -387,12 +394,42 @@ class SAHIObjectDetectionNode(Node):
             ir.overlap = f"{self.overlap_height_ratio}x{self.overlap_width_ratio}"
             ir.waypoint_index = self.waypoint_reached
 
+            # Recover the GPS fix that siyi_node baked into the filename
+            # ("<lat> , <lon>.jpg"). main_controller reads ir.latitude/
+            # ir.longitude to place detection waypoints, so if we leave them
+            # unset every detection geolocates to (0.0, 0.0).
+            lat, lon = self._parse_latlon_from_name(original_filename)
+            if lat is not None:
+                ir.latitude = lat
+                ir.longitude = lon
+            elif detections:
+                self.get_logger().warn(
+                    f"No lat/lon in filename '{original_filename}'; "
+                    "detection waypoints will default to (0.0, 0.0)"
+                )
+
             det_array = Detection2DArray()
             det_array.header = image_msg.header
 
             classes, confidences, areas, descriptions, masks = [], [], [], [], []
 
             for det in detections:
+                cls = det['class']
+
+                # Informational parallel arrays carry every detection.
+                classes.append(cls)
+                confidences.append(float(det['confidence']))
+                areas.append(float(det.get('area', 0)))
+                descriptions.append(det.get('description', cls))
+
+                # Only person/tent drive waypoints downstream. main_controller
+                # maps class_id "0"->person, "1"->tent and has no branch for
+                # anything else, so publishing a non-target ("object") here
+                # would be misread as a tent. Keep it out of det_array.
+                class_id = CLASS_ID.get(cls)
+                if class_id not in ("0", "1"):
+                    continue
+
                 d2d = Detection2D()
                 d2d.header = image_msg.header
                 x1, y1, x2, y2 = det['bbox']
@@ -402,16 +439,10 @@ class SAHIObjectDetectionNode(Node):
                 d2d.bbox.size_y = float(y2 - y1)
 
                 hypo = ObjectHypothesisWithPose()
-                class_id = 0 if det['class'] == 'person' else 1
-                hypo.hypothesis.class_id = str(class_id)
+                hypo.hypothesis.class_id = class_id
                 hypo.hypothesis.score = float(det['confidence'])
                 d2d.results.append(hypo)
                 det_array.detections.append(d2d)
-
-                classes.append(det['class'])
-                confidences.append(float(det['confidence']))
-                areas.append(float(det.get('area', 0)))
-                descriptions.append(det.get('description', det['class']))
 
             ir.detections = det_array
             ir.masks = masks
@@ -452,10 +483,14 @@ class SAHIObjectDetectionNode(Node):
         """Load model in a daemon thread so the constructor returns immediately."""
         try:
             self.get_logger().info("Resolving model path...")
+            # Only ask for a dynamic-batch engine when the batched-inference
+            # path is enabled; the default SAHI path runs batch-1, and a static
+            # batch-1 engine is faster/leaner for it.
+            max_batch = self.batch_size if self.use_batched_inference else 1
             resolved, fmt = resolve_model_path(
                 self.model_path, self.model_format, self.auto_convert_tensorrt,
                 self.slice_height, self.slice_width, self.tensorrt_workspace,
-                self.device, self.get_logger(),
+                self.device, self.get_logger(), max_batch=max_batch,
             )
             if resolved is None:
                 self.get_logger().error("Model path resolution failed")
@@ -466,6 +501,7 @@ class SAHIObjectDetectionNode(Node):
 
             model = load_sahi_model(
                 resolved, fmt, self.confidence_threshold, self.device, self.get_logger(),
+                batched_mode=self.use_batched_inference,
             )
             if model is None:
                 self.health_status['is_healthy'] = False
@@ -475,6 +511,8 @@ class SAHIObjectDetectionNode(Node):
             warmup_model(
                 model, self.slice_height, self.slice_width,
                 self.overlap_height_ratio, self.overlap_width_ratio, self.get_logger(),
+                batched_mode=self.use_batched_inference, batch_size=self.batch_size,
+                confidence_threshold=self.confidence_threshold, device=self.device,
             )
             self.get_logger().info("Model ready -- processing can begin")
         except Exception as e:
@@ -485,33 +523,6 @@ class SAHIObjectDetectionNode(Node):
             self._model_ready.set()
 
     # Utilities
-
-    def _install_wallclock_logging(self) -> None:
-        # if you dont do this one by one, all my wraps landing on the same line will collide.
-        from rclpy.logging import LoggingSeverity
-        logger = self.get_logger()
-        name = getattr(logger, 'name', None) or self.get_name()
-
-        def _fmt(msg):
-            return f"[{time.strftime('%H:%M:%S')}] [{name}]: {msg}"
-
-        def _debug(msg, *a, **kw):
-            return logger.log(_fmt(msg), LoggingSeverity.DEBUG, **kw)
-        def _info(msg, *a, **kw):
-            return logger.log(_fmt(msg), LoggingSeverity.INFO, **kw)
-        def _warn(msg, *a, **kw):
-            return logger.log(_fmt(msg), LoggingSeverity.WARN, **kw)
-        def _error(msg, *a, **kw):
-            return logger.log(_fmt(msg), LoggingSeverity.ERROR, **kw)
-        def _fatal(msg, *a, **kw):
-            return logger.log(_fmt(msg), LoggingSeverity.FATAL, **kw)
-
-        logger.debug = _debug
-        logger.info = _info
-        logger.warn = _warn
-        logger.warning = _warn  # alias both to the same WARN wrapper
-        logger.error = _error
-        logger.fatal = _fatal
 
     # this is for when we use --ros-args -p
     def _validate_parameters(self) -> None:
@@ -532,6 +543,23 @@ class SAHIObjectDetectionNode(Node):
             self.check_interval = DEFAULT_CHECK_INTERVAL
         if self.max_images_per_cycle < 1:
             self.max_images_per_cycle = 1
+
+    @staticmethod
+    def _parse_latlon_from_name(filename: str) -> Tuple[Optional[float], Optional[float]]:
+        """Recover (lat, lon) from a '<lat> , <lon>.jpg' filename.
+
+        siyi_node encodes the GPS fix into the capture filename with a
+        ' , ' (space-comma-space) delimiter. Returns (None, None) for
+        simulation / SD-card names that don't carry coordinates.
+        """
+        stem = os.path.splitext(filename)[0]
+        if ' , ' not in stem:
+            return None, None
+        lat_str, lon_str = stem.split(' , ', 1)
+        try:
+            return float(lat_str), float(lon_str)
+        except ValueError:
+            return None, None
 
     @staticmethod
     def _is_file_ready(path: str, min_age: float = 0.2) -> bool:
