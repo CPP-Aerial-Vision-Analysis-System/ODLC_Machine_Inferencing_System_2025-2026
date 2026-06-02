@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-# Shared console-logging setup. configure_console_format() must run before
-# rclpy is imported; install_wallclock_logging() is applied in __init__ so this
-# node logs with the same '[severity] [HH:MM:SS] [name]: msg' shape as new_od.
 from video_cam.logging_utils import configure_console_format, install_wallclock_logging
 configure_console_format()
 
@@ -48,8 +45,6 @@ class SIYINode(Node):
     
     def __init__(self):
         super().__init__('siyi')
-        # Wrap the logger before any components are built so storage/camera/
-        # pipeline all inherit the same wallclock formatting.
         install_wallclock_logging(self)
 
         # Parameters

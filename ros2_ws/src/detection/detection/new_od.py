@@ -9,9 +9,6 @@ os.environ['YOLO_AUTOINSTALL'] = '0'
 os.environ.setdefault('TRT_LOG_LEVEL', '2')
 os.environ.setdefault('CUDA_MODULE_LOADING', 'LAZY')
 
-# Shared console-logging setup. configure_console_format() drops rcutils' epoch
-# {time}/{name}; install_wallclock_logging() (called in __init__) re-inserts a
-# readable HH:MM:SS time and the node name. Must run before rclpy is imported.
 from video_cam.logging_utils import configure_console_format, install_wallclock_logging
 configure_console_format()
 
@@ -62,6 +59,7 @@ DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
 DEFAULT_OVERLAP = 0.15
 DEFAULT_CHECK_INTERVAL = 2.0
+SAFETY_SCAN_INTERVAL = 15.0
 CLASS_ID = {"person": "0", "tent": "1", "object": "2"}
 
 
@@ -84,10 +82,6 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('check_interval', DEFAULT_CHECK_INTERVAL)
         self.declare_parameter('device', 'auto')
         self.declare_parameter('max_images_per_cycle', 5)
-        # Bounds runaway disk growth in camera_feed (shared mapping_photos dir)
-        # without ever triggering in a normal mission: at ~3-5MB per 4K JPEG,
-        # 10k images is 30-50GB, far more than a single flight produces. Set to
-        # 0 to disable cleanup entirely (see _cleanup_old_images).
         self.declare_parameter('max_camera_feed_images', 10000)
         self.declare_parameter('min_detection_area', 25)
         self.declare_parameter('max_detection_area', 1000000)
@@ -96,8 +90,6 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('enable_gpu_memory_cleanup', True)
         self.declare_parameter('camera_feed_path', '')
         self.declare_parameter('detection_results_path', '')
-        # Toggle between SAHI's slicer/predict loop (default) and the manual
-        # slicer + batched-predict path in batched_inference.py.
         self.declare_parameter('use_batched_inference', False)
         self.declare_parameter('batch_size', 8)
 
@@ -178,6 +170,7 @@ class SAHIObjectDetectionNode(Node):
         self._check_count = 0
         self._model_wait_log_count = 0
         self._stats_lock = threading.Lock()
+        self._enqueue_lock = threading.Lock()
         self.processed_images: Dict[str, float] = {}
 
         self.stats = {
@@ -209,8 +202,14 @@ class SAHIObjectDetectionNode(Node):
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker_thread.start()
 
-        # Timers
-        self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+        # Image arrival: event-driven via inotify (watchdog) when available,
+        # otherwise a polling timer at check_interval. Either way self.timer is
+        # the scan/maintenance timer; in event mode it just runs as a slow
+        # safety net (see SAFETY_SCAN_INTERVAL).
+        self._observer = None
+        self._event_driven = False
+        self._setup_image_watch()
+
         if self.enable_gpu_memory_cleanup and self.device.startswith('cuda'):
             self.gpu_cleanup_timer = self.create_timer(30.0, self._periodic_gpu_cleanup)
         else:
@@ -220,6 +219,84 @@ class SAHIObjectDetectionNode(Node):
                       if self.use_batched_inference else "SAHI (default)")
         self.get_logger().info(f"Inference path: {path_label}, batch_size={self.batch_size}")
         self.get_logger().info("Node initialized and ready")
+
+    def _setup_image_watch(self) -> None:
+        """Set up image-arrival notification.
+
+        Preferred path: a single inotify watch (via watchdog) on the camera
+        feed directory. The kernel pushes a MOVED_TO event the instant
+        siyi_node does its atomic ``.tmp`` -> final ``os.replace()``, so
+        detection starts within milliseconds instead of waiting up to a full
+        poll interval -- and there is essentially zero CPU spent while idle.
+
+        Fallback path: if watchdog is not installed, we keep the original
+        polling timer at ``check_interval`` so behaviour is unchanged.
+        """
+        try:
+            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler
+        except ImportError:
+            self.get_logger().warn(
+                "watchdog not installed; using polling timer every "
+                f"{self.check_interval}s. Run `pip install watchdog` for "
+                "event-driven (inotify) image pickup."
+            )
+            self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
+            return
+
+        node = self
+
+        class _ImageEventHandler(FileSystemEventHandler):
+            # siyi_node writes IMG.tmp.jpg then renames -> the completed file
+            # arrives as a MOVED_TO (on_moved). on_created covers any producer
+            # that writes in place; _is_file_ready still gates partial writes.
+            def on_moved(self, event):
+                if not event.is_directory:
+                    node._on_image_event(event.dest_path)
+
+            def on_created(self, event):
+                if not event.is_directory:
+                    node._on_image_event(event.src_path)
+
+        self._observer = Observer()
+        self._observer.schedule(_ImageEventHandler(), self.camera_feed_path, recursive=False)
+        self._observer.start()
+        self._event_driven = True
+        self.get_logger().info(
+            f"Event-driven image pickup via inotify on {self.camera_feed_path}")
+
+        # Slow safety-net + maintenance timer (cleanup/prune, missed events,
+        # files that arrived before the model finished loading).
+        self.timer = self.create_timer(SAFETY_SCAN_INTERVAL, self.check_for_new_images)
+        # Catch any images already on disk at startup.
+        self.check_for_new_images()
+
+    def _on_image_event(self, fpath: str) -> None:
+        """Watchdog-thread callback for a single new file."""
+        # Drop events that arrive before the model is ready; the safety-net
+        # scan re-enqueues them once loading finishes.
+        if not self._model_ready.is_set() or self.detection_model is None:
+            return
+        if self._enqueue_file(fpath):
+            self.get_logger().info(f"Enqueued (event): {os.path.basename(fpath)}")
+
+    def _enqueue_file(self, fpath: str) -> bool:
+        """Enqueue one ready, unseen image. Thread-safe; returns True if queued."""
+        fname = os.path.basename(fpath)
+        if not fname.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
+            return False
+        with self._enqueue_lock:
+            if fname in self.processed_images:
+                return False
+            if not self._is_file_ready(fpath):
+                return False
+            try:
+                self.work_q.put_nowait(fpath)
+                self.processed_images[fname] = time.time()
+            except queue.Full:
+                self.get_logger().warn("Work queue full")
+                return False
+        return True
 
     def check_for_new_images(self) -> None:
         """Timer callback: scan camera_feed and enqueue new images."""
@@ -263,16 +340,9 @@ class SAHIObjectDetectionNode(Node):
                 if fname in self.processed_images:
                     continue
                 fpath = os.path.join(self.camera_feed_path, fname)
-                if not self._is_file_ready(fpath):
-                    continue
-                try:
-                    self.work_q.put_nowait(fpath)
-                    self.processed_images[fname] = time.time()
+                if self._enqueue_file(fpath):
                     enqueued += 1
                     self.get_logger().info(f"Enqueued: {fname}")
-                except queue.Full:
-                    self.get_logger().warn("Work queue full")
-                    break
 
         except Exception as e:
             self.get_logger().error(f"Error scanning images: {e}")
@@ -576,13 +646,14 @@ class SAHIObjectDetectionNode(Node):
     def _prune_processed(self, max_age: float = 3600.0, max_entries: int = 2000):
         """Evict old entries from processed_images to cap memory usage."""
         now = time.time()
-        old = [k for k, v in self.processed_images.items() if now - v > max_age]
-        for k in old:
-            self.processed_images.pop(k, None)
-        if len(self.processed_images) > max_entries:
-            items = sorted(self.processed_images.items(), key=lambda kv: kv[1])
-            for k, _ in items[: len(self.processed_images) - max_entries]:
+        with self._enqueue_lock:
+            old = [k for k, v in self.processed_images.items() if now - v > max_age]
+            for k in old:
                 self.processed_images.pop(k, None)
+            if len(self.processed_images) > max_entries:
+                items = sorted(self.processed_images.items(), key=lambda kv: kv[1])
+                for k, _ in items[: len(self.processed_images) - max_entries]:
+                    self.processed_images.pop(k, None)
 
     def _cleanup_old_images(self) -> None:
         """Delete oldest images if camera_feed exceeds the configured limit."""
@@ -604,7 +675,8 @@ class SAHIObjectDetectionNode(Node):
                 for f, _ in files[:excess]:
                     try:
                         os.remove(os.path.join(self.camera_feed_path, f))
-                        self.processed_images.pop(f, None)
+                        with self._enqueue_lock:
+                            self.processed_images.pop(f, None)
                         removed += 1
                     except OSError:
                         pass
@@ -631,7 +703,10 @@ class SAHIObjectDetectionNode(Node):
                 elif p.name == 'check_interval':
                     if p.value >= 0.1:
                         self.check_interval = p.value
-                        if self.timer is not None:
+                        # In event-driven mode the timer is the fixed slow
+                        # safety net; check_interval only drives the polling
+                        # fallback, so leave the timer alone there.
+                        if not self._event_driven and self.timer is not None:
                             self.timer.cancel()
                             self.destroy_timer(self.timer)
                             self.timer = self.create_timer(self.check_interval, self.check_for_new_images)
@@ -675,6 +750,12 @@ class SAHIObjectDetectionNode(Node):
 
     def shutdown(self):
         """Clean up threads and GPU resources."""
+        if self._observer is not None:
+            try:
+                self._observer.stop()
+                self._observer.join(timeout=5.0)
+            except Exception:
+                pass
         self.worker_stop.set()
         if self._model_load_thread and self._model_load_thread.is_alive():
             self._model_load_thread.join(timeout=10.0)

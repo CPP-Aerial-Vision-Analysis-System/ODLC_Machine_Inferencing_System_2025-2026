@@ -14,7 +14,9 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    # watchdog gives event-driven (inotify) image pickup in new_od; the node
+    # falls back to polling if it is missing, so it is a soft dependency.
+    install_requires=['setuptools', 'watchdog'],
     zip_safe=True,
     maintainer='ubuntu',
     maintainer_email='student.joshuaestrada@gmail.com',
