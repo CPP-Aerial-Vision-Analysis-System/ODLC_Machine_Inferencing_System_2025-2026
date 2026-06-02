@@ -201,11 +201,6 @@ class SAHIObjectDetectionNode(Node):
         self.worker_stop = threading.Event()
         self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self.worker_thread.start()
-
-        # Image arrival: event-driven via inotify (watchdog) when available,
-        # otherwise a polling timer at check_interval. Either way self.timer is
-        # the scan/maintenance timer; in event mode it just runs as a slow
-        # safety net (see SAFETY_SCAN_INTERVAL).
         self._observer = None
         self._event_driven = False
         self._setup_image_watch()
@@ -221,17 +216,7 @@ class SAHIObjectDetectionNode(Node):
         self.get_logger().info("Node initialized and ready")
 
     def _setup_image_watch(self) -> None:
-        """Set up image-arrival notification.
-
-        Preferred path: a single inotify watch (via watchdog) on the camera
-        feed directory. The kernel pushes a MOVED_TO event the instant
-        siyi_node does its atomic ``.tmp`` -> final ``os.replace()``, so
-        detection starts within milliseconds instead of waiting up to a full
-        poll interval -- and there is essentially zero CPU spent while idle.
-
-        Fallback path: if watchdog is not installed, we keep the original
-        polling timer at ``check_interval`` so behaviour is unchanged.
-        """
+        """Set up image-arrival notification."""
         try:
             from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
