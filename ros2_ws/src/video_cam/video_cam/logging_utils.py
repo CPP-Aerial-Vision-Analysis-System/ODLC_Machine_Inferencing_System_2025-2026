@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Shared console logging configuration for the ODLC ROS2 nodes.
-
-Every node that uses this renders log lines with the same shape:
-
-    [<SEVERITY>] [HH:MM:SS] [<node_name>]: <message>
-
-There are two steps and the order matters:
-
-  1. configure_console_format() — sets RCUTILS_CONSOLE_OUTPUT_FORMAT. MUST run
-     *before* rclpy is imported, because rcutils reads the format string once
-     at init and caches it.
-  2. install_wallclock_logging(node) — call inside the node constructor to wrap
-     its logger so a human-readable HH:MM:SS time and the node name are
-     prepended. (rcutils' own {time} token is epoch seconds, which is unreadable
-     in the field.)
-
-Module-level helpers in both packages take the node's logger as an argument, so
-once the node logger is wrapped here the whole pipeline logs consistently.
-"""
+"""Shared console logging configuration for the ODLC ROS2 nodes."""
 
 import os
 import time
@@ -32,12 +14,7 @@ def configure_console_format() -> None:
 
 
 def install_wallclock_logging(node):
-    """Wrap node.get_logger() so messages render as '[HH:MM:SS] [name]: msg'.
-
-    We log one message at a time (rather than reformatting the rcutils template)
-    so that multi-line wraps don't collide on a single line. Returns the
-    (mutated) logger for convenience.
-    """
+    """Wrap node.get_logger() so messages render as '[HH:MM:SS] [name]: msg'."""
     from rclpy.logging import LoggingSeverity
 
     logger = node.get_logger()

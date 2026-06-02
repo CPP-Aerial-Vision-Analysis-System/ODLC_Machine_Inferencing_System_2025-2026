@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# Shared console-logging setup. configure_console_format() must run before
+# rclpy is imported; install_wallclock_logging() is applied in __init__ so this
+# node logs with the same '[severity] [HH:MM:SS] [name]: msg' shape as new_od.
+from video_cam.logging_utils import configure_console_format, install_wallclock_logging
+configure_console_format()
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, NavSatFix
@@ -42,7 +48,10 @@ class SIYINode(Node):
     
     def __init__(self):
         super().__init__('siyi')
-        
+        # Wrap the logger before any components are built so storage/camera/
+        # pipeline all inherit the same wallclock formatting.
+        install_wallclock_logging(self)
+
         # Parameters
         self.declare_parameter('use_real_camera', DEFAULT_USE_REAL_CAMERA)
         self.declare_parameter('min_altitude_agl', DEFAULT_MIN_ALTITUDE_AGL)
@@ -146,12 +155,6 @@ class SIYINode(Node):
     def _handle_capture_request(self):
         """Handle capture request (executed in separate thread)"""
         if self.use_real_camera:
-            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
-            # index). Phase 3 (HTTP download) is intentionally not counted
-            # as busy, so a new trigger arriving while the previous
-            # capture is still downloading will proceed and overlap its
-            # shutter with that download — this is the whole point of the
-            # pipelined-capture design.
             # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
             # index). Phase 3 (HTTP download) is intentionally not counted
             # as busy, so a new trigger arriving while the previous
