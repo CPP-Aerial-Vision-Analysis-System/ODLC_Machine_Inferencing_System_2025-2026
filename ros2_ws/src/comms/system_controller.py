@@ -3,7 +3,7 @@
 import asyncio
 import os
 from mission_state_utils import load_state, update_state, STATE_FILE
-from path
+
 STATE_POLL_HZ = 2.0
 
 
@@ -26,7 +26,7 @@ async def main():
         #     await asyncio.sleep(0.5)
         #     os.system("reboot")
 
-        elif action == "shutdown":
+        if action == "shutdown":
             update_state("pending_action", None)
             update_state("last_command", "shutdown")
             print("Shutting down...")

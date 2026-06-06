@@ -1,0 +1,70 @@
+
+# CI workflow #2: ROS 2 build & tests
+#
+# This job runs inside the official ROS 2 Humble Docker image, so it has the
+# same ROS tools the devcontainer has.
+#   1. unit-tests  — run our pure-Python tests (fast, no ROS needed)
+#   2. colcon build — compile the workspace (catches broken code/CMake/msgs)
+#   3. colcon test  — run ROS's built-in lint tests
+
+name: ROS 2 Build & Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # ── Job 1: unit tests — plain Python, always reliable ──────────────────
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install pytest
+      - name: Run unit tests
+        run: pytest tests/unit          # this is a HARD gate: red = merge blocked
+
+  # ── Job 2: build the ROS workspace ─────────────────────────────────────
+  colcon-build:
+    runs-on: ubuntu-latest
+    container: ros:humble              # official ROS 2 Humble image
+    steps:
+      # Check out the repo AND its submodules (ultralytics_ros, firmware).
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Install whatever system/ROS dependencies the packages declare in
+      # their package.xml files. `|| true` so a single missing rosdep key
+      # doesn't kill the whole run while we're still stabilising.
+      - name: Install dependencies (rosdep)
+        run: |
+          apt-get update
+          rosdep update
+          rosdep install --from-paths ros2_ws/src --ignore-src -y || true
+
+      # Build everything EXCEPT the GPU/TensorRT packages — CI runners have
+      # no GPU, so those can't build or run here.
+      #
+      # NOTE: continue-on-error is TRUE while we sort out missing dependency
+      # declarations (e.g. `main` imports mavros but doesn't declare it).
+      # Flip to `false` once it builds clean to make it a hard gate.
+      - name: colcon build
+        continue-on-error: true
+        run: |
+          . /opt/ros/humble/setup.sh
+          cd ros2_ws
+          colcon build --packages-skip detection ultralytics_ros
+
+      # Run ROS's built-in tests (the ament flake8 / pep257 / copyright
+      # checks already present in each package's test/ folder).
+      - name: colcon test
+        continue-on-error: true
+        run: |
+          . /opt/ros/humble/setup.sh
+          cd ros2_ws
+          . install/setup.sh || true
+          colcon test --packages-skip detection ultralytics_ros
+          colcon test-result --verbose || true

@@ -20,8 +20,7 @@ from video_cam.config import MAPPING_SUBDIR
 
 import time, cv2, math, sys, os, subprocess
 
-from mavros_msgs.msg import StatusText
-msg.severity = StatusText.NOTICE
+from mission_logic import NAV_COMMANDS, find_last_two_nav_waypoints
 
 ALT = 16.8      # in meters (this is ~55ft)
 
@@ -217,19 +216,11 @@ class MainController(Node):
     def _update_last_nav_before_rtl(self):
         # Find the last actual NAV waypoint index before RTL, and the buffer waypoint, used for GUIDED processing hold.
         # DigiCamCtrl and other DO_ commands don't trigger WaypointReached, so we need the index of the last physical navigation waypoint.
-        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
-        self.last_nav_before_rtl = -1
-        self.buffer_wp = -1
-        if self.rtl_index > 0 and len(self.waypoints) > 0:
-            found_last = False
-            for i in range(self.rtl_index - 1, -1, -1):
-                if self.waypoints[i].command in NAV_COMMANDS:
-                    if not found_last:
-                        self.last_nav_before_rtl = i
-                        found_last = True
-                    else:
-                        self.buffer_wp = i
-                        break
+        # The pure logic lives in mission_logic.py so it can be unit-tested without ROS.
+        commands = [wp.command for wp in self.waypoints]
+        self.last_nav_before_rtl, self.buffer_wp = find_last_two_nav_waypoints(
+            commands, self.rtl_index, NAV_COMMANDS
+        )
         if self.last_nav_before_rtl >= 0:
             self.get_logger().info(
                 f"Last nav WP before RTL: index {self.last_nav_before_rtl} "

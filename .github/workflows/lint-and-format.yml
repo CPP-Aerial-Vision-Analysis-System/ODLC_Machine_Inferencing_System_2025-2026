@@ -1,0 +1,57 @@
+# CI workflow #1: Lint & Format (the "static checks")
+#
+# WHAT IT DOES: reads the Python code WITHOUT running it and flags problems.
+#   - "lint"   = find bugs (undefined variables, syntax errors, ...)
+#   - "format" = check the code is consistently formatted
+#
+# These checks are fast (seconds) and need no ROS or hardware
+
+name: Lint & Format
+
+# WHEN to run: on every push, and on every pull request.
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Job 1: lint — find real bugs
+  lint:
+    runs-on: ubuntu-latest          # a fresh cloud machine GitHub gives us
+    steps:
+      # Step 1: download your repository onto that machine.
+      - uses: actions/checkout@v4
+
+      # Step 2: install Python.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"    # matches ROS 2 Humble / Ubuntu 22.04
+
+      # Step 3: install the linter.
+      - run: pip install ruff
+
+      # Step 4: run the linter. Rules + excludes come from ruff.toml.
+      # `--output-format=github` makes findings show up as inline annotations
+      # on the "Files changed" tab of a pull request.
+      #
+      # This is now a HARD GATE: the original 18-bug backlog has been fixed,
+      # so any NEW real-bug finding (undefined name, syntax error, ...) will
+      # fail this job and block the merge. If you ever need to widen the rules
+      # in ruff.toml and it surfaces a fresh backlog, temporarily add
+      # `continue-on-error: true` here until you've cleared it.
+      - name: Run ruff (lint)
+        run: ruff check ros2_ws/src --output-format=github
+
+  # ── Job 2: format — check formatting (report-only for now) ─────────────
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install ruff
+      # `ruff format --check` does not change files; it just reports which
+      # files WOULD be reformatted. Report-only until the team adopts a style.
+      - name: Run ruff (format check)
+        continue-on-error: true
+        run: ruff format --check ros2_ws/src

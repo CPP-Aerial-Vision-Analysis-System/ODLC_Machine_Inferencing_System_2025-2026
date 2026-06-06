@@ -1,0 +1,34 @@
+# CI workflow #4 (PLACEHOLDER): Validation / end-to-end testing
+#
+# "Validation testing" = does the WHOLE system behave correctly end-to-end?
+# For this project that means running the ROS nodes against a simulated
+# drone (ArduPilot SITL + Gazebo) and checking the mission plays out — the
+# same `suas-sim:ros2-gazebo` environment your devcontainer is built on.
+#
+# This is intentionally NOT wired to run automatically yet: a full sim run
+# is heavy (minutes, lots of setup) and we want the basic checks solid first.
+#
+# `workflow_dispatch` means it ONLY runs when you click "Run workflow"
+# manually in the GitHub Actions tab — so it never blocks anyone today,
+# but the scaffold is here for when you're ready to build it out.
+
+name: Validation (SITL) — manual only
+
+on:
+  workflow_dispatch:        # manual trigger only; no automatic runs
+
+jobs:
+  sitl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: TODO — bring up SITL + Gazebo and run a scripted mission
+        run: |
+          echo "Not implemented yet. The plan:"
+          echo "  1. Start ArduPilot SITL (simulated flight controller)."
+          echo "  2. Launch the ROS 2 nodes against it."
+          echo "  3. Feed a fake detection, confirm the drop waypoints + servos appear."
+          echo "  4. Assert the mission completes as expected."

@@ -24,6 +24,7 @@ Key improvements:
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 # sensor_msgs and CvBridge no longer strictly needed, but left for compatibility
 from sensor_msgs.msg import Image
@@ -365,7 +366,7 @@ class MappingNode(Node):
     def send_back(self, text):
         # feedback to GCS (Mission Planner messages tab)
         msg = StatusText()
-        msg.severity = severity
+        msg.severity = StatusText.NOTICE
         msg.text = text
         self.status_queue.put(msg)
 
@@ -375,8 +376,6 @@ class MappingNode(Node):
                 # Avoid running twice if multiple zigzag messages arrive
                 self.get_logger().info("Mapping already started, ignoring extra zigzag command.")
                 return
-
-            self.get_logger().info(f"Found {len(all_images)} images to stitch")
 
     def run_mapping(self):
         """

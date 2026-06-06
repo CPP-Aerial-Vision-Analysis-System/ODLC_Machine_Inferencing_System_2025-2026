@@ -51,12 +51,12 @@ class WaypointManager(Node):
         self.waypoint_list = data #stdy
         for i, wp in enumerate(self.waypoint_list.waypoints):       
                  
-            if wp.command == MAV_CMD_NAV_TAKEOFF:
+            if wp.command == CommandCode.NAV_TAKEOFF:
                 self.takeoff_index = i
                 if i + 1 < len(self.waypoint_list.waypoints):
                     self.next_after_takeoff = i + 1
 
-            if wp.command == MAV_CMD_NAV_RETURN_TO_LAUNCH:
+            if wp.command == CommandCode.NAV_RETURN_TO_LAUNCH:
                 self.rtl_index = i
                 if i - 1 > 0:
                     self.last_before_rtl = i - 1

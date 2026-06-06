@@ -1,0 +1,34 @@
+# Ruff configuration — controls the Python linter ("lint testing") and
+# formatter ("format testing") that our CI runs on every push.
+#
+# Docs: https://docs.astral.sh/ruff/
+
+# Only lint OUR source. Skip build artifacts, virtualenvs, and the
+# third-party submodules we don't own.
+extend-exclude = [
+    "ros2_ws/build",
+    "ros2_ws/install",
+    "ros2_ws/log",
+    "ros2_ws/src/ultralytics_ros",  # submodule (not our code)
+    "Payload-Firmware-2026",        # submodule (C++ firmware)
+    "**/__pycache__",
+]
+
+# Match the Python version that ships with ROS 2 Humble (Ubuntu 22.04).
+target-version = "py310"
+line-length = 100
+
+[lint]
+# Start with a small, HIGH-SIGNAL set of rules: these only flag real bugs
+# (syntax errors, undefined names, broken f-strings), not style nitpicks.
+# Once the team is comfortable, widen this list, e.g. add:
+#   "W"   pycodestyle warnings
+#   "I"   import sorting
+#   "B"   common bug patterns (flake8-bugbear)
+#   "UP"  modernize old syntax
+select = [
+    "E9",   # syntax / runtime errors
+    "F63",  # invalid comparisons, assert on tuple, etc.
+    "F7",   # misplaced statements (break/return outside loop/function)
+    "F82",  # undefined name used
+]

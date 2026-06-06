@@ -3,6 +3,7 @@ from pymavlink import mavutil
 import time
 
 import os
+from pathlib import Path
 
 def autodetect_serial_port():
     """

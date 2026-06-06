@@ -1,0 +1,36 @@
+# CI workflow #3: Payload firmware build (ESP32 / PlatformIO)
+#
+# Compiles the firmware in the Payload-Firmware-2026 submodule to make sure
+# it still builds. A green check here means "this firmware would flash."
+#
+# NOTE: ideally this lives in the firmware's OWN repository, but building it
+# here too is handy since this superproject pins a specific firmware commit.
+
+name: Firmware Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-firmware:
+    runs-on: ubuntu-latest
+    steps:
+      # The firmware source is a submodule, so we must fetch submodules.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # PlatformIO is the build system the firmware uses (see its
+      # platformio.ini). Installing it gives us the `pio` command.
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # `pio run` compiles the project. `-d` points it at the firmware dir.
+      # PlatformIO downloads the ESP32 toolchain + libraries on first run.
+      - name: Compile firmware
+        run: pio run -d Payload-Firmware-2026
