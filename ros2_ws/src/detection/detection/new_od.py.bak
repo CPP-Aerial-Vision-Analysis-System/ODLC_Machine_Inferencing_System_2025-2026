@@ -70,10 +70,10 @@ class SAHIObjectDetectionNode(Node):
         install_wallclock_logging(self)
 
         # Parameters
-        self.declare_parameter('model_path', '/home/astra-dev/astra/ros2_ws/src/yolo26m.pt')
+        self.declare_parameter('model_path', 'yolo26m.engine')
         self.declare_parameter('model_format', MODEL_FORMAT_AUTO)
         self.declare_parameter('auto_convert_tensorrt', True)
-        self.declare_parameter('tensorrt_workspace', 1)
+        self.declare_parameter('tensorrt_workspace', 4)
         self.declare_parameter('confidence_threshold', DEFAULT_CONFIDENCE)
         self.declare_parameter('slice_height', DEFAULT_SLICE)
         self.declare_parameter('slice_width', DEFAULT_SLICE)
@@ -90,8 +90,8 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('enable_gpu_memory_cleanup', True)
         self.declare_parameter('camera_feed_path', '')
         self.declare_parameter('detection_results_path', '')
-        self.declare_parameter('use_batched_inference', True)
-        self.declare_parameter('batch_size', 2)
+        self.declare_parameter('use_batched_inference', False)
+        self.declare_parameter('batch_size', 8)
 
         self.model_path = self.get_parameter('model_path').value
         self.model_format = self.get_parameter('model_format').value.lower()
