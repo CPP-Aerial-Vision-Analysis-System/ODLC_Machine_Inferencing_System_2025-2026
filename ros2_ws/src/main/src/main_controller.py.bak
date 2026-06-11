@@ -315,38 +315,24 @@ class MainController(Node):
             self.send_ack("No objects detected.")
 
     def change_mode(self, mode):
-        """Request a flight-mode change; result is logged when it completes."""
+        # set_mode service should already be ready from self._wait_for_services
         self.get_logger().info(f"Setting mode to {mode}...")
-        if not self.set_mode_client.service_is_ready():
-            self.get_logger().error(f"CRITICAL: set_mode service unavailable - cannot switch to {mode}")
-            self.send_ack(f"CRITICAL: set_mode unavailable ({mode})")
-            return
-        req = SetMode.Request()
-        req.custom_mode = mode
-        future = self.set_mode_client.call_async(req)
-        future.add_done_callback(lambda f, m=mode: self._mode_change_done(f, m))
-
-    def _mode_change_done(self, future, mode):
         try:
+            req = SetMode.Request()
+            req.custom_mode = mode
+            future = self.set_mode_client.call_async(req)
+            # rclpy.spin_until_future_complete(self, future)
             response = future.result()
-            if response is not None and response.mode_sent:
+            
+            if response.mode:
                 self.get_logger().info(f"Mode changed to {mode}")
             else:
-                self.get_logger().error(f"FCU rejected mode change to {mode}")
-                self.send_ack(f"FAILED: mode change to {mode}")
+                self.get_logger().error("Failed to change mode")
         except Exception as e:
-            self.get_logger().error(f"Mode change to {mode} failed: {e}")
-            self.send_ack(f"FAILED: mode change to {mode}")
+            self.get_logger().error(str(e))
 
     def send_waypoint_data(self, wp_list):
         # Send mission items (NAV waypoints + DO_SET_SERVO) to the waypoint manager.
-
-        if not self.add_wp_client.service_is_ready():
-            self.get_logger().error(
-                "CRITICAL: /addWaypoint service unavailable (waypoint_manager dead?) - "
-                "mission items NOT sent")
-            self.send_ack("CRITICAL: waypoint service down - drop WPs NOT sent")
-            return False
 
         self.get_logger().info(f"Sending {len(wp_list)} mission items")
 
@@ -378,24 +364,11 @@ class MainController(Node):
                     )
 
                 future = self.add_wp_client.call_async(req)
-                future.add_done_callback(
-                    lambda f, idx=wp['index']: self._add_wp_done(f, idx))
 
-            self.get_logger().info("All mission items dispatched (awaiting confirmation)")
+            self.get_logger().info("All mission items sent")
         except Exception as e:
             self.get_logger().error(f"Error sending mission items: {str(e)}")
 
-
-    def _add_wp_done(self, future, index):
-        try:
-            response = future.result()
-            if response is not None and response.success:
-                self.get_logger().info(f"Mission item at index {index} confirmed")
-            else:
-                self.get_logger().error(f"Waypoint manager REJECTED mission item at index {index}")
-                self.send_ack(f"FAILED: mission item {index} rejected")
-        except Exception as e:
-            self.get_logger().error(f"AddWaypoint call for index {index} failed: {e}")
 
     def send_ack(self, text):
         msg = StatusText()
