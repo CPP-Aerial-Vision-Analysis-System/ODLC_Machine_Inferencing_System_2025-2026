@@ -82,8 +82,6 @@ class MainController(Node):
         self.camera_feed_path = os.path.join(get_ros2_ws_directory(), "video_cam", MAPPING_SUBDIR)
         self.param_manager = ParameterManager()
         self.trigger_wp = -1
-        self._pending_wp_confirmations = 0
-        self._resume_watchdog = None
 
         self.fetch_mission_indices()
 
@@ -118,12 +116,9 @@ class MainController(Node):
 
     # called when /mavros/mission/reached is triggered, get the wp_sequence, check if we reached buffer_wp, switch to guided, starts a timer and calls _check_all_imgaes_processed()
     def update_waypoint_reached(self, msg):
-        self.waypoint_reached = msg.wp_seq      # store latest waypoint index
-        # Buffer waypoint: switch to GUIDED and wait for image processing.
-        # The tent/person waypoints are inserted DURING this hold, so the
-        # mission is already rewritten well before the FCU can sequence into
-        # RTL. (Inserting on the last waypoint's "reached" event loses that
-        # race: the FCU advances to the next mission item within ~10 ms.)
+        self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
+        # Buffer waypoint: switch to GUIDED to wait for image processing to finish
+
         if (self.buffer_wp >= 0
                 and self.waypoint_reached == self.buffer_wp
                 and not self.waiting_for_processing
@@ -135,6 +130,82 @@ class MainController(Node):
             if self.processing_check_timer is None:
                 self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
 
+        if self.last_nav_before_rtl >= 0:
+            trigger_wp = self.last_nav_before_rtl
+        else:
+            trigger_wp = self.last_before_rtl
+
+        if self.waypoint_reached == trigger_wp and self.wait_to_send_wp:
+
+            invalid_detection_message = "No valid object was detected."
+            both_detected_message     = "Both person and tent detected!"
+            person_detected_message   = "Only person detected!"
+            tent_detected_message     = "Only a tent was detected!"
+
+            if  (self.valid_detection("person") and self.valid_detection("tent")):
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long
+
+                tent_lat = self.detections["tent"].lat
+                tent_lon = self.detections["tent"].long
+
+                
+                self.get_logger().info(both_detected_message)
+                self.send_ack(both_detected_message)
+
+                insert_base = self.last_before_rtl + 1
+
+                # Mission sequence: fly to tent → release both tent servos → fly to person → release both human servos
+                self.send_waypoint_data([
+                    {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": ALT, "index": insert_base},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_1, "pwm": TENT_SERVOS_PWM, "index": insert_base + 1},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_2, "pwm": TENT_SERVOS_PWM, "index": insert_base + 2},
+                    {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": ALT, "index": insert_base + 3},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_1, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 4},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 5},
+                ])
+                self.wait_to_send_wp = False
+                self.send_ack("Mission: tent drop → person drop (all in AUTO)")
+                self.get_logger().info(f"Waypoints+servos sent. last_before_rtl was: {self.last_before_rtl}")
+                self.last_before_rtl = -1
+
+            elif (self.valid_detection("person")):
+                insert_base = self.last_before_rtl + 1
+                person_lat = self.detections["person"].lat
+                person_lon = self.detections["person"].long
+
+                self.get_logger().info(person_detected_message)
+                self.send_ack(person_detected_message)
+
+                self.send_waypoint_data([
+                    {"command": 16,  "lat": person_lat, "lon": person_lon, "alt": ALT, "index": insert_base},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_1, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 1},
+                    {"command": 183, "channel": HUMAN_SERVO_CHANNEL_2, "pwm": HUMAN_SERVOS_PWM, "index": insert_base + 2},
+                ])
+                self.wait_to_send_wp = False
+                self.last_before_rtl = -1
+
+            elif self.valid_detection("tent"):
+                insert_base = self.last_before_rtl + 1
+                tent_lat = self.detections["tent"].lat
+                tent_lon = self.detections["tent"].long
+
+                self.get_logger().info(tent_detected_message)
+                self.send_ack(tent_detected_message)
+
+                self.send_waypoint_data([
+                    {"command": 16,  "lat": tent_lat, "lon": tent_lon, "alt": ALT, "index": insert_base},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_1, "pwm": TENT_SERVOS_PWM, "index": insert_base + 1},
+                    {"command": 183, "channel": TENT_SERVO_CHANNEL_2, "pwm": TENT_SERVOS_PWM, "index": insert_base + 2},
+                ])
+                self.wait_to_send_wp = False
+                self.last_before_rtl = -1
+            else:
+                self.get_logger().info(invalid_detection_message)
+                self.send_ack(invalid_detection_message)
+                return
+
+        
     def valid_detection(self, obj_type):
         return obj_type in self.detections and self.detections[obj_type].confidence > 0
         
@@ -160,9 +231,7 @@ class MainController(Node):
 
     # called by update_waypoint_reached()
     def _check_all_images_processed(self):
-        # Runs every 2s during the GUIDED hold. When every captured image has
-        # a detection result, insert the tent/person waypoints and resume AUTO
-        # after the mission rewrite is confirmed.
+        # check if the images are processed, if so, switches to AUTO (continue mission)
         if self.auto_resumed or not self.waiting_for_processing:
             if self.processing_check_timer:
                 self.processing_check_timer.cancel()
@@ -186,23 +255,20 @@ class MainController(Node):
             self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
 
             if remaining <= 0:
+                self.get_logger().info("All images processed! Switching to AUTO (one-time)")
+                self.send_ack(f"All {total} images processed, resuming AUTO")
+                self.change_mode("AUTO")
+                self.auto_resumed = True
+                self.waiting_for_processing = False
                 if self.processing_check_timer:
                     self.processing_check_timer.cancel()
                     self.processing_check_timer = None
-                self.get_logger().info(f"All {total} images processed - inserting detection waypoints while holding")
-                self.send_ack(f"All {total} images processed")
-                self.wait_to_send_wp = False
-                sent = self._insert_detection_waypoints()
-                if sent == 0:
-                    self._resume_auto()
-                else:
-                    self._pending_wp_confirmations = sent
-                    self._resume_watchdog = self.create_timer(20.0, self._resume_watchdog_cb)
         except Exception as e:
             self.get_logger().error(f"Error checking processing status: {e}")
-            with_msg = f"ERROR in processing check: {e}"
-            self.send_ack(with_msg[:127])
 
+        if self.buffer_wp >= 0:
+            self.get_logger().info(f"Buffer WP (GUIDED processing hold): index {self.buffer_wp}")
+    
     # nobody is calling this method
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 < waypoint_index < len(self.waypoints):
@@ -316,60 +382,9 @@ class MainController(Node):
                     lambda f, idx=wp['index']: self._add_wp_done(f, idx))
 
             self.get_logger().info("All mission items dispatched (awaiting confirmation)")
-            return True
         except Exception as e:
             self.get_logger().error(f"Error sending mission items: {str(e)}")
 
-
-    def _insert_detection_waypoints(self) -> int:
-        """Insert tent then person waypoints (3s hold each) just before RTL.
-
-        Runs while parked in GUIDED at the buffer WP, so the mission is
-        rewritten long before the FCU sequences past the last survey
-        waypoint. Returns the number of items dispatched (0 = nothing to
-        insert, or dispatch failed).
-        """
-        labels = [k for k in ("tent", "person") if self.valid_detection(k)]
-        if not labels:
-            self.get_logger().info("No valid object was detected - mission will continue straight to RTL")
-            self.send_ack("No valid detections - continuing to RTL")
-            return 0
-
-        insert_base = self.last_before_rtl + 1
-        items = []
-        for kind in labels:
-            det = self.detections[kind]
-            items.append({"command": 16, "lat": det.lat, "lon": det.long,
-                          "alt": ALT, "index": insert_base + len(items)})
-            self.get_logger().info(
-                f"{kind} waypoint -> lat={det.lat}, lon={det.long} (conf={det.confidence:.2f})")
-
-        self.send_ack(f"Inserting {' + '.join(labels)} WPs before RTL")
-        if self.send_waypoint_data(items) is not True:
-            return 0
-        return len(items)
-
-    def _resume_auto(self):
-        """One-time switch back to AUTO after the hold (and insertion)."""
-        if self.auto_resumed:
-            return
-        self.auto_resumed = True
-        self.waiting_for_processing = False
-        if self._resume_watchdog is not None:
-            self._resume_watchdog.cancel()
-            self._resume_watchdog = None
-        self.get_logger().info("Resuming AUTO")
-        self.send_ack("Resuming AUTO")
-        self.change_mode("AUTO")
-
-    def _resume_watchdog_cb(self):
-        # Safety net: never loiter forever if a confirmation goes missing.
-        if not self.auto_resumed:
-            self.get_logger().error(
-                f"Timed out waiting for {self._pending_wp_confirmations} waypoint "
-                "confirmation(s) - resuming AUTO anyway")
-            self.send_ack("WARN: WP confirm timeout - resuming AUTO")
-            self._resume_auto()
 
     def _add_wp_done(self, future, index):
         try:
@@ -381,12 +396,6 @@ class MainController(Node):
                 self.send_ack(f"FAILED: mission item {index} rejected")
         except Exception as e:
             self.get_logger().error(f"AddWaypoint call for index {index} failed: {e}")
-        # Count down every response (ok or not); the watchdog covers losses.
-        if self._pending_wp_confirmations > 0:
-            self._pending_wp_confirmations -= 1
-            if self._pending_wp_confirmations == 0:
-                self._resume_auto()
-
 
     def send_ack(self, text):
         msg = StatusText()
