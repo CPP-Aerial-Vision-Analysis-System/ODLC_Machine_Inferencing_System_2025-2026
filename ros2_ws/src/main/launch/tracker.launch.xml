@@ -60,6 +60,8 @@
 
   <node pkg="mapping" exec="trigger" output="screen"></node>
 
+  <node pkg="main" exec="main_controller.py" output="screen"></node>
+
   <!-- <node pkg="waypoint_mavros" exec="killnode" output="screen"></node> -->
 
 <!-- 
@@ -74,3 +76,4 @@
   <!-- <node pkg="mapping" exec="mapping" output="screen"></node> -->
 
 </launch>
+
