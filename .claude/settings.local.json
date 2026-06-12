@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(expect *)",
+      "Bash(python3 -c \"import watchdog; print\\('watchdog', watchdog.__version__\\)\")",
+      "Bash(python3 -m py_compile detection/new_od.py)",
+      "Bash(python3 -m py_compile config.py camera_interface.py pipeline_orchestrator.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(git checkout *)",
+      "Bash(python3 -m venv /tmp/ruffenv)",
+      "Bash(/tmp/ruffenv/bin/python -m pip install -q --upgrade pip ruff)",
+      "Bash(/tmp/ruffenv/bin/ruff --version)",
+      "Bash(/tmp/ruffenv/bin/ruff check *)",
+      "Bash(/tmp/ruffenv2/bin/ruff check *)",
+      "Bash(grep -vE \"^$\")",
+      "Bash(/tmp/ruffenv2/bin/pip install *)",
+      "Bash(/tmp/ruffenv2/bin/python -m pytest tests/unit)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(/tmp/ruffenv2/bin/python -m pytest tests/unit -q)",
+      "Bash(git -C . status --short)",
+      "Bash(echo \"exit code: $?\")",
+      "Bash(python3 -c \"import PySide6; print\\(PySide6.__version__\\)\")",
+      "Bash(python3 -c \"import PyQt5; print\\('pyqt5 ok'\\)\")",
+      "Bash(python3 -c \"import pymavlink; print\\('pymavlink ok'\\)\")",
+      "Bash(python3.13 -m venv .venv)",
+      "Bash(.venv/bin/pip install *)",
+      "Bash(.venv/bin/python -c \"import PySide6; print\\('PySide6', PySide6.__version__\\)\")"
+    ]
+  }
+}

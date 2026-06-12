@@ -1,24 +1,64 @@
 #!/usr/bin/env python3
 
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from interfaces.msg import ImageResult
-from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
-from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
-from sensor_msgs.msg import NavSatFix, Image
-from std_msgs.msg import Bool
-from rcl_interfaces.srv import GetParameters
-from rcl_interfaces.msg import ParameterEvent
+# Lazy (string) annotations so this module can be imported without ROS — the
+# pure helpers below (e.g. find_last_two_nav_waypoints) are unit-tested in CI
+# on machines that have no ROS install.
+from __future__ import annotations
 
-from cv_bridge import CvBridge
+# ROS imports are guarded: when ROS isn't installed (CI unit-test runner), the
+# import fails and we fall back to a plain object base class. The MainController
+# node still requires ROS at runtime, but the pure functions stay importable.
+try:
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy
+    from interfaces.msg import ImageResult
+    from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
+    from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
+    from sensor_msgs.msg import NavSatFix, Image
+    from std_msgs.msg import Bool
+    from rcl_interfaces.srv import GetParameters
+    from rcl_interfaces.msg import ParameterEvent
 
-from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
-from wp_sender.parameter import ParameterManager
+    from cv_bridge import CvBridge
 
-import time, cv2, math, sys, os, subprocess
+    from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
+    from wp_sender.parameter import ParameterManager
+    import cv2
+    _ROS_AVAILABLE = True
+except ImportError:
+    rclpy = None
+    Node = object
+    _ROS_AVAILABLE = False
+
+import time, math, sys, os, subprocess
 
 ALT = 16.8      # in meters (this is ~55ft)
+
+# Mission-item command IDs that count as real navigation waypoints.
+# (MAVLink: 16=NAV_WAYPOINT, 17-21=NAV_LOITER_*, 22=NAV_TAKEOFF)
+NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}
+
+
+def find_last_two_nav_waypoints(commands, rtl_index, nav_commands=NAV_COMMANDS):
+    """Find the last two navigation waypoints before the RTL waypoint."""
+    last_nav_before_rtl = -1
+    buffer_wp = -1
+
+    if rtl_index > 0 and len(commands) > 0:
+        found_last = False
+        for i in range(rtl_index - 1, -1, -1):
+            if i >= len(commands):
+                continue
+            if commands[i] in nav_commands:
+                if not found_last:
+                    last_nav_before_rtl = i
+                    found_last = True
+                else:
+                    buffer_wp = i
+                    break
+
+    return last_nav_before_rtl, buffer_wp
 
 # HARD CODED SERVO CHANNEL AND PWM VALUES FOR HUMAN AND TENT OBJECTS (WILL BE CHANGED TO THE RIGHT VALUES LATER)
 HUMAN_SERVO_CHANNEL_1 = 9
@@ -246,23 +286,9 @@ class MainController(Node):
         self._update_last_nav_before_rtl()
 
     def _update_last_nav_before_rtl(self):
-        """Find the last actual NAV waypoint index before RTL, and the buffer
-        waypoint (one NAV waypoint before that) used for GUIDED processing hold.
-        DigiCamCtrl and other DO_ commands don't trigger WaypointReached,
-        so we need the index of the last physical navigation waypoint."""
-        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
-        self.last_nav_before_rtl = -1
-        self.buffer_wp = -1
-        if self.rtl_index > 0 and len(self.waypoints) > 0:
-            found_last = False
-            for i in range(self.rtl_index - 1, -1, -1):
-                if self.waypoints[i].command in NAV_COMMANDS:
-                    if not found_last:
-                        self.last_nav_before_rtl = i
-                        found_last = True
-                    else:
-                        self.buffer_wp = i
-                        break
+        """Find the last actual NAV waypoint index before RTL, and the buffer waypoint."""
+        commands = [wp.command for wp in self.waypoints]
+        self.last_nav_before_rtl, self.buffer_wp = find_last_two_nav_waypoints(commands, self.rtl_index)
         if self.last_nav_before_rtl >= 0:
             self.get_logger().info(
                 f"Last nav WP before RTL: index {self.last_nav_before_rtl} "

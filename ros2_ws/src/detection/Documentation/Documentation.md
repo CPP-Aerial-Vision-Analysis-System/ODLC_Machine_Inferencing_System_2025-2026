@@ -446,8 +446,6 @@ cd /home/astra-dev/Documents/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws
 colcon build --packages-select detection --symlink-install
 
 # Build output:
-# Starting >>> detection
-# Finished <<< detection [3.42s]
 # Summary: 1 package finished [4.32s]
 ```
 

@@ -34,7 +34,6 @@ find_package(PCL REQUIRED)
 
 install(PROGRAMS
   src/main_controller.py
-  src/mission_logic.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

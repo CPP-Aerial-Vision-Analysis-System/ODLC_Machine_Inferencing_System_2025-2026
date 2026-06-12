@@ -1,4 +1,4 @@
-"""Unit tests for mission_logic.find_last_two_nav_waypoints.
+"""Unit tests for main_controller.find_last_two_nav_waypoints.
 
 These are REAL unit tests: each one feeds the function a known input and
 asserts the exact output. They need no ROS, no drone, no network — so they
@@ -10,8 +10,9 @@ Run locally with:   pytest tests/unit
 import os
 import sys
 
-# Make the pure-logic module importable without installing the ROS package.
-# (mission_logic.py lives next to main_controller.py in the `main` package.)
+# Make the controller module importable without installing the ROS package.
+# main_controller.py guards its ROS imports, so the pure helper functions it
+# defines (find_last_two_nav_waypoints) import fine on a ROS-less CI runner.
 sys.path.insert(
     0,
     os.path.join(
@@ -19,7 +20,7 @@ sys.path.insert(
     ),
 )
 
-from mission_logic import find_last_two_nav_waypoints  # noqa: E402
+from main_controller import find_last_two_nav_waypoints  # noqa: E402
 
 # Command IDs used below: 16 = NAV_WAYPOINT, 183 = DO_SET_SERVO (not a NAV cmd).
 

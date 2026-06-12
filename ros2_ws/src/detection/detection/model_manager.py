@@ -132,11 +132,6 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device,
             torch.cuda.synchronize()
             torch.backends.cudnn.benchmark = True
             torch.backends.cudnn.enabled = True
-            # FP32 matmul → TF32 on Ampere (Orin). Free precision/perf trade.
-            # PyTorch 2.9+ deprecated allow_tf32 / set_float32_matmul_precision
-            # in favour of per-backend fp32_precision strings; using the legacy
-            # APIs (even via set_float32_matmul_precision) prints a runtime
-            # warning, so only fall back to them when the new API is missing.
             try:
                 torch.backends.cuda.matmul.fp32_precision = 'tf32'
                 torch.backends.cudnn.conv.fp32_precision = 'tf32'
@@ -205,16 +200,7 @@ def load_sahi_model(resolved_path, final_format, confidence_threshold, device,
 def warmup_model(model, slice_h, slice_w, overlap_h, overlap_w, logger=None,
                  batched_mode=False, batch_size=1, confidence_threshold=None,
                  device=None):
-    """Run a dummy inference to warm up the model.
-
-    batched_mode=True warms the raw YOLO with batches of (batch_size, slice_h,
-    slice_w, 3) so TensorRT pre-builds the dynamic-shape optimisation profile
-    for the exact runtime shape — otherwise the first real frame pays a
-    ~265 MiB context-allocation tax mid-pipeline. Pass the same conf/device
-    kwargs the real call uses; ultralytics caches one Predictor (and one TRT
-    ExecutionContext) per kwargs signature, so a mismatch silently builds a
-    second context.
-    """
+    """Run a dummy inference to warm up the model."""
     logger = logger or rclpy.logging.get_logger('model_manager')
     if model is None:
         return
@@ -256,11 +242,7 @@ def _detect_format(path: str) -> str:
     return MODEL_FORMAT_PYTORCH
 
 def _convert_pt_to_trt(pt_path, engine_path, slice_h, slice_w, workspace_gb, device, logger, max_batch=1):
-    """Convert .pt model to TensorRT .engine.
-
-    max_batch > 1 builds a dynamic-batch engine (so the batched-inference path
-    can feed a real batch); otherwise a static batch-1 engine is built.
-    """
+    """Convert .pt model to TensorRT .engine."""
     if not YOLO_AVAILABLE or not TENSORRT_AVAILABLE:
         logger.error("YOLO and TensorRT are both required for conversion")
         return False
