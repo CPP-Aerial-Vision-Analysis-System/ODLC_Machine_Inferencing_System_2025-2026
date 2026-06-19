@@ -384,22 +384,16 @@ class MainController(Node):
         try:
             req = SetMode.Request()
             req.custom_mode = mode
-            # Fire-and-forget: never block (this runs inside a subscription
-            # callback under a single-threaded executor — spinning here deadlocks).
             future = self.set_mode_client.call_async(req)
-            future.add_done_callback(lambda f, m=mode: self._on_mode_result(f, m))
-        except Exception as e:
-            self.get_logger().error(str(e))
-
-    def _on_mode_result(self, future, mode):
-        try:
+            # rclpy.spin_until_future_complete(self, future)
             response = future.result()
-            if response is not None and response.mode_sent:
+            
+            if response.mode:
                 self.get_logger().info(f"Mode changed to {mode}")
             else:
-                self.get_logger().error(f"Failed to change mode to {mode}")
+                self.get_logger().error("Failed to change mode")
         except Exception as e:
-            self.get_logger().error(f"set_mode result error: {e}")
+            self.get_logger().error(str(e))
 
     def send_waypoint_data(self, wp_list):
         # AddWaypoint is scalar (one waypoint per call); send one request each.
@@ -462,26 +456,20 @@ class MainController(Node):
             request.param6 = float(0)
             request.param7 = float(0)
 
-            # Fire-and-forget: do NOT spin here. This runs inside a subscription
-            # callback under a single-threaded executor, so spin_until_future_complete
-            # would deadlock the node. call_async already puts the command on the wire.
+            # Get the response from the service
             future = self.command_client.call_async(request)
-            future.add_done_callback(lambda f, c=channel, p=pwm: self._on_servo_result(f, c, p))
-
-        except Exception as e:
-            self.get_logger().error(f"Service call failed: {e}")
-
-    def _on_servo_result(self, future, channel, pwm):
-        try:
+            rclpy.spin_until_future_complete(self, future)
             response = future.result()
-            if response is not None and response.success:
-                self.get_logger().info(f"[SERVO] Channel {channel} moved to {pwm}us")
+
+            if response.success:
+                self.get_logger().info(f"[SERVO] Channel {channel} moved to {pwm}μs")
                 self.send_ack(f"Servo {channel} -> {pwm}")
             else:
                 self.get_logger().warn(f"[SERVO] Failed to move channel {channel}")
                 self.send_ack(f"Servo {channel} move FAILED")
+
         except Exception as e:
-            self.get_logger().error(f"Servo result error: {e}")
+            self.get_logger().error(f"Service call failed: {e}")
 
     def send_ack(self, text):
         msg = StatusText()
