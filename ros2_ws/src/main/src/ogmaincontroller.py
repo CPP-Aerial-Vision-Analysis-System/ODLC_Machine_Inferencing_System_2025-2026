@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from main.msg import ImageResult
+from ultralytics_ros.msg import ImageResult
 from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
 from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
 from sensor_msgs.msg import NavSatFix, Image
@@ -92,13 +92,8 @@ class MainController(Node):
         self.waypoints = []
         self.detections = {
             "person": Detection_Object(type="person", confidence=0, latitude=0.0, longitude=0.0),
-            "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0)
+            "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0) 
         }
-
-        # Initialize bottle servo to OPEN on startup
-        while not self.command_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("Waiting for command service ...")
-        # self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)  # startup servo move disabled
 
     def fetch_mission_indices(self):
         wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
@@ -207,20 +202,21 @@ class MainController(Node):
                 self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
                 self.last_before_rtl = -1
         
-        if self.waypoint_reached == self.human_wp:
-            self.get_logger().info("Reached human waypoint, activating servo...")
-            self.send_ack("Reached human waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)  # servo 9 OPEN for human
-            time.sleep(3)
-            self.change_mode("AUTO")
-        if self.waypoint_reached == self.tent_wp:
-            self.get_logger().info("Reached tent waypoint, activating servo...")
-            self.send_ack("Reached tent waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_servo(SERVO_BEACON, PULLEY_OPEN_BEACON)  # servo 10 OPEN for tent
-            time.sleep(3)
-            self.change_mode("AUTO")
+        # if self.waypoint_reached == self.human_wp:
+        #     self.get_logger().info("Reached human waypoint, activating servo...")
+        #     self.send_ack("Reached human waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)
+        #     time.sleep(3)
+        #     self.change_mode("AUTO")
+        # if self.waypoint_reached == self.tent_wp:
+        #     self.get_logger().info("Reached tent waypoint, activating servo...")
+        #     self.send_ack("Reached tent waypoint, activating servo")
+        #     self.change_mode("GUIDED")
+        #     self.move_tent_servo()
+        #     self.move_servo(SERVO_BEACON, PULLEY_OPEN_BEACON)
+        #     time.sleep(3)
+        #     self.change_mode("AUTO")
             
         
     def valid_detection(self, type):
@@ -433,10 +429,10 @@ class MainController(Node):
 
             if response.success:
                 self.get_logger().info(f"[SERVO] Channel {channel} moved to {pwm}μs")
-                self.send_ack(f"Servo {channel} -> {pwm}")
+                self.send_status(f"Servo {channel} -> {pwm}")
             else:
                 self.get_logger().warn(f"[SERVO] Failed to move channel {channel}")
-                self.send_ack(f"Servo {channel} move FAILED")
+                self.send_status(f"Servo {channel} move FAILED")
 
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
