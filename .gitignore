@@ -20,6 +20,8 @@ __pycache__/
 .Python
 ros2_ws/*.tlog.raw
 
+.claude
+
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/

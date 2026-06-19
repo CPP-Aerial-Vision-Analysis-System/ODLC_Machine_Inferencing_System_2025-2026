@@ -6,7 +6,34 @@
     "--env=DISPLAY=host.docker.internal:0.0",
     "--network=host"
   ],
+  // Persist bash history in a named Docker volume so it survives rebuilds.
+  // Using a volume (not a host bind mount) means no host-side .bash_history
+  // file has to be created beforehand — works the same on macOS and Windows.
+  "remoteEnv": {
+    "HISTFILE": "/commandhistory/.bash_history"
+  },
+  // The base image bakes in a devcontainer.metadata mount of
+  // "${localEnv:HOME}/.bash_history -> /home/vscode/.bash_history" (type=bind).
+  // On Windows there is no $HOME, so it resolves to "/.bash_history", which
+  // does not exist and breaks container start. We override that exact target
+  // (it belongs to the unused "vscode" user anyway) with /dev/null, which
+  // exists on the Docker Desktop Linux backend on both macOS and Windows.
+  // Real history for the "ubuntu" user is persisted via /commandhistory below.
+  "mounts": [
+    "source=odlc-bashhistory,target=/commandhistory,type=volume",
+    "source=/dev/null,target=/home/vscode/.bash_history,type=bind"
+  ],
+  "remoteUser": "ubuntu",
   "workspaceMount": "source=${localWorkspaceFolder},target=/${localWorkspaceFolderBasename},type=bind",
   "workspaceFolder": "/${localWorkspaceFolderBasename}",
-  "postCreateCommand": "python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  // Make the history volume writable by the container user, then install
+  // project Python deps.
+  "postCreateCommand": "sudo mkdir -p /commandhistory && sudo touch /commandhistory/.bash_history && sudo chown -R ubuntu /commandhistory && python3 -m pip install --no-cache-dir -r /${localWorkspaceFolderBasename}/ros2_ws/src/detection/requirements_sahi.txt"
 }
