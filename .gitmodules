@@ -2,6 +2,3 @@
 	path = ros2_ws/ultralytics_ros
 	url = https://github.com/Alpaca-zip/ultralytics_ros.git
 	branch = humble-devel
-[submodule "Payload-Firmware-2026"]
-	path = Payload-Firmware-2026
-	url = https://github.com/CPP-Aerial-Vision-Analysis-System/Payload-Firmware-2026.git

@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ros:humble              # official ROS 2 Humble image
     steps:
-      # Check out the repo AND its submodules (ultralytics_ros, firmware).
+      # Check out the repo AND its submodules (ultralytics_ros).
       - uses: actions/checkout@v4
         with:
           submodules: recursive

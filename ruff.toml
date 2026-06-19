@@ -10,7 +10,6 @@ extend-exclude = [
     "ros2_ws/install",
     "ros2_ws/log",
     "ros2_ws/src/ultralytics_ros",  # submodule (not our code)
-    "Payload-Firmware-2026",        # submodule (C++ firmware)
     "**/__pycache__",
 ]
 
