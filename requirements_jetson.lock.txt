@@ -1,0 +1,29 @@
+# ASTRA Jetson exact dependency lock — python3 --user site
+# JetPack 6.2 / L4T R36.4.7 | Python 3.10 | CUDA 12.6 / cuDNN 9
+# Generated 2026-06-23T16:47:03-07:00 on ubuntu
+# Exact restore:  python3 -m pip install --user --index-url https://pypi.jetson-ai-lab.io/jp6/cu126/+simple/ -r requirements_jetson.lock.txt
+#
+filelock==3.29.4
+fire==0.7.1
+fsspec==2026.6.0
+Jinja2==3.1.6
+mpmath==1.3.0
+networkx==3.4.2
+numpy==1.26.4
+nvidia-ml-py==13.610.43
+opencv-python==4.10.0.84
+polars==1.41.2
+polars-runtime-32==1.41.2
+pybboxes==0.1.6
+sahi==0.11.36
+shapely==2.1.2
+sympy==1.14.0
+termcolor==3.3.0
+terminaltables==3.1.10
+torch==2.8.0
+torchvision==0.23.0
+tqdm==4.68.3
+typing_extensions==4.15.0
+ultralytics==8.4.75
+ultralytics-thop==2.0.20
+watchdog==6.0.0
