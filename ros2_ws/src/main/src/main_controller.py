@@ -20,21 +20,14 @@ import time, cv2, math, sys, os, subprocess
 
 ALT = 16.8      # in meters (this is ~55ft)
 
-# HARD CODED SERVO CHANNEL AND PWM VALUES FOR HUMAN AND TENT OBJECTS (WILL BE CHANGED TO THE RIGHT VALUES LATER)
-HUMAN_SERVO_CHANNEL_1 = 9
-HUMAN_SERVO_CHANNEL_2 = 10
-HUMAN_SERVOS_PWM= 1500
+# Each target releases via TWO servos.
+PERSON_SERVO_CHANNELS = [9, 11]
+TENT_SERVO_CHANNELS = [13, 14]
 
-TENT_SERVO_CHANNEL_1 = 11
-TENT_SERVO_CHANNEL_2 = 12
-TENT_SERVOS_PWM= 1500
-
-SERVO_BOTTLE = 9       # AUX1 = Servo 9
-SERVO_BEACON = 14     # AUX6 = Servo 14 (beacon/tent servo is physically wired to AUX6, not AUX2)
-PULLEY_OPEN_BOTTLE = 1900       #1050
-PULLEY_CLOSE_BOTTLE = 1400      #850
-PULLEY_OPEN_BEACON = 1900      #1050
-PULLEY_CLOSE_BEACON = 1400 
+# Pulley PWM positions (same for every release servo).
+PULLEY_OPEN = 1900       # released / open   #1050
+PULLEY_CLOSE = 1400      # closed            #850
+SERVO_OPEN_SECONDS = 3.0  # hold OPEN this long before closing back
 
 class Detection_Object:
     def __init__(self, type, confidence, latitude, longitude):
@@ -100,15 +93,14 @@ class MainController(Node):
             "tent": Detection_Object(type="tent", confidence=0, latitude=0.0, longitude=0.0)
         }
 
-        # Initialize bottle servo to OPEN on startup
         while not self.command_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for command service ...")
-        # Startup self-test: visibly sweep BOTH servos every launch so we can
-        # confirm they are alive before the mission starts.
-        # self.get_logger().info("Startup: sweeping both servos...")
-        # self.actuate_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE, PULLEY_CLOSE_BOTTLE)
-        # self.actuate_servo(SERVO_BEACON, PULLEY_OPEN_BEACON, PULLEY_CLOSE_BEACON)
-        # self.get_logger().info("Startup servo sweep complete.")  # startup servo sweep disabled
+        # Startup self-test: visibly actuate BOTH targets' servos every launch
+        # so we can confirm they are alive before the mission starts.
+        # self.get_logger().info("Startup: actuating all servos...")
+        # self.actuate_servos(TENT_SERVO_CHANNELS)
+        # self.actuate_servos(PERSON_SERVO_CHANNELS)
+        # self.get_logger().info("Startup servo test complete.")  # startup servo test disabled
 
     def fetch_mission_indices(self):
         wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
@@ -166,16 +158,16 @@ class MainController(Node):
             return
 
         order = [
-            ("tent",   SERVO_BEACON, PULLEY_OPEN_BEACON, PULLEY_CLOSE_BEACON),
-            ("person", SERVO_BOTTLE, PULLEY_OPEN_BOTTLE, PULLEY_CLOSE_BOTTLE),
+            ("tent",   TENT_SERVO_CHANNELS),
+            ("person", PERSON_SERVO_CHANNELS),
         ]
         self.visit_plan = []
-        for obj_type, servo, open_pwm, close_pwm in order:
+        for obj_type, servos in order:
             if self.valid_detection(obj_type):
                 d = self.detections[obj_type]
                 self.visit_plan.append({
                     "type": obj_type, "lat": d.lat, "lon": d.long, "alt": ALT,
-                    "servo": servo, "open": open_pwm, "close": close_pwm, "wp": -1,
+                    "servos": servos, "wp": -1,
                 })
 
         if not self.visit_plan:
@@ -215,7 +207,7 @@ class MainController(Node):
         self.send_ack(f"Over {target['type']}: loiter {self.LOITER_SECONDS:.0f}s then drop")
         self.change_mode("GUIDED")              # hold position above the target
         time.sleep(self.LOITER_SECONDS)         # loiter over the target
-        self.actuate_servo(target["servo"], target["open"], target["close"])
+        self.actuate_servos(target["servos"])
         self.visit_idx += 1
 
         if self.visit_idx < len(self.visit_plan):
@@ -434,19 +426,16 @@ class MainController(Node):
         self.change_mode("AUTO")
         self.send_ack(f"Resumed AUTO -> WP {target_seq}")
 
-    def actuate_servo(self, channel, open_pwm, close_pwm, dwell=1.5):
-        """Visibly cycle a servo open -> close -> open so the motion is
-        unambiguous and the channel ends in the OPEN (released) position.
-        A single move_servo() looks like nothing happened if the servo is
-        already sitting at that PWM (e.g. left OPEN by a previous run/test)."""
+    def actuate_servos(self, channels):
+        """Open the given release servos, hold OPEN for SERVO_OPEN_SECONDS,
+        then close them back. All servos open together and close together."""
         self.get_logger().info(
-            f"Sweeping servo {channel}: {open_pwm} -> {close_pwm} -> {open_pwm}")
-        self.move_servo(channel, open_pwm)
-        time.sleep(dwell)
-        self.move_servo(channel, close_pwm)
-        time.sleep(dwell)
-        self.move_servo(channel, open_pwm)
-        time.sleep(dwell)
+            f"Opening servos {channels} -> hold {SERVO_OPEN_SECONDS:.0f}s -> close")
+        for ch in channels:
+            self.move_servo(ch, PULLEY_OPEN)
+        time.sleep(SERVO_OPEN_SECONDS)
+        for ch in channels:
+            self.move_servo(ch, PULLEY_CLOSE)
 
     def move_servo(self, channel, pwm):
         try:

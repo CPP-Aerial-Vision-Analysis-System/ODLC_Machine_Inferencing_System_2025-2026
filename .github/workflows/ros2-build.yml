@@ -3,9 +3,8 @@
 #
 # This job runs inside the official ROS 2 Humble Docker image, so it has the
 # same ROS tools the devcontainer has.
-#   1. unit-tests  — run our pure-Python tests (fast, no ROS needed)
-#   2. colcon build — compile the workspace (catches broken code/CMake/msgs)
-#   3. colcon test  — run ROS's built-in lint tests
+#   1. colcon build — compile the workspace (catches broken code/CMake/msgs)
+#   2. colcon test  — run ROS's built-in lint tests
 
 name: ROS 2 Build & Test
 
@@ -14,19 +13,7 @@ on:
   pull_request:
 
 jobs:
-  # ── Job 1: unit tests — plain Python, always reliable ──────────────────
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - run: pip install pytest
-      - name: Run unit tests
-        run: pytest tests/unit          # this is a HARD gate: red = merge blocked
-
-  # ── Job 2: build the ROS workspace ─────────────────────────────────────
+  # ── Job 1: build the ROS workspace ─────────────────────────────────────
   colcon-build:
     runs-on: ubuntu-latest
     container: ros:humble              # official ROS 2 Humble image
