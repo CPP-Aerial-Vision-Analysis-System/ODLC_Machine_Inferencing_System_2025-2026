@@ -86,27 +86,6 @@ ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552
 ```
 
 
----
-
-## Connecting Mission Planner
-
-### 1. Forward Port 5762 in VSCode
-
-* Press `Ctrl + J` to open the VSCode terminal panel.
-* Locate the **Ports** section.
-* **Add port `5762`** to forward it from the devcontainer.
-
-### 2. Connect in Mission Planner
-
-* In **Mission Planner**, choose **TCP** as the connection type.
-* Use the following settings:
-
-  * **IP Address:** `127.0.0.1`
-  * **Port:** `5762`
-
----
-
-
 # How to wipe out all the docker images (mac)
 
 * osascript -e 'quit app "Docker Desktop"'
