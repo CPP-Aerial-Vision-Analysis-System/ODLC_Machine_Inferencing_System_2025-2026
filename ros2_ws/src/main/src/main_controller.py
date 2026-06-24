@@ -1,64 +1,24 @@
 #!/usr/bin/env python3
 
-# Lazy (string) annotations so this module can be imported without ROS — the
-# pure helpers below (e.g. find_last_two_nav_waypoints) are unit-tested in CI
-# on machines that have no ROS install.
-from __future__ import annotations
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from interfaces.msg import ImageResult
+from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
+from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
+from sensor_msgs.msg import NavSatFix, Image
+from std_msgs.msg import Bool
+from rcl_interfaces.srv import GetParameters
+from rcl_interfaces.msg import ParameterEvent
 
-# ROS imports are guarded: when ROS isn't installed (CI unit-test runner), the
-# import fails and we fall back to a plain object base class. The MainController
-# node still requires ROS at runtime, but the pure functions stay importable.
-try:
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.qos import QoSProfile, ReliabilityPolicy
-    from interfaces.msg import ImageResult
-    from mavros_msgs.srv import CommandLong, SetMode, WaypointSetCurrent, WaypointPull
-    from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, StatusText
-    from sensor_msgs.msg import NavSatFix, Image
-    from std_msgs.msg import Bool
-    from rcl_interfaces.srv import GetParameters
-    from rcl_interfaces.msg import ParameterEvent
+from cv_bridge import CvBridge
 
-    from cv_bridge import CvBridge
+from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
+from wp_sender.parameter import ParameterManager
 
-    from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
-    from wp_sender.parameter import ParameterManager
-    import cv2
-    _ROS_AVAILABLE = True
-except ImportError:
-    rclpy = None
-    Node = object
-    _ROS_AVAILABLE = False
-
-import time, math, sys, os, subprocess
+import time, cv2, math, sys, os, subprocess
 
 ALT = 16.8      # in meters (this is ~55ft)
-
-# Mission-item command IDs that count as real navigation waypoints.
-# (MAVLink: 16=NAV_WAYPOINT, 17-21=NAV_LOITER_*, 22=NAV_TAKEOFF)
-NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}
-
-
-def find_last_two_nav_waypoints(commands, rtl_index, nav_commands=NAV_COMMANDS):
-    """Find the last two navigation waypoints before the RTL waypoint."""
-    last_nav_before_rtl = -1
-    buffer_wp = -1
-
-    if rtl_index > 0 and len(commands) > 0:
-        found_last = False
-        for i in range(rtl_index - 1, -1, -1):
-            if i >= len(commands):
-                continue
-            if commands[i] in nav_commands:
-                if not found_last:
-                    last_nav_before_rtl = i
-                    found_last = True
-                else:
-                    buffer_wp = i
-                    break
-
-    return last_nav_before_rtl, buffer_wp
 
 # HARD CODED SERVO CHANNEL AND PWM VALUES FOR HUMAN AND TENT OBJECTS (WILL BE CHANGED TO THE RIGHT VALUES LATER)
 HUMAN_SERVO_CHANNEL_1 = 9
@@ -70,7 +30,7 @@ TENT_SERVO_CHANNEL_2 = 12
 TENT_SERVOS_PWM= 1500
 
 SERVO_BOTTLE = 9       # AUX1 = Servo 9
-SERVO_BEACON = 10     # AUX2 = Servo 10
+SERVO_BEACON = 14     # AUX6 = Servo 14 (beacon/tent servo is physically wired to AUX6, not AUX2)
 PULLEY_OPEN_BOTTLE = 1900       #1050
 PULLEY_CLOSE_BOTTLE = 1400      #850
 PULLEY_OPEN_BEACON = 1900      #1050
@@ -125,6 +85,10 @@ class MainController(Node):
         self.waiting_for_processing = False  # True when in GUIDED waiting for processing
         self.auto_resumed = False      # set True after one-time AUTO resume; prevents re-triggering
         self.processing_check_timer = None
+        self.mission_phase = "survey"   # survey -> processing -> visiting -> done
+        self.visit_plan = []            # ordered targets to drop on (tent first, then person)
+        self.visit_idx = 0              # how many targets dropped so far
+        self.LOITER_SECONDS = 3.0       # loiter over each target + pre-RTL wait
         self.camera_feed_path = self._resolve_camera_feed_path()
         self.param_manager = ParameterManager()
 
@@ -139,7 +103,12 @@ class MainController(Node):
         # Initialize bottle servo to OPEN on startup
         while not self.command_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for command service ...")
-        # self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)  # startup servo move disabled
+        # Startup self-test: visibly sweep BOTH servos every launch so we can
+        # confirm they are alive before the mission starts.
+        # self.get_logger().info("Startup: sweeping both servos...")
+        # self.actuate_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE, PULLEY_CLOSE_BOTTLE)
+        # self.actuate_servo(SERVO_BEACON, PULLEY_OPEN_BEACON, PULLEY_CLOSE_BEACON)
+        # self.get_logger().info("Startup servo sweep complete.")  # startup servo sweep disabled
 
     def fetch_mission_indices(self):
         wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
@@ -164,117 +133,100 @@ class MainController(Node):
                     break
     
     def update_waypoint_reached(self, msg):
-        self.waypoint_reached = msg.wp_seq      # store latest waypoint index   
-        # self.send_ack(f"WP reached: {self.waypoint_reached} (trigger@{self.last_nav_before_rtl})")
+        self.waypoint_reached = msg.wp_seq      # latest waypoint index reached
 
-        # if (self.buffer_wp >= 0
-        #         and self.waypoint_reached == self.buffer_wp
-        #         and not self.waiting_for_processing
-        #         and not self.auto_resumed):
-        #     self.get_logger().info(f"Reached buffer WP {self.buffer_wp}, switching to GUIDED for processing wait")
-        #     self.send_ack(f"Buffer WP {self.buffer_wp}: GUIDED hold for image processing")
-        #     self.change_mode("GUIDED")
-        #     self.waiting_for_processing = True
-        #     if self.processing_check_timer is None:
-        #         self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
-
-        # Use last_nav_before_rtl (the last physical NAV waypoint) as the trigger,
-        # since DigiCamCtrl commands don't fire WaypointReached.
+        # Trigger = last physical NAV waypoint before RTL.
         trigger_wp = self.last_nav_before_rtl if self.last_nav_before_rtl >= 0 else self.last_before_rtl
 
-        # if self.waypoint_reached == self.last_before_rtl - 1:
-        #     self.change_mode("GUIDED")
-
-        if self.waypoint_reached == trigger_wp and (self.valid_detection("person") and self.valid_detection("tent") and self.wait_to_send_wp):
-            # Hold (GUIDED) before RTL: stop the return so we can divert to targets
-            self.send_ack("Holding before RTL to divert to targets")
+        # PHASE survey -> processing: reached the last waypoint before RTL.
+        # Hold in GUIDED (do NOT RTL) until EVERY captured image has been
+        # processed by object detection; only then do we pick targets.
+        if self.mission_phase == "survey" and self.waypoint_reached == trigger_wp:
+            self.mission_phase = "processing"
+            self.send_ack("Reached last WP. Holding to finish image processing before RTL")
+            self.get_logger().info("Holding (GUIDED) at last WP; waiting for all images to be processed")
             self.change_mode("GUIDED")
-            person_lat = self.detections["person"].lat
-            person_lon = self.detections["person"].long 
-            person_alt = ALT
+            self.waiting_for_processing = True
+            if self.processing_check_timer is None:
+                self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
+            return
 
-            tent_lat = self.detections["tent"].lat
-            tent_lon = self.detections["tent"].long
-            tent_alt = ALT
+        # PHASE visiting: arrive over each planned target in turn; loiter, drop.
+        if self.mission_phase == "visiting" and self.visit_idx < len(self.visit_plan):
+            target = self.visit_plan[self.visit_idx]
+            if self.waypoint_reached == target["wp"]:
+                self._loiter_and_drop(target)
 
-            message = f"Both person and tent detected!"
-            self.get_logger().info(message)
-            self.send_ack(message)
-            self.human_wp = self.last_before_rtl + 2
-            self.tent_wp = self.last_before_rtl + 1
-            
-            self.send_waypoint_data([
-                {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1},
-                {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
-            ])
-            self.wait_to_send_wp = False
-            self.send_ack(f"Going to tent FIRST, then human")
-            self.get_logger().info(f"Waypoints sent. last_before_rtl was: {self.last_before_rtl}")
-            self.last_before_rtl = -1
-            # Fly tent -> human -> RTL
-            self.divert_and_resume(self.tent_wp)
+    def _divert_to_targets(self):
+        """Run once, after all images are processed. Build the ordered target
+        list (1 highest-confidence TENT first, then 1 highest-confidence PERSON;
+        only those actually detected), inject a waypoint for each, fly to the
+        first. If nothing was found, RTL straight away."""
+        if self.mission_phase != "processing":
+            return
 
-        elif self.waypoint_reached == trigger_wp and (self.valid_detection("person") or self.valid_detection("tent")) and self.wait_to_send_wp:
-            # If only one detection is valid, send that object waypoint
-            if self.valid_detection("person"):
-                self.send_ack("Holding before RTL to divert to person")
-                self.change_mode("GUIDED")
-                person_lat = self.detections["person"].lat
-                person_lon = self.detections["person"].long 
-                person_alt = ALT
-                self.human_wp = self.last_before_rtl + 1
+        order = [
+            ("tent",   SERVO_BEACON, PULLEY_OPEN_BEACON, PULLEY_CLOSE_BEACON),
+            ("person", SERVO_BOTTLE, PULLEY_OPEN_BOTTLE, PULLEY_CLOSE_BOTTLE),
+        ]
+        self.visit_plan = []
+        for obj_type, servo, open_pwm, close_pwm in order:
+            if self.valid_detection(obj_type):
+                d = self.detections[obj_type]
+                self.visit_plan.append({
+                    "type": obj_type, "lat": d.lat, "lon": d.long, "alt": ALT,
+                    "servo": servo, "open": open_pwm, "close": close_pwm, "wp": -1,
+                })
 
-                message = f"Only person detected!"
-                self.get_logger().info(message)
-                self.send_ack(message)
+        if not self.visit_plan:
+            self.send_ack("No valid targets found. Returning to launch.")
+            self.get_logger().info("No valid targets; commanding RTL")
+            self.mission_phase = "done"
+            self.change_mode("RTL")
+            return
 
-                self.get_logger().info(f"last before rtl: {self.last_before_rtl}")
-                self.send_waypoint_data([
-                    {"lat": person_lat, "lon": person_lon, "alt": person_alt, "index": self.last_before_rtl + 1}
-                ])
-                self.wait_to_send_wp = False
-                # self.send_ack(f"Only detected person, going to human @ {self.detections['person'].waypoint_index}")
-                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
-                self.last_before_rtl = -1
-                self.divert_and_resume(self.human_wp)
+        # Mission indices in VISIT order: tent=base+1, person=base+2, ...
+        base = self.last_before_rtl
+        for i, t in enumerate(self.visit_plan):
+            t["wp"] = base + 1 + i
 
-            elif self.valid_detection("tent"):
-                self.send_ack("Holding before RTL to divert to tent")
-                self.change_mode("GUIDED")
-                tent_lat = self.detections["tent"].lat  
-                tent_lon = self.detections["tent"].long
-                tent_alt = ALT
-                self.tent_wp = self.last_before_rtl + 1
+        # waypoint_manager INSERTS at the index (pushing later items down), so to
+        # land visit_plan[0] at base+1 we must insert the list in REVERSE order.
+        inject = [{"lat": t["lat"], "lon": t["lon"], "alt": t["alt"], "index": base + 1}
+                  for t in reversed(self.visit_plan)]
+        self.send_waypoint_data(inject)
 
-                message = f"Only tent detected!"
-                self.get_logger().info(message)
-                self.send_ack(message)
+        names = " -> ".join(f"{t['type']}@{t['wp']}" for t in self.visit_plan)
+        self.send_ack(f"Targets: {names}. Diverting.")
+        self.get_logger().info(f"Visit plan: {names}")
 
-                self.send_waypoint_data([
-                    {"lat": tent_lat, "lon": tent_lon, "alt": tent_alt, "index": self.last_before_rtl + 1}
-                ])
-                self.wait_to_send_wp = False
-                # self.send_ack(f"Only detected tent, going to tent @ {self.detections['tent'].waypoint_index}")
-                self.get_logger().info(f"after before rtl: {self.last_before_rtl}")
-                self.last_before_rtl = -1
-                self.divert_and_resume(self.tent_wp)
-        
-        if self.waypoint_reached == self.human_wp:
-            self.get_logger().info("Reached human waypoint, activating servo...")
-            self.send_ack("Reached human waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_servo(SERVO_BOTTLE, PULLEY_OPEN_BOTTLE)  # servo 9 OPEN for human
-            time.sleep(3)
-            self.change_mode("AUTO")
-        if self.waypoint_reached == self.tent_wp:
-            self.get_logger().info("Reached tent waypoint, activating servo...")
-            self.send_ack("Reached tent waypoint, activating servo")
-            self.change_mode("GUIDED")
-            self.move_servo(SERVO_BEACON, PULLEY_OPEN_BEACON)  # servo 10 OPEN for tent
-            time.sleep(3)
-            self.change_mode("AUTO")
-            
-        
+        self.mission_phase = "visiting"
+        self.visit_idx = 0
+        self.last_before_rtl = -1
+        # Point the vehicle at the first target and resume AUTO.
+        self.divert_and_resume(self.visit_plan[0]["wp"])
+
+    def _loiter_and_drop(self, target):
+        """Over a target: loiter (GUIDED) LOITER_SECONDS, actuate its servo, then
+        continue to the next target -- or wait LOITER_SECONDS and RTL if last."""
+        self.get_logger().info(
+            f"Arrived over {target['type']} (WP {target['wp']}). "
+            f"Loitering {self.LOITER_SECONDS:.0f}s, then dropping.")
+        self.send_ack(f"Over {target['type']}: loiter {self.LOITER_SECONDS:.0f}s then drop")
+        self.change_mode("GUIDED")              # hold position above the target
+        time.sleep(self.LOITER_SECONDS)         # loiter over the target
+        self.actuate_servo(target["servo"], target["open"], target["close"])
+        self.visit_idx += 1
+
+        if self.visit_idx < len(self.visit_plan):
+            self.change_mode("AUTO")            # fly to the next target
+        else:
+            self.send_ack(f"All targets done. Waiting {self.LOITER_SECONDS:.0f}s then RTL.")
+            time.sleep(self.LOITER_SECONDS)     # final wait
+            self.mission_phase = "done"
+            self.change_mode("RTL")
+            self.send_ack("RTL")
+
     def valid_detection(self, type):
         if type in self.detections:
             if self.detections[type].confidence > 0:
@@ -286,9 +238,23 @@ class MainController(Node):
         self._update_last_nav_before_rtl()
 
     def _update_last_nav_before_rtl(self):
-        """Find the last actual NAV waypoint index before RTL, and the buffer waypoint."""
-        commands = [wp.command for wp in self.waypoints]
-        self.last_nav_before_rtl, self.buffer_wp = find_last_two_nav_waypoints(commands, self.rtl_index)
+        """Find the last actual NAV waypoint index before RTL, and the buffer
+        waypoint (one NAV waypoint before that) used for GUIDED processing hold.
+        DigiCamCtrl and other DO_ commands don't trigger WaypointReached,
+        so we need the index of the last physical navigation waypoint."""
+        NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
+        self.last_nav_before_rtl = -1
+        self.buffer_wp = -1
+        if self.rtl_index > 0 and len(self.waypoints) > 0:
+            found_last = False
+            for i in range(self.rtl_index - 1, -1, -1):
+                if self.waypoints[i].command in NAV_COMMANDS:
+                    if not found_last:
+                        self.last_nav_before_rtl = i
+                        found_last = True
+                    else:
+                        self.buffer_wp = i
+                        break
         if self.last_nav_before_rtl >= 0:
             self.get_logger().info(
                 f"Last nav WP before RTL: index {self.last_nav_before_rtl} "
@@ -324,39 +290,34 @@ class MainController(Node):
         return path
 
     def _check_all_images_processed(self):
-        """Periodically check if all images in camera_feed have been processed.
-        Switches to AUTO exactly once when done, then cancels itself."""
-        if self.auto_resumed or not self.waiting_for_processing:
+        """Timer during the 'processing' hold: once every captured image has been
+        processed by object detection, stop waiting and divert to the targets."""
+        if self.mission_phase != "processing":
             if self.processing_check_timer:
                 self.processing_check_timer.cancel()
                 self.processing_check_timer = None
             return
-
         try:
             if not os.path.exists(self.camera_feed_path):
                 self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
                 return
 
-            image_files = set()
-            for f in os.listdir(self.camera_feed_path):
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp')):
-                    image_files.add(f)
-
+            image_files = set(
+                f for f in os.listdir(self.camera_feed_path)
+                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))
+            )
             total = len(image_files)
             processed = len(self.processed_image_names & image_files)
             remaining = total - processed
-
             self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
 
             if remaining <= 0:
-                self.get_logger().info("All images processed! Switching to AUTO (one-time)")
-                self.send_ack(f"All {total} images processed, resuming AUTO")
-                self.change_mode("AUTO")
-                self.auto_resumed = True
-                self.waiting_for_processing = False
+                self.send_ack(f"All {total} images processed. Selecting targets.")
                 if self.processing_check_timer:
                     self.processing_check_timer.cancel()
                     self.processing_check_timer = None
+                self.waiting_for_processing = False
+                self._divert_to_targets()
         except Exception as e:
             self.get_logger().error(f"Error checking processing status: {e}")
 
@@ -472,6 +433,20 @@ class MainController(Node):
         time.sleep(1)
         self.change_mode("AUTO")
         self.send_ack(f"Resumed AUTO -> WP {target_seq}")
+
+    def actuate_servo(self, channel, open_pwm, close_pwm, dwell=1.5):
+        """Visibly cycle a servo open -> close -> open so the motion is
+        unambiguous and the channel ends in the OPEN (released) position.
+        A single move_servo() looks like nothing happened if the servo is
+        already sitting at that PWM (e.g. left OPEN by a previous run/test)."""
+        self.get_logger().info(
+            f"Sweeping servo {channel}: {open_pwm} -> {close_pwm} -> {open_pwm}")
+        self.move_servo(channel, open_pwm)
+        time.sleep(dwell)
+        self.move_servo(channel, close_pwm)
+        time.sleep(dwell)
+        self.move_servo(channel, open_pwm)
+        time.sleep(dwell)
 
     def move_servo(self, channel, pwm):
         try:

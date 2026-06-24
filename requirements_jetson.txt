@@ -1,0 +1,41 @@
+# =============================================================================
+# ASTRA — Jetson Python dependencies (system python3 --user site)
+# =============================================================================
+# Target hardware/OS this was verified on:
+#   Jetson Orin Nano  |  JetPack 6.2 / L4T R36.4.7  |  Python 3.10
+#   CUDA 12.6  |  cuDNN 9.3   (verified: torch.cuda.is_available() == True)
+#
+# ONE-SHOT INSTALL:
+#   python3 -m pip install --user -r requirements_jetson.txt
+#
+# HOW THIS WORKS:
+#   torch / torchvision are NVIDIA Jetson builds (cu126 = CUDA 12.6 / cuDNN 9),
+#   served from the jetson-ai-lab index below. That index inherits PyPI, so the
+#   --index-url line lets EVERYTHING resolve in a single command.
+#
+# !!! DO NOT UPGRADE numpy TO >= 2.0 !!!
+#   ROS Humble's cv_bridge and the Jetson torch wheel are compiled against
+#   numpy 1.x. numpy 2.x breaks them with:
+#       AttributeError: _ARRAY_API not found  /  "Failed to initialize NumPy"
+#   opencv-python and sahi are pinned to numpy-1-ABI-compatible versions for the
+#   same reason (sahi 0.12+ forces opencv >= 4.12, which is a numpy-2 build).
+#
+# For an exact-version restore, see requirements_jetson.lock.txt instead.
+# =============================================================================
+
+--index-url https://pypi.jetson-ai-lab.io/jp6/cu126/+simple/
+
+# --- GPU stack (Jetson-specific builds; must match JetPack 6.2 / cuDNN 9) ---
+torch==2.8.0
+torchvision==0.23.0
+
+# --- core numeric / vision  (ABI-locked to numpy 1.x — see warning above) ---
+numpy==1.26.4
+opencv-python==4.10.0.84
+
+# --- object detection ---
+ultralytics==8.4.75
+sahi==0.11.36
+
+# --- new_od inotify image pickup ---
+watchdog==6.0.0
