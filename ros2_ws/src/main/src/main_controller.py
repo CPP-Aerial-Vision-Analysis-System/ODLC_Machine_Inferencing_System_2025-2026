@@ -239,7 +239,9 @@ class MainController(Node):
         self.buffer_wp = -1
         if self.rtl_index > 0 and len(self.waypoints) > 0:
             found_last = False
-            for i in range(self.rtl_index - 1, -1, -1):
+            # The parameter can briefly describe an older mission while a new
+            # WaypointList is arriving, so never index beyond the received list.
+            for i in range(min(self.rtl_index, len(self.waypoints)) - 1, -1, -1):
                 if self.waypoints[i].command in NAV_COMMANDS:
                     if not found_last:
                         self.last_nav_before_rtl = i
@@ -314,7 +316,7 @@ class MainController(Node):
             self.get_logger().error(f"Error checking processing status: {e}")
 
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
-        if 0 < waypoint_index < len(self.waypoints):
+        if 0 <= waypoint_index < len(self.waypoints):
             wp = self.waypoints[waypoint_index]
             lat = wp.x_lat
             lon = wp.y_long
@@ -336,10 +338,10 @@ class MainController(Node):
             for detection in msg.detections.detections:
                 for result in detection.results:
                     obj_id = result.hypothesis.class_id
-                    if obj_id == "0":
-                        obj_class = "person"
-                    elif obj_id == "1":
-                        obj_class = "tent"
+                    obj_class = {"0": "person", "1": "tent"}.get(obj_id)
+                    if obj_class is None:
+                        # Ignore classes that are not actionable mission targets.
+                        continue
                     obj_conf = result.hypothesis.score
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
@@ -483,4 +485,4 @@ class MainController(Node):
 if __name__ == "__main__":
     rclpy.init()
     node = MainController()
-    rclpy.spin(node)    
+    rclpy.spin(node)

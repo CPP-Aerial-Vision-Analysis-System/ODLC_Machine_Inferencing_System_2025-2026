@@ -29,9 +29,7 @@ def main():
    print(f"Listening for MAVLink on {LISTEN_URI} ...")
    print(f"State file: {STATE_FILE}")
    print()
-   print(
-    f"Commands: REBOOT={CMD_REBOOT}, SHUTDOWN={CMD_SHUTDOWN}, "
-    )
+   print(f"Commands: REBOOT={CMD_REBOOT}, SHUTDOWN={CMD_SHUTDOWN}, ")
    print("Waiting for COMMAND_LONG\n")
 
 

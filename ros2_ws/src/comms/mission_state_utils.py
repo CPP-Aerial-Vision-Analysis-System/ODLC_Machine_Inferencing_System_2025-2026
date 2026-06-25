@@ -9,14 +9,12 @@ DEFAULTS = {
     "last_sender_sysid": None,
     "last_sender_compid": None,
     "pending_action": None,
-   
-
-}
+   }
 
 def load_state() -> dict:
     try:
         if STATE_FILE.exists():
-            loaded = json.loads(STATE_FILE.read_text())
+            loaded = json.loads(STATE_FILE.read_text()) # reads the whole json file as a text and converts into a python dictionary
             return _merge_dicts(DEFAULTS, loaded)
     except Exception:
         pass
