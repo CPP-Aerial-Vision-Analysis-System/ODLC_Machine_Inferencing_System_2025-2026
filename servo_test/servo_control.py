@@ -7,7 +7,8 @@ and drives one or more PWM output channels with MAV_CMD_DO_SET_SERVO.
 
 Channel map (Cube/Pixhawk): AUX1=9, AUX2=10, AUX3=11, AUX4=12, AUX5=13, AUX6=14
 
-By default this drives BOTH AUX1 (ch9) and AUX6 (ch14).
+By default the sweep test opens/closes the person pair (ch9 + ch11),
+then the tent pair (ch13 + ch14), and repeats that cycle 3 times.
 
 Examples
 --------
@@ -17,7 +18,7 @@ Examples
   # Drive them back to 1400us (CLOSE)
   python3 servo_control.py --pwm 1400
 
-  # Sweep open/close a few times to see them move
+  # Run the pair cycle: ch9+ch11, then ch13+ch14, repeated 3 times
   python3 servo_control.py --sweep
 
   # Only one channel
@@ -43,8 +44,12 @@ import time
 
 from pymavlink import mavutil
 
-# Default channels driven on every run: AUX1 and AUX6
+# Default single-command channels. The sweep test uses DEFAULT_SWEEP_GROUPS.
 DEFAULT_CHANNELS = [9, 14]
+DEFAULT_SWEEP_GROUPS = [
+    [9, 11],   # person drop pair
+    [13, 14],  # tent drop pair
+]
 
 # ArduPilot GPIO pin numbers for the AUX outputs (used by BTN_PINx / RELAYx etc.)
 #   AUX1=50, AUX2=51, AUX3=52, AUX4=53, AUX5=54, AUX6=55
@@ -100,13 +105,16 @@ def set_servos(master, channels, pwm):
         set_servo(master, ch, pwm)
 
 
-def sweep(master, channels, low, high, cycles, dwell):
+def sweep(master, groups, low, high, cycles, dwell):
     for i in range(cycles):
         print(f"--- cycle {i + 1}/{cycles} ---")
-        set_servos(master, channels, high)
-        time.sleep(dwell)
-        set_servos(master, channels, low)
-        time.sleep(dwell)
+        for group in groups:
+            print(f"--- channels {group}: open ---")
+            set_servos(master, group, high)
+            time.sleep(dwell)
+            print(f"--- channels {group}: close ---")
+            set_servos(master, group, low)
+            time.sleep(dwell)
 
 
 def interactive(master, channels):
@@ -172,7 +180,8 @@ def main():
     ap.add_argument('--channel', type=int, default=None,
                     help='single channel shortcut (overrides --channels)')
     ap.add_argument('--pwm', type=int, help='PWM in microseconds to send once')
-    ap.add_argument('--sweep', action='store_true', help='cycle low/high a few times')
+    ap.add_argument('--sweep', action='store_true',
+                    help='cycle ch9+ch11, then ch13+ch14, repeated by --cycles')
     ap.add_argument('--low', type=int, default=1400, help='sweep low PWM (default 1400)')
     ap.add_argument('--high', type=int, default=1900, help='sweep high PWM (default 1900)')
     ap.add_argument('--cycles', type=int, default=3, help='sweep cycles (default 3)')
@@ -195,7 +204,11 @@ def main():
         setup(master)
         return
     if args.sweep:
-        sweep(master, channels, args.low, args.high, args.cycles, args.dwell)
+        if args.channel is not None or args.channels:
+            groups = [channels]
+        else:
+            groups = DEFAULT_SWEEP_GROUPS
+        sweep(master, groups, args.low, args.high, args.cycles, args.dwell)
     elif args.interactive:
         interactive(master, channels)
     elif args.pwm is not None:
