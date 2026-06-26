@@ -9,12 +9,6 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="$SCRIPT_DIR/ros2_ws"
 
-# ── Make ROS log timestamps readable (epoch -> HH:MM:SS) ──
-# Set ASTRA_RAW_TIME=1 to disable and see raw epoch timestamps.
-if [ -z "$ASTRA_RAW_TIME" ] && [ -x "$SCRIPT_DIR/scripts/humanize.sh" ]; then
-    exec > >("$SCRIPT_DIR/scripts/humanize.sh") 2>&1
-fi
-
 # ── Source ROS 2 base ────────────────────────
 if [ -f /opt/ros/humble/setup.bash ]; then
     source /opt/ros/humble/setup.bash
