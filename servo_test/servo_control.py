@@ -7,27 +7,26 @@ and drives one or more PWM output channels with MAV_CMD_DO_SET_SERVO.
 
 Channel map (Cube/Pixhawk): AUX1=9, AUX2=10, AUX3=11, AUX4=12, AUX5=13, AUX6=14
 
-By default the sweep test opens/closes the person pair (ch9 + ch11),
-then the tent pair (ch13 + ch14), and repeats that cycle 3 times.
+By default the sweep test opens/closes output 2 and repeats that cycle 3 times.
 
 Examples
 --------
-  # Drive AUX1 + AUX6 to 1900us (OPEN)
+  # Drive output 2 to 1900us (OPEN)
   python3 servo_control.py --pwm 1900
 
-  # Drive them back to 1400us (CLOSE)
+  # Drive it back to 1400us (CLOSE)
   python3 servo_control.py --pwm 1400
 
-  # Run the pair cycle: ch9+ch11, then ch13+ch14, repeated 3 times
+  # Run the sweep cycle on output 2, repeated 3 times
   python3 servo_control.py --sweep
 
-  # Only one channel
+  # A different channel
   python3 servo_control.py --channels 14 --pwm 1900
 
   # Interactive: type PWM values, 'q' to quit
   python3 servo_control.py --interactive
 
-  # One-time fix so AUX1 & AUX6 are real PWM outputs, then reboot FCU
+  # One-time fix so output 2 is a real PWM output, then reboot FCU
   python3 servo_control.py --setup
 
 Notes
@@ -45,10 +44,9 @@ import time
 from pymavlink import mavutil
 
 # Default single-command channels. The sweep test uses DEFAULT_SWEEP_GROUPS.
-DEFAULT_CHANNELS = [9, 14]
+DEFAULT_CHANNELS = [2]
 DEFAULT_SWEEP_GROUPS = [
-    [9, 11],   # person drop pair
-    [13, 14],  # tent drop pair
+    [2],   # output 2
 ]
 
 # ArduPilot GPIO pin numbers for the AUX outputs (used by BTN_PINx / RELAYx etc.)
@@ -56,8 +54,7 @@ DEFAULT_SWEEP_GROUPS = [
 # The channels we manage and the button param (if any) that can steal each pin.
 # AUX6 (pin 55) has no default BTN_PIN mapping, so btn_param is None.
 MANAGED = [
-    {'ch': 9,  'func_param': 'SERVO9_FUNCTION',  'btn_param': 'BTN_PIN1'},  # AUX1, pin 50
-    {'ch': 14, 'func_param': 'SERVO14_FUNCTION', 'btn_param': None},        # AUX6, pin 55
+    {'ch': 2, 'func_param': 'SERVO2_FUNCTION', 'btn_param': None},  # MAIN OUT 2
 ]
 
 
@@ -154,8 +151,8 @@ def set_param(master, name, value, ptype=None):
 
 
 def setup(master):
-    """Make AUX1 (ch9) and AUX4 (ch12) normal PWM outputs DO_SET_SERVO can drive."""
-    print("[*] Configuring AUX1 (ch9) and AUX6 (ch14) as PWM outputs ...")
+    """Make output 2 a normal PWM output DO_SET_SERVO can drive."""
+    print("[*] Configuring output 2 as a PWM output ...")
     for m in MANAGED:
         if m['btn_param']:
             set_param(master, m['btn_param'], -1)  # release the pin from the Button library
@@ -176,19 +173,19 @@ def main():
                          'Use e.g. udp:127.0.0.1:14550 for a UDP link.')
     ap.add_argument('--baud', type=int, default=115200, help='baud (default 115200)')
     ap.add_argument('--channels', default=None,
-                    help='comma-separated servo channels (default "9,14" = AUX1+AUX6)')
+                    help='comma-separated servo channels (default "2")')
     ap.add_argument('--channel', type=int, default=None,
                     help='single channel shortcut (overrides --channels)')
     ap.add_argument('--pwm', type=int, help='PWM in microseconds to send once')
     ap.add_argument('--sweep', action='store_true',
-                    help='cycle ch9+ch11, then ch13+ch14, repeated by --cycles')
+                    help='cycle output 2 open/close, repeated by --cycles')
     ap.add_argument('--low', type=int, default=1400, help='sweep low PWM (default 1400)')
     ap.add_argument('--high', type=int, default=1900, help='sweep high PWM (default 1900)')
     ap.add_argument('--cycles', type=int, default=3, help='sweep cycles (default 3)')
     ap.add_argument('--dwell', type=float, default=1.0, help='seconds between moves')
     ap.add_argument('--interactive', action='store_true', help='type PWM values live')
     ap.add_argument('--setup', action='store_true',
-                    help='free BTN_PIN1, set SERVO9/14_FUNCTION=0, reboot FCU')
+                    help='set SERVO2_FUNCTION=0, reboot FCU')
     args = ap.parse_args()
 
     if args.channel is not None:
