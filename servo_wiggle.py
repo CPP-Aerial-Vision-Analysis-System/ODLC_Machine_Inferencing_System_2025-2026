@@ -1,0 +1,49 @@
+from pymavlink import mavutil
+import time
+
+# --- CONFIG ---
+CONNECTION = '/dev/ttyUSB0'   # Pixhawk on USB0
+BAUD = 115200                  # 921600 if using TELEM/UART at high baud
+SERVO_CHANNEL = 10             # AUX1 = 9, AUX2 = 10, etc. on Pixhawk
+CENTER_PWM = 1500             # neutral position
+DEGREE_RANGE = 15             # how far to swing
+US_PER_DEGREE = 1000 / 180    # ~5.56us per degree (1000-2000us = 180deg)
+
+offset = int(DEGREE_RANGE * US_PER_DEGREE)
+pwm_low = CENTER_PWM - offset
+pwm_high = CENTER_PWM + offset
+
+print(f"Connecting to {CONNECTION} @ {BAUD}...")
+master = mavutil.mavlink_connection(CONNECTION, baud=BAUD)
+master.wait_heartbeat()
+
+# Force correct target — sometimes the first heartbeat is misidentified
+master.target_system = 1
+master.target_component = 1
+
+print(f"Heartbeat received (sys {master.target_system}, comp {master.target_component})")
+
+def set_servo(pwm):
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_DO_SET_SERVO,
+        0,
+        SERVO_CHANNEL,
+        pwm,
+        0, 0, 0, 0, 0
+    )
+
+try:
+    while True:
+        print(f"-> {pwm_low}us")
+        set_servo(pwm_low)
+        time.sleep(1)
+
+        print(f"-> {pwm_high}us")
+        set_servo(pwm_high)
+        time.sleep(1)
+
+except KeyboardInterrupt:
+    print("Stopping, returning to center...")
+    set_servo(CENTER_PWM)
