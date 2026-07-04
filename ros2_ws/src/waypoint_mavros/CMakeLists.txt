@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(main)
+project(waypoint_mavros)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,26 +10,29 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 
-add_executable(main_controller src/main_controller.cpp)
-ament_target_dependencies(main_controller
+add_executable(waypoint src/waypoint.cpp)
+ament_target_dependencies(waypoint
   rclcpp
+  mavros_msgs
   interfaces
+)
+
+add_executable(killnode src/killnode.cpp)
+ament_target_dependencies(killnode
+  rclcpp
   mavros_msgs
   rcl_interfaces
 )
 
 install(TARGETS
-  main_controller
+  waypoint
+  killnode
   DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY
-  launch
-  DESTINATION share/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)

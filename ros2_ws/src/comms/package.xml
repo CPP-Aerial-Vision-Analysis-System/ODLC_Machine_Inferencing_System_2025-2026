@@ -1,19 +1,15 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>waypoint_mavros</name>
+  <name>comms</name>
   <version>0.0.0</version>
-  <description>Waypoint manager + kill node (C++)</description>
-  <maintainer email="student.joshuaestrada@gmail.com">ubuntu</maintainer>
+  <description>MAVLink comms: command listener, ground sender, mavlink router, system controller (C++)</description>
+  <maintainer email="aregar20012001@gmail.com">astra</maintainer>
   <license>TODO: License declaration</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>rclcpp</depend>
-  <depend>mavros_msgs</depend>
-  <depend>interfaces</depend>
-  <depend>std_msgs</depend>
-  <depend>rcl_interfaces</depend>
+  <depend>mavlink</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

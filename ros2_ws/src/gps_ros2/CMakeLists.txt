@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(main)
+project(gps_ros2)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,26 +10,23 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(interfaces REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(mavros_msgs REQUIRED)
-find_package(rcl_interfaces REQUIRED)
+find_package(interfaces REQUIRED)
 
-add_executable(main_controller src/main_controller.cpp)
-ament_target_dependencies(main_controller
+add_executable(gpstest src/gps.cpp)
+ament_target_dependencies(gpstest
   rclcpp
-  interfaces
+  sensor_msgs
+  std_msgs
   mavros_msgs
-  rcl_interfaces
+  interfaces
 )
 
 install(TARGETS
-  main_controller
+  gpstest
   DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY
-  launch
-  DESTINATION share/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
