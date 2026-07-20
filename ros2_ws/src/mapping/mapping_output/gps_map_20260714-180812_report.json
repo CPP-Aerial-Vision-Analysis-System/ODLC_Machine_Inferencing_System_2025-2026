@@ -1,0 +1,23 @@
+{
+  "generated_unix": 1784077693.0425317,
+  "images_dir": "C:\\Users\\aroho\\Documents\\ODLC_Machine_Inferencing_System_2025-2026\\ros2_ws\\src\\mapping\\mappingImages",
+  "photos_placed": 30,
+  "photos_total": 30,
+  "calibration_method": "altitude",
+  "source_gsd_cm_per_px": 1.335,
+  "heading_deg": 0.0,
+  "output_gsd_cm_per_px": 1.335,
+  "canvas_px": [
+    9121,
+    4439
+  ],
+  "coverage_of_bounding_box": 0.8533,
+  "reference_latlon": [
+    34.0419723,
+    -117.81458473333332
+  ],
+  "top_left_pixel_latlon": [
+    34.04225398228707,
+    -117.8152745400806
+  ]
+}
