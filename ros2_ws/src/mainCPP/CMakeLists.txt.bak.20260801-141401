@@ -15,7 +15,7 @@ find_package(interfaces REQUIRED)
 find_package(mavros_msgs REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 
-add_executable(main_controller src/main_controller.cpp)
+add_executable(main src/main.cpp)
 ament_target_dependencies(main_controller
   rclcpp
   interfaces
@@ -25,18 +25,6 @@ ament_target_dependencies(main_controller
 
 install(TARGETS
   main_controller
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-
-add_executable(siyi_wipe_sd src/siyi_wipe_sd.cpp)
-ament_target_dependencies(siyi_wipe_sd
-  rclcpp
-  mavros_msgs
-)
-
-install(TARGETS
-  siyi_wipe_sd
   DESTINATION lib/${PROJECT_NAME}
 )
 
