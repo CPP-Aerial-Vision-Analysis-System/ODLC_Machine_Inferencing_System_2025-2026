@@ -34,6 +34,7 @@ from .config import (
     MAPPING_SUBDIR,
     RESOLUTION_SPECS,
     MIN_FREE_SPACE_MB,
+    DEFAULT_RESOLUTION,
 )
 
 
@@ -73,7 +74,7 @@ class StorageManager:
             return 0.0
     
     def save_image(self, filename: str, img: np.ndarray, 
-                   resolution: str = '4K') -> Optional[str]:
+                   resolution: str = DEFAULT_RESOLUTION) -> Optional[str]:
         # Save image to mapping directory with atomic write.
         try:
             filepath = os.path.join(self.mapping_dir, filename)
@@ -129,7 +130,7 @@ class StorageManager:
                     pass
             return False
     
-    def verify_file(self, path: str, resolution: str = '4K') -> bool:
+    def verify_file(self, path: str, resolution: str = DEFAULT_RESOLUTION) -> bool:
         # Verify file exists and meets size requirements.
         
         try:
@@ -157,7 +158,7 @@ class StorageManager:
         return self.mapping_dir
 
     # The methods below may seem useless, but sometimes camera tweaks(cause of bandwith drops for example) and returns a junk data, this is neded to prevent it
-    def verify_image(self, img: np.ndarray, resolution: str = '4K') -> bool:
+    def verify_image(self, img: np.ndarray, resolution: str = DEFAULT_RESOLUTION) -> bool:
         """Verify image is not corrupted and meets minimum dimension requirements."""
         if img is None:
             return False

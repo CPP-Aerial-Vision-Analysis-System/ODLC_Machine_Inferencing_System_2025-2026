@@ -16,7 +16,10 @@ from .config import (
     MEDIA_PORT,
     MediaTypes,
     CAPTURE_COMMANDS,
-    VERIFIED_RESOLUTIONS,
+    TAKE_PHOTO_COMMAND,
+    DEFAULT_RESOLUTION,
+    CMD_HARDWARE_ID,
+    HARDWARE_ID_TO_MODEL,
     HTTP_TIMEOUT_SECONDS,
     SDK_SOCKET_TIMEOUT_SECONDS,
     HTTP_POOL_CONNECTIONS,
@@ -202,16 +205,15 @@ class CameraInterface:
 
         return data[0] == success_value
         
-    def send_capture_command(self, resolution: str = '4K') -> bool:
+    def send_capture_command(self, resolution: str = DEFAULT_RESOLUTION) -> bool:
         # Send capture command to camera via UDP SDK.
         try:
-            if resolution not in VERIFIED_RESOLUTIONS:
-                self.logger.warn( f"Resolution {resolution} not verified - using 4K for safety")
-                resolution = '4K'
+            # `resolution` is only a validation profile - the still size is fixed
+            # by the sensor and no SDK command changes it, so every capture is
+            # the same 0x0C func_type=0 packet. Never send func_type 1 or 2 here:
+            # those toggle HDR and start/stop video recording.
+            capture_command = CAPTURE_COMMANDS.get(resolution, TAKE_PHOTO_COMMAND)
 
-            # The .get in here is just a dictionary lookup. in CAPTURE_COMMANDS
-            capture_command = CAPTURE_COMMANDS.get(resolution, CAPTURE_COMMANDS['4K'])
-            
             # Send UDP packet for the camera (actual signal to capture)
             self.sdk_socket.sendto(capture_command, (self.camera_ip, self.ctrl_port))
             
@@ -285,6 +287,49 @@ class CameraInterface:
         payload = struct.pack('<BB', zoom_int, zoom_float)
         response = self._send_sdk_command(CMD_ABSOLUTE_ZOOM_AF, payload)
         return self._status_ok(response)
+
+    def get_hardware_id(self) -> Optional[str]:
+        """Return the raw hardware-ID string reported by the gimbal (CMD 0x02)."""
+        response = self._send_sdk_command(CMD_HARDWARE_ID)
+        if not response or not response.get('data'):
+            return None
+
+        try:
+            return response['data'].decode('ascii', errors='ignore').strip('\x00').strip()
+        except Exception:
+            return None
+
+    def detect_model(self) -> Optional[str]:
+        """Ask the camera which model it is.
+
+        The first two characters of the hardware ID are the model number in
+        hex (e.g. '6B...' -> ZR10, '73...' -> A8 mini). Returns a key of
+        CAMERA_MODELS, or None if the camera did not answer or is unknown.
+        """
+        try:
+            hw_id = self.get_hardware_id()
+        except Exception as e:
+            self.logger.warn(f"Hardware ID query failed: {e}")
+            return None
+
+        if not hw_id or len(hw_id) < 2:
+            self.logger.warn("No hardware ID returned by camera")
+            return None
+
+        try:
+            model_code = int(hw_id[:2], 16)
+        except ValueError:
+            self.logger.warn(f"Unparsable hardware ID '{hw_id}'")
+            return None
+
+        model = HARDWARE_ID_TO_MODEL.get(model_code)
+        if model is None:
+            self.logger.warn(
+                f"Unknown camera model code 0x{model_code:02X} (hw_id='{hw_id}')")
+            return None
+
+        self.logger.info(f"Detected camera: {model} (hw_id='{hw_id}')")
+        return model
 
     def get_supported_zoom_range(self) -> Optional[Dict[str, float]]:
         """Return current max supported zoom as {'max_zoom': value}."""

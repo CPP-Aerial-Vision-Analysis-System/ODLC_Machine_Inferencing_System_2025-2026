@@ -11,6 +11,7 @@ from .config import (
     CAPTURE_TIMEOUT_SECONDS,
     SD_POLL_INTERVAL,
     REQUIRED_DOWNLOAD_SPACE_MB,
+    DEFAULT_RESOLUTION,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
@@ -27,7 +28,7 @@ class PipelineOrchestrator:
         self.capture_lock = Lock()
 
         self.photo_count: int = 0
-        self.current_resolution: str = '4K'
+        self.current_resolution: str = DEFAULT_RESOLUTION
         self.rotate_180 = rotate_180
 
         self.last_saved_path: Optional[str] = None

@@ -26,6 +26,9 @@ from .config import (
     DEFAULT_USE_REAL_CAMERA,
     DEFAULT_MIN_ALTITUDE_AGL,
     DEFAULT_RESOLUTION,
+    DEFAULT_CAMERA_MODEL,
+    AUTO_CAMERA_MODEL,
+    CAMERA_MODELS,
     DEFAULT_ROTATE_180,
     CAMERA_IP,
     CONTROL_PORT,
@@ -56,7 +59,11 @@ class SIYINode(Node):
         self.declare_parameter('http_timeout_sec', HTTP_TIMEOUT_SECONDS)
         self.declare_parameter('capture_timeout_sec', CAPTURE_TIMEOUT_SECONDS)
         self.declare_parameter('min_free_space_mb', MIN_FREE_SPACE_MB)
-        self.declare_parameter('resolution', DEFAULT_RESOLUTION)
+        # Which gimbal is bolted on. Still-photo size is fixed by the sensor
+        # (ZR10 = 2K, ZR30 = 4K), so the model decides the validation profile.
+        self.declare_parameter('camera_model', AUTO_CAMERA_MODEL)
+        # Leave empty to derive the profile from camera_model.
+        self.declare_parameter('resolution', '')
         self.declare_parameter('rotate_180', DEFAULT_ROTATE_180)
         # Write a "<stem>.json" pose sidecar next to every saved image
         # (lat/lon, rel_alt, compass heading, gimbal attitude, timestamp).
@@ -71,13 +78,30 @@ class SIYINode(Node):
         self.http_timeout = self.get_parameter('http_timeout_sec').value
         self.capture_timeout = self.get_parameter('capture_timeout_sec').value
         self.min_free_space_mb = self.get_parameter('min_free_space_mb').value
-        self.resolution = self.get_parameter('resolution').value
+        # Empty means "follow the camera model"; anything else pins the profile.
+        self.resolution_override = str(self.get_parameter('resolution').value or '').upper()
+        if self.resolution_override and self.resolution_override not in PHOTO_RESOLUTIONS:
+            self.get_logger().warn(
+                f"Invalid resolution '{self.resolution_override}', following the "
+                f"camera model instead. Valid: {sorted(PHOTO_RESOLUTIONS)}")
+            self.resolution_override = ''
+        self.resolution = self.resolution_override
         self.rotate_180 = self.get_parameter('rotate_180').value
         self.record_metadata = self.get_parameter('record_metadata').value
-        if self.resolution not in PHOTO_RESOLUTIONS:
+
+        # 'AUTO' (the default) asks the camera itself once it is connected,
+        # below. An explicit model here pins it and skips detection.
+        self.camera_model = str(self.get_parameter('camera_model').value).upper().replace('_', '').replace(' ', '')
+        self.auto_detect_model = self.camera_model in ('', AUTO_CAMERA_MODEL)
+        if not self.auto_detect_model and self.camera_model not in CAMERA_MODELS:
             self.get_logger().warn(
-                f"Invalid resolution '{self.resolution}', falling back to '{DEFAULT_RESOLUTION}'")
-            self.resolution = DEFAULT_RESOLUTION
+                f"Unknown camera_model '{self.camera_model}', detecting instead. "
+                f"Known: {sorted(CAMERA_MODELS)}")
+            self.auto_detect_model = True
+
+        if self.auto_detect_model:
+            self.camera_model = DEFAULT_CAMERA_MODEL  # provisional until detection
+        self._apply_camera_model(self.camera_model, announce=not self.auto_detect_model)
         
         # Publishers
         self.image_pub = self.create_publisher(Image, 'image_raw', 10)
@@ -116,6 +140,17 @@ class SIYINode(Node):
                 http_timeout=self.http_timeout,
                 logger=self.get_logger()
             )
+            if self.auto_detect_model:
+                detected = self.camera.detect_model()
+                if detected:
+                    self._apply_camera_model(detected)
+                else:
+                    self.get_logger().warn(
+                        f"Camera model detection failed - assuming "
+                        f"{self.camera_model}. Pin it with -p camera_model:=<model> "
+                        f"if that is wrong.")
+                    self._apply_camera_model(self.camera_model)
+
             self.pipeline = PipelineOrchestrator(
                 camera=self.camera,
                 storage=self.storage,
@@ -136,6 +171,28 @@ class SIYINode(Node):
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
         self.get_logger().info(f"SIYI pipeline initialized ({mode})")
     
+    def _apply_camera_model(self, model: str, announce: bool = True) -> None:
+        """Adopt `model` and derive the image-validation profile from it.
+
+        An explicit `resolution` parameter always wins; otherwise the profile
+        follows the camera's native still size (ZR10 = 2K, A8 mini/ZR30 = 4K).
+        """
+        self.camera_model = model
+        self.native_resolution = CAMERA_MODELS[model]
+        self.resolution = self.resolution_override or self.native_resolution
+
+        # May run before the pipeline exists (initial parameter parsing).
+        pipeline = getattr(self, 'pipeline', None)
+        if pipeline is not None:
+            pipeline.set_resolution(self.resolution)
+
+        if announce:
+            suffix = (f" [resolution pinned to {self.resolution} by parameter]"
+                      if self.resolution_override else "")
+            self.get_logger().info(
+                f"Camera model: {self.camera_model} "
+                f"(native stills: {self.native_resolution}){suffix}")
+
     def _find_ros2_workspace(self) -> str:
         ros2_ws_dir = get_ros2_ws_directory()
         video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
@@ -300,6 +357,7 @@ class SIYINode(Node):
             'compass_hdg_deg': self.latest_heading,
             'gimbal': None,
             'resolution': resolution,
+            'camera_model': self.camera_model,
             'rotate_180_applied': bool(self.rotate_180),
         }
 
@@ -372,7 +430,7 @@ class SIYINode(Node):
 
         # Capture command is queued through the existing pipeline trigger path.
         if cmd == 'capture':
-            resolution = '4K'
+            resolution = self.resolution
             if param:
                 resolution = param.upper()
                 if resolution not in PHOTO_RESOLUTIONS:
