@@ -59,8 +59,7 @@
 
   <node pkg="mapping" exec="trigger" output="screen"></node>
 
-  <!-- Passive until MAP_START on /mapping/command (or autostart:=true) -->
-  <node pkg="ortho_mapping" exec="ortho_node" name="ortho_mapping" output="screen"></node>
+  <!-- <node pkg="ortho_mapping" exec="ortho_node" name="ortho_mapping" output="screen"></node> -->
 
   <node pkg="main" exec="main_controller.py" output="screen"></node>
 

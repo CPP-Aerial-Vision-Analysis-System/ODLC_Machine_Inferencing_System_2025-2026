@@ -27,7 +27,7 @@ def generate_launch_description():
 
     rotate_180 = DeclareLaunchArgument(
         'rotate_180',
-        default_value='false',
+        default_value='true',
         description='Rotate captured images 180 degrees (set to false if camera is mounted right-side-up)'
     )
 
