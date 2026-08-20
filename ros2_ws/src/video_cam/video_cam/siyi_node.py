@@ -65,10 +65,6 @@ class SIYINode(Node):
         # Leave empty to derive the profile from camera_model.
         self.declare_parameter('resolution', '')
         self.declare_parameter('rotate_180', DEFAULT_ROTATE_180)
-        # Write a "<stem>.json" pose sidecar next to every saved image
-        # (lat/lon, rel_alt, compass heading, gimbal attitude, timestamp).
-        # ortho_mapping consumes these to build the post-flight map.
-        self.declare_parameter('record_metadata', True)
 
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
@@ -87,7 +83,6 @@ class SIYINode(Node):
             self.resolution_override = ''
         self.resolution = self.resolution_override
         self.rotate_180 = self.get_parameter('rotate_180').value
-        self.record_metadata = self.get_parameter('record_metadata').value
 
         # 'AUTO' (the default) asks the camera itself once it is connected,
         # below. An explicit model here pins it and skips detection.
@@ -113,7 +108,6 @@ class SIYINode(Node):
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         self.create_subscription(NavSatFix, '/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
-        self.create_subscription(Float64, '/mavros/global_position/compass_hdg', self.heading_cb, qos_profile_sensor_data)
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
         if not self.use_real_camera:
             self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
@@ -125,7 +119,6 @@ class SIYINode(Node):
         self.latest_image_msg: Optional[Image] = None
         self.latest_gps = None
         self.latest_rel_alt: Optional[float] = None
-        self.latest_heading: Optional[float] = None
         self.bridge = CvBridge()
 
         # Components
@@ -255,17 +248,10 @@ class SIYINode(Node):
                 self.get_logger().warn( "No valid GPS info /mavros/global_position/global; using the SD name")
                 self._send_status("WARN: No GPS fix - image will not have lat/lon name")
 
-            # Pose sidecar data is snapshotted here, BEFORE phase 1, for the
-            # same reason as the filename: it must describe shutter time,
-            # not download-completion time 2-3s later.
-            pose_meta = self._snapshot_pose_metadata()
-
             # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
             # control lock here so gimbal/zoom commands can't race with
             # the UDP capture command.
             with self.camera_control_lock:
-                if pose_meta is not None:
-                    pose_meta['gimbal'] = self._read_gimbal_attitude()
                 file_info = self.pipeline.capture_and_index()
 
             if file_info is None:
@@ -287,7 +273,6 @@ class SIYINode(Node):
                 return
 
             saved_path, img = result
-            self._write_metadata_sidecar(saved_path, pose_meta)
             stats = self.pipeline.get_stats()
             self._send_status(
                 f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
@@ -330,93 +315,6 @@ class SIYINode(Node):
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
-
-    def heading_cb(self, msg: Float64):
-        """Cache the latest compass heading (deg CW from north)."""
-        self.latest_heading = msg.data
-
-    def _snapshot_pose_metadata(self) -> Optional[Dict[str, Any]]:
-        """Snapshot the aircraft pose for the metadata sidecar.
-
-        Called at shutter time so lat/lon/alt/heading describe the moment
-        the photo was taken. Returns None when record_metadata is off.
-        """
-        if not self.record_metadata:
-            return None
-
-        resolution = self.resolution
-        if self.pipeline is not None:
-            resolution = self.pipeline.current_resolution
-
-        meta: Dict[str, Any] = {
-            'version': 1,
-            'timestamp_unix': time.time(),
-            'latitude': None,
-            'longitude': None,
-            'rel_alt_m': self.latest_rel_alt,
-            'compass_hdg_deg': self.latest_heading,
-            'gimbal': None,
-            'resolution': resolution,
-            'camera_model': self.camera_model,
-            'rotate_180_applied': bool(self.rotate_180),
-        }
-
-        if self.latest_gps is not None:
-            try:
-                lat = float(self.latest_gps.latitude)
-                lon = float(self.latest_gps.longitude)
-                if not (lat == 0.0 and lon == 0.0):
-                    meta['latitude'] = lat
-                    meta['longitude'] = lon
-            except (TypeError, ValueError):
-                pass
-        return meta
-
-    def _read_gimbal_attitude(self) -> Optional[Dict[str, float]]:
-        """Best-effort gimbal attitude read for the sidecar.
-
-        Caller must hold camera_control_lock (shares the SDK UDP socket
-        with the capture command). A failure only costs the sidecar its
-        gimbal block — never the capture.
-        """
-        if self.camera is None:
-            return None
-        try:
-            attitude = self.camera.request_gimbal_attitude()
-        except Exception as exc:
-            self.get_logger().warn(f"Gimbal attitude read failed: {exc}")
-            return None
-        if not attitude:
-            return None
-        return {
-            'yaw_deg': attitude.get('yaw_deg'),
-            'pitch_deg': attitude.get('pitch_deg'),
-            'roll_deg': attitude.get('roll_deg'),
-        }
-
-    def _write_metadata_sidecar(self, saved_path: str,
-                                meta: Optional[Dict[str, Any]]):
-        """Atomically write '<image stem>.json' next to the saved image.
-
-        new_od's watcher only reacts to image extensions, so the sidecar
-        never enters the detection queue. Failures are logged and swallowed
-        — metadata must never break the capture pipeline.
-        """
-        if meta is None or not saved_path:
-            return
-        sidecar_path = os.path.splitext(saved_path)[0] + '.json'
-        tmp_path = sidecar_path + '.tmp'
-        try:
-            with open(tmp_path, 'w', encoding='utf-8') as fh:
-                json.dump(meta, fh)
-            os.replace(tmp_path, sidecar_path)
-        except OSError as exc:
-            self.get_logger().warn(f"Failed to write metadata sidecar: {exc}")
-            try:
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
-            except OSError:
-                pass
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -621,7 +519,6 @@ class SIYINode(Node):
             filepath = os.path.join(mapping_dir, filename)
             
             cv2.imwrite(filepath, cv_image)
-            self._write_metadata_sidecar(filepath, self._snapshot_pose_metadata())
             self.get_logger().info(f"Simulation photo saved: {filepath}")
             self._send_status(f"Simulation photo captured: {time.strftime('%Y%m%d-%H%M%S')}")
             
