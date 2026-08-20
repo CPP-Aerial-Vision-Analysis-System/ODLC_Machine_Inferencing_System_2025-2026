@@ -16,7 +16,10 @@ from .config import (
     MEDIA_PORT,
     MediaTypes,
     CAPTURE_COMMANDS,
-    VERIFIED_RESOLUTIONS,
+    TAKE_PHOTO_COMMAND,
+    DEFAULT_RESOLUTION,
+    CMD_HARDWARE_ID,
+    HARDWARE_ID_TO_MODEL,
     HTTP_TIMEOUT_SECONDS,
     SDK_SOCKET_TIMEOUT_SECONDS,
     HTTP_POOL_CONNECTIONS,
@@ -31,6 +34,10 @@ from .config import (
     CMD_GIMBAL_CENTER,
     CMD_FUNCTION_FEEDBACK,
     CMD_CAPTURE_RECORD,
+    CMD_SYSTEM_INFO,
+    RECORD_STA_NO_TF_CARD,
+    RECORD_STA_LABELS,
+    FUNCTION_FEEDBACK_LABELS,
     CMD_GIMBAL_ATTITUDE,
     CMD_SET_GIMBAL_ANGLES,
     CMD_ABSOLUTE_ZOOM_AF,
@@ -202,16 +209,15 @@ class CameraInterface:
 
         return data[0] == success_value
         
-    def send_capture_command(self, resolution: str = '4K') -> bool:
+    def send_capture_command(self, resolution: str = DEFAULT_RESOLUTION) -> bool:
         # Send capture command to camera via UDP SDK.
         try:
-            if resolution not in VERIFIED_RESOLUTIONS:
-                self.logger.warn( f"Resolution {resolution} not verified - using 4K for safety")
-                resolution = '4K'
+            # `resolution` is only a validation profile - the still size is fixed
+            # by the sensor and no SDK command changes it, so every capture is
+            # the same 0x0C func_type=0 packet. Never send func_type 1 or 2 here:
+            # those toggle HDR and start/stop video recording.
+            capture_command = CAPTURE_COMMANDS.get(resolution, TAKE_PHOTO_COMMAND)
 
-            # The .get in here is just a dictionary lookup. in CAPTURE_COMMANDS
-            capture_command = CAPTURE_COMMANDS.get(resolution, CAPTURE_COMMANDS['4K'])
-            
             # Send UDP packet for the camera (actual signal to capture)
             self.sdk_socket.sendto(capture_command, (self.camera_ip, self.ctrl_port))
             
@@ -228,7 +234,17 @@ class CameraInterface:
             if feedback['cmd_id'] == CMD_FUNCTION_FEEDBACK and feedback['data']:
                 info_type = feedback['data'][0]
                 if info_type in (1, 4):
-                    self.logger.error( f"Camera feedback indicates capture/record failure ({info_type})")
+                    reason = FUNCTION_FEEDBACK_LABELS.get(
+                        info_type, f'unknown feedback {info_type}')
+                    self.logger.error(f"Capture rejected by camera: {reason}")
+                    if not self.sd_card_present():
+                        self.logger.error(
+                            "Camera reports NO TF CARD. Power the camera down, "
+                            "reseat the microSD card, and format it in the "
+                            "camera/SIYI app (FAT32 or exFAT). The HTTP media "
+                            "API can still list old directories with the card "
+                            "unmounted, so a directory listing is not proof "
+                            "the card is usable.")
                     return False
 
             return True
@@ -285,6 +301,49 @@ class CameraInterface:
         payload = struct.pack('<BB', zoom_int, zoom_float)
         response = self._send_sdk_command(CMD_ABSOLUTE_ZOOM_AF, payload)
         return self._status_ok(response)
+
+    def get_hardware_id(self) -> Optional[str]:
+        """Return the raw hardware-ID string reported by the gimbal (CMD 0x02)."""
+        response = self._send_sdk_command(CMD_HARDWARE_ID)
+        if not response or not response.get('data'):
+            return None
+
+        try:
+            return response['data'].decode('ascii', errors='ignore').strip('\x00').strip()
+        except Exception:
+            return None
+
+    def detect_model(self) -> Optional[str]:
+        """Ask the camera which model it is.
+
+        The first two characters of the hardware ID are the model number in
+        hex (e.g. '6B...' -> ZR10, '73...' -> A8 mini). Returns a key of
+        CAMERA_MODELS, or None if the camera did not answer or is unknown.
+        """
+        try:
+            hw_id = self.get_hardware_id()
+        except Exception as e:
+            self.logger.warn(f"Hardware ID query failed: {e}")
+            return None
+
+        if not hw_id or len(hw_id) < 2:
+            self.logger.warn("No hardware ID returned by camera")
+            return None
+
+        try:
+            model_code = int(hw_id[:2], 16)
+        except ValueError:
+            self.logger.warn(f"Unparsable hardware ID '{hw_id}'")
+            return None
+
+        model = HARDWARE_ID_TO_MODEL.get(model_code)
+        if model is None:
+            self.logger.warn(
+                f"Unknown camera model code 0x{model_code:02X} (hw_id='{hw_id}')")
+            return None
+
+        self.logger.info(f"Detected camera: {model} (hw_id='{hw_id}')")
+        return model
 
     def get_supported_zoom_range(self) -> Optional[Dict[str, float]]:
         """Return current max supported zoom as {'max_zoom': value}."""
@@ -386,6 +445,28 @@ class CameraInterface:
             'pitch_deg': current[1] / 10.0,
             'roll_deg': current[2] / 10.0,
         }
+
+    def get_system_info(self) -> Optional[Dict[str, Any]]:
+        """Query 0x0A camera system info (HDR, record/TF-card state, mode)."""
+        response = self._send_sdk_command(CMD_SYSTEM_INFO)
+        if not response or len(response['data']) < 4:
+            return None
+
+        data = response['data']
+        record_sta = data[3]
+        return {
+            'hdr_on': bool(data[1]),
+            'record_sta': record_sta,
+            'record_sta_label': RECORD_STA_LABELS.get(
+                record_sta, f'unknown({record_sta})'),
+            'sd_card_present': record_sta != RECORD_STA_NO_TF_CARD,
+            'gimbal_motion_mode': GIMBAL_MODE_LABELS.get(data[4]) if len(data) > 4 else None,
+        }
+
+    def sd_card_present(self) -> Optional[bool]:
+        """True/False if the camera can see its TF card, None if unreachable."""
+        info = self.get_system_info()
+        return None if info is None else info['sd_card_present']
 
     def get_gimbal_mode(self) -> Optional[str]:
         """Query current gimbal motion mode (lock/follow/fpv)."""
@@ -535,7 +616,20 @@ class CameraInterface:
     def initialize_sd_card(self):
         """Initialize SD card state from camera"""
         self.logger.info( "Initializing SD card...")
-        
+
+        # Ask the camera itself before trusting the HTTP media API: the API
+        # happily lists directories for a card the firmware has not mounted,
+        # which is exactly the state where every capture fails.
+        info = self.get_system_info()
+        if info is None:
+            self.logger.warn(
+                "Camera did not answer the 0x0A system-info query - cannot "
+                "confirm the TF card is mounted.")
+        elif not info['sd_card_present']:
+            self.logger.error(
+                "Camera reports NO TF CARD. Reseat and formatted in the "
+                "camera (FAT32/exFAT).")
+
         try:
             directories = self.get_directories()
             if directories:

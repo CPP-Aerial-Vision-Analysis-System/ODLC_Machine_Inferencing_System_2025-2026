@@ -11,6 +11,7 @@ from .config import (
     CAPTURE_TIMEOUT_SECONDS,
     SD_POLL_INTERVAL,
     REQUIRED_DOWNLOAD_SPACE_MB,
+    DEFAULT_RESOLUTION,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
@@ -27,7 +28,7 @@ class PipelineOrchestrator:
         self.capture_lock = Lock()
 
         self.photo_count: int = 0
-        self.current_resolution: str = '4K'
+        self.current_resolution: str = DEFAULT_RESOLUTION
         self.rotate_180 = rotate_180
 
         self.last_saved_path: Optional[str] = None
@@ -97,7 +98,11 @@ class PipelineOrchestrator:
     def _phase1_capture(self) -> bool:
         # Phase 1: Trigger camera capture
         try:
-            self.camera.send_capture_command(self.current_resolution)
+            if not self.camera.send_capture_command(self.current_resolution):
+                # Camera already logged why. Bailing here avoids the pointless
+                # 15s Phase 2 poll for a file that was never written.
+                self.logger.error("[Phase 1] Camera rejected the capture")
+                return False
             self.photo_count += 1
             return True
         except CameraConnectionError as e:

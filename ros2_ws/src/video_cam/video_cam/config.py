@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SIYI A8 Mini configuration constants."""
+"""SIYI gimbal camera configuration constants (ZR10 / ZR30 / A8 mini)."""
 
 from enum import Enum
 from typing import Dict
@@ -14,14 +14,56 @@ class MediaTypes(Enum):
 CAMERA_IP = "192.168.144.25"
 CONTROL_PORT = 37260 # UDP port
 MEDIA_PORT = 82
-PHOTO_RESOLUTIONS = {'4K': 0x00, '2.7K': 0x01, '1080P': 0x02}
-VERIFIED_RESOLUTIONS = {'4K'}
-
-CAPTURE_COMMANDS = {
-    '4K': bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce"),
-    '2.7K': bytes.fromhex("55 66 01 01 00 00 00 0c 01 35 ce"),
-    '1080P': bytes.fromhex("55 66 01 01 00 00 00 0c 02 36 ce"),
+# Still-photo resolution is FIXED BY THE SENSOR. There is no SDK command to
+# change it: 0x20 / 0x21 only configure the video stream / recording codecs
+# (ZR10 manual v1.7 p.49). So a "resolution" here is only a validation profile
+# used to sanity-check what the camera actually wrote to the SD card.
+#   ZR10: 1/2.7" 8 MP CMOS, stills 2K 2560x1440   (ZR10 manual v1.7 p.14)
+#   ZR30 / A8 mini: 4K stills
+CAMERA_MODELS: Dict[str, str] = {
+    'ZR10': '2K',
+    'ZR30': '4K',
+    'A8MINI': '4K',
+    # Spec sheets not on hand for these - accept whatever they produce rather
+    # than risk discarding good frames. Give them a real profile once verified.
+    'A2MINI': 'ANY',
+    'ZT6': 'ANY',
+    'ZT30': 'ANY',
 }
+
+# Model auto-detection. CMD 0x02 returns a hardware-ID string whose first two
+# characters are the model number in hex (ZR10 manual v1.7 p.44).
+CMD_HARDWARE_ID = 0x02
+HARDWARE_ID_TO_MODEL: Dict[int, str] = {
+    0x6B: 'ZR10',
+    0x73: 'A8MINI',
+    0x75: 'A2MINI',
+    0x78: 'ZR30',
+    0x7A: 'ZT30',
+    0x82: 'ZT6',
+}
+
+# 'AUTO' asks the camera at startup; the name below is the fallback used when
+# the camera does not answer.
+AUTO_CAMERA_MODEL = 'AUTO'
+DEFAULT_CAMERA_MODEL = 'ZR10'
+
+PHOTO_RESOLUTIONS = {'4K': 0x00, '2K': 0x00, '2.7K': 0x00, '1080P': 0x00}
+VERIFIED_RESOLUTIONS = set(CAMERA_MODELS.values())
+
+# 0x0C func_type values (ZR10 manual v1.7 p.47). These are NOT a resolution
+# selector: 1 toggles HDR and 2 starts/stops VIDEO RECORDING. Taking a still is
+# always func_type 0, whatever the pixel size ends up being.
+FUNC_TYPE_TAKE_PHOTO = 0
+FUNC_TYPE_TOGGLE_HDR = 1
+FUNC_TYPE_TOGGLE_RECORD = 2
+
+# 55 66 01 01 00 00 00 0C <func_type=0> + CRC16
+TAKE_PHOTO_COMMAND = bytes.fromhex("55 66 01 01 00 00 00 0c 00 34 ce")
+
+# Name -> packet, kept so callers stay unchanged; every entry is the same
+# take-photo packet because the profile name does not affect the camera.
+CAPTURE_COMMANDS = {name: TAKE_PHOTO_COMMAND for name in PHOTO_RESOLUTIONS}
 
 # SIYI SDK protocol constants
 SDK_STX = b'\x55\x66'
@@ -32,6 +74,7 @@ CMD_MANUAL_ZOOM_AF = 0x05
 CMD_MANUAL_FOCUS = 0x06
 CMD_GIMBAL_ROTATE = 0x07
 CMD_GIMBAL_CENTER = 0x08
+CMD_SYSTEM_INFO = 0x0A
 CMD_FUNCTION_FEEDBACK = 0x0B
 CMD_CAPTURE_RECORD = 0x0C
 CMD_GIMBAL_ATTITUDE = 0x0D
@@ -61,11 +104,37 @@ GIMBAL_MODE_LABELS = {
     2: 'fpv',
 }
 
+# 0x0A ACK byte 4 (record_sta), SDK doc "Request Camera System Information".
+# 2 means the camera firmware has not mounted the TF card - every 0x0C capture
+# then answers 0x0B info_type=1 and no file is ever written.
+RECORD_STA_NO_TF_CARD = 2
+RECORD_STA_LABELS = {
+    0: 'not recording',
+    1: 'recording',
+    2: 'NO TF CARD',
+    3: 'video data loss (check TF card)',
+}
+
+# 0x0B info_type meanings (SDK doc "Function Feedback Response").
+FUNCTION_FEEDBACK_LABELS = {
+    0: 'photo captured successfully',
+    1: 'photo failed - camera cannot see the TF card',
+    2: 'HDR on',
+    3: 'HDR off',
+    4: 'video recording failed - camera cannot see the TF card',
+    5: 'recording started',
+    6: 'recording stopped',
+}
+
 STREAM_TYPE_LASER = 2
 
 # Image specs
 RESOLUTION_SPECS: Dict[str, Dict[str, int]] = {
     '4K': {'min_width': 3000, 'min_height': 1600, 'min_file_size': 50000},
+    '2K': {'min_width': 2400, 'min_height': 1300, 'min_file_size': 30000},
+    # Permissive profile for models whose native still size we have not
+    # confirmed: still catches junk/truncated frames, imposes no upper claim.
+    'ANY': {'min_width': 640, 'min_height': 480, 'min_file_size': 20000},
     '2.7K': {'min_width': 2000, 'min_height': 1200, 'min_file_size': 30000},
     '1080P': {'min_width': 1800, 'min_height': 900, 'min_file_size': 20000}
 }
@@ -94,5 +163,5 @@ HTTP_HEADERS = {'User-Agent': 'SIYI-ROS-Client/1.0', 'Connection': 'keep-alive'}
 # ROS defaults
 DEFAULT_USE_REAL_CAMERA = True
 DEFAULT_MIN_ALTITUDE_AGL = -13.716
-DEFAULT_RESOLUTION = '4K'
+DEFAULT_RESOLUTION = CAMERA_MODELS[DEFAULT_CAMERA_MODEL]
 DEFAULT_ROTATE_180 = True

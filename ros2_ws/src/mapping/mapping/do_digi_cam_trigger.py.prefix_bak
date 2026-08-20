@@ -31,45 +31,22 @@ class MissionCameraTrigger(Node):
         # multiple timers and against cancelling a timer that was never created.
         self.timer = None
 
-        # buffer_wp is fetched asynchronously on this node's own executor.
-        # It must never block __init__: main() would not reach rclpy.spin(),
-        # leaving the node alive with its statustext subscription registered
-        # but no callback ever running -- DigiCamCtrl silently dropped and no
-        # photos taken, while every other node looks healthy.
-        # It must also not run on a side thread: building a second node while
-        # this one spins corrupts the executor wait set (IndexError: wait set
-        # index too big). Client here (before spin), request from a timer.
-        self.param_client = self.create_client(
-            GetParameters, 'waypoint_manager/get_parameters')
-        self.param_timer = self.create_timer(2.0, self.fetch_mission_indices)
+        self.param_manager = ParameterManager()
+        self.fetch_mission_indices()
 
     def fetch_mission_indices(self):
-        # Retried by the timer until waypoint_manager shows up.
-        if not self.param_client.service_is_ready():
-            return
-        if self.param_timer is not None:
-            self.param_timer.cancel()
-            self.destroy_timer(self.param_timer)
-            self.param_timer = None
-
-        req = GetParameters.Request()
-        req.names = ['buffer_wp']
-        self.param_client.call_async(req).add_done_callback(self._buffer_wp_cb)
-
-    def _buffer_wp_cb(self, future):
-        # -1 just means the trigger runs until shutdown instead of stopping at
-        # buffer_wp. Capture must never depend on this lookup succeeding.
-        try:
-            values = future.result().values
-            if values and values[0].type == 2:
-                self.buffer_wp = values[0].integer_value
-            else:
-                self.get_logger().warning('buffer_wp unset, using -1')
-                self.buffer_wp = -1
-        except Exception as exc:
-            self.get_logger().error(f'buffer_wp lookup failed ({exc}); using -1')
+        wp_params = ['buffer_wp']
+        params = self.param_manager.get_param(self.param_manager.waypoint_client, list_params=wp_params)
+        if not params or 'buffer_wp' not in params:
+            self.get_logger().warning('Could not fetch buffer_wp, using default -1')
             self.buffer_wp = -1
-        self.get_logger().info(f'buffer_wp = {self.buffer_wp}')
+            return
+
+        try:
+            self.buffer_wp = int(params['buffer_wp'])
+        except (TypeError, ValueError) as exc:
+            self.get_logger().error(f'Invalid parameter buffer_wp: {exc}')
+            self.buffer_wp = -1
 
     def parameter_event_cb(self, msg: ParameterEvent):
         if msg.node == "/waypoint_manager":
@@ -78,7 +55,7 @@ class MissionCameraTrigger(Node):
                 value = changed_param.value
 
                 if name in {"buffer_wp"}:
-                    # Non-blocking: call_async + done-callback on this executor.
+                    #self.get_logger().info(f"[Param Update] {name} changed")
                     self.fetch_mission_indices()
                     break
 
