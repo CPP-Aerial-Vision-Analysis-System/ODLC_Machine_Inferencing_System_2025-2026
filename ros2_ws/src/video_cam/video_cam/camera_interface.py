@@ -34,6 +34,10 @@ from .config import (
     CMD_GIMBAL_CENTER,
     CMD_FUNCTION_FEEDBACK,
     CMD_CAPTURE_RECORD,
+    CMD_SYSTEM_INFO,
+    RECORD_STA_NO_TF_CARD,
+    RECORD_STA_LABELS,
+    FUNCTION_FEEDBACK_LABELS,
     CMD_GIMBAL_ATTITUDE,
     CMD_SET_GIMBAL_ANGLES,
     CMD_ABSOLUTE_ZOOM_AF,
@@ -230,7 +234,17 @@ class CameraInterface:
             if feedback['cmd_id'] == CMD_FUNCTION_FEEDBACK and feedback['data']:
                 info_type = feedback['data'][0]
                 if info_type in (1, 4):
-                    self.logger.error( f"Camera feedback indicates capture/record failure ({info_type})")
+                    reason = FUNCTION_FEEDBACK_LABELS.get(
+                        info_type, f'unknown feedback {info_type}')
+                    self.logger.error(f"Capture rejected by camera: {reason}")
+                    if not self.sd_card_present():
+                        self.logger.error(
+                            "Camera reports NO TF CARD. Power the camera down, "
+                            "reseat the microSD card, and format it in the "
+                            "camera/SIYI app (FAT32 or exFAT). The HTTP media "
+                            "API can still list old directories with the card "
+                            "unmounted, so a directory listing is not proof "
+                            "the card is usable.")
                     return False
 
             return True
@@ -432,6 +446,28 @@ class CameraInterface:
             'roll_deg': current[2] / 10.0,
         }
 
+    def get_system_info(self) -> Optional[Dict[str, Any]]:
+        """Query 0x0A camera system info (HDR, record/TF-card state, mode)."""
+        response = self._send_sdk_command(CMD_SYSTEM_INFO)
+        if not response or len(response['data']) < 4:
+            return None
+
+        data = response['data']
+        record_sta = data[3]
+        return {
+            'hdr_on': bool(data[1]),
+            'record_sta': record_sta,
+            'record_sta_label': RECORD_STA_LABELS.get(
+                record_sta, f'unknown({record_sta})'),
+            'sd_card_present': record_sta != RECORD_STA_NO_TF_CARD,
+            'gimbal_motion_mode': GIMBAL_MODE_LABELS.get(data[4]) if len(data) > 4 else None,
+        }
+
+    def sd_card_present(self) -> Optional[bool]:
+        """True/False if the camera can see its TF card, None if unreachable."""
+        info = self.get_system_info()
+        return None if info is None else info['sd_card_present']
+
     def get_gimbal_mode(self) -> Optional[str]:
         """Query current gimbal motion mode (lock/follow/fpv)."""
         response = self._send_sdk_command(CMD_GIMBAL_MODE)
@@ -580,7 +616,20 @@ class CameraInterface:
     def initialize_sd_card(self):
         """Initialize SD card state from camera"""
         self.logger.info( "Initializing SD card...")
-        
+
+        # Ask the camera itself before trusting the HTTP media API: the API
+        # happily lists directories for a card the firmware has not mounted,
+        # which is exactly the state where every capture fails.
+        info = self.get_system_info()
+        if info is None:
+            self.logger.warn(
+                "Camera did not answer the 0x0A system-info query - cannot "
+                "confirm the TF card is mounted.")
+        elif not info['sd_card_present']:
+            self.logger.error(
+                "Camera reports NO TF CARD. Reseat and formatted in the "
+                "camera (FAT32/exFAT).")
+
         try:
             directories = self.get_directories()
             if directories:

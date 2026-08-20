@@ -74,6 +74,7 @@ CMD_MANUAL_ZOOM_AF = 0x05
 CMD_MANUAL_FOCUS = 0x06
 CMD_GIMBAL_ROTATE = 0x07
 CMD_GIMBAL_CENTER = 0x08
+CMD_SYSTEM_INFO = 0x0A
 CMD_FUNCTION_FEEDBACK = 0x0B
 CMD_CAPTURE_RECORD = 0x0C
 CMD_GIMBAL_ATTITUDE = 0x0D
@@ -101,6 +102,28 @@ GIMBAL_MODE_LABELS = {
     0: 'lock',
     1: 'follow',
     2: 'fpv',
+}
+
+# 0x0A ACK byte 4 (record_sta), SDK doc "Request Camera System Information".
+# 2 means the camera firmware has not mounted the TF card - every 0x0C capture
+# then answers 0x0B info_type=1 and no file is ever written.
+RECORD_STA_NO_TF_CARD = 2
+RECORD_STA_LABELS = {
+    0: 'not recording',
+    1: 'recording',
+    2: 'NO TF CARD',
+    3: 'video data loss (check TF card)',
+}
+
+# 0x0B info_type meanings (SDK doc "Function Feedback Response").
+FUNCTION_FEEDBACK_LABELS = {
+    0: 'photo captured successfully',
+    1: 'photo failed - camera cannot see the TF card',
+    2: 'HDR on',
+    3: 'HDR off',
+    4: 'video recording failed - camera cannot see the TF card',
+    5: 'recording started',
+    6: 'recording stopped',
 }
 
 STREAM_TYPE_LASER = 2
