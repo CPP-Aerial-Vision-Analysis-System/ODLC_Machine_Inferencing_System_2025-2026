@@ -4,7 +4,7 @@ import time
 # --- CONFIG ---
 CONNECTION = '/dev/ttyUSB0'   # Pixhawk on USB0
 BAUD = 115200                  # 921600 if using TELEM/UART at high baud
-SERVO_CHANNEL = 10             # AUX1 = 9, AUX2 = 10, etc. on Pixhawk
+SERVO_CHANNEL = 13             # AUX1 = 9, AUX2 = 10, etc. on Pixhawk AUX3=11 AUX4=12 AUX5=13
 CENTER_PWM = 1500             # neutral position
 DEGREE_RANGE = 15             # how far to swing
 US_PER_DEGREE = 1000 / 180    # ~5.56us per degree (1000-2000us = 180deg)
