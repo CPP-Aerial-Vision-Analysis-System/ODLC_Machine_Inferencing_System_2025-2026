@@ -37,7 +37,6 @@ from .config import (
     CAPTURE_TIMEOUT_SECONDS,
     MIN_FREE_SPACE_MB,
     PHOTO_RESOLUTIONS,
-    CAPTURE_ZOOM_X,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
@@ -153,7 +152,6 @@ class SIYINode(Node):
             )
             self.pipeline.set_resolution(self.resolution)
             self.pipeline.initialize_sd_card()
-            self._apply_capture_zoom()
         else:
             self.camera = None
             self.pipeline = None
@@ -187,49 +185,6 @@ class SIYINode(Node):
             self.get_logger().info(
                 f"Camera model: {self.camera_model} "
                 f"(native stills: {self.native_resolution}){suffix}")
-
-    def _apply_capture_zoom(self) -> None:
-        """Park the lens at CAPTURE_ZOOM_X so every photo is taken there.
-
-        Done once at startup rather than per capture: the lens needs seconds to
-        travel and refocus, and doing that on every shot would stall the
-        pipelined capture path. A falsy return from absolute_zoom_autofocus is
-        deliberately not treated as failure - the SDK ack for CMD 0x0F often
-        times out on a long travel while the zoom itself still happens - so the
-        result is confirmed by reading the zoom back instead.
-        """
-        if CAPTURE_ZOOM_X is None:
-            self.get_logger().info("CAPTURE_ZOOM_X is None - leaving zoom as-is")
-            return
-
-        if not 1.0 <= CAPTURE_ZOOM_X <= 30.0:
-            self.get_logger().error(
-                f"CAPTURE_ZOOM_X={CAPTURE_ZOOM_X} is outside the SDK range "
-                f"1.0-30.0 - leaving zoom untouched.")
-            return
-
-        for attempt in range(1, 4):
-            try:
-                self.camera.absolute_zoom_autofocus(CAPTURE_ZOOM_X)
-            except (CameraConnectionError, OSError, ValueError) as exc:
-                self.get_logger().warn(f"Zoom attempt {attempt} errored: {exc}")
-                time.sleep(2.0)
-                continue
-
-            time.sleep(3.0)
-            actual = self.camera.get_current_zoom_magnification()
-            if actual is not None and abs(actual - CAPTURE_ZOOM_X) <= 0.6:
-                self.get_logger().info(
-                    f"Capture zoom set to {actual}x (asked {CAPTURE_ZOOM_X}x)")
-                self._send_status(f"Zoom set to {actual}x")
-                return
-            self.get_logger().warn(
-                f"Zoom attempt {attempt}: asked {CAPTURE_ZOOM_X}x, "
-                f"camera reports {actual}x")
-
-        self.get_logger().warn(
-            f"Could not confirm {CAPTURE_ZOOM_X}x after 3 attempts - continuing. "
-            f"Zoom readback on this camera is unreliable; check the video feed.")
 
     def _find_ros2_workspace(self) -> str:
         ros2_ws_dir = get_ros2_ws_directory()

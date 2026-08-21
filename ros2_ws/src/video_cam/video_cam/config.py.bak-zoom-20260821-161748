@@ -48,13 +48,6 @@ HARDWARE_ID_TO_MODEL: Dict[int, str] = {
 AUTO_CAMERA_MODEL = 'AUTO'
 DEFAULT_CAMERA_MODEL = 'ZR10'
 
-# Zoom the lens is parked at when the node starts, so every capture is taken at
-# this magnification. ZR10 is 10x optical / 30x hybrid: above 10.0 is digital
-# upscaling that adds no real detail, so keep this at 10.0 or below for
-# detection work. Valid range per the SDK (CMD 0x0F, ZR10 manual v1.7 p.45) is
-# 1.0 - 30.0. Set to None to leave whatever zoom the camera already holds.
-CAPTURE_ZOOM_X = 5.0
-
 PHOTO_RESOLUTIONS = {'4K': 0x00, '2K': 0x00, '2.7K': 0x00, '1080P': 0x00}
 VERIFIED_RESOLUTIONS = set(CAMERA_MODELS.values())
 
