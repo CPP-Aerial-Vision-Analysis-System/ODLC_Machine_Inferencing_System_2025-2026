@@ -58,3 +58,7 @@ interview.md
 
 GtihubLearning
 commonErrors.md
+
+# Tool caches
+.ruff_cache/
+.pytest_cache/
