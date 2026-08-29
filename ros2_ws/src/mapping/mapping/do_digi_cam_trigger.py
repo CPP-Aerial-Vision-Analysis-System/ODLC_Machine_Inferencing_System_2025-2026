@@ -108,9 +108,9 @@ class MissionCameraTrigger(Node):
             wp = match.group(1) if match else "?"
             # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
             # Refocus the lens on arrival at the DO_DIGICAM_CONTROL waypoint.
-            # Published BEFORE the capture timer starts: siyi_node rejects
-            # commands while the capture pipeline is busy, so the request has to
-            # go out while the pipeline is still idle.
+            # siyi_node queues this onto its focus worker and holds the camera
+            # lock through the lens settle, so captures started below simply
+            # wait for a settled lens instead of firing mid-rack.
             self.request_autofocus(wp)
             # Idempotent start: if a timer is already running, a second
             # DigiCamCtrl must NOT spawn another timer (that would stack the
@@ -122,10 +122,13 @@ class MissionCameraTrigger(Node):
             self.send_ack(f"Camera trigger STARTED")
 
     def request_autofocus(self, wp="?"):
-        # siyi_node parses a bare (non-JSON) string as "<command> [parameter]",
-        # so "autofocus" on its own means autofocus at the frame centre.
-        self.camera_command_pub.publish(String(data="autofocus"))
-        self.get_logger().info(f"Autofocus requested (DigiCamCtrl at waypoint {wp})")
+        # siyi_node parses a bare (non-JSON) string as "<command> [parameter]".
+        # "focus" (not "autofocus") lets video_cam/config.py FOCUS_MODE decide
+        # HOW to focus -- infinity by default for mapping, since every subject
+        # at survey altitude is past the hyperfocal distance. Publishing
+        # "autofocus" here would hard-force AF and override that setting.
+        self.camera_command_pub.publish(String(data="focus"))
+        self.get_logger().info(f"Focus requested (DigiCamCtrl at waypoint {wp})")
 
     def trigger_camera(self):
         self.get_logger().info("Triggering camera...")

@@ -38,6 +38,14 @@ from .config import (
     MIN_FREE_SPACE_MB,
     PHOTO_RESOLUTIONS,
     CAPTURE_ZOOM_X,
+    FOCUS_MODE,
+    FOCUS_FAR_DRIVE_SECONDS,
+    FOCUS_TOUCH_FRACTION,
+    FOCUS_TOUCH_FRAME,
+    FOCUS_SETTLE_SECONDS,
+    REFOCUS_EVERY_N_CAPTURES,
+    FOCUS_AT_ALTITUDE_M,
+    FOCUS_REARM_ALTITUDE_M,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
@@ -121,6 +129,12 @@ class SIYINode(Node):
         self.latest_gps = None
         self.latest_rel_alt: Optional[float] = None
         self.bridge = CvBridge()
+
+        # Focus state. The lens is focused on the climb-out transition rather
+        # than at startup; see _request_focus.
+        self._focus_thread: Optional[Thread] = None
+        self._captures_since_focus = 0
+        self._climb_focus_done = False
 
         # Components
         workspace_root = self._find_ros2_workspace()
@@ -231,6 +245,106 @@ class SIYINode(Node):
             f"Could not confirm {CAPTURE_ZOOM_X}x after 3 attempts - continuing. "
             f"Zoom readback on this camera is unreliable; check the video feed.")
 
+    def _focus_touch_point(self) -> tuple:
+        """Centre of the frame in the SDK's touch coordinates.
+
+        CMD 0x04 takes a touch point in PIXELS of the video stream, so (0, 0)
+        is the top-left CORNER, not the middle. Focusing the corner of a
+        downward-looking frame locks the lens onto whatever happens to sit at
+        the edge of the strip - often sky, rotor or horizon rather than ground.
+        """
+        fx, fy = FOCUS_TOUCH_FRACTION
+        width, height = FOCUS_TOUCH_FRAME
+        return int(width * fx), int(height * fy)
+
+    def _check_climb_focus(self, current_alt: float) -> None:
+        """Focus once the aircraft has actually climbed to survey height.
+
+        This is the primary focus trigger, and it is why the mission images
+        were soft: _apply_capture_zoom() runs in __init__, i.e. while the drone
+        is still on the ground, and the autofocus bundled into CMD 0x0F locks
+        the lens onto whatever is a few metres away. At CAPTURE_ZOOM_X = 5.0
+        the depth of field is far too shallow for that to survive the climb.
+
+        Deliberately NOT hung off the camera_enabled edge in altitude_callback:
+        min_altitude_agl defaults to -13.716, so that gate is already satisfied
+        on the ground and its rising edge never fires in a real flight.
+        """
+        if current_alt >= FOCUS_AT_ALTITUDE_M:
+            if not self._climb_focus_done:
+                self._climb_focus_done = True
+                self._request_focus(
+                    f"climbed through {FOCUS_AT_ALTITUDE_M:.0f}m AGL "
+                    f"(now {current_alt:.1f}m)")
+        elif current_alt < FOCUS_REARM_ALTITUDE_M:
+            # Back on the ground: re-arm so a second sortie focuses again.
+            self._climb_focus_done = False
+
+    def _request_focus(self, reason: str, mode: Optional[str] = None,
+                       touch: Optional[tuple] = None) -> bool:
+        """Queue a focus action onto the focus worker thread.
+
+        Never blocks the caller and never joins: this is called from
+        subscription callbacks, one of which (camera_command_callback) already
+        holds camera_control_lock - and the worker takes that same
+        non-reentrant lock.
+        """
+        if not self.use_real_camera or self.camera is None:
+            return False
+
+        mode = (mode or FOCUS_MODE).lower()
+        if mode == 'off':
+            self.get_logger().info(
+                f"Focus request ignored ({reason}): FOCUS_MODE is 'off'")
+            return False
+
+        if self._focus_thread is not None and self._focus_thread.is_alive():
+            self.get_logger().info(
+                f"Focus already in progress - skipping request ({reason})")
+            return False
+
+        self._focus_thread = Thread(
+            target=self._focus_worker, args=(reason, mode, touch), daemon=True)
+        self._focus_thread.start()
+        return True
+
+    def _focus_worker(self, reason: str, mode: str,
+                      touch: Optional[tuple]) -> None:
+        """Drive the lens, then hold the camera lock through the settle.
+
+        Holding camera_control_lock across the settle is deliberate: a capture
+        that arrives mid-rack blocks on the lock instead of firing at a lens
+        that is still travelling.
+        """
+        ok = False
+        try:
+            with self.camera_control_lock:
+                if mode == 'infinity':
+                    self.get_logger().info(
+                        f"Focusing to infinity ({reason}): driving far for "
+                        f"{FOCUS_FAR_DRIVE_SECONDS}s")
+                    ok = self.camera.manual_focus(1)       # 1 = far
+                    time.sleep(FOCUS_FAR_DRIVE_SECONDS)
+                    self.camera.manual_focus(0)            # 0 = stop
+                else:
+                    x, y = touch if touch else self._focus_touch_point()
+                    self.get_logger().info(
+                        f"Autofocus ({reason}) at touch point ({x}, {y})")
+                    ok = self.camera.auto_focus(touch_x=x, touch_y=y)
+
+                time.sleep(FOCUS_SETTLE_SECONDS)
+
+            self._captures_since_focus = 0
+            if ok:
+                self.get_logger().info(f"Focus set ({mode}) - {reason}")
+                self._send_status(f"Focus set ({mode})")
+            else:
+                self.get_logger().warn(
+                    f"Camera did not ack the focus command ({mode}); the lens "
+                    f"may still have moved - check the first captures.")
+        except (CameraConnectionError, OSError, ValueError) as exc:
+            self.get_logger().error(f"Focus attempt failed ({reason}): {exc}")
+
     def _find_ros2_workspace(self) -> str:
         ros2_ws_dir = get_ros2_ws_directory()
         video_cam_dir = os.path.join(ros2_ws_dir, "video_cam")
@@ -303,6 +417,15 @@ class SIYINode(Node):
                 self._send_status("FAILED: Capture shutter/index error")
                 self._publish_camera_status("FAILURE: Capture shutter/index error")
                 return
+
+            # Refocus periodically so one dropped or failed focus attempt
+            # cannot cost the rest of the flight. Requested outside the lock
+            # above; the worker takes it again and captures queue behind it.
+            self._captures_since_focus += 1
+            if (REFOCUS_EVERY_N_CAPTURES > 0
+                    and self._captures_since_focus >= REFOCUS_EVERY_N_CAPTURES):
+                self._request_focus(
+                    f"{self._captures_since_focus} captures since last focus")
 
             # Phase 3: HTTP download on port 82. Intentionally NOT holding
             # camera_control_lock here so that (a) gimbal/zoom commands can
@@ -390,18 +513,27 @@ class SIYINode(Node):
             return self._result_payload(True, action='capture', queued=True,
                                         resolution=resolution)
 
-        if self.pipeline is not None and self.pipeline.is_busy():
-            return self._result_payload(False, action=cmd, error='Pipeline is busy')
-
-        if cmd == 'autofocus':
-            x = 0
-            y = 0
+        # Focus commands are QUEUED onto the focus worker rather than run
+        # inline, and are handled BEFORE the busy guard below. During a survey
+        # the pipeline is busy almost continuously at 1 Hz, so an inline focus
+        # request would be rejected for the whole flight - which is exactly why
+        # the autofocus published by do_digi_cam_trigger never took effect.
+        if cmd in {'autofocus', 'focus'}:
+            touch = None
             if param:
                 x_raw, y_raw = self._split_csv(param, 2)
-                x = int(x_raw)
-                y = int(y_raw)
-            ok = self.camera.auto_focus(touch_x=x, touch_y=y)
-            return self._result_payload(ok, action='autofocus', touch_x=x, touch_y=y)
+                touch = (int(x_raw), int(y_raw))
+            mode = 'auto' if cmd == 'autofocus' else FOCUS_MODE
+            queued = self._request_focus(f'{cmd} command', mode=mode, touch=touch)
+            return self._result_payload(queued, action=cmd, mode=mode,
+                                        queued=queued, touch=touch)
+
+        if cmd == 'focus_infinity':
+            queued = self._request_focus('focus_infinity command', mode='infinity')
+            return self._result_payload(queued, action=cmd, queued=queued)
+
+        if self.pipeline is not None and self.pipeline.is_busy():
+            return self._result_payload(False, action=cmd, error='Pipeline is busy')
 
         if cmd == 'zoom_manual':
             direction_map = {'in': 1, 'out': -1, 'stop': 0}
@@ -651,6 +783,7 @@ class SIYINode(Node):
         current_alt = msg.data
         self.latest_rel_alt = current_alt
         was_enabled = self.camera_enabled
+        self._check_climb_focus(current_alt)
 
         if current_alt >= self.altitude_threshold:
             self.camera_enabled = True

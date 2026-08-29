@@ -55,6 +55,54 @@ DEFAULT_CAMERA_MODEL = 'ZR10'
 # 1.0 - 30.0. Set to None to leave whatever zoom the camera already holds.
 CAPTURE_ZOOM_X = 5.0
 
+# ── Focus ────────────────────────────────────────────────────────────────
+# The lens is focused when the aircraft REACHES SURVEY ALTITUDE, not at node
+# startup. _apply_capture_zoom() runs while the drone is still on the ground,
+# and the autofocus bundled into CMD 0x0F therefore locks onto whatever is a
+# few metres away. At CAPTURE_ZOOM_X = 5.0 the depth of field is a fraction of
+# what it is at 1x, so that ground-level focus is nowhere near sharp once the
+# subject is 30-100 m below.
+#
+#   'infinity' - drive the lens to its far stop once at altitude. Correct for
+#                mapping: every subject is past the hyperfocal distance, and
+#                unlike AF it cannot hunt or lock onto haze/low-contrast grass.
+#   'auto'     - one-shot autofocus at the CENTRE of the frame.
+#   'off'      - leave whatever focus the lens already holds.
+FOCUS_MODE = 'infinity'
+
+# Seconds to drive CMD_MANUAL_FOCUS 'far' before sending 'stop'. Overshooting
+# is harmless -- the lens stops at its mechanical limit -- while undershooting
+# leaves it short of infinity, so err long.
+FOCUS_FAR_DRIVE_SECONDS = 3.0
+
+# Autofocus touch point as a fraction of the frame (0.5, 0.5 = centre).
+# CMD 0x04 takes PIXELS, so (0, 0) is the top-left CORNER, not the middle.
+FOCUS_TOUCH_FRACTION = (0.5, 0.5)
+
+# Frame the touch point is expressed in. SIYI touch coordinates are in the
+# VIDEO stream's resolution (1080p), not the still-image resolution.
+FOCUS_TOUCH_FRAME = (1920, 1080)
+
+# Hold the camera lock this long after driving focus, so a capture arriving
+# mid-rack waits for a settled lens instead of firing at a travelling one.
+FOCUS_SETTLE_SECONDS = 2.5
+
+# Re-run the focus action every N captures during a survey (0 disables), so a
+# single dropped or failed attempt cannot cost the whole flight.
+REFOCUS_EVERY_N_CAPTURES = 40
+
+# Height AGL (metres) at which the climb-out focus fires. This deliberately
+# does NOT reuse min_altitude_agl: that gate defaults to -13.716, so it is
+# already satisfied on the ground and its "camera enabled" edge never triggers
+# in a real flight. This one must be a height the aircraft genuinely climbs
+# THROUGH, and high enough that the lens focuses on ground at survey distance.
+FOCUS_AT_ALTITUDE_M = 15.0
+
+# Re-arm the climb-out focus once the aircraft drops back below this height, so
+# a second sortie in the same session focuses again. Kept well under
+# FOCUS_AT_ALTITUDE_M so altitude noise around the trigger cannot re-arm it.
+FOCUS_REARM_ALTITUDE_M = 5.0
+
 PHOTO_RESOLUTIONS = {'4K': 0x00, '2K': 0x00, '2.7K': 0x00, '1080P': 0x00}
 VERIFIED_RESOLUTIONS = set(CAMERA_MODELS.values())
 
