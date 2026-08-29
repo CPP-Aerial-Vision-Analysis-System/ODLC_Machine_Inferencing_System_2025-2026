@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from mavros_msgs.msg import StatusText, WaypointReached
 import re
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
@@ -22,6 +22,9 @@ class MissionCameraTrigger(Node):
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         self.camera_trigger_pub = self.create_publisher(Bool, "/camera/trigger", 10)
+        # Equivalent of:
+        #   ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'autofocus'"
+        self.camera_command_pub = self.create_publisher(String, "/camera/command", 10)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
 
@@ -104,6 +107,11 @@ class MissionCameraTrigger(Node):
             match = re.search(r"Mission:\s*(\d+)", msg.text)
             wp = match.group(1) if match else "?"
             # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
+            # Refocus the lens on arrival at the DO_DIGICAM_CONTROL waypoint.
+            # Published BEFORE the capture timer starts: siyi_node rejects
+            # commands while the capture pipeline is busy, so the request has to
+            # go out while the pipeline is still idle.
+            self.request_autofocus(wp)
             # Idempotent start: if a timer is already running, a second
             # DigiCamCtrl must NOT spawn another timer (that would stack the
             # capture rate and leak timers that cancel() can no longer reach).
@@ -112,6 +120,12 @@ class MissionCameraTrigger(Node):
             self.timer = self.create_timer(1, self.trigger_camera)
             self.get_logger().info("Camera trigger STARTED")
             self.send_ack(f"Camera trigger STARTED")
+
+    def request_autofocus(self, wp="?"):
+        # siyi_node parses a bare (non-JSON) string as "<command> [parameter]",
+        # so "autofocus" on its own means autofocus at the frame centre.
+        self.camera_command_pub.publish(String(data="autofocus"))
+        self.get_logger().info(f"Autofocus requested (DigiCamCtrl at waypoint {wp})")
 
     def trigger_camera(self):
         self.get_logger().info("Triggering camera...")
