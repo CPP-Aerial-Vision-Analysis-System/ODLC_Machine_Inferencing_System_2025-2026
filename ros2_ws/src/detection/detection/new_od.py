@@ -54,6 +54,7 @@ from detection.model_manager import (
 from detection.detection_processor import run_sahi_detection
 from detection.batched_inference import run_batched_detection
 from detection.annotation import annotate_frame # save_top_matches_crop
+from detection.geotag import parse_latlon_from_name
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
@@ -616,15 +617,11 @@ class SAHIObjectDetectionNode(Node):
         siyi_node encodes the GPS fix into the capture filename with a
         ' , ' (space-comma-space) delimiter. Returns (None, None) for
         simulation / SD-card names that don't carry coordinates.
+
+        The parsing lives in detection.geotag so it stays unit-testable
+        without ROS / OpenCV / CUDA imports.
         """
-        stem = os.path.splitext(filename)[0]
-        if ' , ' not in stem:
-            return None, None
-        lat_str, lon_str = stem.split(' , ', 1)
-        try:
-            return float(lat_str), float(lon_str)
-        except ValueError:
-            return None, None
+        return parse_latlon_from_name(filename)
 
     @staticmethod
     def _is_file_ready(path: str, min_age: float = 0.2) -> bool:

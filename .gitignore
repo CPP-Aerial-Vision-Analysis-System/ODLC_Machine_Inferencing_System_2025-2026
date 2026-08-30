@@ -62,3 +62,5 @@ commonErrors.md
 # Tool caches
 .ruff_cache/
 .pytest_cache/
+
+ros2learning.md

@@ -48,20 +48,34 @@ HARDWARE_ID_TO_MODEL: Dict[int, str] = {
 AUTO_CAMERA_MODEL = 'AUTO'
 DEFAULT_CAMERA_MODEL = 'ZR10'
 
-# Zoom the lens is parked at when the node starts, so every capture is taken at
-# this magnification. ZR10 is 10x optical / 30x hybrid: above 10.0 is digital
-# upscaling that adds no real detail, so keep this at 10.0 or below for
-# detection work. Valid range per the SDK (CMD 0x0F, ZR10 manual v1.7 p.45) is
-# 1.0 - 30.0. Set to None to leave whatever zoom the camera already holds.
+# Zoom the lens is parked at for captures. Applied when DO_DIGICAM_CONTROL
+# reaches the survey waypoint (do_digi_cam_trigger publishes "capture_setup"),
+# NOT at node startup: racking on the ground bought nothing and left the
+# autofocus bundled into CMD 0x0F locked a few metres away for the whole
+# transit. ZR10 is 10x optical / 30x hybrid: above 10.0 is digital upscaling
+# that adds no real detail, so keep this at 10.0 or below for detection work.
+# Valid range per the SDK (CMD 0x0F, ZR10 manual v1.7 p.45) is 1.0 - 30.0.
+# Set to None to leave whatever zoom the camera already holds.
 CAPTURE_ZOOM_X = 5.0
 
+# How the rack is confirmed. The camera's ack for CMD 0x0F often times out on
+# a long travel even when the zoom lands, so success is judged by reading the
+# magnification back to within ZOOM_TOLERANCE_X instead of trusting the ack.
+# These cost flight time now that the rack happens at the survey waypoint with
+# the capture timer already running, so keep the attempt count low.
+ZOOM_ATTEMPTS = 3
+ZOOM_SETTLE_SECONDS = 3.0
+ZOOM_RETRY_DELAY_SECONDS = 2.0
+ZOOM_TOLERANCE_X = 0.6
+
 # ── Focus ────────────────────────────────────────────────────────────────
-# The lens is focused when the aircraft REACHES SURVEY ALTITUDE, not at node
-# startup. _apply_capture_zoom() runs while the drone is still on the ground,
-# and the autofocus bundled into CMD 0x0F therefore locks onto whatever is a
-# few metres away. At CAPTURE_ZOOM_X = 5.0 the depth of field is a fraction of
-# what it is at 1x, so that ground-level focus is nowhere near sharp once the
-# subject is 30-100 m below.
+# The lens is focused at two points, never at node startup: when the aircraft
+# REACHES SURVEY ALTITUDE (FOCUS_AT_ALTITUDE_M), and again immediately after
+# the zoom rack on DO_DIGICAM_CONTROL. The second one is the authoritative
+# pass -- CMD 0x0F carries its own autofocus, so racking to CAPTURE_ZOOM_X
+# throws away whatever the climb focus set. At CAPTURE_ZOOM_X = 5.0 the depth
+# of field is a fraction of what it is at 1x, so a focus that is even slightly
+# off is visible once the subject is 30-100 m below.
 #
 #   'infinity' - drive the lens to its far stop once at altitude. Correct for
 #                mapping: every subject is past the hyperfocal distance, and

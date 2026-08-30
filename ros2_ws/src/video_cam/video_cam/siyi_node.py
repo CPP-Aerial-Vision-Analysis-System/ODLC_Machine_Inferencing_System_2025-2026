@@ -38,6 +38,10 @@ from .config import (
     MIN_FREE_SPACE_MB,
     PHOTO_RESOLUTIONS,
     CAPTURE_ZOOM_X,
+    ZOOM_ATTEMPTS,
+    ZOOM_SETTLE_SECONDS,
+    ZOOM_RETRY_DELAY_SECONDS,
+    ZOOM_TOLERANCE_X,
     FOCUS_MODE,
     FOCUS_FAR_DRIVE_SECONDS,
     FOCUS_TOUCH_FRACTION,
@@ -130,9 +134,10 @@ class SIYINode(Node):
         self.latest_rel_alt: Optional[float] = None
         self.bridge = CvBridge()
 
-        # Focus state. The lens is focused on the climb-out transition rather
-        # than at startup; see _request_focus.
-        self._focus_thread: Optional[Thread] = None
+        # Lens state. Zoom and focus share ONE worker thread so they can
+        # never overlap, and neither runs at startup: both are driven by the
+        # flight (climb-out, then DO_DIGICAM_CONTROL). See _request_lens_setup.
+        self._lens_thread: Optional[Thread] = None
         self._captures_since_focus = 0
         self._climb_focus_done = False
 
@@ -167,7 +172,9 @@ class SIYINode(Node):
             )
             self.pipeline.set_resolution(self.resolution)
             self.pipeline.initialize_sd_card()
-            self._apply_capture_zoom()
+            # No zoom here. The lens is racked to CAPTURE_ZOOM_X only when
+            # DO_DIGICAM_CONTROL arrives at the survey waypoint; see
+            # _apply_capture_zoom.
         else:
             self.camera = None
             self.pipeline = None
@@ -202,48 +209,74 @@ class SIYINode(Node):
                 f"Camera model: {self.camera_model} "
                 f"(native stills: {self.native_resolution}){suffix}")
 
-    def _apply_capture_zoom(self) -> None:
+    def _apply_capture_zoom(self, reason: str) -> bool:
         """Park the lens at CAPTURE_ZOOM_X so every photo is taken there.
 
-        Done once at startup rather than per capture: the lens needs seconds to
-        travel and refocus, and doing that on every shot would stall the
-        pipelined capture path. A falsy return from absolute_zoom_autofocus is
-        deliberately not treated as failure - the SDK ack for CMD 0x0F often
-        times out on a long travel while the zoom itself still happens - so the
-        result is confirmed by reading the zoom back instead.
+        Driven by DO_DIGICAM_CONTROL (do_digi_cam_trigger publishes
+        "capture_setup" on arrival at the survey waypoint), never by node
+        startup: the lens needs seconds to travel and refocus, and racking it
+        on the ground left the autofocus bundled into CMD 0x0F locked onto
+        whatever sat a few metres from the aircraft.
+
+        Runs under camera_control_lock so a capture cannot fire mid-rack, and
+        no-ops when the lens already sits at the target - DigiCamCtrl repeats
+        on every pass through the waypoint and must not re-rack each time.
+
+        A falsy return from absolute_zoom_autofocus is deliberately not treated
+        as failure - the SDK ack for CMD 0x0F often times out on a long travel
+        while the zoom itself still happens - so the result is confirmed by
+        reading the zoom back instead.
         """
         if CAPTURE_ZOOM_X is None:
             self.get_logger().info("CAPTURE_ZOOM_X is None - leaving zoom as-is")
-            return
+            return False
 
         if not 1.0 <= CAPTURE_ZOOM_X <= 30.0:
             self.get_logger().error(
                 f"CAPTURE_ZOOM_X={CAPTURE_ZOOM_X} is outside the SDK range "
                 f"1.0-30.0 - leaving zoom untouched.")
-            return
+            return False
 
-        for attempt in range(1, 4):
+        with self.camera_control_lock:
             try:
-                self.camera.absolute_zoom_autofocus(CAPTURE_ZOOM_X)
+                current = self.camera.get_current_zoom_magnification()
             except (CameraConnectionError, OSError, ValueError) as exc:
-                self.get_logger().warn(f"Zoom attempt {attempt} errored: {exc}")
-                time.sleep(2.0)
-                continue
+                self.get_logger().warn(
+                    f"Zoom readback failed ({exc}) - racking anyway")
+                current = None
 
-            time.sleep(3.0)
-            actual = self.camera.get_current_zoom_magnification()
-            if actual is not None and abs(actual - CAPTURE_ZOOM_X) <= 0.6:
+            if (current is not None
+                    and abs(current - CAPTURE_ZOOM_X) <= ZOOM_TOLERANCE_X):
                 self.get_logger().info(
-                    f"Capture zoom set to {actual}x (asked {CAPTURE_ZOOM_X}x)")
-                self._send_status(f"Zoom set to {actual}x")
-                return
-            self.get_logger().warn(
-                f"Zoom attempt {attempt}: asked {CAPTURE_ZOOM_X}x, "
-                f"camera reports {actual}x")
+                    f"Zoom already at {current}x ({reason}) - no rack needed")
+                return True
+
+            for attempt in range(1, ZOOM_ATTEMPTS + 1):
+                try:
+                    self.camera.absolute_zoom_autofocus(CAPTURE_ZOOM_X)
+                except (CameraConnectionError, OSError, ValueError) as exc:
+                    self.get_logger().warn(f"Zoom attempt {attempt} errored: {exc}")
+                    time.sleep(ZOOM_RETRY_DELAY_SECONDS)
+                    continue
+
+                time.sleep(ZOOM_SETTLE_SECONDS)
+                actual = self.camera.get_current_zoom_magnification()
+                if (actual is not None
+                        and abs(actual - CAPTURE_ZOOM_X) <= ZOOM_TOLERANCE_X):
+                    self.get_logger().info(
+                        f"Capture zoom set to {actual}x "
+                        f"(asked {CAPTURE_ZOOM_X}x, {reason})")
+                    self._send_status(f"Zoom set to {actual}x")
+                    return True
+                self.get_logger().warn(
+                    f"Zoom attempt {attempt}: asked {CAPTURE_ZOOM_X}x, "
+                    f"camera reports {actual}x")
 
         self.get_logger().warn(
-            f"Could not confirm {CAPTURE_ZOOM_X}x after 3 attempts - continuing. "
-            f"Zoom readback on this camera is unreliable; check the video feed.")
+            f"Could not confirm {CAPTURE_ZOOM_X}x after {ZOOM_ATTEMPTS} attempts "
+            f"- continuing. Zoom readback on this camera is unreliable; check "
+            f"the video feed.")
+        return False
 
     def _focus_touch_point(self) -> tuple:
         """Centre of the frame in the SDK's touch coordinates.
@@ -260,11 +293,10 @@ class SIYINode(Node):
     def _check_climb_focus(self, current_alt: float) -> None:
         """Focus once the aircraft has actually climbed to survey height.
 
-        This is the primary focus trigger, and it is why the mission images
-        were soft: _apply_capture_zoom() runs in __init__, i.e. while the drone
-        is still on the ground, and the autofocus bundled into CMD 0x0F locks
-        the lens onto whatever is a few metres away. At CAPTURE_ZOOM_X = 5.0
-        the depth of field is far too shallow for that to survive the climb.
+        A first pass so the transit frames are usable at whatever zoom the
+        lens happens to hold. It is NOT the authoritative one: the focus queued
+        behind the rack on DO_DIGICAM_CONTROL is, because CMD 0x0F carries its
+        own autofocus and racking to CAPTURE_ZOOM_X discards whatever this set.
 
         Deliberately NOT hung off the camera_enabled edge in altitude_callback:
         min_altitude_agl defaults to -13.716, so that gate is already satisfied
@@ -280,36 +312,64 @@ class SIYINode(Node):
             # Back on the ground: re-arm so a second sortie focuses again.
             self._climb_focus_done = False
 
-    def _request_focus(self, reason: str, mode: Optional[str] = None,
-                       touch: Optional[tuple] = None) -> bool:
-        """Queue a focus action onto the focus worker thread.
+    def _lens_busy(self) -> bool:
+        """True while a zoom rack or focus is in flight on the lens worker."""
+        return self._lens_thread is not None and self._lens_thread.is_alive()
+
+    def _request_lens_setup(self, reason: str, zoom: bool = False,
+                            focus: bool = True, mode: Optional[str] = None,
+                            touch: Optional[tuple] = None) -> bool:
+        """Queue a zoom rack and/or a focus onto the single lens worker thread.
 
         Never blocks the caller and never joins: this is called from
         subscription callbacks, one of which (camera_command_callback) already
         holds camera_control_lock - and the worker takes that same
         non-reentrant lock.
+
+        Zoom and focus share ONE thread rather than getting one each. They have
+        to run in that order and must never overlap: CMD 0x0F carries its own
+        autofocus, so a focus that finished first would simply be thrown away
+        by the rack that followed it.
         """
         if not self.use_real_camera or self.camera is None:
             return False
 
         mode = (mode or FOCUS_MODE).lower()
-        if mode == 'off':
+        if focus and mode == 'off':
             self.get_logger().info(
-                f"Focus request ignored ({reason}): FOCUS_MODE is 'off'")
+                f"Focus skipped ({reason}): FOCUS_MODE is 'off'")
+            focus = False
+
+        if not (zoom or focus):
             return False
 
-        if self._focus_thread is not None and self._focus_thread.is_alive():
+        if self._lens_busy():
             self.get_logger().info(
-                f"Focus already in progress - skipping request ({reason})")
+                f"Lens work already in progress - skipping request ({reason})")
             return False
 
-        self._focus_thread = Thread(
-            target=self._focus_worker, args=(reason, mode, touch), daemon=True)
-        self._focus_thread.start()
+        self._lens_thread = Thread(
+            target=self._lens_worker, args=(reason, zoom, focus, mode, touch),
+            daemon=True)
+        self._lens_thread.start()
         return True
 
-    def _focus_worker(self, reason: str, mode: str,
-                      touch: Optional[tuple]) -> None:
+    def _request_focus(self, reason: str, mode: Optional[str] = None,
+                       touch: Optional[tuple] = None) -> bool:
+        """Focus-only shorthand for _request_lens_setup."""
+        return self._request_lens_setup(reason, zoom=False, focus=True,
+                                        mode=mode, touch=touch)
+
+    def _lens_worker(self, reason: str, zoom: bool, focus: bool, mode: str,
+                     touch: Optional[tuple]) -> None:
+        """Rack the lens, then focus it - in that order, never concurrently."""
+        if zoom:
+            self._apply_capture_zoom(reason)
+        if focus:
+            self._focus_once(reason, mode, touch)
+
+    def _focus_once(self, reason: str, mode: str,
+                    touch: Optional[tuple]) -> None:
         """Drive the lens, then hold the camera lock through the settle.
 
         Holding camera_control_lock across the settle is deliberate: a capture
@@ -367,6 +427,17 @@ class SIYINode(Node):
     def _handle_capture_request(self):
         """Handle capture request (executed in separate thread)"""
         if self.use_real_camera:
+            # Drop, never queue, a trigger that lands while the lens is
+            # racking or focusing. Letting it through would only park a
+            # capture thread on camera_control_lock, and at 1 Hz a multi-
+            # second rack stacks several of them that all fire at once on
+            # release - seconds and tens of metres past the waypoint that
+            # asked for them. The next trigger is one second away.
+            if self._lens_busy():
+                self.get_logger().warn(
+                    "Lens busy (zoom/focus) - dropping capture request")
+                return
+
             # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
             # index). Phase 3 (HTTP download) is intentionally not counted
             # as busy, so a new trigger arriving while the previous
@@ -531,6 +602,20 @@ class SIYINode(Node):
         if cmd == 'focus_infinity':
             queued = self._request_focus('focus_infinity command', mode='infinity')
             return self._result_payload(queued, action=cmd, queued=queued)
+
+        # The mission-time lens setup, published by do_digi_cam_trigger when
+        # DO_DIGICAM_CONTROL arrives. Queued onto the lens worker, and handled
+        # ahead of the busy guard below, for the same two reasons focus is: it
+        # must not run inline under the caller's camera_control_lock, and
+        # during a survey the pipeline is busy almost continuously at 1 Hz so
+        # the guard would reject it for the whole flight.
+        if cmd in {'capture_setup', 'zoom_capture'}:
+            with_focus = cmd == 'capture_setup'
+            queued = self._request_lens_setup(
+                f'{cmd} command', zoom=True, focus=with_focus)
+            return self._result_payload(queued, action=cmd, queued=queued,
+                                        target_zoom_x=CAPTURE_ZOOM_X,
+                                        focus=with_focus)
 
         if self.pipeline is not None and self.pipeline.is_busy():
             return self._result_payload(False, action=cmd, error='Pipeline is busy')

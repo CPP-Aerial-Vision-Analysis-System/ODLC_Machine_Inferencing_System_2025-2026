@@ -41,7 +41,7 @@ jobs:
       - name: Run ruff (lint)
         run: ruff check ros2_ws/src --output-format=github
 
-  # ── Job 2: format — check formatting (report-only for now) ─────────────
+  # Job 2: format — check formatting 
   format:
     runs-on: ubuntu-latest
     steps:

@@ -53,6 +53,11 @@ ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'focus_manual f
 ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'sd_format yes'"
 ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_absolute 1.0'"
 
+# What DO_DIGICAM_CONTROL sends: rack to config.py CAPTURE_ZOOM_X, then focus
+# per FOCUS_MODE. Idempotent -- a lens already at that zoom is left alone.
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'capture_setup'"
+ros2 topic pub --once /camera/command std_msgs/msg/String "data: 'zoom_capture'"  # rack only, no focus
+
 ```
 
 ### Useful valid parameter alternatives:
@@ -66,6 +71,7 @@ gimbal_mode_set supports lock, follow, fpv.
 laser_state_set supports on/off (also true/false, 1/0, enable/disable).
 laser_stream supports "", "disable", "4", or "enable,4".
 capture supports "" (defaults to 4K), or 4K / 2.7K / 1080P.
+capture_setup / zoom_capture take no parameter; the zoom comes from CAPTURE_ZOOM_X.
 ```
 Gimbal Control
 
