@@ -23,6 +23,10 @@ add_executable(gps_node src/gps.cpp)
 # means the node depends on rclcpp
 ament_target_dependencies(gps_node
   rclcpp
+  interfaces
+  mavros_msgs
+  sensor_msgs
+  std_msgs
 )
 
 # install location
