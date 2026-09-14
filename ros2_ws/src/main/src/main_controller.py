@@ -18,16 +18,23 @@ from wp_sender.parameter import ParameterManager
 
 import time, cv2, math, sys, os, subprocess
 
-ALT = 16.8      # in meters (this is ~55ft)
+ALT = 49      # in meters (this is ~55ft)
 
 # Each target releases via TWO servos.
-PERSON_SERVO_CHANNELS = [9, 11]
-TENT_SERVO_CHANNELS = [13, 14]
+PERSON_SERVO_CHANNELS = [11]
+TENT_SERVO_CHANNELS = [13]
 
 # Pulley PWM positions (same for every release servo).
-PULLEY_OPEN = 1900       # released / open   #1050
-PULLEY_CLOSE = 1400      # closed            #850
+PULLEY_OPEN = 1400       # released / open   (bench-verified 500-1400 travel)
+PULLEY_CLOSE = 500       # closed
 SERVO_OPEN_SECONDS = 3.0  # hold OPEN this long before closing back
+
+# Upper bound on the GUIDED "wait for detection to finish" hold. Without it the
+# hold is unbounded: a wedged new_od, or a stale image on disk that will never be
+# re-announced on /image_detection, leaves the aircraft loitering until a battery
+# or GCS failsafe fires. On timeout we divert with whatever finished -- and if
+# that is nothing, _divert_to_targets() already falls through to RTL.
+PROCESSING_TIMEOUT_SECONDS = 90.0
 
 class Detection_Object:
     def __init__(self, type, confidence, latitude, longitude):
@@ -78,10 +85,11 @@ class MainController(Node):
         self.waiting_for_processing = False  # True when in GUIDED waiting for processing
         self.auto_resumed = False      # set True after one-time AUTO resume; prevents re-triggering
         self.processing_check_timer = None
+        self.processing_started_at = 0.0  # wall time the GUIDED processing hold began
         self.mission_phase = "survey"   # survey -> processing -> visiting -> done
         self.visit_plan = []            # ordered targets to drop on (tent first, then person)
         self.visit_idx = 0              # how many targets dropped so far
-        self.LOITER_SECONDS = 3.0       # loiter over each target + pre-RTL wait
+        self.LOITER_SECONDS = 6.0       # loiter over each target + pre-RTL wait
         self.camera_feed_path = self._resolve_camera_feed_path()
         self.param_manager = ParameterManager()
 
@@ -139,6 +147,7 @@ class MainController(Node):
             self.get_logger().info("Holding (GUIDED) at last WP; waiting for all images to be processed")
             self.change_mode("GUIDED")
             self.waiting_for_processing = True
+            self.processing_started_at = time.time()
             if self.processing_check_timer is None:
                 self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
             return
@@ -291,10 +300,17 @@ class MainController(Node):
                 self.processing_check_timer.cancel()
                 self.processing_check_timer = None
             return
+        # Checked BEFORE anything that can return early (a missing camera-feed
+        # path used to skip the rest of this callback forever), so the hold is
+        # bounded no matter which way the check below fails.
+        elapsed = time.time() - self.processing_started_at
+        timed_out = elapsed >= PROCESSING_TIMEOUT_SECONDS
+
         try:
             if not os.path.exists(self.camera_feed_path):
                 self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
-                return
+                if not timed_out:
+                    return
 
             image_files = set(
                 f for f in os.listdir(self.camera_feed_path)
@@ -307,11 +323,21 @@ class MainController(Node):
 
             if remaining <= 0:
                 self.send_ack(f"All {total} images processed. Selecting targets.")
-                if self.processing_check_timer:
-                    self.processing_check_timer.cancel()
-                    self.processing_check_timer = None
-                self.waiting_for_processing = False
-                self._divert_to_targets()
+            elif timed_out:
+                # Divert with whatever finished rather than loiter indefinitely.
+                self.get_logger().warn(
+                    f"Processing timeout after {elapsed:.0f}s: {processed}/{total} "
+                    f"done, {remaining} never processed. Diverting anyway.")
+                self.send_ack(
+                    f"Processing timeout ({processed}/{total}). Diverting anyway.")
+            else:
+                return
+
+            if self.processing_check_timer:
+                self.processing_check_timer.cancel()
+                self.processing_check_timer = None
+            self.waiting_for_processing = False
+            self._divert_to_targets()
         except Exception as e:
             self.get_logger().error(f"Error checking processing status: {e}")
 
@@ -348,6 +374,8 @@ class MainController(Node):
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
                             self.send_ack(f"Detected {obj_class}")
+                            # self.move_servo(11,1400)   # debug: fired on every new best detection
+                            # self.move_servo(11,500)
                             # update conf
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index

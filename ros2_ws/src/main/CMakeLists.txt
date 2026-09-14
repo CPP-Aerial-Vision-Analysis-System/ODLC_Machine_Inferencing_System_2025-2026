@@ -34,6 +34,7 @@ find_package(PCL REQUIRED)
 
 install(PROGRAMS
   src/main_controller.py
+  src/capture_detect_drop.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
