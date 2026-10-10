@@ -3,7 +3,7 @@
 # "Validation testing" = does the WHOLE system behave correctly end-to-end?
 # For this project that means running the ROS nodes against a simulated
 # drone (ArduPilot SITL + Gazebo) and checking the mission plays out — the
-# same `suas-sim:ros2-gazebo` environment your devcontainer is built on.
+# `sitl` / `sim` targets of docker/Dockerfile (same base as the devcontainer).
 #
 # This is intentionally NOT wired to run automatically yet: a full sim run
 # is heavy (minutes, lots of setup) and we want the basic checks solid first.

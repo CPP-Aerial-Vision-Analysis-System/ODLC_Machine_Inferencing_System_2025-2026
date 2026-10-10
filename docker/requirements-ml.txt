@@ -1,0 +1,12 @@
+# Python ML stack for the dev image — same versions as requirements_jetson.txt.
+# torch / torchvision are installed separately in the Dockerfile (CPU build,
+# TORCH_VERSION / TORCHVISION_VERSION args) because they come from a different
+# index than the Jetson's.
+#
+# !!! numpy must stay < 2 — ROS Humble's cv_bridge is built against numpy 1.x.
+
+numpy==1.26.4
+opencv-python==4.10.0.84
+ultralytics==8.4.75
+sahi==0.11.36
+watchdog==6.0.0

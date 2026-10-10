@@ -1,89 +1,76 @@
-# Remote Development with ROS2 and GUI Support on Windows
+# ASTRA ODLC — Dev Environment (ROS 2 Humble, Python + C++)
+
+The dev container is built from our own `docker/Dockerfile`. It mirrors the
+Jetson (Ubuntu 22.04, Python 3.10, ROS 2 Humble, same Python package versions)
+and runs natively on Mac (Apple Silicon or Intel), Windows and Linux.
+
+| Target | Who | What's in it |
+|---|---|---|
+| `dev` (default) | Everyone | ROS 2 Humble, MAVROS, C++ toolchain, ONNX Runtime, Python ML stack (CPU) |
+| `sitl` | Anyone testing mission logic | `dev` + ArduPilot SITL (headless, no Gazebo) |
+| `sim` | Dedicated sim computer (x86 only) | `sitl` + Gazebo Harmonic + ardupilot_gazebo |
+
+All versions are `ARG`s at the top of `docker/Dockerfile` — change one and rebuild.
 
 ## Prerequisites
 
-### 1. Install the Remote Development Extension Pack
+1. **Docker Desktop** (Mac/Windows) or Docker Engine (Linux):
+   [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. **VS Code** + the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+3. **GUI windows (optional, only for `image_view` etc.)**
+   - **Mac:** install [XQuartz](https://www.xquartz.org/). In XQuartz → Settings → Security,
+     tick "Allow connections from network clients", restart XQuartz, then run `xhost +localhost`.
+   - **Windows:** install [XLaunch (VcXsrv)](https://sourceforge.net/p/vcxsrv/wiki/VcXsrv%20%26%20Win10/).
+     Launch it before opening the container, change the display number from `-1` to `0`,
+     and press **Next** through the rest.
 
-Download and install the Remote Development Extension Pack for VSCode:
+## Open the dev container
 
- [Remote Development Extension Pack](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.vscode-remote-extensionpack)
-
-### 2. Set Up XLaunch for GUI Support
-
-To use GUI applications on Windows, install **XLaunch**:
-
- [Download XLaunch (VcXsrv)](https://sourceforge.net/p/vcxsrv/wiki/VcXsrv%20%26%20Win10/)
-
-Once installed:
-- Launch **XLaunch** before opening the devcontainer.
-- When prompted for the display number, **change it from `-1` to `0`**.
-- Press **Next** through the remaining steps without changing any other settings.
-
----
-
-## Cloning DevContainer
-
-### 1. Clone Repo
 ```bash
 git clone https://github.com/CPP-Aerial-Vision-Analysis-System/ODLC_Machine_Inferencing_System_2025-2026.git
 ```
 
-### 2. Download Docker Desktop (on linux download docker engine)
+Open the folder in VS Code → **Reopen in Container** (or Ctrl/Cmd+Shift+P →
+"Dev Containers: Reopen in Container"). The first build takes ~10 minutes.
 
- [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
-
-### 3. Download the image (can skip to step 4. will auto-download there)
-
-In the terminal of Docker Desktop, download the Docker image:
-```bash
-docker pull joestrada1022/suas-sim:ros2-gazebo
-```
-
-### 4. Reopen in container
-
-In VS Code:
-- if prompted, you can press open when it asks you if you want to open the devcontainer.
-- if you miss it or something, open the command pallete using ctrl + shift + p and press Reopen in Container
-
----
-
-## Working Inside the Devcontainer
-
-### 1. Source the Workspace
-
-Once inside the devcontainer, run:
+## Build and run the workspace
 
 ```bash
-cd ~/ardu_ws
+cd ros2_ws
+colcon build --symlink-install
 source install/setup.bash
-````
-
-### 2. Launch the Simulation
-
-Run the following command to launch everything:
-
-```bash
-ros2 launch ardupilot_gz_bringup iris_runway.launch.py
 ```
 
-### 3. Make camera face downwards (optional)
+Check the container matches the Jetson (run the same script on both and compare):
 
-#### 3a. Open a mavproxy terminal
 ```bash
-mavproxy.py --master=127.0.0.1:14550 --out=127.0.0.1:14552
+./scripts/check_versions.sh
 ```
 
-#### 3b. Run the following RC overrides in the mavprxoy terminal to move gimbal in simulation
+## Simulation (SITL)
+
+Build the `sitl` image once, from the repo root on your host:
+
 ```bash
-rc 6 1500 # neutral roll
-rc 7 1300 # pitch down
-rc 8 1500 # neutral yaw
+docker build -t astra-sitl --target sitl docker/
+docker run -it --rm --shm-size=1g -v "$PWD":/ODLC_Machine_Inferencing_System_2025-2026 astra-sitl
 ```
 
-#### 3c. Open a heartbeat terminal
+Inside it, terminal 1 — start the simulated drone (MAVProxy forwards it to MAVROS on 14552):
+
 ```bash
-ros2 launch mavros apm.launch fcu_url:=udp://:14552@localhost:14552
+sim_vehicle.py -v ArduCopter --no-rebuild --out=udp:127.0.0.1:14552
 ```
+
+Terminal 2 — run the mission stack against it:
+
+```bash
+./launcher.sh sim
+```
+
+**Gazebo (dedicated sim computer only):** `docker build -t astra-sim --target sim --platform linux/amd64 docker/`.
+Then run `gz sim -v4 -r iris_runway.sdf` and
+`sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --no-rebuild --out=udp:127.0.0.1:14552`.
 
 
 # How to wipe out all the docker images (mac)

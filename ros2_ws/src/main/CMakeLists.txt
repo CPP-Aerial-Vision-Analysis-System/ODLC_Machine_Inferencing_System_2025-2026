@@ -22,13 +22,10 @@ find_package(interfaces REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(message_filters REQUIRED)
-find_package(pcl_conversions REQUIRED)
-find_package(pcl_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 find_package(OpenCV REQUIRED)
-find_package(PCL REQUIRED)
 
 # Messages are now defined in the interfaces package, not here
 

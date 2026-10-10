@@ -1,0 +1,11 @@
+# Python packages every dev image gets, independent of the ML stack.
+# Pinned to what the Jetson has in its pip --user site (2026-10-10).
+pymavlink==2.4.49
+MAVProxy==1.8.74
+pynmeagps==1.1.5
+py-spy==0.4.2
+# Keeps MAVProxy from pulling numpy 2 even when WITH_PY_ML=false (breaks cv_bridge).
+numpy==1.26.4
+
+# Dev-only (not on the Jetson)
+ruff
