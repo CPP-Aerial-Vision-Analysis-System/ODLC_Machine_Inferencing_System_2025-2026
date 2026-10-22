@@ -1,10 +1,46 @@
+"""
+The waypoint_manager node: keeps the mission copy, publishes its indices, inserts targets.
+
+waypoint.py -- PURPOSE: the waypoint_manager node. It keeps a copy of the autopilot's mission
+(from MAVROS, topic /mavros/mission/waypoints), publishes the mission's landmark indices as its
+own ROS parameters (num_waypoints, takeoff_index, next_after_takeoff, rtl_index,
+last_before_rtl, buffer_wp) for the other team nodes (main_controller, the DigiCamCtrl photo
+trigger), and serves /addWaypoint, which inserts a target waypoint into that copy and uploads the
+whole mission again (main_controller adds one waypoint over each target before RTL).
+
+Keeping the copy fresh (fixed October 2026, the "stale mission" bug): the node used to ask MAVROS
+for the mission only once at start-up, and MAVROS does not re-read it by itself after a ground
+station uploads a new one. A mission uploaded after ./launcher.sh started therefore never reached
+the team code (buffer_wp stayed -2, photos never stopped, main_controller never held at the last
+waypoint). Now the node asks MAVROS to read the mission again (/mavros/mission/pull,
+asynchronously, never blocking a callback) when:
+  * ArduPilot reports "Flight plan received" on /mavros/statustext/recv (an upload finished),
+  * the drone is armed (covers links where MAVROS never sees that text), and
+  * at start-up once MAVROS is connected.
+When MAVROS publishes the new list, the indices are derived again FROM SCRATCH and only the ones
+that changed are re-published, in ONE parameter event. The echo of this node's own uploads (the
+target waypoints) is ignored, so a re-read never collides with main_controller's divert. The
+rules are in mission_sync.py (pure Python, unit-tested in test/test_mission_sync.py).
+"""
+
 import rclpy
 import time
 from rclpy.node import Node
-from mavros_msgs.msg import Waypoint, WaypointList, CommandCode, WaypointReached, State, StatusText
+from rclpy.qos import qos_profile_sensor_data
+from mavros_msgs.msg import Waypoint, WaypointList, WaypointReached, State, StatusText
 from mavros_msgs.srv import WaypointPull, WaypointPush, WaypointClear, SetMode
 
 from interfaces.srv import AddWaypoint, DelWaypoint, UpdateMission
+
+from waypoint_mavros.mission_sync import (
+    ACTION_PULL,
+    INDEX_NAMES,
+    MissionRepullPolicy,
+    changed_indices,
+    derive_mission_indices,
+    is_new_mission_text,
+)
+
 
 class WaypointManager(Node):
     def __init__(self):
@@ -12,6 +48,8 @@ class WaypointManager(Node):
 
         # Initialize variables
         self.connected = False 
+        self.armed = False
+        self._state_seen = False          # first /mavros/state not seen yet (no "armed" edge then)
         self.waypoint_reached = 0 
         self.waypoint_list = WaypointList()
         self.takeoff_index = -1
@@ -23,6 +61,9 @@ class WaypointManager(Node):
         self.create_subscription(State, "/mavros/state", self.state_callback, 10)
         self.create_subscription(WaypointReached, "/mavros/mission/reached", self.waypoint_reached_cb, 10)
         self.create_subscription(WaypointList, "/mavros/mission/waypoints", self.waypoints_list, 10)
+        # Autopilot texts: "Flight plan received" = a ground station just uploaded a new mission.
+        self.create_subscription(StatusText, '/mavros/statustext/recv', self.fcu_text_cb,
+                                 qos_profile_sensor_data)
         self.status_publisher = self.create_publisher(StatusText, '/mavros/statustext/send', 10)
 
         # Mavros Clients
@@ -46,34 +87,47 @@ class WaypointManager(Node):
         self.declare_parameter('last_before_rtl', -1)
         self.declare_parameter('buffer_wp', -1)
 
+        # Mission re-reading (see the module docstring): when to pull is decided by the policy,
+        # this timer only drives it. Pull requests never block: call_async + done-callback.
+        self.repull = MissionRepullPolicy()
+        self._pull_future = None
+        self._pull_reason = ''
+        self.repull_timer = self.create_timer(0.5, self._repull_tick)
+
     def state_callback(self, msg):
-        """Callback function for state updates."""
+        """Callback function for state updates (also notices the moment the drone is armed)."""
+        was_armed = self.armed
         self.connected = msg.connected
+        self.armed = bool(msg.armed)
+        if self.armed and not was_armed and self._state_seen:
+            # Last chance to pick up a mission that was uploaded without us noticing (e.g. the
+            # ground station's radio link is not the link MAVROS listens to).
+            self.request_mission_pull('the drone was armed', armed=True)
+        self._state_seen = True
     
     def waypoints_list(self, data):
         """receives and stores the waypoint lists from mavros"""
         self.waypoint_list = data #stdy
-        for i, wp in enumerate(self.waypoint_list.waypoints):       
-                 
-            if wp.command == CommandCode.NAV_TAKEOFF:
-                self.takeoff_index = i
-                if i + 1 < len(self.waypoint_list.waypoints):
-                    self.next_after_takeoff = i + 1
-
-            if wp.command == CommandCode.NAV_RETURN_TO_LAUNCH:
-                self.rtl_index = i
-                if i - 1 > 0:
-                    self.last_before_rtl = i - 1
-
+        # Derived FROM SCRATCH for every list (an older version kept the previous mission's values
+        # when the new one had no TAKEOFF / RTL item).
+        idx = derive_mission_indices([wp.command for wp in self.waypoint_list.waypoints])
+        self.takeoff_index = idx['takeoff_index']
+        self.next_after_takeoff = idx['next_after_takeoff']
+        self.rtl_index = idx['rtl_index']
+        self.last_before_rtl = idx['last_before_rtl']
 
         self.get_logger().info(f"Takeoff Index: {self.takeoff_index}, Next After Takeoff: {self.next_after_takeoff}, Last Before RTL: {self.last_before_rtl}, RTL Index: {self.rtl_index}")
         
-        self.set_parameters([rclpy.parameter.Parameter('num_waypoints', rclpy.Parameter.Type.INTEGER, len(self.waypoint_list.waypoints))])
-        self.set_parameters([rclpy.parameter.Parameter('takeoff_index', rclpy.Parameter.Type.INTEGER, self.takeoff_index)])
-        self.set_parameters([rclpy.parameter.Parameter('next_after_takeoff', rclpy.Parameter.Type.INTEGER, self.next_after_takeoff)])
-        self.set_parameters([rclpy.parameter.Parameter('rtl_index', rclpy.Parameter.Type.INTEGER, self.rtl_index)])
-        self.set_parameters([rclpy.parameter.Parameter('last_before_rtl', rclpy.Parameter.Type.INTEGER, self.last_before_rtl)])
-        self.set_parameters([rclpy.parameter.Parameter('buffer_wp', rclpy.Parameter.Type.INTEGER, self.last_before_rtl - 1)])
+        # Publish only what changed, all in ONE parameter event: main_controller and the photo
+        # trigger re-read their indices on every event, so six events per list were six reads.
+        current = {name: self.get_parameter(name).value for name in INDEX_NAMES}
+        changes = changed_indices(current, idx)
+        if changes:
+            self.set_parameters_atomically([
+                rclpy.parameter.Parameter(name, rclpy.Parameter.Type.INTEGER, int(value))
+                for name, value in changes.items()])
+            self.get_logger().info(
+                'Mission indices updated: ' + ', '.join(f'{k}={v}' for k, v in changes.items()))
 
     
     def reset_indices(self):
@@ -97,10 +151,15 @@ class WaypointManager(Node):
             self.get_logger().info("Waiting for waypoint push service...")
         
         try:
+            # ArduPilot answers our own upload with "Flight plan received" too; tell the re-read
+            # policy, so that echo does not start a pull in the middle of main_controller's divert.
+            self.repull.on_own_push(time.monotonic())
             waypoint_push_request = WaypointPush.Request()
             waypoint_push_request.start_index = 0
             waypoint_push_request.waypoints = self.waypoint_list.waypoints
             future = self.waypoint_push.call_async(waypoint_push_request)
+            count = len(waypoint_push_request.waypoints)
+            future.add_done_callback(lambda f, n=count: self._on_push_done(f, n))
             # rclpy.spin_until_future_complete(self, future)
             if future.result() is not None:
                 if future.result().success:
@@ -112,8 +171,26 @@ class WaypointManager(Node):
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
     
+    def _on_push_done(self, future, count):
+        """Log how the (asynchronous) mission upload ended."""
+        self.repull.on_own_push(time.monotonic())   # the quiet window counts from the end too
+        try:
+            response = future.result()
+            if response is not None and response.success:
+                sent = getattr(response, 'wp_transfered', '?')   # (sic) MAVROS's field name
+                self.get_logger().info(f"Mission upload done: {count} items ({sent} transferred)")
+            else:
+                self.get_logger().error(f"Mission upload of {count} items FAILED (MAVROS said no)")
+        except Exception as e:
+            self.get_logger().error(f"Mission upload result error: {e}")
+
     def pull_waypoints(self):
-        """Update waypoint list from the drone."""
+        """
+        Update waypoint list from the drone (BLOCKING: spins until MAVROS answers).
+
+        Kept only for delete_waypoint (/delWaypoint, which nothing in the team code calls).
+        The mission re-reads use request_mission_pull() instead, which never blocks.
+        """
         while not self.waypoint_pull.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("Waiting for waypoint pull service...")
         
@@ -129,6 +206,81 @@ class WaypointManager(Node):
                 self.get_logger().info(f"Successfully pulled {response.wp_received} from drone.")
         except Exception as e:
             self.get_logger().info(f"Service call failed: {e}")
+
+    # ------------------------------------------------------------------ mission re-reading
+    def request_mission_pull(self, reason, armed=False):
+        """
+        Ask MAVROS to read the mission from the autopilot soon (never blocks).
+
+        The pull itself is sent by _repull_tick when the policy says so (a short delay merges
+        triggers that come together). When MAVROS has the new list it publishes it on
+        /mavros/mission/waypoints and waypoints_list() derives the indices again.
+        """
+        now = time.monotonic()
+        if armed:
+            self.repull.on_armed(now)
+        else:
+            self.repull.request(now, reason)
+        self.get_logger().info(f"Will re-read the mission from the autopilot ({reason})")
+
+    def fcu_text_cb(self, msg):
+        """Watch autopilot texts: "Flight plan received" means a new mission was uploaded."""
+        if not is_new_mission_text(msg.text):
+            return
+        if self.repull.on_new_mission_text(time.monotonic()):
+            self.get_logger().info(
+                f'Autopilot says "{msg.text}": a new mission was uploaded, re-reading it '
+                f'in {self.repull.delay_s:.0f} s')
+        else:
+            self.get_logger().info(
+                f'Autopilot says "{msg.text}" for our own upload of the target waypoints: '
+                f'no re-read')
+
+    def _repull_tick(self):
+        """Send the mission pull when the policy says it is time (timer callback)."""
+        now = time.monotonic()
+        if self.repull.next_action(now, self.waypoint_pull.service_is_ready()) != ACTION_PULL:
+            return
+        self._pull_reason = self.repull.reason
+        try:
+            future = self.waypoint_pull.call_async(WaypointPull.Request())
+        except Exception as e:
+            self.repull.pulled(now)
+            outcome = self.repull.finished(now, ok=False)
+            self.get_logger().warn(f"Mission re-read could not be sent ({e}); {outcome}")
+            return
+        self.repull.pulled(now)
+        self._pull_future = future
+        future.add_done_callback(self._on_pull_done)
+
+    def _on_pull_done(self, future):
+        """Handle MAVROS's answer to the pull (runs on this node's executor)."""
+        if future is not self._pull_future:
+            return
+        self._pull_future = None
+        ok, received = False, 0
+        try:
+            response = future.result()
+            ok = bool(response is not None and response.success)
+            received = int(getattr(response, 'wp_received', 0)) if response is not None else 0
+        except Exception as e:
+            self.get_logger().warn(f"Mission re-read failed: {e}")
+        outcome = self.repull.finished(time.monotonic(), ok)
+        if ok:
+            # MAVROS now publishes the new list; waypoints_list() derives the indices from it.
+            self.get_logger().info(
+                f"Re-read the mission from the autopilot: {received} items "
+                f"(because {self._pull_reason})")
+            self.send_ack(f"Mission re-read ({received} items)")
+        elif outcome == 'retry':
+            self.get_logger().warn(
+                f"MAVROS did not re-read the mission (busy?); trying again in "
+                f"{self.repull.retry_delay_s:.0f} s")
+        else:
+            self.get_logger().error(
+                "MAVROS did not re-read the mission after several tries. The team nodes may use "
+                "an OLD mission: restart ./launcher.sh, or run: ros2 service call "
+                "/mavros/mission/pull mavros_msgs/srv/WaypointPull {}")
 
     def clear_waypoints(self):
         """Clear all waypoints from the drone."""
@@ -301,7 +453,8 @@ class WaypointManager(Node):
         message = f"Heartbeat established"
         self.get_logger().info(message)
         self.send_ack(message)
-        self.pull_waypoints()
+        # Asynchronous now (it used to spin here until MAVROS answered, with no time limit).
+        self.request_mission_pull('connected to the autopilot (start-up)')
         try:
             rclpy.spin(self)
         except Exception:

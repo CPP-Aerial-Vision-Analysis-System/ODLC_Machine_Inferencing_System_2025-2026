@@ -1,4 +1,32 @@
 #!/usr/bin/env python3
+"""
+The team's SIYI camera driver node: photos on /camera/trigger, lens commands on /camera/command.
+
+siyi_node.py -- PURPOSE: the camera driver (ROS node name "siyi"). It talks to the SIYI gimbal
+camera directly: the SIYI SDK over UDP 37260 (shutter, zoom, focus, gimbal) and the camera's HTTP
+media server on port 82 (download the photo from its SD card). Every /camera/trigger
+(std_msgs/Bool, sent once per second during the survey by mapping/do_digi_cam_trigger.py) becomes
+one photo, saved as mapping_photos/"<lat> , <lon>.jpg" with the drone's GPS position at the
+shutter, where the detector (detection/new_od.py) picks it up. /camera/command (std_msgs/String)
+runs lens and gimbal commands ("capture_setup", "autofocus", "gimbal_set_angles 0,-90", ...).
+
+Changed October 2026 (bug "dropped photos", plus the drop-aiming fix):
+  * Photo requests WAIT IN A LINE (capture_queue.py) and are served as soon as the camera can take
+    a photo. Before, a trigger that came while the lens worker zoomed or focused was thrown away:
+    49 of 83 triggers in one simulator run.
+  * Photos have priority over lens housekeeping. Zoom racks and focus passes hold the camera lock
+    only while an SDK command is exchanged (milliseconds), not through their 2.5-3 s settle times,
+    so a photo can be taken in between. Photos taken while the zoom moves are marked as such.
+  * The node itself never waits for the camera lock while handling messages (it used to freeze
+    for seconds, so GPS updates were late and photo names used an old position).
+  * Commands a model cannot do are not sent: an A8 mini has no autofocus / manual focus / zoom
+    readback (config.CAMERA_CAPABILITIES), so the survey's autofocus loop is skipped on it
+    instead of costing a 2 s timeout every 5 s.
+  * The GPS name is taken right before the shutter, and a JSON "sidecar" (photo_metadata.py) is
+    written next to every photo: position, height above home, heading, field of view, zoom,
+    gimbal angles and the photo's orientation relative to the drone (parameter
+    image_top_direction_deg). main_controller uses it to aim the payload drops at the target.
+"""
 
 from video_cam.logging_utils import configure_console_format, install_wallclock_logging
 configure_console_format()
@@ -50,10 +78,27 @@ from .config import (
     REFOCUS_EVERY_N_CAPTURES,
     FOCUS_AT_ALTITUDE_M,
     FOCUS_REARM_ALTITUDE_M,
+    DEFAULT_IMAGE_TOP_DIRECTION_DEG,
+    MAX_PENDING_CAPTURES,
+    CAPTURE_SERVICE_PERIOD,
+    CAPTURE_STATS_PERIOD,
+    CAMERA_COMMAND_LOCK_TIMEOUT_SECONDS,
+    WRITE_PHOTO_SIDECAR,
+    GIMBAL_ATTITUDE_TIMEOUT_SECONDS,
+    GIMBAL_ATTITUDE_MAX_FAILURES,
+    camera_capabilities,
+    camera_hfov_deg,
 )
 from .camera_interface import CameraInterface, CameraConnectionError
 from .storage_manager import StorageManager
 from .pipeline_orchestrator import PipelineOrchestrator
+from .capture_queue import CaptureRequestQueue
+from .photo_metadata import build_photo_metadata, sidecar_path_for, write_sidecar
+
+# /camera/command commands that only QUEUE work (for the photo queue or the lens worker thread).
+# They are handled without taking the camera lock, so they can never freeze this node.
+QUEUED_COMMANDS = {'capture', 'autofocus', 'focus', 'focus_infinity', 'capture_setup',
+                   'zoom_capture'}
 
 
 class SIYINode(Node):
@@ -78,6 +123,10 @@ class SIYINode(Node):
         # Leave empty to derive the profile from camera_model.
         self.declare_parameter('resolution', '')
         self.declare_parameter('rotate_180', DEFAULT_ROTATE_180)
+        # Where the top of a photo points, clockwise from the drone's nose, when the gimbal looks
+        # straight down (0 = nose, the simulator; config.DEFAULT_IMAGE_TOP_DIRECTION_DEG says how
+        # to check it on the real drone). Written into every photo's sidecar for the drop aiming.
+        self.declare_parameter('image_top_direction_deg', DEFAULT_IMAGE_TOP_DIRECTION_DEG)
 
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
@@ -96,6 +145,10 @@ class SIYINode(Node):
             self.resolution_override = ''
         self.resolution = self.resolution_override
         self.rotate_180 = self.get_parameter('rotate_180').value
+        # The saved photo is turned another 180 deg when rotate_180 is on.
+        self.image_top_direction_deg = (
+            float(self.get_parameter('image_top_direction_deg').value)
+            + (180.0 if self.rotate_180 else 0.0)) % 360.0
 
         # 'AUTO' (the default) asks the camera itself once it is connected,
         # below. An explicit model here pins it and skips detection.
@@ -121,6 +174,9 @@ class SIYINode(Node):
         self.create_subscription(Bool, '/camera/trigger', self.camera_trigger_callback, 10)
         self.create_subscription(Float64, '/mavros/global_position/rel_alt', self.altitude_callback, qos_profile_sensor_data)
         self.create_subscription(NavSatFix, '/mavros/global_position/global', self.gps_cb, qos_profile_sensor_data)
+        # Compass heading at the shutter goes into each photo's sidecar (drop aiming).
+        self.create_subscription(Float64, '/mavros/global_position/compass_hdg', self.heading_cb,
+                                 qos_profile_sensor_data)
         self.create_subscription(String, '/camera/command', self.camera_command_callback, 10)
         if not self.use_real_camera:
             self.create_subscription(Image, '/camera/image', self.sim_image_callback, 1)
@@ -128,11 +184,21 @@ class SIYINode(Node):
         # State
         self.camera_enabled = True
         self.camera_control_lock = Lock()
-        self.capture_requested = Event()
+        # Photo requests wait here until the camera can take them (oldest first, bounded).
+        self.capture_queue = CaptureRequestQueue(MAX_PENDING_CAPTURES)
+        # Set from the moment a capture is started until its shutter + SD-index phases are done:
+        # only one capture may be in those phases at a time (its download may overlap the next).
+        self._capture_active = Event()
         self.latest_image_msg: Optional[Image] = None
         self.latest_gps = None
+        self.latest_gps_time: Optional[float] = None
         self.latest_rel_alt: Optional[float] = None
+        self.latest_rel_alt_time: Optional[float] = None
+        self.latest_heading: Optional[float] = None
+        self.latest_heading_time: Optional[float] = None
         self.bridge = CvBridge()
+        self._photos_saved = 0
+        self._last_stats_text = ''
 
         # Lens state. Zoom and focus share ONE worker thread so they can
         # never overlap, and neither runs at startup: both are driven by the
@@ -140,6 +206,15 @@ class SIYINode(Node):
         self._lens_thread: Optional[Thread] = None
         self._captures_since_focus = 0
         self._climb_focus_done = False
+        # What the photos' sidecars say about the zoom. Cameras start at 1x; after a rack this is
+        # the camera's own readback (or the commanded value on cameras that cannot report it).
+        self._zoom_x = 1.0
+        self._zoom_source = 'assumed (cameras start at 1x)'
+        self._zoom_changing = False
+        self._skip_logged = set()            # "not supported by this camera" lines already logged
+        # Gimbal attitude (CMD 0x0D) for the sidecar: switched off after repeated silence.
+        self._gimbal_attitude_ok = True
+        self._gimbal_attitude_failures = 0
 
         # Components
         workspace_root = self._find_ros2_workspace()
@@ -181,11 +256,21 @@ class SIYINode(Node):
             self.get_logger().info("Simulation mode: Waiting for images on /camera/image...")
             self._send_status("Simulation camera initialized")
         
-        # Main loop timer
+        # Main loop timer (disk status, 1 Hz)
         self.pipeline_timer = self.create_timer(NODE_LOOP_PERIOD, self._pipeline_loop)
+        # Photo queue service: a waiting request starts within CAPTURE_SERVICE_PERIOD of the camera
+        # becoming free (the old 1 Hz loop could also merge two triggers into one photo).
+        self.capture_timer = self.create_timer(CAPTURE_SERVICE_PERIOD, self._service_capture_queue)
+        self.stats_timer = self.create_timer(CAPTURE_STATS_PERIOD, self._log_capture_stats)
 
         mode = 'SIMULATION' if not self.use_real_camera else 'REAL CAMERA'
-        self.get_logger().info(f"SIYI pipeline initialized ({mode})")
+        caps = camera_capabilities(self.camera_model)
+        missing = [name for name, ok in caps.items() if not ok]
+        self.get_logger().info(
+            f"SIYI pipeline initialized ({mode}); photo queue holds {MAX_PENDING_CAPTURES} "
+            f"requests; photo top points {self.image_top_direction_deg:.0f} deg clockwise from "
+            f"the nose" + (f"; {self.camera_model} cannot do: {', '.join(missing)}"
+                           if missing else ""))
     
     def _apply_camera_model(self, model: str, announce: bool = True) -> None:
         """Adopt `model` and derive the image-validation profile from it.
@@ -209,6 +294,22 @@ class SIYINode(Node):
                 f"Camera model: {self.camera_model} "
                 f"(native stills: {self.native_resolution}){suffix}")
 
+    def _capabilities(self) -> Dict[str, bool]:
+        """What the current camera model answers (config.CAMERA_CAPABILITIES)."""
+        return camera_capabilities(self.camera_model)
+
+    def _log_skip_once(self, key: str, text: str) -> None:
+        """Log a "not supported by this camera" message only the first time."""
+        if key not in self._skip_logged:
+            self._skip_logged.add(key)
+            self.get_logger().info(text)
+
+    def _set_zoom(self, zoom_x: Optional[float], source: str) -> None:
+        """Remember the zoom the next photos' sidecars report."""
+        if zoom_x is not None and zoom_x > 0:
+            self._zoom_x = float(zoom_x)
+            self._zoom_source = source
+
     def _apply_capture_zoom(self, reason: str) -> bool:
         """Park the lens at CAPTURE_ZOOM_X so every photo is taken there.
 
@@ -218,14 +319,20 @@ class SIYINode(Node):
         on the ground left the autofocus bundled into CMD 0x0F locked onto
         whatever sat a few metres from the aircraft.
 
-        Runs under camera_control_lock so a capture cannot fire mid-rack, and
-        no-ops when the lens already sits at the target - DigiCamCtrl repeats
+        The camera lock is held only while each SDK command is exchanged; the
+        settle time is spent WITHOUT it, so photos keep being taken during the
+        rack (October 2026: holding the lock here dropped every photo request
+        for the whole rack). Photos taken meanwhile are marked "zoom changing"
+        in their sidecar, so main_controller does not trust their scale.
+
+        No-ops when the lens already sits at the target - DigiCamCtrl repeats
         on every pass through the waypoint and must not re-rack each time.
 
         A falsy return from absolute_zoom_autofocus is deliberately not treated
         as failure - the SDK ack for CMD 0x0F often times out on a long travel
         while the zoom itself still happens - so the result is confirmed by
-        reading the zoom back instead.
+        reading the zoom back instead (cameras that cannot report their zoom,
+        like the A8 mini, get one command and the commanded value is assumed).
         """
         if CAPTURE_ZOOM_X is None:
             self.get_logger().info("CAPTURE_ZOOM_X is None - leaving zoom as-is")
@@ -237,30 +344,54 @@ class SIYINode(Node):
                 f"1.0-30.0 - leaving zoom untouched.")
             return False
 
-        with self.camera_control_lock:
+        can_read_zoom = self._capabilities()['zoom_readback']
+        current = None
+        if can_read_zoom:
             try:
-                current = self.camera.get_current_zoom_magnification()
+                with self.camera_control_lock:
+                    current = self.camera.get_current_zoom_magnification()
             except (CameraConnectionError, OSError, ValueError) as exc:
                 self.get_logger().warn(
                     f"Zoom readback failed ({exc}) - racking anyway")
                 current = None
+            self._set_zoom(current, 'readback')
 
-            if (current is not None
-                    and abs(current - CAPTURE_ZOOM_X) <= ZOOM_TOLERANCE_X):
-                self.get_logger().info(
-                    f"Zoom already at {current}x ({reason}) - no rack needed")
-                return True
+        if (current is not None
+                and abs(current - CAPTURE_ZOOM_X) <= ZOOM_TOLERANCE_X):
+            self.get_logger().info(
+                f"Zoom already at {current}x ({reason}) - no rack needed")
+            return True
 
+        self._zoom_changing = True
+        try:
             for attempt in range(1, ZOOM_ATTEMPTS + 1):
                 try:
-                    self.camera.absolute_zoom_autofocus(CAPTURE_ZOOM_X)
+                    with self.camera_control_lock:
+                        self.camera.absolute_zoom_autofocus(CAPTURE_ZOOM_X)
                 except (CameraConnectionError, OSError, ValueError) as exc:
                     self.get_logger().warn(f"Zoom attempt {attempt} errored: {exc}")
                     time.sleep(ZOOM_RETRY_DELAY_SECONDS)
                     continue
 
-                time.sleep(ZOOM_SETTLE_SECONDS)
-                actual = self.camera.get_current_zoom_magnification()
+                time.sleep(ZOOM_SETTLE_SECONDS)       # no lock held: photos continue
+
+                if not can_read_zoom:
+                    # This camera cannot report its zoom (A8 mini: no CMD 0x18). It does take
+                    # CMD 0x0F, so assume the commanded value instead of retrying blindly.
+                    self._set_zoom(CAPTURE_ZOOM_X,
+                                   'commanded (this camera cannot report its zoom)')
+                    self.get_logger().info(
+                        f"Zoom set to {CAPTURE_ZOOM_X}x (commanded; {self.camera_model} cannot "
+                        f"report its zoom, {reason})")
+                    return True
+
+                try:
+                    with self.camera_control_lock:
+                        actual = self.camera.get_current_zoom_magnification()
+                except (CameraConnectionError, OSError, ValueError) as exc:
+                    self.get_logger().warn(f"Zoom readback failed ({exc})")
+                    actual = None
+                self._set_zoom(actual, 'readback')
                 if (actual is not None
                         and abs(actual - CAPTURE_ZOOM_X) <= ZOOM_TOLERANCE_X):
                     self.get_logger().info(
@@ -271,6 +402,8 @@ class SIYINode(Node):
                 self.get_logger().warn(
                     f"Zoom attempt {attempt}: asked {CAPTURE_ZOOM_X}x, "
                     f"camera reports {actual}x")
+        finally:
+            self._zoom_changing = False
 
         self.get_logger().warn(
             f"Could not confirm {CAPTURE_ZOOM_X}x after {ZOOM_ATTEMPTS} attempts "
@@ -316,20 +449,28 @@ class SIYINode(Node):
         """True while a zoom rack or focus is in flight on the lens worker."""
         return self._lens_thread is not None and self._lens_thread.is_alive()
 
+    def _focus_supported(self, mode: str) -> bool:
+        """Can this camera do a focus pass of `mode` ('infinity' needs 0x06, 'auto' needs 0x04)?"""
+        caps = self._capabilities()
+        if mode == 'infinity':
+            return caps['manual_focus']
+        return caps['autofocus']
+
     def _request_lens_setup(self, reason: str, zoom: bool = False,
                             focus: bool = True, mode: Optional[str] = None,
                             touch: Optional[tuple] = None) -> bool:
         """Queue a zoom rack and/or a focus onto the single lens worker thread.
 
         Never blocks the caller and never joins: this is called from
-        subscription callbacks, one of which (camera_command_callback) already
-        holds camera_control_lock - and the worker takes that same
-        non-reentrant lock.
+        subscription callbacks, and the worker takes the camera lock itself.
 
         Zoom and focus share ONE thread rather than getting one each. They have
         to run in that order and must never overlap: CMD 0x0F carries its own
         autofocus, so a focus that finished first would simply be thrown away
         by the rack that followed it.
+
+        A focus the camera cannot do (config.CAMERA_CAPABILITIES, e.g. any focus
+        on an A8 mini) is left out instead of being sent and timing out.
         """
         if not self.use_real_camera or self.camera is None:
             return False
@@ -338,6 +479,12 @@ class SIYINode(Node):
         if focus and mode == 'off':
             self.get_logger().info(
                 f"Focus skipped ({reason}): FOCUS_MODE is 'off'")
+            focus = False
+        if focus and not self._focus_supported(mode):
+            self._log_skip_once(
+                f'focus-{mode}',
+                f"Focus '{mode}' skipped: the {self.camera_model} does not support it "
+                f"(fixed-focus lens; SIYI SDK table). Not sent again this flight.")
             focus = False
 
         if not (zoom or focus):
@@ -370,29 +517,34 @@ class SIYINode(Node):
 
     def _focus_once(self, reason: str, mode: str,
                     touch: Optional[tuple]) -> None:
-        """Drive the lens, then hold the camera lock through the settle.
+        """Drive the lens, then let it settle.
 
-        Holding camera_control_lock across the settle is deliberate: a capture
-        that arrives mid-rack blocks on the lock instead of firing at a lens
-        that is still travelling.
+        The camera lock is held only while each SDK command is exchanged. The
+        far-drive and the settle time run WITHOUT it, so photos keep being
+        taken (October 2026: holding the lock through the settle dropped about
+        3 photos out of every 5 during the survey's 5 s autofocus loop). A photo
+        taken during a focus pass can be a little soft; a dropped photo is a
+        hole in the search.
         """
         ok = False
         try:
-            with self.camera_control_lock:
-                if mode == 'infinity':
-                    self.get_logger().info(
-                        f"Focusing to infinity ({reason}): driving far for "
-                        f"{FOCUS_FAR_DRIVE_SECONDS}s")
+            if mode == 'infinity':
+                self.get_logger().info(
+                    f"Focusing to infinity ({reason}): driving far for "
+                    f"{FOCUS_FAR_DRIVE_SECONDS}s")
+                with self.camera_control_lock:
                     ok = self.camera.manual_focus(1)       # 1 = far
-                    time.sleep(FOCUS_FAR_DRIVE_SECONDS)
+                time.sleep(FOCUS_FAR_DRIVE_SECONDS)
+                with self.camera_control_lock:
                     self.camera.manual_focus(0)            # 0 = stop
-                else:
-                    x, y = touch if touch else self._focus_touch_point()
-                    self.get_logger().info(
-                        f"Autofocus ({reason}) at touch point ({x}, {y})")
+            else:
+                x, y = touch if touch else self._focus_touch_point()
+                self.get_logger().info(
+                    f"Autofocus ({reason}) at touch point ({x}, {y})")
+                with self.camera_control_lock:
                     ok = self.camera.auto_focus(touch_x=x, touch_y=y)
 
-                time.sleep(FOCUS_SETTLE_SECONDS)
+            time.sleep(FOCUS_SETTLE_SECONDS)
 
             self._captures_since_focus = 0
             if ok:
@@ -412,50 +564,97 @@ class SIYINode(Node):
         return video_cam_dir
 
     def _pipeline_loop(self):
-        # Main execution loop. Execute capture pipeline when triggered (in separate thread)
-        # Check if camera is enabled (altitude check)
-        if not self.camera_enabled:
-            return
-        
-        # Handle capture requests
-        if self.capture_requested.is_set():
-            self.capture_requested.clear()
-            self._handle_capture_request()
-
+        # Main loop (1 Hz): disk status. Photo requests are served by _service_capture_queue.
         self._publish_disk_status()
     
-    def _handle_capture_request(self):
-        """Handle capture request (executed in separate thread)"""
+    def _service_capture_queue(self):
+        """Start the oldest waiting photo request as soon as the camera can take it.
+
+        Runs every CAPTURE_SERVICE_PERIOD and right after each trigger. Only one
+        capture may be in its shutter + SD-index phases at a time; its HTTP
+        download runs in parallel with the next shutter (pipelined capture).
+        Lens work (zoom rack, focus) does NOT hold photos back any more.
+        """
+        if self.capture_queue.pending == 0:
+            return
+        if not self.camera_enabled:
+            # Below min_altitude_agl photos are not wanted: forget the requests.
+            n = self.capture_queue.clear()
+            self.get_logger().debug(f"Camera disabled (altitude) - ignoring {n} photo request(s)")
+            return
         if self.use_real_camera:
-            # Drop, never queue, a trigger that lands while the lens is
-            # racking or focusing. Letting it through would only park a
-            # capture thread on camera_control_lock, and at 1 Hz a multi-
-            # second rack stacks several of them that all fire at once on
-            # release - seconds and tens of metres past the waypoint that
-            # asked for them. The next trigger is one second away.
-            if self._lens_busy():
-                self.get_logger().warn(
-                    "Lens busy (zoom/focus) - dropping capture request")
+            if self._capture_active.is_set():
+                return                          # the previous shutter/index is still running
+            trigger_time = self.capture_queue.pop()
+            if trigger_time is None:
                 return
-
-            # is_busy() reflects ONLY phases 1+2 (the UDP shutter + SD
-            # index). Phase 3 (HTTP download) is intentionally not counted
-            # as busy, so a new trigger arriving while the previous
-            # capture is still downloading will proceed and overlap its
-            # shutter with that download — this is the whole point of the
-            # pipelined-capture design.
-            if self.pipeline.is_busy():
-                self.get_logger().warn("Previous capture still in shutter/index phase, skipping request")
-                return
-
-            # Execute pipeline in separate thread (non-blocking)
-            capture_thread = Thread(target=self._execute_real_camera_capture, daemon=True)
+            # Set HERE (not in the thread) so the next timer tick cannot start a second capture
+            # before the thread has begun.
+            self._capture_active.set()
+            capture_thread = Thread(target=self._execute_real_camera_capture,
+                                    args=(trigger_time,), daemon=True)
             capture_thread.start()
         else:
             # Simulation mode: save current image
+            self.capture_queue.pop()
             self._execute_simulation_capture()
     
-    def _execute_real_camera_capture(self):
+    def _log_capture_stats(self, force: bool = False):
+        """Log the photo statistics (only when they changed, unless force)."""
+        text = (f"Photo stats: {self.capture_queue.stats_text()}; "
+                f"{self._photos_saved} photos saved")
+        if force or text != self._last_stats_text:
+            self._last_stats_text = text
+            self.get_logger().info(text)
+
+    def _query_gimbal_attitude(self) -> Optional[Dict[str, float]]:
+        """The gimbal's own yaw/pitch/roll (CMD 0x0D) for the photo's sidecar, or None.
+
+        Called with the camera lock held, right before the shutter. A camera that
+        stays silent is asked again a few times, then not any more this flight.
+        """
+        if not self._gimbal_attitude_ok:
+            return None
+        try:
+            data = self.camera.request_gimbal_attitude(timeout=GIMBAL_ATTITUDE_TIMEOUT_SECONDS)
+        except (CameraConnectionError, OSError, ValueError):
+            data = None
+        if data is None:
+            self._gimbal_attitude_failures += 1
+            if self._gimbal_attitude_failures >= GIMBAL_ATTITUDE_MAX_FAILURES:
+                self._gimbal_attitude_ok = False
+                self.get_logger().warn(
+                    "The camera did not report its gimbal attitude (CMD 0x0D) "
+                    f"{self._gimbal_attitude_failures} times in a row - not asking any more; "
+                    "photo sidecars will have no gimbal angles (main_controller then assumes "
+                    "the camera looks straight down).")
+            return None
+        self._gimbal_attitude_failures = 0
+        return {'yaw_deg': data['yaw_deg'], 'pitch_deg': data['pitch_deg'],
+                'roll_deg': data['roll_deg'], 'source': 'camera 0x0D'}
+
+    def _capture_metadata(self, gps_filename: Optional[str], trigger_time: float) -> dict:
+        """Everything the drone and camera were doing right now, for the photo's sidecar."""
+        now = time.time()
+        fix = self.latest_gps
+
+        def age(t):
+            return None if t is None else now - t
+        lat = lon = alt = None
+        if fix is not None:
+            lat, lon, alt = fix.latitude, fix.longitude, fix.altitude
+        return build_photo_metadata(
+            image_name=gps_filename, shutter_unix_s=now, trigger_unix_s=trigger_time,
+            lat=lat, lon=lon, alt_msl_m=alt, fix_age_s=age(self.latest_gps_time),
+            rel_alt_m=self.latest_rel_alt, rel_alt_age_s=age(self.latest_rel_alt_time),
+            heading_deg=self.latest_heading, heading_age_s=age(self.latest_heading_time),
+            camera_model=self.camera_model, hfov_deg=camera_hfov_deg(self.camera_model),
+            zoom_x=self._zoom_x, zoom_source=self._zoom_source,
+            zoom_changing=self._zoom_changing,
+            image_top_direction_deg=self.image_top_direction_deg, rotate_180=self.rotate_180,
+            gimbal=self._query_gimbal_attitude())
+
+    def _execute_real_camera_capture(self, trigger_time: Optional[float] = None):
         """Execute real camera capture pipeline with pipelined phases.
 
         Phases 1+2 (UDP shutter + SD index) run under camera_control_lock so
@@ -464,25 +663,31 @@ class SIYINode(Node):
         shutter and the previous capture's download can overlap — cutting
         back-to-back capture latency roughly in half.
         """
+        if trigger_time is None:
+            trigger_time = time.time()
         try:
-            # Snapshot a GPS-based filename BEFORE the pipeline runs so that
-            # phase 3 saves the downloaded image directly under its final
-            # "<lat> , <lon>.jpg" name. This avoids a race where new_od
-            # would see the file under its SD card name and enqueue it
-            # before a post-hoc rename could happen. It also pins the
-            # lat/lon to ~shutter time (phase 1 fires immediately after
-            # this call) rather than to download-completion time, which
-            # can be 2-3s later -- ~40-60m of drift at airspeed.
-            gps_filename = self._generate_gps_filename()
+            try:
+                # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
+                # control lock here so gimbal/zoom commands can't race with
+                # the UDP capture command.
+                with self.camera_control_lock:
+                    # Snapshot a GPS-based filename right BEFORE the shutter so
+                    # that phase 3 saves the downloaded image directly under its
+                    # final "<lat> , <lon>.jpg" name (new_od must never see it
+                    # under its SD-card name). Taken INSIDE the lock (October
+                    # 2026): taken before it, a capture that had to wait for the
+                    # lens got a name seconds older than the photo (15 m off).
+                    gps_filename = self._generate_gps_filename()
+                    metadata = (self._capture_metadata(gps_filename, trigger_time)
+                                if WRITE_PHOTO_SIDECAR else None)
+                    file_info = self.pipeline.capture_and_index()
+            finally:
+                # Shutter + index are over: the next photo may start now (even if this one failed).
+                self._capture_active.clear()
+
             if gps_filename is None:
                 self.get_logger().warn( "No valid GPS info /mavros/global_position/global; using the SD name")
                 self._send_status("WARN: No GPS fix - image will not have lat/lon name")
-
-            # Phases 1+2: UDP shutter + SD card indexing. Hold the camera
-            # control lock here so gimbal/zoom commands can't race with
-            # the UDP capture command.
-            with self.camera_control_lock:
-                file_info = self.pipeline.capture_and_index()
 
             if file_info is None:
                 self._send_status("FAILED: Capture shutter/index error")
@@ -491,12 +696,23 @@ class SIYINode(Node):
 
             # Refocus periodically so one dropped or failed focus attempt
             # cannot cost the rest of the flight. Requested outside the lock
-            # above; the worker takes it again and captures queue behind it.
+            # above; the worker takes it again for each SDK command only.
             self._captures_since_focus += 1
             if (REFOCUS_EVERY_N_CAPTURES > 0
                     and self._captures_since_focus >= REFOCUS_EVERY_N_CAPTURES):
                 self._request_focus(
                     f"{self._captures_since_focus} captures since last focus")
+
+            # The sidecar goes next to the photo BEFORE the photo appears, so
+            # whoever reacts to the photo (new_od -> main_controller) finds it.
+            if metadata is not None:
+                final_name = gps_filename or file_info.get('name', '')
+                if final_name:
+                    metadata['image_name'] = final_name
+                    photo_path = os.path.join(self.storage.get_mapping_dir(), final_name)
+                    path = sidecar_path_for(photo_path)
+                    if not write_sidecar(path, metadata):
+                        self.get_logger().warn(f"Could not write the photo sidecar {path}")
 
             # Phase 3: HTTP download on port 82. Intentionally NOT holding
             # camera_control_lock here so that (a) gimbal/zoom commands can
@@ -512,6 +728,7 @@ class SIYINode(Node):
                 return
 
             saved_path, img = result
+            self._photos_saved += 1
             stats = self.pipeline.get_stats()
             self._send_status(
                 f"SUCCESS: Captured {stats['resolution']} image #{stats['photo_count']}")
@@ -554,6 +771,12 @@ class SIYINode(Node):
     def gps_cb(self, msg):
         """Callback to store the latest GPS data."""
         self.latest_gps = msg
+        self.latest_gps_time = time.time()
+
+    def heading_cb(self, msg: Float64):
+        """Latest compass heading (degrees, 0 = north), for the photo sidecars."""
+        self.latest_heading = float(msg.data)
+        self.latest_heading_time = time.time()
 
     def _execute_camera_command(self, command: str, parameter: str) -> Dict[str, Any]:
         if not self.use_real_camera or self.camera is None:
@@ -565,7 +788,7 @@ class SIYINode(Node):
         cmd = command.strip().lower().replace('-', '_')
         param = parameter.strip()
 
-        # Capture command is queued through the existing pipeline trigger path.
+        # Capture command goes into the same photo queue as /camera/trigger.
         if cmd == 'capture':
             resolution = self.resolution
             if param:
@@ -574,13 +797,15 @@ class SIYINode(Node):
                     raise ValueError(
                         f"Invalid resolution '{resolution}'. Valid: {sorted(PHOTO_RESOLUTIONS.keys())}"
                     )
+                if self.pipeline is not None:
+                    if self.pipeline.is_busy():
+                        # Changing the validation profile mid-capture would mislabel that photo.
+                        return self._result_payload(False, action='capture',
+                                                    error='Pipeline is busy')
+                    self.pipeline.set_resolution(resolution)
 
-            if self.pipeline is not None:
-                if self.pipeline.is_busy():
-                    return self._result_payload(False, action='capture', error='Pipeline is busy')
-                self.pipeline.set_resolution(resolution)
-
-            self.capture_requested.set()
+            self.capture_queue.push(time.time())
+            self._service_capture_queue()
             return self._result_payload(True, action='capture', queued=True,
                                         resolution=resolution)
 
@@ -595,6 +820,19 @@ class SIYINode(Node):
                 x_raw, y_raw = self._split_csv(param, 2)
                 touch = (int(x_raw), int(y_raw))
             mode = 'auto' if cmd == 'autofocus' else FOCUS_MODE
+            if not self._focus_supported(mode):
+                # Not an error: this camera simply has no such focus (A8 mini). Say so once.
+                self._log_skip_once(
+                    f'focus-{mode}',
+                    f"'{cmd}' skipped: the {self.camera_model} does not support focus '{mode}' "
+                    f"(fixed-focus lens; SIYI SDK table). Ignored for the rest of the flight.")
+                return self._result_payload(True, action=cmd, mode=mode, queued=False,
+                                            skipped='not supported by this camera')
+            if self._lens_busy():
+                # The lens worker is busy (e.g. the capture_setup rack): skip this pass, the
+                # next one comes with the next autofocus request. Not an error.
+                return self._result_payload(True, action=cmd, mode=mode, queued=False,
+                                            skipped='lens busy')
             queued = self._request_focus(f'{cmd} command', mode=mode, touch=touch)
             return self._result_payload(queued, action=cmd, mode=mode,
                                         queued=queued, touch=touch)
@@ -606,7 +844,7 @@ class SIYINode(Node):
         # The mission-time lens setup, published by do_digi_cam_trigger when
         # DO_DIGICAM_CONTROL arrives. Queued onto the lens worker, and handled
         # ahead of the busy guard below, for the same two reasons focus is: it
-        # must not run inline under the caller's camera_control_lock, and
+        # must not run inline (the worker takes the camera lock itself), and
         # during a survey the pipeline is busy almost continuously at 1 Hz so
         # the guard would reject it for the whole flight.
         if cmd in {'capture_setup', 'zoom_capture'}:
@@ -638,6 +876,8 @@ class SIYINode(Node):
                 raise ValueError(f"{cmd} requires a zoom multiple, e.g. 4.5")
             multiple = float(param)
             ok = self.camera.absolute_zoom_autofocus(multiple)
+            if not self._capabilities()['zoom_readback']:
+                self._set_zoom(multiple, 'commanded (this camera cannot report its zoom)')
             return self._result_payload(ok, action=cmd, target_zoom_x=multiple)
 
         if cmd == 'zoom_range':
@@ -646,6 +886,7 @@ class SIYINode(Node):
 
         if cmd == 'zoom_current':
             value = self.camera.get_current_zoom_magnification()
+            self._set_zoom(value, 'readback')
             return self._result_payload(value is not None, action='zoom_current', zoom_x=value)
 
         if cmd == 'focus_manual':
@@ -740,13 +981,28 @@ class SIYINode(Node):
                 command = parts[0]
                 parameter = parts[1] if len(parts) > 1 else ''
             
-            with self.camera_control_lock:
+            if command.strip().lower().replace('-', '_') in QUEUED_COMMANDS:
+                # Only queues work: no camera lock needed. (Taking the lock here
+                # used to freeze this whole node -- GPS, height and photo
+                # triggers included -- for as long as the lens worker held it.)
                 result = self._execute_camera_command(command, parameter)
+            elif self.camera_control_lock.acquire(timeout=CAMERA_COMMAND_LOCK_TIMEOUT_SECONDS):
+                try:
+                    result = self._execute_camera_command(command, parameter)
+                finally:
+                    self.camera_control_lock.release()
+            else:
+                result = self._result_payload(
+                    False, error=f'camera busy for {CAMERA_COMMAND_LOCK_TIMEOUT_SECONDS:.0f} s '
+                                 '(a photo or a lens move) - send the command again')
 
             success = bool(result.get('ok', False))
             
             if success:
-                self._publish_camera_status(f"CMD SUCCESS: {command}")
+                if result.get('skipped'):
+                    self._publish_camera_status(f"CMD SKIPPED: {command} - {result['skipped']}")
+                else:
+                    self._publish_camera_status(f"CMD SUCCESS: {command}")
                 # self.get_logger().info(f"Camera command success: {command}")
             else:
                 self._publish_camera_status(f"CMD FAILED: {command} - {result.get('error', 'Unknown')}")
@@ -781,6 +1037,7 @@ class SIYINode(Node):
             filepath = os.path.join(mapping_dir, filename)
             
             cv2.imwrite(filepath, cv_image)
+            self._photos_saved += 1
             self.get_logger().info(f"Simulation photo saved: {filepath}")
             self._send_status(f"Simulation photo captured: {time.strftime('%Y%m%d-%H%M%S')}")
             
@@ -856,10 +1113,15 @@ class SIYINode(Node):
         self.disk_status_pub.publish(msg)
     
     def camera_trigger_callback(self, msg: Bool):
-        """Handle capture trigger requests"""
+        """Handle capture trigger requests: every one is queued, none is thrown away."""
         if msg.data:
             self.get_logger().info("Capture trigger received!")
-            self.capture_requested.set()
+            if not self.capture_queue.push(time.time()):
+                self.get_logger().warn(
+                    f"Photo queue full ({MAX_PENDING_CAPTURES} waiting): dropped the OLDEST "
+                    f"request ({self.capture_queue.dropped} dropped so far) - the camera cannot "
+                    f"keep up")
+            self._service_capture_queue()
         else:
             self.get_logger().debug("Trigger received with data=False, ignoring")
     
@@ -867,6 +1129,7 @@ class SIYINode(Node):
         """Handle altitude updates for camera enable/disable"""
         current_alt = msg.data
         self.latest_rel_alt = current_alt
+        self.latest_rel_alt_time = time.time()
         was_enabled = self.camera_enabled
         self._check_climb_focus(current_alt)
 
@@ -909,6 +1172,10 @@ class SIYINode(Node):
         #     self.get_logger().info("Shutting down SIYI pipeline...")
         # except Exception:
         #     pass
+        try:
+            self._log_capture_stats(force=True)
+        except Exception:
+            pass
         
         # Close camera interface
         if self.camera is not None:

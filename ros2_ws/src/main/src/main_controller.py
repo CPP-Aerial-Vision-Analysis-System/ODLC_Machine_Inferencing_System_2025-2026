@@ -1,4 +1,51 @@
 #!/usr/bin/env python3
+"""
+Mission controller: hold after the survey, aim at the targets, drop the payloads, go home.
+
+main_controller.py -- PURPOSE: the mission "brain" that runs on the drone's Jetson (ROS node
+main_controller). ArduPilot flies the survey mission by itself; this node watches it and takes
+over at the end:
+  1. SURVEY: it remembers the best "person" and the best "tent" the detector reports (new_od,
+     topic /image_detection) and WHERE ON THE GROUND each one is (see "Drop aiming" below).
+  2. PROCESSING: at the last survey waypoint it switches to GUIDED (hover) and waits until every
+     photo has been checked by the detector (at most PROCESSING_TIMEOUT_SECONDS).
+  3. VISITING: it inserts one waypoint over each target (tent first, then person) right before
+     the mission's RTL (service /addWaypoint of waypoint_manager), points the mission at the
+     first one and switches back to AUTO.
+  4. DROPPING: over each target it hovers (GUIDED) LOITER_SECONDS, opens that target's release
+     servo for SERVO_OPEN_SECONDS (MAV_CMD_DO_SET_SERVO), and flies on; after the last one it
+     returns home (RTL).
+
+Fixed in October 2026 (found in the Gazebo simulator):
+  * Drop aiming: the target position is no longer the drone's GPS position when the photo was
+    taken (that missed by 14-25 m), but the ground point under the CENTRE OF THE DETECTION BOX.
+    video_cam writes a JSON "sidecar" next to every photo (height above home, heading, field of
+    view, zoom, gimbal angles at the shutter) and target_geolocation.py projects the box centre
+    onto the ground. A photo without a usable sidecar falls back to the old behaviour (its own
+    position); a photo without GPS is ignored instead of sending the drone to lat/lon 0,0.
+  * No crash on a slow parameter read: the mission indices from waypoint_manager are read with
+    wp_sender.parameter.AsyncParameterReader (never blocks, keeps the old values and retries when
+    a read fails). The old blocking read spun the executor inside a callback, timed out,
+    returned None and killed this node (2 of 4 simulator runs).
+  * Nothing sleeps inside a callback any more: the 4 s + 1 s before resuming AUTO, the 6 s
+    loiter, the 3 s servo opening and the 6 s before RTL are one-shot timers
+    (timed_steps.StepRunner), so the node keeps handling messages and service answers meanwhile.
+    Same timings as before.
+
+Parameters (ros2 run main main_controller.py --ros-args -p name:=value):
+  aim_at_detection_box      true   false = old behaviour (fly to the photo's own position)
+  default_camera_pitch_deg  -90.0  camera pitch when the camera did not report its attitude
+  default_camera_hfov_deg   81.0   field of view when a sidecar has none
+  target_ground_height_m    0.0    ground height under the targets above HOME (heights are
+                                   measured from home)
+  max_aim_offset_m          150.0  an aim point farther than this from the photo is not trusted
+How the photo is turned relative to the drone is video_cam's parameter image_top_direction_deg;
+it arrives here inside each photo's sidecar.
+
+Talks to: /image_detection (in), /mavros/mission/waypoints + /mavros/mission/reached (in),
+/parameter_events + /waypoint_manager/get_parameters (mission indices), /addWaypoint (out),
+/mavros/set_mode, /mavros/mission/set_current, /mavros/cmd/command, /mavros/statustext/send (out).
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -14,9 +61,13 @@ from rcl_interfaces.msg import ParameterEvent
 from cv_bridge import CvBridge
 
 from interfaces.srv import GetGPSData, AddWaypoint, DelWaypoint
-from wp_sender.parameter import ParameterManager
+from wp_sender.parameter import AsyncParameterReader
 
 import time, cv2, math, sys, os, subprocess
+
+# Helpers next to this file (installed beside it by main/CMakeLists.txt).
+import target_geolocation as geo
+from timed_steps import StepRunner, call_later
 
 ALT = 49      # in meters (this is ~55ft)
 
@@ -36,17 +87,40 @@ SERVO_OPEN_SECONDS = 3.0  # hold OPEN this long before closing back
 # that is nothing, _divert_to_targets() already falls through to RTL.
 PROCESSING_TIMEOUT_SECONDS = 90.0
 
+# Waits of the divert: let the full-mission push land on the FCU, then set the
+# current waypoint, then resume AUTO (same values as the old time.sleep calls).
+PUSH_SETTLE_SECONDS = 4.0
+SET_CURRENT_TO_AUTO_SECONDS = 1.0
+
+# The mission indices waypoint_manager publishes as parameters (read together).
+MISSION_INDEX_PARAMS = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff',
+                        'last_before_rtl']
+
 class Detection_Object:
     def __init__(self, type, confidence, latitude, longitude):
         self.type = type          # person or tent
         self.confidence = confidence     
         # self.waypoint_index = waypoint_index # index > 0
-        self.lat = latitude
+        self.lat = latitude       # where we will fly to drop (the aim point)
         self.long = longitude
+        self.image_name = ''      # photo it was seen in
+        self.aim_note = ''        # how the aim point was computed (for the log)
         
 class MainController(Node):
     def __init__(self):
         super().__init__('main_controller')
+
+        # Parameters of the drop aiming (see the module docstring).
+        self.declare_parameter('aim_at_detection_box', True)
+        self.declare_parameter('default_camera_pitch_deg', -90.0)
+        self.declare_parameter('default_camera_hfov_deg', 81.0)
+        self.declare_parameter('target_ground_height_m', 0.0)
+        self.declare_parameter('max_aim_offset_m', 150.0)
+        self.aim_at_box = bool(self.get_parameter('aim_at_detection_box').value)
+        self.default_pitch = float(self.get_parameter('default_camera_pitch_deg').value)
+        self.default_hfov = float(self.get_parameter('default_camera_hfov_deg').value)
+        self.ground_height = float(self.get_parameter('target_ground_height_m').value)
+        self.max_aim_offset = float(self.get_parameter('max_aim_offset_m').value)
 
         # Subscribers
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -70,6 +144,7 @@ class MainController(Node):
         self.set_current_client = self.create_client(WaypointSetCurrent, "/mavros/mission/set_current")
 
         # variables
+        self.num_waypoints = 0
         self.last_before_rtl = 0
         self.next_after_takeoff = 0
         self.takeoff_index = 0
@@ -91,9 +166,14 @@ class MainController(Node):
         self.visit_idx = 0              # how many targets dropped so far
         self.LOITER_SECONDS = 6.0       # loiter over each target + pre-RTL wait
         self.camera_feed_path = self._resolve_camera_feed_path()
-        self.param_manager = ParameterManager()
+        # Timed sequences (resume AUTO, loiter-and-drop) run here, on one-shot timers.
+        self.steps = StepRunner(self)
 
-        self.fetch_mission_indices()
+        # Mission indices: read WITHOUT blocking, re-read on every waypoint_manager parameter
+        # event; a failed read keeps the previous values and is retried (see the docstring).
+        self.index_reader = AsyncParameterReader(
+            self, 'waypoint_manager', MISSION_INDEX_PARAMS, self._on_mission_indices)
+        self.index_reader.request('start-up')
 
         self.waypoints = []
         self.detections = {
@@ -111,15 +191,27 @@ class MainController(Node):
         # self.get_logger().info("Startup servo test complete.")  # startup servo test disabled
 
     def fetch_mission_indices(self):
-        wp_params = ['num_waypoints', 'takeoff_index', 'rtl_index', 'next_after_takeoff', 'last_before_rtl']
-        params = self.param_manager.get_param(self.param_manager.waypoint_client, list_params=wp_params)
-        num_waypoints, takeoff_index, rtl_index, next_after_takeoff, last_before_rtl = params.values()
+        """Ask for a fresh read of the mission indices (never blocks; see _on_mission_indices)."""
+        self.index_reader.request('mission indices may have changed')
         
-        self.num_waypoints = int(num_waypoints)
-        self.takeoff_index = int(takeoff_index)
-        self.rtl_index = int(rtl_index)
-        self.next_after_takeoff = int(next_after_takeoff)
-        self.last_before_rtl = int(last_before_rtl)
+    def _on_mission_indices(self, values):
+        """New mission indices from waypoint_manager (runs on this node's executor)."""
+        new = {name: int(values[name]) for name in MISSION_INDEX_PARAMS}
+        old = {'num_waypoints': self.num_waypoints, 'takeoff_index': self.takeoff_index,
+               'rtl_index': self.rtl_index, 'next_after_takeoff': self.next_after_takeoff,
+               'last_before_rtl': self.last_before_rtl}
+        self.num_waypoints = new['num_waypoints']
+        self.takeoff_index = new['takeoff_index']
+        self.rtl_index = new['rtl_index']
+        self.next_after_takeoff = new['next_after_takeoff']
+        self.last_before_rtl = new['last_before_rtl']
+        if new != old:
+            self.get_logger().info(
+                f"Mission indices: takeoff={self.takeoff_index}, rtl={self.rtl_index}, "
+                f"last_before_rtl={self.last_before_rtl} ({self.num_waypoints} items)")
+        # The hold trigger depends on rtl_index: recompute it if the mission list is already here
+        # (the list may have arrived before these values).
+        self._update_last_nav_before_rtl()
 
     def parameter_event_cb(self, msg: ParameterEvent):
         if msg.node == "/waypoint_manager":
@@ -154,6 +246,10 @@ class MainController(Node):
 
         # PHASE visiting: arrive over each planned target in turn; loiter, drop.
         if self.mission_phase == "visiting" and self.visit_idx < len(self.visit_plan):
+            if self.steps.busy:
+                # A drop (or the resume) is still running: a repeated "reached" must not start
+                # a second one (the old code was blocked in time.sleep here instead).
+                return
             target = self.visit_plan[self.visit_idx]
             if self.waypoint_reached == target["wp"]:
                 self._loiter_and_drop(target)
@@ -178,6 +274,9 @@ class MainController(Node):
                     "type": obj_type, "lat": d.lat, "lon": d.long, "alt": ALT,
                     "servos": servos, "wp": -1,
                 })
+                self.get_logger().info(
+                    f"Target {obj_type}: conf {d.confidence:.2f} in '{d.image_name}', aim "
+                    f"{d.lat:.7f}, {d.long:.7f} ({d.aim_note})")
 
         if not self.visit_plan:
             self.send_ack("No valid targets found. Returning to launch.")
@@ -197,6 +296,9 @@ class MainController(Node):
                   for t in reversed(self.visit_plan)]
         self.send_waypoint_data(inject)
 
+        # Where exactly we aim, for the ground station (fits the 50-character STATUSTEXT limit).
+        for t in self.visit_plan:
+            self.send_ack(f"Aim {t['type']} {t['lat']:.7f},{t['lon']:.7f}")
         names = " -> ".join(f"{t['type']}@{t['wp']}" for t in self.visit_plan)
         self.send_ack(f"Targets: {names}. Diverting.")
         self.get_logger().info(f"Visit plan: {names}")
@@ -209,24 +311,39 @@ class MainController(Node):
 
     def _loiter_and_drop(self, target):
         """Over a target: loiter (GUIDED) LOITER_SECONDS, actuate its servo, then
-        continue to the next target -- or wait LOITER_SECONDS and RTL if last."""
+        continue to the next target -- or wait LOITER_SECONDS and RTL if last.
+
+        Runs as timed steps (never sleeps): loiter -> open -> SERVO_OPEN_SECONDS
+        -> close -> next target (AUTO), or -> LOITER_SECONDS -> RTL after the last.
+        """
         self.get_logger().info(
             f"Arrived over {target['type']} (WP {target['wp']}). "
             f"Loitering {self.LOITER_SECONDS:.0f}s, then dropping.")
         self.send_ack(f"Over {target['type']}: loiter {self.LOITER_SECONDS:.0f}s then drop")
         self.change_mode("GUIDED")              # hold position above the target
-        time.sleep(self.LOITER_SECONDS)         # loiter over the target
-        self.actuate_servos(target["servos"])
-        self.visit_idx += 1
+        is_last = self.visit_idx + 1 >= len(self.visit_plan)
 
-        if self.visit_idx < len(self.visit_plan):
-            self.change_mode("AUTO")            # fly to the next target
-        else:
-            self.send_ack(f"All targets done. Waiting {self.LOITER_SECONDS:.0f}s then RTL.")
-            time.sleep(self.LOITER_SECONDS)     # final wait
+        def after_close():
+            self.visit_idx += 1
+            if not is_last:
+                self.change_mode("AUTO")        # fly to the next target
+            else:
+                self.send_ack(f"All targets done. Waiting {self.LOITER_SECONDS:.0f}s then RTL.")
+
+        def go_home():
             self.mission_phase = "done"
             self.change_mode("RTL")
             self.send_ack("RTL")
+
+        servos = target["servos"]
+        steps = [
+            (self.LOITER_SECONDS, 'open release servo', lambda: self.open_servos(servos)),
+            (SERVO_OPEN_SECONDS, 'close release servo', lambda: self.close_servos(servos)),
+            (0.0, 'next target or wait', after_close),
+        ]
+        if is_last:
+            steps.append((self.LOITER_SECONDS, 'RTL', go_home))   # final wait, then home
+        self.steps.start(f"drop on the {target['type']}", steps)
 
     def valid_detection(self, type):
         if type in self.detections:
@@ -244,6 +361,7 @@ class MainController(Node):
         DigiCamCtrl and other DO_ commands don't trigger WaypointReached,
         so we need the index of the last physical navigation waypoint."""
         NAV_COMMANDS = {16, 17, 18, 19, 20, 21, 22}  # NAV_WAYPOINT, NAV_LOITER_*, NAV_RETURN_TO_LAUNCH, NAV_TAKEOFF
+        previous = (self.last_nav_before_rtl, self.buffer_wp)
         self.last_nav_before_rtl = -1
         self.buffer_wp = -1
         if self.rtl_index > 0 and len(self.waypoints) > 0:
@@ -258,6 +376,8 @@ class MainController(Node):
                     else:
                         self.buffer_wp = i
                         break
+        if (self.last_nav_before_rtl, self.buffer_wp) == previous:
+            return                       # unchanged: do not repeat the log lines
         if self.last_nav_before_rtl >= 0:
             self.get_logger().info(
                 f"Last nav WP before RTL: index {self.last_nav_before_rtl} "
@@ -352,6 +472,47 @@ class MainController(Node):
             self.get_logger().warn(f"Waypoint index {waypoint_index} out of range")
             return None
 
+    def locate_detection(self, msg, detection):
+        """Where to drop for one detection box: an AimResult, or None if the photo has no GPS.
+
+        Uses the photo's sidecar (written by video_cam at the shutter) to project the box centre
+        onto the ground (target_geolocation.aim_at_box). Falls back to the photo's own position
+        when that is not possible, exactly like the old code did for every detection.
+        """
+        image_path = os.path.join(self.camera_feed_path, msg.image_name or '')
+        meta = geo.read_photo_sidecar(image_path) if msg.image_name else None
+        # Prefer the exact numbers: the sidecar's float64 fix, else the 6-decimal file name, and
+        # only last the float32 copy in the message (0.4-0.7 m rounding).
+        name_lat, name_lon = self._latlon_from_name(msg.image_name)
+        if name_lat is None:
+            name_lat, name_lon = float(msg.latitude), float(msg.longitude)
+        position = geo.photo_position(meta, name_lat, name_lon)
+        if position is None:
+            return None
+        photo_lat, photo_lon = position
+        if not self.aim_at_box:
+            return geo.AimResult(photo_lat, photo_lon, 'photo',
+                                 note='photo position (aim_at_detection_box is false)')
+        u = float(detection.bbox.center.position.x)
+        v = float(detection.bbox.center.position.y)
+        return geo.aim_at_box(meta, photo_lat, photo_lon, u, v, geo.jpeg_size(image_path),
+                              default_pitch_deg=self.default_pitch,
+                              default_hfov_deg=self.default_hfov,
+                              ground_height_m=self.ground_height,
+                              max_offset_m=self.max_aim_offset)
+
+    @staticmethod
+    def _latlon_from_name(image_name):
+        """(lat, lon) from a '<lat> , <lon>.jpg' photo name (same rule as detection/geotag.py)."""
+        stem = os.path.splitext(os.path.basename(image_name or ''))[0]
+        if ' , ' not in stem:
+            return None, None
+        lat_s, lon_s = stem.split(' , ', 1)
+        try:
+            return float(lat_s), float(lon_s)
+        except ValueError:
+            return None, None
+
     def image_result_cb(self, msg):
          # Track all processed image names for processing completion check
         if msg.image_name:
@@ -372,6 +533,14 @@ class MainController(Node):
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
+                            aim = self.locate_detection(msg, detection)
+                            if aim is None:
+                                # No GPS in the photo: there is nowhere to fly to. (The old code
+                                # stored 0,0 and would have sent the drone there.)
+                                self.get_logger().warn(
+                                    f"Ignoring {obj_class} ({obj_conf:.2f}) in "
+                                    f"'{msg.image_name}': the photo has no GPS position")
+                                continue
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
                             self.send_ack(f"Detected {obj_class}")
                             # self.move_servo(11,1400)   # debug: fired on every new best detection
@@ -380,9 +549,12 @@ class MainController(Node):
                             self.detections[obj_class].confidence = obj_conf
                             # update wp_index
                             # self.detections[obj_class].waypoint_index = msg.waypoint_index
-                            self.detections[obj_class].lat = msg.latitude
-                            self.detections[obj_class].long = msg.longitude
+                            self.detections[obj_class].lat = aim.lat
+                            self.detections[obj_class].long = aim.lon
+                            self.detections[obj_class].image_name = msg.image_name
+                            self.detections[obj_class].aim_note = aim.note
                             self.get_logger().info(f"Obj at long: {self.detections[obj_class].long}, lat: {self.detections[obj_class].lat}")
+                            self.get_logger().info(f"  aimed at the {aim.note}")
         else:
             self.get_logger().info("No objects detected.")
             self.send_ack("No objects detected.")
@@ -447,25 +619,40 @@ class MainController(Node):
     def divert_and_resume(self, target_seq):
         # Let the full-mission push land on the FCU, then point the vehicle at
         # the first divert waypoint and resume AUTO so it flies there instead of
-        # continuing the RTL.
+        # continuing the RTL. Timed steps, never sleeps: the node keeps handling
+        # the /addWaypoint answers and parameter events meanwhile.
         if target_seq is None or target_seq < 0:
             return
-        time.sleep(4)
-        self.set_current_wp(target_seq)
-        time.sleep(1)
-        self.change_mode("AUTO")
-        self.send_ack(f"Resumed AUTO -> WP {target_seq}")
+
+        def resume():
+            self.change_mode("AUTO")
+            self.send_ack(f"Resumed AUTO -> WP {target_seq}")
+
+        self.steps.start('resume AUTO', [
+            (PUSH_SETTLE_SECONDS, 'set current waypoint', lambda: self.set_current_wp(target_seq)),
+            (SET_CURRENT_TO_AUTO_SECONDS, 'resume AUTO', resume),
+        ])
+
+    def open_servos(self, channels):
+        """Open the given release servos (all together)."""
+        self.get_logger().info(
+            f"Opening servos {channels} for {SERVO_OPEN_SECONDS:.0f}s")
+        for ch in channels:
+            self.move_servo(ch, PULLEY_OPEN)
+
+    def close_servos(self, channels):
+        """Close the given release servos (all together)."""
+        for ch in channels:
+            self.move_servo(ch, PULLEY_CLOSE)
 
     def actuate_servos(self, channels):
         """Open the given release servos, hold OPEN for SERVO_OPEN_SECONDS,
-        then close them back. All servos open together and close together."""
+        then close them back. All servos open together and close together.
+        Never blocks: the close is a one-shot timer."""
         self.get_logger().info(
             f"Opening servos {channels} -> hold {SERVO_OPEN_SECONDS:.0f}s -> close")
-        for ch in channels:
-            self.move_servo(ch, PULLEY_OPEN)
-        time.sleep(SERVO_OPEN_SECONDS)
-        for ch in channels:
-            self.move_servo(ch, PULLEY_CLOSE)
+        self.open_servos(channels)
+        call_later(self, SERVO_OPEN_SECONDS, lambda: self.close_servos(channels))
 
     def move_servo(self, channel, pwm):
         try:

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""SIYI gimbal camera configuration constants (ZR10 / ZR30 / A8 mini)."""
+"""SIYI gimbal camera configuration constants (ZR10 / ZR30 / A8 mini).
+
+Everything the camera node (siyi_node.py) needs to know about the hardware: addresses and ports,
+SDK command ids, still-photo size per model, the zoom/focus routine, timing, storage, and (added
+October 2026) what each model can do (CAMERA_CAPABILITIES), its field of view (CAMERA_HFOV_DEG),
+how photos are oriented relative to the drone (DEFAULT_IMAGE_TOP_DIRECTION_DEG), and the photo
+request queue (MAX_PENDING_CAPTURES ...). No ROS imports: unit tests can import it directly.
+"""
 
 from enum import Enum
 from typing import Dict
@@ -234,3 +241,71 @@ DEFAULT_USE_REAL_CAMERA = True
 DEFAULT_MIN_ALTITUDE_AGL = -13.716
 DEFAULT_RESOLUTION = CAMERA_MODELS[DEFAULT_CAMERA_MODEL]
 DEFAULT_ROTATE_180 = False
+
+# ── What each camera model can do (added October 2026) ───────────────────
+# From SIYI's own support table (siyi_documentations/SIYI_Gimbal_Camera_SDK.pdf, UDP interface,
+# printed pp.86-99): the A8 mini has a fixed-focus lens with DIGITAL zoom only, so it does not
+# answer CMD 0x04 (auto focus), 0x06 (manual focus) or 0x18 (current zoom) -- "only supported by
+# optical zoom cameras". Asking anyway costs a 2 s SDK timeout each time. Models without an entry
+# keep every feature switched on (the behaviour before this table existed).
+#   autofocus      CMD 0x04, used by the 'autofocus' command (the survey's 5 s autofocus loop)
+#   manual_focus   CMD 0x06, used by FOCUS_MODE 'infinity'
+#   zoom_readback  CMD 0x18, used to confirm the capture zoom rack
+CAMERA_CAPABILITIES: Dict[str, Dict[str, bool]] = {
+    'ZR10': {'autofocus': True, 'manual_focus': True, 'zoom_readback': True},
+    'ZR30': {'autofocus': True, 'manual_focus': True, 'zoom_readback': True},
+    'A8MINI': {'autofocus': False, 'manual_focus': False, 'zoom_readback': False},
+}
+DEFAULT_CAMERA_CAPABILITIES: Dict[str, bool] = {
+    'autofocus': True, 'manual_focus': True, 'zoom_readback': True}
+
+
+def camera_capabilities(model: str) -> Dict[str, bool]:
+    """Which optional SDK features `model` answers (a copy; unknown models get everything)."""
+    return dict(CAMERA_CAPABILITIES.get(str(model).upper(), DEFAULT_CAMERA_CAPABILITIES))
+
+
+# Horizontal field of view of the STILL photos at 1x zoom, in degrees. Written into every photo's
+# sidecar (photo_metadata.py) so main_controller can turn a pixel into metres on the ground.
+# 81 deg is the A8 mini value the team's own notes use (detection/Documentation/DocForML.md) and
+# what the Gazebo simulator renders for BOTH camera profiles. The ZR10 / ZR30 values are the same
+# 81 deg until somebody measures them: photograph a ground object of known size from a known height
+# and fix the number here (the aiming error grows with the error of this number, ~1 % per degree).
+CAMERA_HFOV_DEG: Dict[str, float] = {'ZR10': 81.0, 'ZR30': 81.0, 'A8MINI': 81.0}
+DEFAULT_HFOV_DEG = 81.0
+
+
+def camera_hfov_deg(model: str) -> float:
+    """Horizontal field of view (deg, at 1x zoom) of `model`; DEFAULT_HFOV_DEG if unknown."""
+    return float(CAMERA_HFOV_DEG.get(str(model).upper(), DEFAULT_HFOV_DEG))
+
+
+# Where the TOP of a photo points, clockwise from the drone's nose, when the gimbal looks straight
+# down with its yaw centred (ROS parameter image_top_direction_deg of the siyi node):
+#     0 = the nose. This is the simulator, and any camera head that tilts DOWN from looking ahead
+#         (the A8 mini / ZR10 hanging under the nose, mounted the normal way round).
+#    90 = the right side, 180 = the tail, 270 = the left side.
+# CHECK ON THE REAL DRONE before trusting the drop aiming: put a marker 5 m in front of the drone,
+# look straight down, take a photo: the marker must be at the TOP of the photo for 0. If the camera
+# is mounted backwards use 180 (rotate_180 adds another 180 by itself).
+DEFAULT_IMAGE_TOP_DIRECTION_DEG = 0.0
+
+# ── Photo request queue (added October 2026) ─────────────────────────────
+# Every /camera/trigger waits in a line (capture_queue.py) and is served as soon as the camera can
+# take the photo; lens housekeeping (zoom racks, focus) no longer blocks photos for seconds.
+MAX_PENDING_CAPTURES = 5            # requests that may wait; one more drops the OLDEST (logged)
+CAPTURE_SERVICE_PERIOD = 0.1        # s, how often waiting requests are checked
+CAPTURE_STATS_PERIOD = 30.0         # s, how often the photo statistics line is logged
+# Manual /camera/command commands that talk to the camera directly wait at most this long for
+# the camera (instead of freezing the whole node until the camera is free).
+CAMERA_COMMAND_LOCK_TIMEOUT_SECONDS = 3.0
+
+# ── Photo sidecar (added October 2026) ───────────────────────────────────
+# A JSON file next to every photo with the drone's position, height and heading at the shutter and
+# the camera's field of view / zoom / gimbal angles (photo_metadata.py). main_controller uses it to
+# aim the payload drops at the target instead of at the photo's centre.
+WRITE_PHOTO_SIDECAR = True
+# The gimbal attitude (CMD 0x0D) is asked right before each shutter; a camera that does not answer
+# within this time is skipped, and after this many failures in a row it is not asked again.
+GIMBAL_ATTITUDE_TIMEOUT_SECONDS = 0.3
+GIMBAL_ATTITUDE_MAX_FAILURES = 3

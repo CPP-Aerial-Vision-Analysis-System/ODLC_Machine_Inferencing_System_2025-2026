@@ -381,9 +381,14 @@ class CameraInterface:
         response = self._send_sdk_command(CMD_GIMBAL_CENTER, bytes([1]))
         return self._status_ok(response)
 
-    def request_gimbal_attitude(self) -> Optional[Dict[str, float]]:
-        """Get yaw/pitch/roll angles and angular velocities."""
-        response = self._send_sdk_command(CMD_GIMBAL_ATTITUDE)
+    def request_gimbal_attitude(self, timeout: Optional[float] = None
+                                ) -> Optional[Dict[str, float]]:
+        """Get yaw/pitch/roll angles and angular velocities.
+
+        timeout: seconds to wait for the answer (None = the normal SDK timeout). siyi_node asks
+        right before every photo with a short timeout, for the photo's sidecar.
+        """
+        response = self._send_sdk_command(CMD_GIMBAL_ATTITUDE, timeout=timeout)
         if not response or len(response['data']) < 12:
             return None
 

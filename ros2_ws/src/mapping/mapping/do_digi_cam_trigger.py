@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""
+Turn the mission's DO_DIGICAM_CONTROL item into one photo request per second.
+
+do_digi_cam_trigger.py -- PURPOSE: the mission_camera_trigger node. When ArduPilot starts the
+survey mission's DO_DIGICAM_CONTROL item it says "Mission: <n> DigiCamCtrl"
+(/mavros/statustext/recv); this node then
+  * asks the camera node to set the lens up once ("capture_setup" on /camera/command),
+  * publishes /camera/trigger (std_msgs/Bool true) every `capture_period_s` seconds (1 s),
+  * asks for an autofocus pass every `autofocus_period_s` seconds (5 s; 0 = never),
+and stops both when the drone reaches waypoint `buffer_wp` (a waypoint_manager parameter).
+
+October 2026: the two periods became ROS parameters (same defaults as before), e.g.
+    ros2 run mapping trigger --ros-args -p autofocus_period_s:=0.0
+The camera node now skips autofocus by itself on cameras that cannot do it (A8 mini) and no
+longer drops photos while the lens focuses, so the defaults are safe; the parameters let a team
+switch the loop off for a fixed-focus survey or slow the photos down for a slower detector.
+"""
 
 import rclpy
 from rclpy.node import Node
@@ -9,15 +26,17 @@ from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from rcl_interfaces.srv import GetParameters
 from rcl_interfaces.msg import ParameterEvent
 
-from wp_sender.parameter import ParameterManager
 
-
-# Seconds between the repeating autofocus passes that DO_DIGICAM_CONTROL starts.
+# Seconds between the repeating autofocus passes that DO_DIGICAM_CONTROL starts
+# (default of the autofocus_period_s parameter; 0 switches the loop off).
 # Each pass is CMD 0x04 "Auto Focus" (ZR10 User Manual v1.7 p.43), whose payload
 # byte is documented as "1: Start auto focus for once" -- a ONE-SHOT cycle, not a
 # continuous-AF mode the camera keeps running by itself. Holding focus across a
 # survey therefore means re-sending the command on a timer.
 AUTOFOCUS_PERIOD_SECONDS = 5.0
+
+# Seconds between photo triggers during the survey (default of capture_period_s).
+CAPTURE_PERIOD_SECONDS = 1.0
 
 
 class MissionCameraTrigger(Node):
@@ -35,6 +54,11 @@ class MissionCameraTrigger(Node):
         self.camera_command_pub = self.create_publisher(String, "/camera/command", 10)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
+        # Periods as parameters (October 2026); the defaults are the old constants.
+        self.declare_parameter('capture_period_s', CAPTURE_PERIOD_SECONDS)
+        self.declare_parameter('autofocus_period_s', AUTOFOCUS_PERIOD_SECONDS)
+        self.capture_period_s = max(0.1, float(self.get_parameter('capture_period_s').value))
+        self.autofocus_period_s = float(self.get_parameter('autofocus_period_s').value)
 
         self.buffer_wp = -1
         self.waypoint_reached = 0
@@ -126,9 +150,9 @@ class MissionCameraTrigger(Node):
             # self.get_logger().info(f"Camera trigger from DigiCamCtrl at waypoint {wp}")
             # Set the lens up on arrival at the DO_DIGICAM_CONTROL waypoint:
             # rack to CAPTURE_ZOOM_X, then focus. siyi_node queues both onto
-            # one lens worker and holds the camera lock throughout, so the
-            # captures started below wait for a settled lens rather than
-            # firing mid-rack.
+            # one lens worker; since October 2026 the photos started below
+            # are taken in between its steps (photos have priority over lens
+            # housekeeping) and are marked "zoom changing" until the rack ends.
             self.request_capture_setup(wp)
             # Keep re-focusing for the rest of the survey. Started BEFORE the
             # capture-timer guard below, so a repeat DigiCamCtrl that returns
@@ -139,8 +163,9 @@ class MissionCameraTrigger(Node):
             # capture rate and leak timers that cancel() can no longer reach).
             if self.timer is not None:
                 return
-            self.timer = self.create_timer(1, self.trigger_camera)
-            self.get_logger().info("Camera trigger STARTED")
+            self.timer = self.create_timer(self.capture_period_s, self.trigger_camera)
+            self.get_logger().info(
+                f"Camera trigger STARTED (a photo every {self.capture_period_s:g} s)")
             self.send_ack(f"Camera trigger STARTED")
 
     def request_capture_setup(self, wp="?"):
@@ -162,33 +187,38 @@ class MissionCameraTrigger(Node):
             f"Zoom + focus requested (DigiCamCtrl at waypoint {wp})")
 
     def start_autofocus_loop(self):
-        """Autofocus every AUTOFOCUS_PERIOD_SECONDS until the survey stops.
+        """Autofocus every autofocus_period_s seconds until the survey stops (0 = never).
 
         Publishes the plain "autofocus" command, the one siyi_node handles
         AHEAD of its pipeline-busy guard and queues onto the single lens worker
-        thread. Three properties of that path are what make a 5 s loop safe to
+        thread. Four properties of that path are what make a 5 s loop safe to
         run underneath 1 Hz captures:
 
           - it is not rejected while the pipeline is busy, which during a survey
             is almost continuously -- the trap that stopped the original
             one-shot autofocus here from ever taking effect;
           - a pass that lands while the DO_DIGICAM_CONTROL zoom rack is still
-            travelling is DROPPED by the worker's busy check rather than queued
+            travelling is SKIPPED by the worker's busy check rather than queued
             behind it, so passes can never stack up on a slow lens;
           - "autofocus" pins mode='auto' (CMD 0x04 at the frame centre) instead
             of following FOCUS_MODE, so this is a real AF cycle and not the
-            drive-to-infinity that FOCUS_MODE='infinity' would otherwise do.
+            drive-to-infinity that FOCUS_MODE='infinity' would otherwise do;
+          - (October 2026) the pass no longer holds the camera while the lens
+            settles, so photos keep coming, and siyi_node ignores it on cameras
+            without autofocus (A8 mini).
 
         Idempotent, like the capture timer: DigiCamCtrl repeats on every pass
         through the waypoint and a second one must not spawn a second timer.
         """
         if self.autofocus_timer is not None:
             return
+        if self.autofocus_period_s <= 0.0:
+            return                     # switched off with -p autofocus_period_s:=0.0
         self.autofocus_timer = self.create_timer(
-            AUTOFOCUS_PERIOD_SECONDS, self.request_autofocus)
+            self.autofocus_period_s, self.request_autofocus)
         self.get_logger().info(
-            f"Autofocus loop STARTED (every {AUTOFOCUS_PERIOD_SECONDS:.0f}s)")
-        self.send_ack(f"Autofocus every {AUTOFOCUS_PERIOD_SECONDS:.0f}s")
+            f"Autofocus loop STARTED (every {self.autofocus_period_s:g}s)")
+        self.send_ack(f"Autofocus every {self.autofocus_period_s:.0f}s")
 
     def request_autofocus(self):
         self.camera_command_pub.publish(String(data="autofocus"))
