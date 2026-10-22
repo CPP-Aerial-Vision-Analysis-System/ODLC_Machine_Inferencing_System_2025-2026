@@ -1,0 +1,12 @@
+# truth_detector.yaml -- PURPOSE: fly the demo with the ANSWER-KEY detector instead of the team's YOLO model.
+# sim_demo's truth_detector knows where the hiker and the tent are (the world's truth file) and publishes the
+# same /image_detection messages new_od would, for every photo that shows them. Use it to test the mission
+# logic (waypoint insertion, drops, RTL) when the real detector misses the simulated targets. The demo panel
+# shows a big amber "STAND-IN" banner while it is active.
+# Same as:  bash simulation/scripts/demo.sh runway --detector truth
+# Use it:   bash simulation/scripts/demo.sh --profile truth_detector
+profile: 1
+name: truth_detector
+description: answer-key detector stand-in (sim_demo truth_detector) instead of the team's YOLO model
+detector:
+  kind: truth

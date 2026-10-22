@@ -1,0 +1,19 @@
+# real_drone_params.yaml -- PURPOSE: make the simulated autopilot fly the mission like the REAL drone, by loading
+# the real Pixhawk's parameters (waypoint speed and radius, RTL height, failsafes ...) on top of the simulator's
+# own. Save them in Mission Planner: CONFIG -> Full Parameter List -> "Save to file" (.param), put the file next
+# to your profile, and list it under param_files.
+# The "safe" filter drops every line that describes the PHYSICAL drone and would break the simulator (sensor
+# calibrations, wiring, the airframe and its tuning, the payload servos the simulator needs free) and keeps the
+# lines that describe how it FLIES THE MISSION. The plan says how many lines were used and dropped:
+#     python3 -m sim_plugins.profile_tool plan --profile real_drone_params --check
+# params/example_real_drone.param is a SHORT EXAMPLE file, not the real drone's parameters.
+# Use it:  bash simulation/scripts/demo.sh --profile real_drone_params
+# Quick:   bash simulation/scripts/demo.sh --param-file ~/Downloads/astra_drone.param
+# More:    docs/simulation/ARDUPILOT.md ("Parameters from the real drone")
+profile: 1
+name: real_drone_params
+description: the real drone's parameter file (example) loaded on top of the simulator's own
+autopilot:
+  param_files: [params/example_real_drone.param]   # relative paths start at this profile's folder
+  param_filter: safe
+  param_keep: []                                   # e.g. [ATC_RAT_RLL_P] to keep a line the filter would drop

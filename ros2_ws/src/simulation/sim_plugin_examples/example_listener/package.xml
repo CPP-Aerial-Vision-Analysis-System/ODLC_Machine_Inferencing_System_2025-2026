@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  example_listener/package.xml  PURPOSE: the manifest of the TEMPLATE "extra": a node that only LISTENS to the
+  flight (MAVROS telemetry, mission progress, shutter presses, detections, text messages) and logs a summary.
+  Plug it in with a profile's extras (simulation/profiles/example_listener.yaml); copy it to build your own
+  logger or monitor (README.md).
+-->
+<package format="3">
+  <name>example_listener</name>
+  <version>0.1.0</version>
+  <description>
+    Template extra for the ASTRA simulator: subscribes to telemetry, mission and detection topics and logs a
+    running flight summary (and saves it as JSON when it stops). Publishes nothing.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>interfaces</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,21 @@
+# docker_split.yaml -- PURPOSE: an EXAMPLE of the network settings for a split setup: this container (or PC) runs
+# the simulator (Gazebo, SITL, MAVProxy, camera emulator, demo panel) and the team stack (./launcher.sh sim:
+# MAVROS, video_cam, new_od, main_controller) runs in ANOTHER container, like on the real drone's Jetson.
+# EXAMPLE ADDRESSES: change 172.30.0.3 to the team-stack container's address.
+#   * MAVProxy sends the MAVROS copy of the MAVLink to the other container (mavros_out). There, start MAVROS
+#     listening on every address:  FCU_URL="udp://:14552@" ./launcher.sh sim
+#   * The camera emulator listens on every address (camera_bind 0.0.0.0). Give THIS container the camera's
+#     address 192.168.144.25 on the shared Docker network, so video_cam there finds "the camera" unchanged.
+#   * run.team_stack external: demo.sh does not start launcher.sh here; it waits until that stack is ready.
+#   * Both containers need the same ROS_DOMAIN_ID and a network where ROS 2 discovery works.
+# Use it:  bash simulation/scripts/demo.sh --profile docker_split
+profile: 1
+name: docker_split
+description: EXAMPLE - simulator here, team stack in another container (change the addresses)
+network:
+  mavros_out: "udp:172.30.0.3:14552"   # the team-stack container's MAVROS
+  camera_bind: "0.0.0.0"               # the camera emulator answers on every address
+  windows_gcs: false                   # no Windows ground station from inside a container
+run:
+  team_stack: external
+  headless: true                       # containers usually have no screen

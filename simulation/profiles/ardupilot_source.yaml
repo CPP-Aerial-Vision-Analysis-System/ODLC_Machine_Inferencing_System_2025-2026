@@ -1,0 +1,13 @@
+# ardupilot_source.yaml -- PURPOSE: fly the simulated drone with ArduCopter BUILT FROM AN ARDUPILOT SOURCE TREE:
+# the Docker "sitl" image's /opt/ardupilot (Copter-4.6.3 built from source), or your own clone where you
+# changed the firmware. The tree's own parameter files (Tools/autotest/default_params) are used too.
+# Build a tree once:  cd ~/ardupilot && ./waf configure --board sitl && ./waf copter
+# Use it:             bash simulation/scripts/demo.sh --profile ardupilot_source
+# Your own tree:      bash simulation/scripts/demo.sh --sitl-source ~/ardupilot
+# More: docs/simulation/ARDUPILOT.md
+profile: 1
+name: ardupilot_source
+description: ArduCopter built from an ArduPilot source tree (Docker's /opt/ardupilot)
+autopilot:
+  kind: sitl_source
+  source_dir: /opt/ardupilot           # must contain build/sitl/bin/arducopter

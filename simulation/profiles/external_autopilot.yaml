@@ -1,0 +1,21 @@
+# external_autopilot.yaml -- PURPOSE: the autopilot runs SOMEWHERE ELSE (another Docker container, another PC),
+# and this computer runs Gazebo, MAVProxy, the camera emulator and the demo. EXAMPLE ADDRESSES: change them.
+#   * On the OTHER computer start ArduCopter SITL pointed at this one (the plan prints the exact command):
+#       arducopter --model JSON --sim-address=192.168.1.20 -I0 --home <world home> \
+#                  --defaults copter.parm,gazebo-iris.parm,astra_sitl.parm
+#     (SITL sends its physics packets to this computer's UDP 9002; the drone's ArduPilot plugin here listens on
+#      every address, fdm_addr 0.0.0.0, and answers whoever sends.)
+#   * Here, MAVProxy connects to that SITL's MAVLink port (TCP 5760) and shares it out as usual (our scripts,
+#     MAVROS, the demo panel, Mission Planner); with a TCP address it keeps retrying for about 5 minutes.
+#   * Firewalls: UDP 9002 must be open here, TCP 5760 on the other computer.
+# Use it:  bash simulation/scripts/demo.sh --profile external_autopilot
+# More:    docs/simulation/ARDUPILOT.md ("An autopilot somewhere else")
+profile: 1
+name: external_autopilot
+description: EXAMPLE - ArduCopter SITL on another computer/container (change the addresses)
+autopilot:
+  kind: external
+  external:
+    mavlink: "tcp:192.168.1.50:5760"   # where that autopilot's MAVLink is
+    fdm_addr: "0.0.0.0"                # the drone plugin here listens on every address
+    sim_address: "192.168.1.20"        # this computer's address seen from the other one (for the printed command)

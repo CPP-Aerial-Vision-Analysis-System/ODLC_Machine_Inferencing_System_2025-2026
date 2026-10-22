@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  sim_plugins/package.xml  PURPOSE: the ROS 2 package manifest of sim_plugins, the "plug and play" part of the
+  ASTRA simulator. sim_plugins lets a teammate swap one piece of the simulation (the autopilot, the camera,
+  the detector, the mission brain, the world, extra nodes) for their own, with a small YAML "profile" file,
+  and then check that their piece talks exactly like the piece it replaces (check_slot).
+  It is pure Python: PyYAML for the profiles, rclpy only inside check_slot (the live ROS graph check) and the
+  ROS 2 launch libraries only inside launch_support (used by sim_bringup's launch files).
+-->
+<package format="3">
+  <name>sim_plugins</name>
+  <version>0.1.0</version>
+  <description>
+    Plug-and-play slots for the ASTRA Gazebo simulator: profile files (simulation/profiles/*.yaml) that choose
+    the autopilot (any ArduCopter SITL version, a source build, or an external autopilot), the camera, the
+    detector, the mission brain, the world and extra nodes; the loader and validator used by demo.sh,
+    start_sim.sh and the sim_bringup launch files; the written contract of every slot; and check_slot, which
+    inspects the live ROS graph to prove a replacement keeps the contract.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- Only check_slot (rclpy) and launch_support (launch*) need these; the profile tools work without ROS. -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>launch_xml</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <!-- interfaces (the team's ImageResult), mavros_msgs and nav_msgs are imported lazily by check_slot for its
+       sample messages; they are not listed so this package still builds when the team packages do not (the
+       profile tools need none of them). -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

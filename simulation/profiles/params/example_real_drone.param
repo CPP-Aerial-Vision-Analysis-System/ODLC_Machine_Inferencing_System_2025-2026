@@ -1,0 +1,35 @@
+# example_real_drone.param -- PURPOSE: a SHORT EXAMPLE of a parameter file saved from Mission Planner
+# (CONFIG -> Full Parameter List -> Save to file), used by simulation/profiles/real_drone_params.yaml to show
+# how the "safe" filter works. It is NOT the real drone's parameter list: replace it with yours.
+# Format: one NAME,VALUE per line ('#' starts a comment). QGroundControl .params files work too.
+#
+# -- lines that describe how the drone FLIES THE MISSION: the simulator uses them --------------------------
+WPNAV_SPEED,500
+WPNAV_RADIUS,200
+WPNAV_SPEED_UP,250
+WPNAV_SPEED_DN,150
+WPNAV_ACCEL,250
+RTL_ALT,3000
+RTL_LOIT_TIME,3000
+LAND_SPEED,50
+FS_THR_ENABLE,1
+FS_BATT_ENABLE,2
+#
+# -- lines that describe the PHYSICAL drone: the safe filter drops them ------------------------------------
+INS_ACCOFFS_X,0.0123
+INS_GYROFFS_Y,-0.0021
+COMPASS_OFS_X,-25.4
+COMPASS_DEV_ID,97539
+SERIAL1_BAUD,57
+SERIAL1_PROTOCOL,2
+BATT_MONITOR,4
+BATT_CAPACITY,10000
+FRAME_CLASS,1
+FRAME_TYPE,1
+MOT_SPIN_ARM,0.08
+ATC_RAT_RLL_P,0.135
+SERVO1_FUNCTION,33
+SERVO11_FUNCTION,0
+SERVO13_FUNCTION,0
+SYSID_THISMAV,1
+STAT_FLTTIME,123456

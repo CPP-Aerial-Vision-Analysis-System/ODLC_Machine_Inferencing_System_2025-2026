@@ -1,0 +1,20 @@
+# example_detector.yaml -- PURPOSE: plug the TEMPLATE detector (ros2_ws/src/simulation/sim_plugin_examples/
+# example_detector) into the demo in place of the team's new_od. Copy this file next to your own detector
+# package, change the package / launch / node_name lines to yours, and run:
+#     bash simulation/scripts/demo.sh --profile my_detector.yaml
+# What happens: team_stack.launch.py starts a copy of the team's tracker.launch.xml WITHOUT new_od, then
+# starts this detector; stack_check waits for the node "example_detector" instead of new_od (and, because
+# provides_health is true, for its /sahi/get_health "ModelLoaded: True" answer).
+# Check it while it runs:  ros2 run sim_plugins check_slot --slot detector --take-photo
+profile: 1
+name: example_detector
+description: the colour-blob template detector (sim_plugin_examples/example_detector) instead of new_od
+detector:
+  kind: custom
+  custom:
+    package: example_detector          # the ROS 2 package of your detector
+    launch: example_detector.launch.py # a launch file in <package>/launch (or executable: <name>)
+    node_name: example_detector        # the node name it creates (demo.sh waits for it)
+    provides_health: true              # it serves /sahi/get_health like new_od
+    args:                              # launch arguments of that launch file
+      min_blob_area_px: "150"

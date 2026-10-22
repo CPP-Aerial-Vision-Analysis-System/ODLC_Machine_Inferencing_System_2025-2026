@@ -1,0 +1,13 @@
+# ardupilot_version.yaml -- PURPOSE: fly the simulated drone with ANOTHER ArduCopter version than the real
+# Pixhawk's 4.6.3, e.g. to check that the team's code still works with a newer firmware before updating it.
+# Get the version once (needs internet):   bash simulation/setup/fetch_sitl.sh 4.7.1
+# Then:                                     bash simulation/scripts/demo.sh --profile ardupilot_version
+# Another version without editing:         bash simulation/scripts/demo.sh --sitl-version latest
+# That version keeps its own saved parameters in ~/.astra_sim/sitl_I0_v4.7.1 (the default's are not touched).
+# More: docs/simulation/ARDUPILOT.md
+profile: 1
+name: ardupilot_version
+description: ArduCopter 4.7.1 from simulation/setup/fetch_sitl.sh instead of the installed 4.6.3
+autopilot:
+  kind: sitl_binary
+  version: "4.7.1"                     # quotes keep it text; a folder in ~/sitl/versions

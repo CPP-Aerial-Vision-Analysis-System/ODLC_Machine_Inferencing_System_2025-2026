@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  example_detector/package.xml  PURPOSE: the manifest of the TEMPLATE detector: a tiny, clearly commented
+  detector that reads the team's photos exactly like detection/new_od and publishes the same
+  interfaces/ImageResult on /image_detection, so it can replace new_od in the simulator through a plug-in
+  profile (simulation/profiles/example_detector.yaml). Copy it to start your own (README.md).
+-->
+<package format="3">
+  <name>example_detector</name>
+  <version>0.1.0</version>
+  <description>
+    Template detector for the ASTRA simulator's plug-and-play detector slot: watches the team photo folder,
+    finds persons and tents by colour, publishes interfaces/ImageResult on /image_detection like new_od.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>interfaces</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

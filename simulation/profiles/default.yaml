@@ -1,0 +1,79 @@
+# =============================================================================
+#  default.yaml  --  PURPOSE: the plug-in profile that is EXACTLY today's simulator, with every setting written
+#  out and explained. It is the reference: copy it to start your own profile, then DELETE every line you do
+#  not change (a profile only needs the lines that differ; the rest comes from these defaults).
+#
+#  A "profile" says which piece fills each "slot" of the simulation:
+#    world          where the drone flies (and which survey mission)
+#    autopilot      which ArduCopter firmware flies the drone (SITL = the Pixhawk firmware running on the PC)
+#    camera         who answers as the SIYI camera on the drone's network
+#    detector       who finds the hiker (mannequin) and the tent in the photos
+#    mission_brain  who decides where to drop and flies there (the team's main_controller)
+#    extras         anything else you want running (a logger, a monitor ...)
+#    network        ports and addresses (for Docker / two computers)
+#    run            demo.sh settings
+#  Use it:  bash simulation/scripts/demo.sh --profile default          (= bash simulation/scripts/demo.sh)
+#  Check:   python3 -m sim_plugins.profile_tool plan --profile default --check
+#  Every key is explained in docs/simulation/PLUGINS.md ("Profile reference").
+#  The unit tests (sim_plugins/test/test_profiles.py) check that this file equals the built-in defaults.
+# =============================================================================
+profile: 1                     # format version of this file (always 1)
+name: default
+description: "today's simulator: runway, ArduCopter SITL 4.6.3, SIYI emulator (zr10), team detector + brain"
+extends: ""                    # start from another profile ("" = from these defaults)
+
+world:
+  name: runway                 # runway | suas_field | any sim_worlds/config/<name>.yaml | a path to a .sdf / world .yaml
+  mission: ""                  # "" = the world's own survey mission; or a path to a .waypoints file
+
+autopilot:
+  kind: sitl_binary            # sitl_binary | sitl_source | external
+  version: ""                  # sitl_binary: "" = ~/sitl/arducopter (4.6.3); "4.7.1" = ~/sitl/versions/4.7.1 (fetch_sitl.sh)
+  binary: ""                   # sitl_binary: a path to any arducopter program (instead of version)
+  source_dir: ""               # sitl_source: an ArduPilot source tree with a built SITL (e.g. /opt/ardupilot)
+  param_files: []              # extra parameter files on top (e.g. the real drone's .param from Mission Planner)
+  param_filter: safe           # safe = drop hardware/airframe lines from param_files | none = keep every line
+  param_keep: []               # parameter names the safe filter must keep anyway
+  wipe: false                  # true = erase SITL's saved parameters and mission at every start
+  instance: 0                  # SITL instance I: ports 5760+10*I and 9002+10*I (run two simulators side by side)
+  external:                    # only for kind: external (an autopilot in another container / on another PC)
+    mavlink: ""                # where MAVProxy picks up its MAVLink, e.g. tcp:192.168.1.50:5760
+    fdm_addr: "0.0.0.0"        # the drone plugin binds its physics port (UDP 9002+10*I) on this address
+    sim_address: ""            # this computer's address seen from the other one (only for the printed command)
+
+camera:
+  kind: siyi_emulator          # siyi_emulator | custom | none
+  model: zr10                  # zr10 = 2K photos 2560x1440 | a8mini = 4K photos 3840x2160
+  zoom: survey                 # survey = photos keep the full 81 deg view | team = video_cam's 5x rack | a number
+  strict: false                # true = silent like a real A8 mini on commands it ignores
+  custom: null                 # kind: custom -> what to start instead (package + launch / executable / command)
+
+detector:
+  kind: team                   # team = detection/new_od (YOLO) | truth = answer-key stand-in | custom = yours
+  model_path: ""               # team: YOLO weights ("" = ~/.astra_sim/models/yolo26m.pt)
+  batched: false               # team: true = the team's batched (TensorRT) path
+  custom: null                 # kind: custom -> your detector (package + launch / executable / command)
+
+mission_brain:
+  kind: team                   # team = main/main_controller.py | custom = yours
+  custom: null                 # kind: custom -> your mission logic
+
+extras: []                     # extra things to start, e.g. [{package: example_listener, executable: example_listener}]
+
+network:
+  gcs_port: 14550              # MAVProxy UDP output for our scripts / a ground station inside Ubuntu
+  mavros_port: 14552           # MAVProxy UDP output for MAVROS (./launcher.sh sim)
+  panel_port: 14553            # MAVProxy UDP output for the demo panel's mission buttons
+  gcs_out: ""                  # "" = udp:127.0.0.1:<gcs_port>
+  mavros_out: ""               # "" = udp:127.0.0.1:<mavros_port>; e.g. udp:172.18.0.3:14552 (MAVROS in a container)
+  extra_outs: []               # more MAVProxy outputs, e.g. [udp:192.168.1.20:14550]
+  windows_gcs: true            # inside WSL also send MAVLink to Mission Planner on Windows
+  windows_gcs_addr: ""         # "" = automatic; or HOST / HOST:PORT
+  camera_ip: "192.168.144.25"  # the address the camera answers on (the real SIYI's address)
+  camera_bind: ""              # "" = camera_ip if this PC has it; 0.0.0.0 = every address (containers)
+  fcu_url: ""                  # "" = udp://:<mavros_port>@localhost:<mavros_port> (MAVROS's connection)
+
+run:
+  headless: false              # true = no windows
+  timeout_min: 30              # demo.sh gives up after this many minutes
+  team_stack: local            # local = demo.sh starts ./launcher.sh sim | external = it runs elsewhere

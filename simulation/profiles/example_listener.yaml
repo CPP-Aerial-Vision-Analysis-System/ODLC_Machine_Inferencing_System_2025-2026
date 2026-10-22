@@ -1,0 +1,18 @@
+# example_listener.yaml -- PURPOSE: start the TEMPLATE "extra" (ros2_ws/src/simulation/sim_plugin_examples/
+# example_listener) together with the team stack. It only LISTENS (telemetry, mission progress, detections)
+# and prints a summary every few seconds, plus a JSON summary file when it stops. Extras are how you add
+# a logger, a monitor or a test driver without touching anything else.
+# Use it:   bash simulation/scripts/demo.sh --profile example_listener
+# Combine:  a profile can say  extends: example_listener  and add its own changes.
+profile: 1
+name: example_listener
+description: the default demo plus the template telemetry/mission listener (an "extra")
+extras:
+  - name: example_listener
+    package: example_listener
+    executable: example_listener
+    node_name: example_listener
+    start_with: team_stack             # team_stack (with ./launcher.sh sim) | simulator (with sim.launch.py)
+    args:                              # ROS parameters of the node
+      summary_period_s: 10.0
+      summary_file: ""                 # "" = ~/.astra_sim/example_listener_summary.json
