@@ -1,0 +1,81 @@
+// =============================================================================
+//  .devcontainer/sim/devcontainer.json  --  VS Code "Reopen in Container" with the SIMULATOR image
+//
+//  PURPOSE: work on the simulator (or the team's code against it) in VS Code, inside the astra-sim image
+//  (ROS 2 Humble + Gazebo Harmonic + ArduCopter SITL + MAVProxy + the team's software, docker/Dockerfile
+//  target "sim"). Gazebo, RViz and the demo panel open on the Windows desktop through WSLg and draw with the
+//  graphics card (Mesa d3d12 through /dev/dxg); CUDA is added when the NVIDIA Container Toolkit is there
+//  ("gpu": "optional"). The colcon build goes into the same Docker volumes as the "sim" container of
+//  docker/compose.sim.yml and run_sim_container.sh, so they share one build (use one of them at a time).
+//  The normal team dev container (.devcontainer/devcontainer.json, image target "dev") is unchanged;
+//  VS Code asks which of the two to open.
+//
+//  HOW TO USE (Windows 11; details in docs/simulation/DOCKER.md, "VS Code"):
+//    1. build the image once, in the Ubuntu-22.04 terminal:   bash simulation/docker/build_images.sh sim
+//    2. VS Code setting  "dev.containers.executeInWSL": true   (use Docker Engine inside WSL, not Docker Desktop)
+//    3. open the repo FROM WSL (in Ubuntu: cd ~/ODLC_Machine_Inferencing_System_2025-2026 && code .)
+//    4. F1 -> "Dev Containers: Reopen in Container" -> "ASTRA simulator (Gazebo + SITL)"
+//    5. in the VS Code terminal:  bash simulation/setup/03_build.sh   then   bash simulation/scripts/demo.sh runway
+//  Linux PC: delete the three WSLg mounts, the /dev/dxg line and the WSLg variables, and add
+//  "--device=/dev/dri" to runArgs (or use simulation/docker/run_sim_container.sh, which picks this itself).
+// =============================================================================
+{
+  "name": "ASTRA simulator (Gazebo + SITL)",
+  // Built by simulation/docker/build_images.sh (on purpose not built here: it takes about an hour, and the
+  // script limits the compile jobs so the laptop stays usable).
+  "image": "astra-sim:latest",
+  "runArgs": [
+    "--hostname=astra-sim-dev",
+    // demo.sh / 03_build.sh add the camera address 192.168.144.25 to the container's own loopback.
+    "--cap-add=NET_ADMIN",
+    // ROS 2 (Fast DDS) shared memory; no 64 MB /dev/shm limit.
+    "--ipc=host",
+    // WSL2's door to the Windows graphics driver (3D drawing on the real graphics card).
+    "--device=/dev/dxg"
+  ],
+  "hostRequirements": {
+    "gpu": "optional"
+  },
+  "containerEnv": {
+    "DISPLAY": "${localEnv:DISPLAY::0}",
+    "WAYLAND_DISPLAY": "${localEnv:WAYLAND_DISPLAY:wayland-0}",
+    "XDG_RUNTIME_DIR": "/mnt/wslg/runtime-dir",
+    "PULSE_SERVER": "unix:/mnt/wslg/PulseServer",
+    "LD_LIBRARY_PATH": "/usr/lib/wsl/lib",
+    "GALLIUM_DRIVER": "d3d12",
+    "MESA_D3D12_DEFAULT_ADAPTER_NAME": "NVIDIA",
+    "QT_X11_NO_MITSHM": "1",
+    "ASTRA_REPO": "/ODLC_Machine_Inferencing_System_2025-2026",
+    "ROS_DOMAIN_ID": "0"
+  },
+  "mounts": [
+    "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+    "source=/mnt/wslg,target=/mnt/wslg,type=bind",
+    "source=/usr/lib/wsl,target=/usr/lib/wsl,type=bind,readonly",
+    "source=astra_sim_ws_build,target=/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/build,type=volume",
+    "source=astra_sim_ws_install,target=/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install,type=volume",
+    "source=astra_sim_ws_log,target=/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/log,type=volume",
+    "source=${localEnv:HOME}/.astra_docker,target=/home/ubuntu/.astra_sim,type=bind",
+    "source=astra_gz_fuel,target=/home/ubuntu/.gz/fuel,type=volume"
+  ],
+  // The data folder must exist before Docker mounts it (otherwise Docker creates it owned by root).
+  "initializeCommand": "mkdir -p \"${localEnv:HOME}/.astra_docker\"",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/ODLC_Machine_Inferencing_System_2025-2026,type=bind",
+  "workspaceFolder": "/ODLC_Machine_Inferencing_System_2025-2026",
+  "remoteUser": "ubuntu",
+  // Fresh Docker volumes belong to root: hand them to the container user once.
+  "postCreateCommand": "bash -c 'source simulation/docker/_container_common.sh && fix_ownership ros2_ws/build ros2_ws/install ros2_ws/log \"$HOME/.astra_sim\" \"$HOME/.gz/fuel\"'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-vscode.cpptools",
+        "timonwong.shellcheck"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
