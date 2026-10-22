@@ -72,6 +72,26 @@ Terminal 2 — run the mission stack against it:
 Then run `gz sim -v4 -r iris_runway.sdf` and
 `sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --no-rebuild --out=udp:127.0.0.1:14552`.
 
+## Simulation (Gazebo)
+
+A full digital twin: our Iris + SIYI camera in Gazebo Harmonic, flown by ArduCopter SITL 4.6.3 (the
+Pixhawk's firmware), with **our unchanged flight code** (`./launcher.sh sim`) talking to it through MAVROS
+and to a SIYI camera emulator at the real camera address. You watch the camera's point of view while the
+drone searches for the hiker and the tent, detects them, drops the payloads and flies home; a score report
+is written at the end. Everything is in [`simulation/README.md`](simulation/README.md).
+
+```bash
+# one time, inside the Ubuntu-22.04 WSL distro (or native Ubuntu 22.04)
+sudo bash simulation/setup/01_install_humble.sh && bash simulation/setup/02_setup_ardupilot.sh
+bash simulation/setup/03_build.sh                 # copy to ~/ODLC_Machine_Inferencing_System_2025-2026 + build
+# the full search demo
+bash ~/ODLC_Machine_Inferencing_System_2025-2026/simulation/scripts/demo.sh runway
+```
+
+The simulator lives in `simulation/` (setup and scripts) and `ros2_ws/src/simulation/` (packages
+`sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`). The only change to existing files:
+`launcher.sh` accepts `TRACKER_CMD` from the environment (default unchanged).
+
 
 # How to wipe out all the docker images (mac)
 

@@ -1,2 +1,6 @@
 .devcontainer/** merge=ours
 #then run this git update-index --skip-worktree .devcontainer/**
+
+# Shell scripts must keep LF endings (bash in WSL/Linux fails on CRLF); Windows launchers keep CRLF.
+*.sh text eol=lf
+*.bat text eol=crlf

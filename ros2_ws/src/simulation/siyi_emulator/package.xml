@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  siyi_emulator/package.xml - PURPOSE: ROS 2 package manifest of the SIYI camera emulator.
+  It lists what the emulator needs at run time (rclpy + std_msgs for the ROS wrapper, OpenCV and numpy
+  for the photos, the Gazebo Python bindings for the gimbal/photo link) and for tests (pytest).
+-->
+<package format="3">
+  <name>siyi_emulator</name>
+  <version>1.0.0</version>
+  <description>
+    Protocol-level emulator of the SIYI ZR10 / A8 mini gimbal camera for the Gazebo simulator: SIYI SDK
+    on UDP 37260 and the media HTTP API on TCP 82 (what last year's video_cam driver uses), driving the
+    Gazebo gimbal joints and the triggered photo camera.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- Gazebo Harmonic Python bindings (apt: python3-gz-transport13 python3-gz-msgs10). Optional at run
+       time: without them the emulator still serves the SDK and media API and saves test patterns. -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -13,6 +13,11 @@
 #   FCU_URL=...        MAVROS connection string
 #   MAVROS_LAUNCH=...  px4.launch / apm.launch
 #   CAMERA_IP=...      SIYI camera address for the reachability check
+#   TRACKER_CMD=...    mission stack command (default: ros2 launch main tracker.launch.xml).
+#                      The Gazebo simulator (simulation/scripts/demo.sh) sets it to
+#                      "ros2 launch sim_bringup team_stack.launch.py", which runs the SAME
+#                      tracker.launch.xml and only gives new_od a model file that exists on
+#                      the PC (its default model_path is the Jetson's).
 #   ASTRA_RAW_TIME=1   show raw epoch timestamps
 # ─────────────────────────────────────────────
 
@@ -70,7 +75,7 @@ MAVROS_CMD="ros2 launch mavros $MAVROS_LAUNCH fcu_url:=$FCU_URL"
 # Use the project's own tracker launch (main package).
 # It starts waypoint_manager, siyi, the DigiCamCtrl trigger bridge,
 # new_od, gpstest and main_controller.
-TRACKER_CMD="ros2 launch main tracker.launch.xml"
+TRACKER_CMD="${TRACKER_CMD:-ros2 launch main tracker.launch.xml}"
 
 CAMERA_IP="${CAMERA_IP:-192.168.144.25}"
 MAX_WAIT=30

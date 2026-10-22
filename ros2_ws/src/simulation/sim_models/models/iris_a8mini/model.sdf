@@ -1,0 +1,773 @@
+<?xml version="1.0" ?>
+<!--
+  model.sdf: GENERATED FILE, do not edit by hand.
+  PURPOSE: the simulated ASTRA drone for Gazebo Harmonic (ArduPilot Iris + SIYI A8 mini
+  gimbal with a live video camera and a triggered photo camera + two droppable payloads).
+  Source: sim_models/models/iris_a8mini/model.sdf.xacro (read that file and README.md).
+  Regenerate: ros2 run sim_models generate_model_sdf [options] (see README.md).
+  Photo camera: 2560 x 1440.  ArduPilotPlugin UDP port: 9002.
+  Arguments:
+    camera_model:=zr10 camera_noise_stddev:=0.005 fdm_port_in:=9002
+    gimbal_initial_pitch:=0.0 hfov:=1.4137 payload_person_mass:=0.5
+    payload_tent_mass:=0.12 payloads:=true photo_height:=0 photo_width:=0 video_fps:=25
+    video_height:=720 video_width:=1280
+-->
+<sdf version="1.9">
+  <!-- canonical_link: the Iris body must stay the model's reference link, because
+       ArduPilotPlugin and OdometryPublisher report the pose of the canonical link. -->
+  <model canonical_link="iris_with_standoffs::base_link" name="iris_a8mini">
+    <!-- The 3DR Iris airframe from ardupilot_gazebo: base_link (1.5 kg body with
+         4 legs), imu_link with imu_sensor, rotor_0..3 on rotor_N_joint. -->
+    <include>
+      <uri>model://iris_with_standoffs</uri>
+    </include>
+    <!-- ========================= SIYI A8 mini gimbal ========================== -->
+    <!-- Chain (same links, joint origins and meshes as siyi_ros2/urdf/a8_mini.urdf.xacro):
+         base_link =(gimbal_mount, fixed)=> gimbal_base =(gimbal_yaw, Z)=> gimbal_yaw_link
+         =(gimbal_roll, X)=> gimbal_roll_link =(gimbal_pitch, 0 -1 0)=> gimbal_pitch_link (camera head) -->
+    <link name="gimbal_base">
+      <pose>0.07 0 -0.0674 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0.011 0 0 0</pose>
+        <mass>0.040</mass>
+        <inertia>
+          <ixx>1.0e-5</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>1.6e-5</iyy>
+          <iyz>0</iyz>
+          <izz>1.8e-5</izz>
+        </inertia>
+      </inertial>
+      <!-- one box around the whole gimbal, so the camera head never sinks into the
+           ground if the drone tips over (top kept 3 mm below the body) -->
+      <collision name="gimbal_collision">
+        <pose>0 0 -0.0138 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.060 0.056 0.078</size>
+          </box>
+        </geometry>
+      </collision>
+      <visual name="base_visual">
+        <pose>0 0 0 0 0 -1.5708</pose>
+        <geometry>
+          <mesh>
+            <uri>model://iris_a8mini/meshes/a8_mini_base.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1.0</ambient>
+          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+    <joint name="gimbal_mount" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>gimbal_base</child>
+    </joint>
+    <!-- Yaw stage: the yaw motor sits in the base, the arm hangs below it. -->
+    <link name="gimbal_yaw_link">
+      <pose relative_to="gimbal_base">0 0 -0.011 0 0 0</pose>
+      <inertial>
+        <pose>-0.009 0 -0.016 0 0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>2.0e-5</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>2.0e-5</iyy>
+          <iyz>0</iyz>
+          <izz>2.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="yaw_visual">
+        <pose>0 0 0.011 0 0 -1.5708</pose>
+        <geometry>
+          <mesh>
+            <uri>model://iris_a8mini/meshes/a8_mini_yaw.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1.0</ambient>
+          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+    <joint name="gimbal_yaw" type="revolute">
+      <parent>gimbal_base</parent>
+      <child>gimbal_yaw_link</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-2.7925</lower>
+          <upper>2.7925</upper>
+          <effort>0.5</effort>
+          <velocity>2.0</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.001</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+    <!-- Roll stage: the roll motor is on the arm, behind the camera. -->
+    <link name="gimbal_roll_link">
+      <pose relative_to="gimbal_yaw_link">-0.018 0 -0.027 0 0 0</pose>
+      <inertial>
+        <pose>0.017 0 0 0 0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>2.0e-5</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>2.0e-5</iyy>
+          <iyz>0</iyz>
+          <izz>2.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="roll_visual">
+        <pose>0.018 0 0.038 0 0 -1.5708</pose>
+        <geometry>
+          <mesh>
+            <uri>model://iris_a8mini/meshes/a8_mini_roll.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1.0</ambient>
+          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+    <joint name="gimbal_roll" type="revolute">
+      <parent>gimbal_yaw_link</parent>
+      <child>gimbal_roll_link</child>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>-0.5236</lower>
+          <upper>0.5236</upper>
+          <effort>0.5</effort>
+          <velocity>2.0</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.001</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+    <!-- Pitch stage = the camera head. Axis 0 -1 0, so + pitch tilts the lens UP. -->
+    <link name="gimbal_pitch_link">
+      <pose relative_to="gimbal_roll_link">0.027 -0.025 0.001 0 0 0</pose>
+      <inertial>
+        <pose>0.001 0.025 0 0 0 0</pose>
+        <mass>0.025</mass>
+        <inertia>
+          <ixx>3.0e-5</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>3.0e-5</iyy>
+          <iyz>0</iyz>
+          <izz>3.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="pitch_visual">
+        <pose>-0.009 0.025 0.037 0 0 -1.5708</pose>
+        <geometry>
+          <mesh>
+            <uri>model://iris_a8mini/meshes/a8_mini_pitch.stl</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1.0</ambient>
+          <diffuse>0.2 0.2 0.2 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <!-- the lens: a small black disc on the front face -->
+      <visual name="lens_visual">
+        <pose relative_to="a8mini_camera_link">0.002 0 0 0 1.5708 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.008</radius>
+            <length>0.004</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.02 0.02 0.02 1.0</ambient>
+          <diffuse>0.02 0.02 0.02 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <sensor name="video_camera" type="camera">
+        <pose relative_to="a8mini_camera_link">0 0 0 0 0 0</pose>
+        <always_on>1</always_on>
+        <update_rate>25</update_rate>
+        <visualize>0</visualize>
+        <topic>/sim/camera/video/image</topic>
+        <gz_frame_id>a8mini_camera_optical_frame</gz_frame_id>
+        <camera name="a8mini_video">
+          <camera_info_topic>/sim/camera/video/camera_info</camera_info_topic>
+          <optical_frame_id>a8mini_camera_optical_frame</optical_frame_id>
+          <horizontal_fov>1.4137</horizontal_fov>
+          <image>
+            <width>1280</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>3000</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+      </sensor>
+      <sensor name="photo_camera" type="camera">
+        <pose relative_to="a8mini_camera_link">0 0 0 0 0 0</pose>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>0</visualize>
+        <topic>/sim/camera/photo/image</topic>
+        <gz_frame_id>a8mini_camera_optical_frame</gz_frame_id>
+        <camera name="a8mini_photo">
+          <triggered>true</triggered>
+          <trigger_topic>/sim/camera/photo/trigger</trigger_topic>
+          <camera_info_topic>/sim/camera/photo/camera_info</camera_info_topic>
+          <optical_frame_id>a8mini_camera_optical_frame</optical_frame_id>
+          <horizontal_fov>1.4137</horizontal_fov>
+          <image>
+            <width>2560</width>
+            <height>1440</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.05</near>
+            <far>3000</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </link>
+    <joint name="gimbal_pitch" type="revolute">
+      <parent>gimbal_roll_link</parent>
+      <child>gimbal_pitch_link</child>
+      <axis>
+        <xyz>0 -1 0</xyz>
+        <limit>
+          <lower>-2.3562</lower>
+          <upper>0.7854</upper>
+          <effort>0.5</effort>
+          <velocity>2.0</velocity>
+        </limit>
+        <dynamics>
+          <damping>0.001</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+    <!-- Camera frames (no mass, no physics; they only name places).
+         a8mini_camera_link: x forward along the lens, y left, z up (Gazebo camera convention).
+         a8mini_camera_optical_frame: z forward, x right, y down (ROS optical convention);
+         every image and camera_info message carries this frame id. -->
+    <frame attached_to="gimbal_pitch_link" name="a8mini_camera_link">
+      <pose relative_to="gimbal_pitch_link">0.013 0.025 0.001 0 0 0</pose>
+    </frame>
+    <frame attached_to="a8mini_camera_link" name="a8mini_camera_optical_frame">
+      <pose relative_to="a8mini_camera_link">0 0 0 -1.5707963 0 -1.5707963</pose>
+    </frame>
+    <link name="payload_person_latch">
+      <pose>0.0 0 -0.0433 0 0 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia>
+          <ixx>5e-6</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>5e-6</iyy>
+          <iyz>0</iyz>
+          <izz>5e-6</izz>
+        </inertia>
+      </inertial>
+      <visual name="servo_visual">
+        <geometry>
+          <box>
+            <size>0.03 0.04 0.008</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1.0</ambient>
+          <diffuse>0.1 0.1 0.1 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+    <joint name="payload_person_latch_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>payload_person_latch</child>
+    </joint>
+    <link name="payload_tent_latch">
+      <pose>-0.065 0 -0.0433 0 0 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia>
+          <ixx>5e-6</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>5e-6</iyy>
+          <iyz>0</iyz>
+          <izz>5e-6</izz>
+        </inertia>
+      </inertial>
+      <visual name="servo_visual">
+        <geometry>
+          <box>
+            <size>0.03 0.04 0.008</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1.0</ambient>
+          <diffuse>0.1 0.1 0.1 1.0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+    <joint name="payload_tent_latch_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>payload_tent_latch</child>
+    </joint>
+    <!-- Person drop: a 0.5 L water bottle lying crosswise under the body.
+           Its link frame is not rotated; the cylinder shapes are turned to lie along Y. -->
+    <model name="payload_person">
+      <pose>0 0 -0.0805 0 0 0</pose>
+      <link name="body">
+        <inertial>
+          <mass>0.5</mass>
+          <inertia>
+            <ixx>0.001069531</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>0.000264063</iyy>
+            <iyz>0</iyz>
+            <izz>0.001069531</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.0325</radius>
+              <length>0.15</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="bottle_visual">
+          <pose>0 0 0 1.5708 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.0325</radius>
+              <length>0.15</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.35 0.65 0.95 0.85</ambient>
+            <diffuse>0.35 0.65 0.95 0.85</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="cap_visual">
+          <pose>0 0.085 0 1.5708 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.014</radius>
+              <length>0.02</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.95 0.95 0.95 1.0</ambient>
+            <diffuse>0.95 0.95 0.95 1.0</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>world</odom_frame>
+        <robot_base_frame>payload_person</robot_base_frame>
+        <odom_topic>/sim/payload/person/odometry</odom_topic>
+        <odom_covariance_topic>/sim/payload/person/odometry_with_covariance</odom_covariance_topic>
+        <tf_topic>/sim/payload/person/tf</tf_topic>
+        <odom_publish_frequency>10</odom_publish_frequency>
+        <dimensions>3</dimensions>
+      </plugin>
+    </model>
+    <!-- Tent drop: a GPS beacon box (orange case with a short antenna). -->
+    <model name="payload_tent">
+      <pose>-0.065 0 -0.0605 0 0 0</pose>
+      <link name="body">
+        <inertial>
+          <mass>0.12</mass>
+          <inertia>
+            <ixx>4.85e-05</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>2.389e-05</iyy>
+            <iyz>0</iyz>
+            <izz>5.989e-05</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.042 0.065 0.025</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="case_visual">
+          <geometry>
+            <box>
+              <size>0.042 0.065 0.025</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.45 0.0 1.0</ambient>
+            <diffuse>1.0 0.45 0.0 1.0</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="antenna_visual">
+          <pose>0 0.0245 -0.0245 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.003</radius>
+              <length>0.024</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.05 0.05 0.05 1.0</ambient>
+            <diffuse>0.05 0.05 0.05 1.0</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>world</odom_frame>
+        <robot_base_frame>payload_tent</robot_base_frame>
+        <odom_topic>/sim/payload/tent/odometry</odom_topic>
+        <odom_covariance_topic>/sim/payload/tent/odometry_with_covariance</odom_covariance_topic>
+        <tf_topic>/sim/payload/tent/tf</tf_topic>
+        <odom_publish_frequency>10</odom_publish_frequency>
+        <dimensions>3</dimensions>
+      </plugin>
+    </model>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_0</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_0</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_1</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_1</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_2</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_2</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>0.084 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_3</link_name>
+    </plugin>
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.084 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_3</link_name>
+    </plugin>
+    <!-- Lets the GUI push the rotors by hand (unchanged from iris_with_ardupilot) -->
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_0_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_1_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_2_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_3_joint</joint_name>
+    </plugin>
+    <!-- The ArduPilot JSON link: ArduCopter SITL sends servo outputs here and gets
+         the vehicle state back, in lock step with the physics. -->
+    <plugin filename="ArduPilotPlugin" name="ArduPilotPlugin">
+      <fdm_addr>127.0.0.1</fdm_addr>
+      <fdm_port_in>9002</fdm_port_in>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+      <no_time_sync>1</no_time_sync>
+      <have_32_channels>0</have_32_channels>
+      <!-- Frame conventions required by ArduPilot (unchanged) -->
+      <modelXYZToAirplaneXForwardZDown degrees="true">0 0 0 180 0 0</modelXYZToAirplaneXForwardZDown>
+      <gazeboXYZToNED degrees="true">0 0 0 180 0 90</gazeboXYZToNED>
+      <imuName>iris_with_standoffs::imu_link::imu_sensor</imuName>
+      <control channel="0">
+        <jointName>iris_with_standoffs::rotor_0_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>838</multiplier>
+        <offset>0</offset>
+        <servo_min>1100</servo_min>
+        <servo_max>1900</servo_max>
+        <type>VELOCITY</type>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+        <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+      </control>
+      <control channel="1">
+        <jointName>iris_with_standoffs::rotor_1_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>838</multiplier>
+        <offset>0</offset>
+        <servo_min>1100</servo_min>
+        <servo_max>1900</servo_max>
+        <type>VELOCITY</type>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+        <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+      </control>
+      <control channel="2">
+        <jointName>iris_with_standoffs::rotor_2_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>-838</multiplier>
+        <offset>0</offset>
+        <servo_min>1100</servo_min>
+        <servo_max>1900</servo_max>
+        <type>VELOCITY</type>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+        <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+      </control>
+      <control channel="3">
+        <jointName>iris_with_standoffs::rotor_3_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>-838</multiplier>
+        <offset>0</offset>
+        <servo_min>1100</servo_min>
+        <servo_max>1900</servo_max>
+        <type>VELOCITY</type>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+        <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+      </control>
+      <control channel="10">
+        <jointName>payload_person_latch_joint</jointName>
+        <type>COMMAND</type>
+        <cmd_topic>/sim/payload/servo11</cmd_topic>
+        <servo_min>0</servo_min>
+        <servo_max>3000</servo_max>
+        <multiplier>3000</multiplier>
+        <offset>0</offset>
+      </control>
+      <control channel="12">
+        <jointName>payload_tent_latch_joint</jointName>
+        <type>COMMAND</type>
+        <cmd_topic>/sim/payload/servo13</cmd_topic>
+        <servo_min>0</servo_min>
+        <servo_max>3000</servo_max>
+        <multiplier>3000</multiplier>
+        <offset>0</offset>
+      </control>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_yaw</joint_name>
+      <topic>/sim/gimbal/yaw/cmd_pos</topic>
+      <use_velocity_commands>true</use_velocity_commands>
+      <cmd_max>1.5708</cmd_max>
+      <cmd_min>-1.5708</cmd_min>
+      <initial_position>0.0</initial_position>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_roll</joint_name>
+      <topic>/sim/gimbal/roll/cmd_pos</topic>
+      <use_velocity_commands>true</use_velocity_commands>
+      <cmd_max>1.5708</cmd_max>
+      <cmd_min>-1.5708</cmd_min>
+      <initial_position>0.0</initial_position>
+    </plugin>
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_pitch</joint_name>
+      <topic>/sim/gimbal/pitch/cmd_pos</topic>
+      <use_velocity_commands>true</use_velocity_commands>
+      <cmd_max>1.5708</cmd_max>
+      <cmd_min>-1.5708</cmd_min>
+      <initial_position>0.0</initial_position>
+    </plugin>
+    <!-- Measured gimbal joint angles (radians) and speeds, 50 Hz -->
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/sim/gimbal/joint_states</topic>
+      <joint_name>gimbal_yaw</joint_name>
+      <joint_name>gimbal_roll</joint_name>
+      <joint_name>gimbal_pitch</joint_name>
+      <update_rate>50</update_rate>
+    </plugin>
+    <!-- Drone pose in the world frame (ENU, metres), 50 Hz. dimensions 3 is
+         required: the default (2) would drop the height, roll and pitch. -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>/sim/drone/odometry</odom_topic>
+      <odom_covariance_topic>/sim/drone/odometry_with_covariance</odom_covariance_topic>
+      <tf_topic>/sim/drone/tf</tf_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>payload_person_latch</parent_link>
+      <child_model>payload_person</child_model>
+      <child_link>body</child_link>
+      <detach_topic>/sim/payload/person/detach</detach_topic>
+      <attach_topic>/sim/payload/person/attach</attach_topic>
+      <output_topic>/sim/payload/person/state</output_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>payload_tent_latch</parent_link>
+      <child_model>payload_tent</child_model>
+      <child_link>body</child_link>
+      <detach_topic>/sim/payload/tent/detach</detach_topic>
+      <attach_topic>/sim/payload/tent/attach</attach_topic>
+      <output_topic>/sim/payload/tent/state</output_topic>
+    </plugin>
+  </model>
+</sdf>

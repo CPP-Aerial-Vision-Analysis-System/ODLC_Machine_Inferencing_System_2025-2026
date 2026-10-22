@@ -1,0 +1,71 @@
+# =====================================================================================
+#  sim_models/config/astra_sitl.parm
+#  Extra ArduCopter SITL parameters for the simulated ASTRA drone.
+#
+#  PURPOSE: make the simulated autopilot behave like the team's Pixhawk where the
+#  flight code depends on it (payload drop servos, no ArduPilot gimbal control,
+#  starting a mission without a pilot), and stop simulator-only nuisances
+#  (geofence, link-loss failsafe, the stock IR-LOCK landing) from ending a mission.
+#
+#  HOW IT IS USED: SITL loads the files in order, later files win:
+#    arducopter --model JSON -I<I> --home <lat,lon,alt,heading> --defaults
+#      copter.parm,gazebo-iris.parm,<sim_models share>/config/astra_sitl.parm
+#  (copter.parm + gazebo-iris.parm: ArduPilot's stock files, in ~/sitl after
+#  simulation/setup/02_setup_ardupilot.sh or Tools/autotest/default_params.)
+#
+#  FORMAT RULES (test/test_astra_sitl_parm.py checks them):
+#   * one "NAME VALUE  # short reason" per line, longer reasons on # lines above;
+#   * EVERY line shorter than 90 characters: ArduPilot reads this file in
+#     100-byte pieces, and the rest of a longer line would be read as a NEW
+#     parameter line (a comment could then set a parameter by accident).
+#
+#  Measured on ArduCopter 4.6.3 SITL (the Pixhawk's version): DO_SET_SERVO 1400
+#  and 500 pass unclamped (even below SERVOn_MIN), with COMMAND_ACK ACCEPTED.
+#  Before the first DO_SET_SERVO an output with SERVOn_FUNCTION 0 reports 0 us
+#  in SERVO_OUTPUT_RAW and 1000 us on the Gazebo link (both mean closed).
+# =====================================================================================
+
+# ---- Payload drop servos: same outputs and behaviour as the team's Pixhawk ----------
+# main_controller.py: PERSON_SERVO_CHANNELS = [11], TENT_SERVO_CHANNELS = [13];
+# DO_SET_SERVO 1400 us = open for 3 s, then 500 us = closed.
+# Function 0 (Disabled) is REQUIRED: with any other function ArduPilot refuses
+# DO_SET_SERVO ("Channel 11 is already in use").
+SERVO11_FUNCTION 0    # person drop (water bottle): free for DO_SET_SERVO
+SERVO13_FUNCTION 0    # tent drop (beacon): free for DO_SET_SERVO
+# MIN/TRIM/MAX only document the travel for ground stations; DO_SET_SERVO
+# ignores them, and a disabled output ignores TRIM at boot.
+SERVO11_MIN 500       # bench-verified travel starts at 500 us (closed)
+SERVO11_TRIM 500      # rest position = closed
+SERVO11_MAX 1900      # standard servo maximum (1400 = open is inside)
+SERVO13_MIN 500       # same travel as servo 11
+SERVO13_TRIM 500      # rest position = closed
+SERVO13_MAX 1900      # standard servo maximum
+
+# ---- Gimbal: the SIYI A8 mini stabilises itself ---------------------------------------
+# The camera's own controller points and steadies the gimbal (siyi_emulator in the
+# simulator, the real A8 mini on the aircraft). ArduPilot's mount driver must stay
+# off (the stock gimbal parameter file would turn it on and claim servos 9..11).
+MNT1_TYPE 0           # no ArduPilot mount driver
+
+# ---- Starting a mission without a pilot ---------------------------------------------
+# bit 0 = allow arming in AUTO; bit 1 = take off in AUTO without raising the
+# throttle stick. The simulator has no RC sticks, so a script (or Mission Planner)
+# can arm and start the uploaded mission in AUTO. GUIDED + takeoff still works.
+AUTO_OPTIONS 3        # arm in AUTO + take off without throttle stick
+
+# ---- Failsafes and limits that would cut a simulated mission short ------------------
+# copter.parm sets FENCE_RADIUS 150 m: smaller than the SUAS field mission.
+FENCE_ENABLE 0        # no geofence in the simulator
+# MAVROS / MAVProxy restarts are normal while testing (ArduCopter default anyway).
+FS_GCS_ENABLE 0       # no RTL/land when the ground station link drops
+# The stock gazebo-iris.parm turns on a simulated IR-LOCK beacon camera; the team's
+# drone has none, so landing must not look for a beacon.
+PLND_ENABLED 0        # no precision landing
+# The simulated battery is not the real one (both are ArduCopter defaults anyway).
+BATT_FS_LOW_ACT 0     # low battery: warn only
+BATT_FS_CRT_ACT 0     # critical battery: warn only
+
+# ---- Simulator timing ---------------------------------------------------------------
+# The team's nodes use wall-clock sleeps (6 s loiter, 3 s servo open, 4 s divert
+# wait), so the simulator must never run faster than real time.
+SIM_SPEEDUP 1         # real time

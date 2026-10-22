@@ -1,0 +1,7 @@
+# sim_demo/test/fixtures/worlds/config/testfield.yaml - PURPOSE: a small fake world config in
+# the contract's format (sim_worlds/config/<world>.yaml), used only by sim_demo's unit tests.
+world_file: worlds/testfield.sdf
+home: "38.315400,-76.549000,10.0,0"
+spawn: {x: 0.0, y: 0.0, z: 0.2, yaw: 0.0}
+mission: missions/testfield_survey.waypoints
+truth: truth/testfield.yaml

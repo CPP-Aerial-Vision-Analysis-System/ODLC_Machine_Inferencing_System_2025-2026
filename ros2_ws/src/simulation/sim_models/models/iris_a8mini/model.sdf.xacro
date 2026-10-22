@@ -1,0 +1,592 @@
+<?xml version="1.0"?>
+<!--
+  sim_models/models/iris_a8mini/model.sdf.xacro
+
+  PURPOSE: the simulated ASTRA drone for Gazebo Harmonic (gz-sim 8). It is the
+  ArduPilot "Iris" quadcopter EXACTLY as ardupilot_gazebo's iris_with_ardupilot
+  (same body, rotors, LiftDrag aerodynamics and ArduPilotPlugin motor channels
+  1 to 4, flown by ArduCopter SITL through the JSON link) PLUS:
+    * a SIYI A8 mini 3 axis gimbal hanging under the nose
+      (yaw, roll, pitch joints, each moved by a JointPositionController),
+    * two cameras on the gimbal head: a live video camera and a TRIGGERED
+      photo camera (one trigger message = one rendered photo),
+    * two droppable payloads under the body (person drop = 0.5 L water bottle,
+      tent drop = GPS beacon box), each held by a DetachableJoint and opened by
+      ArduPilot servo outputs 11 and 13, like the team's real Pixhawk,
+    * publishers for the drone odometry and the gimbal joint angles.
+
+  HOW TO USE: run xacro on this file to get a plain SDF file, then spawn it:
+      xacro model.sdf.xacro camera_model:=zr10 fdm_port_in:=9002 -o /tmp/iris_a8mini.sdf
+      ros2 run ros_gz_sim create -file /tmp/iris_a8mini.sdf -name iris -z 0.195 -Y 1.5708
+  The folder also has a pre-generated model.sdf made with the default arguments
+  (regenerate it with: ros2 run sim_models generate_model_sdf, see README.md).
+  Gazebo must find model://iris_with_standoffs (from ardupilot_gazebo/models)
+  and model://iris_a8mini (this package's models folder) on GZ_SIM_RESOURCE_PATH,
+  and libArduPilotPlugin.so on GZ_SIM_SYSTEM_PLUGIN_PATH.
+
+  The full interface (every topic, frame, joint and parameter) is in README.md.
+
+  Gimbal sign conventions (joint angles, radians, same as the SIYI SDK angles):
+    gimbal_yaw    axis +Z      + = camera turns LEFT (counter clockwise seen from above)
+    gimbal_roll   axis +X      + = right side goes down
+    gimbal_pitch  axis 0 -1 0  + = camera tilts UP, -pi/2 = straight down
+  Gazebo cameras look along +X of their frame, so at yaw = roll = pitch = 0 the
+  camera looks straight ahead (out of the drone's nose).
+
+  NOTE for editors: XML comments must never contain two hyphens in a row.
+-->
+<sdf version="1.9" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ====================== Arguments (xacro name:=value) ====================== -->
+  <!-- camera_model picks the photo resolution when photo_width/height are 0:
+         zr10   = 2560 x 1440 (2K, DEFAULT: last year's video_cam targets the ZR10 2K profile)
+         a8mini = 3840 x 2160 (4K, the A8 mini's own maximum) -->
+  <xacro:arg name="camera_model" default="zr10"/>
+  <xacro:arg name="photo_width" default="0"/>         <!-- [px] 0 = pick from camera_model -->
+  <xacro:arg name="photo_height" default="0"/>        <!-- [px] 0 = pick from camera_model -->
+  <xacro:arg name="video_width" default="1280"/>      <!-- [px] live video stream -->
+  <xacro:arg name="video_height" default="720"/>      <!-- [px] -->
+  <xacro:arg name="video_fps" default="25"/>          <!-- [Hz] live video frame rate -->
+  <xacro:arg name="hfov" default="1.4137"/>           <!-- [rad] horizontal field of view, 81 deg (A8 mini manual) -->
+  <xacro:arg name="camera_noise_stddev" default="0.005"/>  <!-- [0..1 of full scale] Gaussian pixel noise -->
+  <xacro:arg name="fdm_port_in" default="9002"/>      <!-- [UDP port] 9002 + 10 * SITL instance number -->
+  <xacro:arg name="payloads" default="true"/>         <!-- false = fly without the two payloads -->
+  <xacro:arg name="payload_person_mass" default="0.5"/>  <!-- [kg] 0.5 L of water -->
+  <xacro:arg name="payload_tent_mass" default="0.12"/>   <!-- [kg] GPS beacon in a small case -->
+  <xacro:arg name="gimbal_initial_pitch" default="0.0"/> <!-- [rad] gimbal pitch target at spawn (0 = level) -->
+
+  <!-- ============================ Derived values ============================== -->
+  <xacro:property name="cam_profile" value="$(arg camera_model)"/>
+  <xacro:property name="photo_w" value="${int($(arg photo_width)) if int($(arg photo_width)) > 0 else (3840 if cam_profile == 'a8mini' else 2560)}"/>
+  <xacro:property name="photo_h" value="${int($(arg photo_height)) if int($(arg photo_height)) > 0 else (2160 if cam_profile == 'a8mini' else 1440)}"/>
+
+  <!-- A8 mini optics and gimbal mechanics (SIYI manual v1.10, ARCHITECTURE.md sections 4 and 5) -->
+  <xacro:property name="clip_near" value="0.05"/>     <!-- [m] -->
+  <xacro:property name="clip_far" value="3000"/>      <!-- [m] -->
+  <xacro:property name="slew_rate" value="1.5708"/>   <!-- [rad/s] 90 deg/s gimbal slew rate -->
+  <xacro:property name="joint_vel_limit" value="2.0"/>  <!-- [rad/s] a bit above slew_rate so the controller, not the limit, sets the speed -->
+  <xacro:property name="joint_effort" value="0.5"/>   <!-- [N m] finite on purpose: a real gimbal motor is weak -->
+  <xacro:property name="joint_damping" value="0.001"/>  <!-- [N m s/rad] -->
+  <xacro:property name="yaw_limit" value="2.7925"/>   <!-- [rad] +-160 deg mechanical -->
+  <xacro:property name="roll_limit" value="0.5236"/>  <!-- [rad] +-30 deg mechanical -->
+  <xacro:property name="pitch_lower" value="-2.3562"/>  <!-- [rad] -135 deg mechanical -->
+  <xacro:property name="pitch_upper" value="0.7854"/>   <!-- [rad] +45 deg mechanical -->
+
+  <!-- Where the gimbal hangs: 7 cm forward of the body centre, its damping plate
+       touching the underside of the Iris body (the body's flat bottom is at
+       z = -0.0393 m and the plate top is 0.0281 m above the gimbal_base origin). -->
+  <xacro:property name="gimbal_x" value="0.07"/>      <!-- [m] forward of base_link -->
+  <xacro:property name="gimbal_z" value="-0.0674"/>   <!-- [m] below base_link -->
+
+  <!-- Masses: 0.040 + 0.015 + 0.015 + 0.025 = 0.095 kg (a real A8 mini).
+       The tiny link inertias are inflated (about 5 times) so DART stays stable at 1 ms steps. -->
+  <xacro:property name="mesh_dir" value="model://iris_a8mini/meshes"/>
+  <xacro:property name="mesh_rot" value="0 0 -1.5708"/>  <!-- the STL meshes are rotated 90 deg (same as siyi_ros2) -->
+
+  <!-- Payload geometry. Person drop: a 0.5 L water bottle (r 3.25 cm, 15 cm long,
+       lying crosswise under the body). Tent drop: a GPS beacon box (GP908 class). -->
+  <xacro:property name="bottle_r" value="0.0325"/>    <!-- [m] -->
+  <xacro:property name="bottle_len" value="0.15"/>    <!-- [m] pi * r^2 * len = 0.50 L -->
+  <xacro:property name="bottle_m" value="$(arg payload_person_mass)"/>
+  <xacro:property name="beacon_x" value="0.042"/>     <!-- [m] box size along the drone's X -->
+  <xacro:property name="beacon_y" value="0.065"/>     <!-- [m] -->
+  <xacro:property name="beacon_z" value="0.025"/>     <!-- [m] -->
+  <xacro:property name="beacon_m" value="$(arg payload_tent_mass)"/>
+  <xacro:property name="latch_z" value="-0.0433"/>    <!-- [m] release servo housing, just under the body -->
+
+  <!-- Reusable material blocks -->
+  <xacro:macro name="flat_material" params="r g b a:=1.0">
+    <material>
+      <ambient>${r} ${g} ${b} ${a}</ambient>
+      <diffuse>${r} ${g} ${b} ${a}</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+    </material>
+  </xacro:macro>
+
+  <!-- One LiftDrag "blade" (copied from iris_with_ardupilot, values unchanged) -->
+  <xacro:macro name="blade" params="rotor cp forward">
+    <plugin filename="gz-sim-lift-drag-system" name="gz::sim::systems::LiftDrag">
+      <a0>0.3</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.002</area>
+      <air_density>1.2041</air_density>
+      <cp>${cp}</cp>
+      <forward>${forward}</forward>
+      <upward>0 0 1</upward>
+      <link_name>iris_with_standoffs::rotor_${rotor}</link_name>
+    </plugin>
+  </xacro:macro>
+
+  <!-- One ArduPilot motor channel (copied from iris_with_ardupilot, values unchanged) -->
+  <xacro:macro name="motor_channel" params="channel multiplier">
+    <control channel="${channel}">
+      <jointName>iris_with_standoffs::rotor_${channel}_joint</jointName>
+      <useForce>1</useForce>
+      <multiplier>${multiplier}</multiplier>
+      <offset>0</offset>
+      <servo_min>1100</servo_min>
+      <servo_max>1900</servo_max>
+      <type>VELOCITY</type>
+      <p_gain>0.20</p_gain>
+      <i_gain>0</i_gain>
+      <d_gain>0</d_gain>
+      <i_max>0</i_max>
+      <i_min>0</i_min>
+      <cmd_max>2.5</cmd_max>
+      <cmd_min>-2.5</cmd_min>
+      <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+    </control>
+  </xacro:macro>
+
+  <!-- One payload servo channel: ArduPilot SITL output number "servo" (1 based)
+       is relayed to a gz topic as the RAW PULSE WIDTH in microseconds.
+       ArduPilotPlugin maps pwm to multiplier * clamp((pwm - servo_min) / (servo_max - servo_min), 0, 1),
+       so servo_min 0, servo_max 3000, multiplier 3000 gives back the pwm itself (0..3000 us).
+       Measured with ArduCopter 4.6.3 SITL: until the first MAV_CMD_DO_SET_SERVO the JSON link
+       carries SITL's start value 1000 us for these outputs (= closed); the plugin publishes
+       nothing only while the value is exactly 0 (before SITL connects).
+       COMMAND controls need a real joint, so each one names its latch joint. -->
+  <xacro:macro name="payload_servo_channel" params="servo name">
+    <control channel="${servo - 1}">
+      <jointName>payload_${name}_latch_joint</jointName>
+      <type>COMMAND</type>
+      <cmd_topic>/sim/payload/servo${servo}</cmd_topic>
+      <servo_min>0</servo_min>
+      <servo_max>3000</servo_max>
+      <multiplier>3000</multiplier>
+      <offset>0</offset>
+    </control>
+  </xacro:macro>
+
+  <!-- A release servo housing ("latch") fixed under the body. It is the parent
+       link of the payload's DetachableJoint, and its fixed joint is the joint
+       named by the ArduPilotPlugin COMMAND channel. -->
+  <xacro:macro name="payload_latch" params="name x">
+    <link name="payload_${name}_latch">
+      <pose>${x} 0 ${latch_z} 0 0 0</pose>
+      <inertial>
+        <mass>0.02</mass>
+        <inertia>
+          <ixx>5e-6</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>5e-6</iyy><iyz>0</iyz>
+          <izz>5e-6</izz>
+        </inertia>
+      </inertial>
+      <visual name="servo_visual">
+        <geometry><box><size>0.03 0.04 0.008</size></box></geometry>
+        <xacro:flat_material r="0.1" g="0.1" b="0.1"/>
+      </visual>
+    </link>
+    <joint name="payload_${name}_latch_joint" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>payload_${name}_latch</child>
+    </joint>
+  </xacro:macro>
+
+  <!-- Holds one payload model and lets it go on a gz.msgs.Empty message. -->
+  <xacro:macro name="payload_detach" params="name">
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>payload_${name}_latch</parent_link>
+      <child_model>payload_${name}</child_model>
+      <child_link>body</child_link>
+      <detach_topic>/sim/payload/${name}/detach</detach_topic>
+      <attach_topic>/sim/payload/${name}/attach</attach_topic>
+      <output_topic>/sim/payload/${name}/state</output_topic>
+    </plugin>
+  </xacro:macro>
+
+  <!-- World position of one payload (10 Hz), used to see it fall and where it lands. -->
+  <xacro:macro name="payload_odometry" params="name">
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>payload_${name}</robot_base_frame>
+      <odom_topic>/sim/payload/${name}/odometry</odom_topic>
+      <odom_covariance_topic>/sim/payload/${name}/odometry_with_covariance</odom_covariance_topic>
+      <tf_topic>/sim/payload/${name}/tf</tf_topic>
+      <odom_publish_frequency>10</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+  </xacro:macro>
+
+  <!-- One camera on the gimbal head. Both cameras share the A8 mini lens. -->
+  <xacro:macro name="a8_camera" params="sensor_name stream width height rate triggered">
+    <sensor name="${sensor_name}" type="camera">
+      <pose relative_to="a8mini_camera_link">0 0 0 0 0 0</pose>
+      <always_on>1</always_on>
+      <update_rate>${rate}</update_rate>
+      <visualize>0</visualize>
+      <topic>/sim/camera/${stream}/image</topic>
+      <gz_frame_id>a8mini_camera_optical_frame</gz_frame_id>
+      <camera name="a8mini_${stream}">
+        <xacro:if value="${triggered}">
+          <triggered>true</triggered>
+          <trigger_topic>/sim/camera/${stream}/trigger</trigger_topic>
+        </xacro:if>
+        <camera_info_topic>/sim/camera/${stream}/camera_info</camera_info_topic>
+        <optical_frame_id>a8mini_camera_optical_frame</optical_frame_id>
+        <horizontal_fov>$(arg hfov)</horizontal_fov>
+        <image>
+          <width>${width}</width>
+          <height>${height}</height>
+          <format>R8G8B8</format>
+        </image>
+        <clip>
+          <near>${clip_near}</near>
+          <far>${clip_far}</far>
+        </clip>
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>$(arg camera_noise_stddev)</stddev>
+        </noise>
+      </camera>
+    </sensor>
+  </xacro:macro>
+
+  <!-- One gimbal joint controller in velocity mode: every physics step it
+       commands velocity = -(position error) / dt, limited to +-cmd_max, so the
+       joint slews at 90 deg/s and then holds the target exactly (no PID tuning). -->
+  <xacro:macro name="gimbal_controller" params="axis initial">
+    <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+      <joint_name>gimbal_${axis}</joint_name>
+      <topic>/sim/gimbal/${axis}/cmd_pos</topic>
+      <use_velocity_commands>true</use_velocity_commands>
+      <cmd_max>${slew_rate}</cmd_max>
+      <cmd_min>${-slew_rate}</cmd_min>
+      <initial_position>${initial}</initial_position>
+    </plugin>
+  </xacro:macro>
+
+  <!-- ================================ The model ================================ -->
+  <!-- canonical_link: the Iris body must stay the model's reference link, because
+       ArduPilotPlugin and OdometryPublisher report the pose of the canonical link. -->
+  <model name="iris_a8mini" canonical_link="iris_with_standoffs::base_link">
+
+    <!-- The 3DR Iris airframe from ardupilot_gazebo: base_link (1.5 kg body with
+         4 legs), imu_link with imu_sensor, rotor_0..3 on rotor_N_joint. -->
+    <include>
+      <uri>model://iris_with_standoffs</uri>
+    </include>
+
+    <!-- ========================= SIYI A8 mini gimbal ========================== -->
+    <!-- Chain (same links, joint origins and meshes as siyi_ros2/urdf/a8_mini.urdf.xacro):
+         base_link =(gimbal_mount, fixed)=> gimbal_base =(gimbal_yaw, Z)=> gimbal_yaw_link
+         =(gimbal_roll, X)=> gimbal_roll_link =(gimbal_pitch, 0 -1 0)=> gimbal_pitch_link (camera head) -->
+
+    <link name="gimbal_base">
+      <pose>${gimbal_x} 0 ${gimbal_z} 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0.011 0 0 0</pose>
+        <mass>0.040</mass>
+        <inertia>
+          <ixx>1.0e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>1.6e-5</iyy><iyz>0</iyz>
+          <izz>1.8e-5</izz>
+        </inertia>
+      </inertial>
+      <!-- one box around the whole gimbal, so the camera head never sinks into the
+           ground if the drone tips over (top kept 3 mm below the body) -->
+      <collision name="gimbal_collision">
+        <pose>0 0 -0.0138 0 0 0</pose>
+        <geometry><box><size>0.060 0.056 0.078</size></box></geometry>
+      </collision>
+      <visual name="base_visual">
+        <pose>0 0 0 ${mesh_rot}</pose>
+        <geometry><mesh><uri>${mesh_dir}/a8_mini_base.stl</uri></mesh></geometry>
+        <xacro:flat_material r="0.2" g="0.2" b="0.2"/>
+      </visual>
+    </link>
+    <joint name="gimbal_mount" type="fixed">
+      <parent>iris_with_standoffs::base_link</parent>
+      <child>gimbal_base</child>
+    </joint>
+
+    <!-- Yaw stage: the yaw motor sits in the base, the arm hangs below it. -->
+    <link name="gimbal_yaw_link">
+      <pose relative_to="gimbal_base">0 0 -0.011 0 0 0</pose>
+      <inertial>
+        <pose>-0.009 0 -0.016 0 0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>2.0e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>2.0e-5</iyy><iyz>0</iyz>
+          <izz>2.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="yaw_visual">
+        <pose>0 0 0.011 ${mesh_rot}</pose>
+        <geometry><mesh><uri>${mesh_dir}/a8_mini_yaw.stl</uri></mesh></geometry>
+        <xacro:flat_material r="0.2" g="0.2" b="0.2"/>
+      </visual>
+    </link>
+    <joint name="gimbal_yaw" type="revolute">
+      <parent>gimbal_base</parent>
+      <child>gimbal_yaw_link</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>${-yaw_limit}</lower>
+          <upper>${yaw_limit}</upper>
+          <effort>${joint_effort}</effort>
+          <velocity>${joint_vel_limit}</velocity>
+        </limit>
+        <dynamics>
+          <damping>${joint_damping}</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Roll stage: the roll motor is on the arm, behind the camera. -->
+    <link name="gimbal_roll_link">
+      <pose relative_to="gimbal_yaw_link">-0.018 0 -0.027 0 0 0</pose>
+      <inertial>
+        <pose>0.017 0 0 0 0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>2.0e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>2.0e-5</iyy><iyz>0</iyz>
+          <izz>2.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="roll_visual">
+        <pose>0.018 0 0.038 ${mesh_rot}</pose>
+        <geometry><mesh><uri>${mesh_dir}/a8_mini_roll.stl</uri></mesh></geometry>
+        <xacro:flat_material r="0.2" g="0.2" b="0.2"/>
+      </visual>
+    </link>
+    <joint name="gimbal_roll" type="revolute">
+      <parent>gimbal_yaw_link</parent>
+      <child>gimbal_roll_link</child>
+      <axis>
+        <xyz>1 0 0</xyz>
+        <limit>
+          <lower>${-roll_limit}</lower>
+          <upper>${roll_limit}</upper>
+          <effort>${joint_effort}</effort>
+          <velocity>${joint_vel_limit}</velocity>
+        </limit>
+        <dynamics>
+          <damping>${joint_damping}</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Pitch stage = the camera head. Axis 0 -1 0, so + pitch tilts the lens UP. -->
+    <link name="gimbal_pitch_link">
+      <pose relative_to="gimbal_roll_link">0.027 -0.025 0.001 0 0 0</pose>
+      <inertial>
+        <pose>0.001 0.025 0 0 0 0</pose>
+        <mass>0.025</mass>
+        <inertia>
+          <ixx>3.0e-5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>3.0e-5</iyy><iyz>0</iyz>
+          <izz>3.0e-5</izz>
+        </inertia>
+      </inertial>
+      <visual name="pitch_visual">
+        <pose>-0.009 0.025 0.037 ${mesh_rot}</pose>
+        <geometry><mesh><uri>${mesh_dir}/a8_mini_pitch.stl</uri></mesh></geometry>
+        <xacro:flat_material r="0.2" g="0.2" b="0.2"/>
+      </visual>
+      <!-- the lens: a small black disc on the front face -->
+      <visual name="lens_visual">
+        <pose relative_to="a8mini_camera_link">0.002 0 0 0 1.5708 0</pose>
+        <geometry><cylinder><radius>0.008</radius><length>0.004</length></cylinder></geometry>
+        <xacro:flat_material r="0.02" g="0.02" b="0.02"/>
+      </visual>
+
+      <xacro:a8_camera sensor_name="video_camera" stream="video"
+                       width="$(arg video_width)" height="$(arg video_height)"
+                       rate="$(arg video_fps)" triggered="false"/>
+      <!-- update_rate of a triggered camera is not used by gz-sim 8.5+ (it renders one
+           frame per trigger); 30 is only the upper bound if it ever were. -->
+      <xacro:a8_camera sensor_name="photo_camera" stream="photo"
+                       width="${photo_w}" height="${photo_h}"
+                       rate="30" triggered="true"/>
+    </link>
+    <joint name="gimbal_pitch" type="revolute">
+      <parent>gimbal_roll_link</parent>
+      <child>gimbal_pitch_link</child>
+      <axis>
+        <xyz>0 -1 0</xyz>
+        <limit>
+          <lower>${pitch_lower}</lower>
+          <upper>${pitch_upper}</upper>
+          <effort>${joint_effort}</effort>
+          <velocity>${joint_vel_limit}</velocity>
+        </limit>
+        <dynamics>
+          <damping>${joint_damping}</damping>
+          <friction>0</friction>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- Camera frames (no mass, no physics; they only name places).
+         a8mini_camera_link: x forward along the lens, y left, z up (Gazebo camera convention).
+         a8mini_camera_optical_frame: z forward, x right, y down (ROS optical convention);
+         every image and camera_info message carries this frame id. -->
+    <frame name="a8mini_camera_link" attached_to="gimbal_pitch_link">
+      <pose relative_to="gimbal_pitch_link">0.013 0.025 0.001 0 0 0</pose>
+    </frame>
+    <frame name="a8mini_camera_optical_frame" attached_to="a8mini_camera_link">
+      <pose relative_to="a8mini_camera_link">0 0 0 -1.5707963 0 -1.5707963</pose>
+    </frame>
+
+    <!-- ============================ Payload drop ============================== -->
+    <!-- Release servo housings (always present: they are part of the airframe) -->
+    <xacro:payload_latch name="person" x="0.0"/>
+    <xacro:payload_latch name="tent" x="-0.065"/>
+
+    <xacro:if value="$(arg payloads)">
+      <!-- Person drop: a 0.5 L water bottle lying crosswise under the body.
+           Its link frame is not rotated; the cylinder shapes are turned to lie along Y. -->
+      <model name="payload_person">
+        <pose>0 0 ${round(latch_z - 0.004 - 0.0007 - bottle_r, 4)} 0 0 0</pose>
+        <link name="body">
+          <inertial>
+            <mass>${bottle_m}</mass>
+            <inertia>
+              <ixx>${round(bottle_m * (3 * bottle_r**2 + bottle_len**2) / 12.0, 9)}</ixx><ixy>0</ixy><ixz>0</ixz>
+              <iyy>${round(bottle_m * bottle_r**2 / 2.0, 9)}</iyy><iyz>0</iyz>
+              <izz>${round(bottle_m * (3 * bottle_r**2 + bottle_len**2) / 12.0, 9)}</izz>
+            </inertia>
+          </inertial>
+          <collision name="collision">
+            <pose>0 0 0 1.5708 0 0</pose>
+            <geometry><cylinder><radius>${bottle_r}</radius><length>${bottle_len}</length></cylinder></geometry>
+          </collision>
+          <visual name="bottle_visual">
+            <pose>0 0 0 1.5708 0 0</pose>
+            <geometry><cylinder><radius>${bottle_r}</radius><length>${bottle_len}</length></cylinder></geometry>
+            <xacro:flat_material r="0.35" g="0.65" b="0.95" a="0.85"/>
+          </visual>
+          <visual name="cap_visual">
+            <pose>0 ${round(bottle_len / 2 + 0.01, 4)} 0 1.5708 0 0</pose>
+            <geometry><cylinder><radius>0.014</radius><length>0.02</length></cylinder></geometry>
+            <xacro:flat_material r="0.95" g="0.95" b="0.95"/>
+          </visual>
+        </link>
+        <xacro:payload_odometry name="person"/>
+      </model>
+
+      <!-- Tent drop: a GPS beacon box (orange case with a short antenna). -->
+      <model name="payload_tent">
+        <pose>-0.065 0 ${round(latch_z - 0.004 - 0.0007 - beacon_z / 2, 4)} 0 0 0</pose>
+        <link name="body">
+          <inertial>
+            <mass>${beacon_m}</mass>
+            <inertia>
+              <ixx>${round(beacon_m * (beacon_y**2 + beacon_z**2) / 12.0, 9)}</ixx><ixy>0</ixy><ixz>0</ixz>
+              <iyy>${round(beacon_m * (beacon_x**2 + beacon_z**2) / 12.0, 9)}</iyy><iyz>0</iyz>
+              <izz>${round(beacon_m * (beacon_x**2 + beacon_y**2) / 12.0, 9)}</izz>
+            </inertia>
+          </inertial>
+          <collision name="collision">
+            <geometry><box><size>${beacon_x} ${beacon_y} ${beacon_z}</size></box></geometry>
+          </collision>
+          <visual name="case_visual">
+            <geometry><box><size>${beacon_x} ${beacon_y} ${beacon_z}</size></box></geometry>
+            <xacro:flat_material r="1.0" g="0.45" b="0.0"/>
+          </visual>
+          <visual name="antenna_visual">
+            <pose>0 ${round(beacon_y / 2 - 0.008, 4)} ${round(-beacon_z / 2 - 0.012, 4)} 0 0 0</pose>
+            <geometry><cylinder><radius>0.003</radius><length>0.024</length></cylinder></geometry>
+            <xacro:flat_material r="0.05" g="0.05" b="0.05"/>
+          </visual>
+        </link>
+        <xacro:payload_odometry name="tent"/>
+      </model>
+    </xacro:if>
+
+    <!-- =============================== Plugins ================================ -->
+    <!-- Rotor aerodynamics: two LiftDrag "blades" per rotor (unchanged from iris_with_ardupilot) -->
+    <xacro:blade rotor="0" cp="0.084 0 0" forward="0 1 0"/>
+    <xacro:blade rotor="0" cp="-0.084 0 0" forward="0 -1 0"/>
+    <xacro:blade rotor="1" cp="0.084 0 0" forward="0 1 0"/>
+    <xacro:blade rotor="1" cp="-0.084 0 0" forward="0 -1 0"/>
+    <xacro:blade rotor="2" cp="0.084 0 0" forward="0 -1 0"/>
+    <xacro:blade rotor="2" cp="-0.084 0 0" forward="0 1 0"/>
+    <xacro:blade rotor="3" cp="0.084 0 0" forward="0 -1 0"/>
+    <xacro:blade rotor="3" cp="-0.084 0 0" forward="0 1 0"/>
+
+    <!-- Lets the GUI push the rotors by hand (unchanged from iris_with_ardupilot) -->
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_0_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_1_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_2_joint</joint_name>
+    </plugin>
+    <plugin filename="gz-sim-apply-joint-force-system" name="gz::sim::systems::ApplyJointForce">
+      <joint_name>iris_with_standoffs::rotor_3_joint</joint_name>
+    </plugin>
+
+    <!-- The ArduPilot JSON link: ArduCopter SITL sends servo outputs here and gets
+         the vehicle state back, in lock step with the physics. -->
+    <plugin name="ArduPilotPlugin" filename="ArduPilotPlugin">
+      <fdm_addr>127.0.0.1</fdm_addr>
+      <fdm_port_in>$(arg fdm_port_in)</fdm_port_in>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+      <no_time_sync>1</no_time_sync>
+      <have_32_channels>0</have_32_channels>
+      <!-- Frame conventions required by ArduPilot (unchanged) -->
+      <modelXYZToAirplaneXForwardZDown degrees="true">0 0 0 180 0 0</modelXYZToAirplaneXForwardZDown>
+      <gazeboXYZToNED degrees="true">0 0 0 180 0 90</gazeboXYZToNED>
+      <imuName>iris_with_standoffs::imu_link::imu_sensor</imuName>
+      <!-- SITL outputs 1..4 = the four motors: pwm 1100..1900 -> 0..838 rad/s -->
+      <xacro:motor_channel channel="0" multiplier="838"/>
+      <xacro:motor_channel channel="1" multiplier="838"/>
+      <xacro:motor_channel channel="2" multiplier="-838"/>
+      <xacro:motor_channel channel="3" multiplier="-838"/>
+      <!-- SITL outputs 11 and 13 = the payload release servos (main_controller.py:
+           PERSON_SERVO_CHANNELS = [11], TENT_SERVO_CHANNELS = [13]) -->
+      <xacro:payload_servo_channel servo="11" name="person"/>
+      <xacro:payload_servo_channel servo="13" name="tent"/>
+    </plugin>
+
+    <!-- Gimbal joint controllers: targets in radians on /sim/gimbal/{yaw,roll,pitch}/cmd_pos -->
+    <xacro:gimbal_controller axis="yaw" initial="0.0"/>
+    <xacro:gimbal_controller axis="roll" initial="0.0"/>
+    <xacro:gimbal_controller axis="pitch" initial="$(arg gimbal_initial_pitch)"/>
+
+    <!-- Measured gimbal joint angles (radians) and speeds, 50 Hz -->
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>/sim/gimbal/joint_states</topic>
+      <joint_name>gimbal_yaw</joint_name>
+      <joint_name>gimbal_roll</joint_name>
+      <joint_name>gimbal_pitch</joint_name>
+      <update_rate>50</update_rate>
+    </plugin>
+
+    <!-- Drone pose in the world frame (ENU, metres), 50 Hz. dimensions 3 is
+         required: the default (2) would drop the height, roll and pitch. -->
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>world</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>/sim/drone/odometry</odom_topic>
+      <odom_covariance_topic>/sim/drone/odometry_with_covariance</odom_covariance_topic>
+      <tf_topic>/sim/drone/tf</tf_topic>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <dimensions>3</dimensions>
+    </plugin>
+
+    <!-- Payload release joints (opened by sim_models payload_release on servo 11 / 13) -->
+    <xacro:if value="$(arg payloads)">
+      <xacro:payload_detach name="person"/>
+      <xacro:payload_detach name="tent"/>
+    </xacro:if>
+
+  </model>
+</sdf>

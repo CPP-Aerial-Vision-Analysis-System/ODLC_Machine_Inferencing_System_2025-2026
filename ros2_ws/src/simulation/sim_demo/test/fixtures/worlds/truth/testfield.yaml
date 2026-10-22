@@ -1,0 +1,25 @@
+# sim_demo/test/fixtures/worlds/truth/testfield.yaml - PURPOSE: fake answer key for the unit
+# tests. It deliberately mixes the ways a truth file may give positions (metres x/y and GPS
+# lat/lon) and class names (mannequin / tent) so the tolerant loader is exercised.
+world: testfield
+targets:
+  - name: hiker
+    class: mannequin
+    posture: lying
+    x: 30.0
+    y: 40.0
+    yaw_deg: 30.0
+  - name: tent
+    type: tent
+    lat: 38.315760
+    lon: -76.548200
+    size: [2.4, 2.1, 1.4]
+  - name: rock
+    type: boulder          # not a person/tent: must be skipped with a warning
+    x: 5.0
+    y: 5.0
+search_area:
+  - [-20.0, -20.0]
+  - [120.0, -20.0]
+  - [120.0, 120.0]
+  - [-20.0, 120.0]

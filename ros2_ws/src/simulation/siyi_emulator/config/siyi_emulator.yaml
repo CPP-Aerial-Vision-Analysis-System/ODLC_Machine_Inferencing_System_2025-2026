@@ -1,0 +1,67 @@
+# siyi_emulator/config/siyi_emulator.yaml - PURPOSE: every parameter of the SIYI camera emulator with its
+# default value and unit, so a teammate can see (and copy/change) all settings in one place.
+# Used by launch/siyi_emulator.launch.py. Values here are the same as the built-in defaults.
+siyi_emulator:
+  ros__parameters:
+    # ---- which camera to pretend to be ------------------------------------------------------
+    camera_model: zr10            # zr10 = 2560x1440 photos (DEFAULT, what last year's code targets); a8mini = 3840x2160
+    strict: false                 # true = silent on 0x04/0x06/0x16/0x18/0x19, exactly like a real A8 mini
+    max_zoom: 0.0                 # [x] > 0 overrides the model maximum (zr10 30, a8mini 1 = "no zoom in 4K mode")
+    photo_width: 0                # [px] > 0 overrides the model's photo width
+    photo_height: 0               # [px] > 0 overrides the model's photo height
+
+    # ---- network (video_cam defaults: 192.168.144.25, UDP 37260, TCP 82) ---------------------
+    camera_ip: 192.168.144.25     # where clients expect the camera
+    bind_ip: ""                   # "" = camera_ip if this computer has it (scripts/add_camera_ip.sh), else 127.0.0.1
+    ctrl_port: 37260              # UDP port of the SIYI SDK
+    media_port: 82                # TCP port of the media web server (needs ip_unprivileged_port_start=80)
+    media_url_host: ""            # host[:port] written into photo URLs; "" = the request's Host header
+
+    # ---- SD card and photos ------------------------------------------------------------------
+    sd_card_dir: ~/.ros/siyi_emulator/sd_card   # photos: <sd_card_dir>/<photo_dir_name>/IMG_NNNN.jpg (+ .json)
+    photo_dir_name: 101SIYI_IMG   # the ONE directory reported by getdirectories (a real camera's name)
+    clear_sd_on_start: true       # start every run with an empty card
+    restart_numbering_after_format: false   # true = IMG_0001 again after a 0x48 format
+    sd_card_present: true         # false = simulate "no TF card"
+    jpeg_quality: 92              # 1..100
+    write_sidecar: true           # IMG_NNNN.json with camera pose, gimbal angles, zoom, field of view
+    photo_timeout_s: 10.0         # [s] wait this long for the Gazebo photo frame (video_cam polls for 15 s)
+    retrigger_after_s: 3.0        # [s] re-send the photo trigger (max 2 times) if no frame came yet
+    feedback_deadline_s: 0.5      # [s] push 0x0B "photo OK" no later than this after 0x0C (video_cam waits 0.8 s)
+    test_pattern_fallback: true   # no Gazebo frame -> save a labelled test pattern instead of losing the photo
+
+    # ---- gimbal --------------------------------------------------------------------------------
+    initial_mode: follow          # lock | follow | fpv
+    initial_yaw_deg: 0.0          # [deg] + = left
+    initial_pitch_deg: -90.0      # [deg] -90 = straight down (the survey camera; nothing else points it in the sim)
+    max_slew_dps: 90.0            # [deg/s] slew-rate limit
+    max_rate_dps: 90.0            # [deg/s] meaning of a 0x07 speed of 100
+    rate_yaw_sign: -1.0           # SIYI speed + = right  ->  joint angle + = left
+    stabilize: true               # keep the camera level when the drone tilts (uses /sim/drone/odometry)
+    control_rate_hz: 50.0         # [Hz] how often joint targets are sent to Gazebo
+    zoom_speed_x_per_s: 4.0       # [x/s] zoom travel speed
+
+    # ---- Gazebo (gz-transport, the simulation contract's topic names) ----------------------------
+    use_gazebo: true
+    gz_partition: ""              # "" = keep the GZ_PARTITION environment variable
+    gz_yaw_cmd_topic: /sim/gimbal/yaw/cmd_pos
+    gz_roll_cmd_topic: /sim/gimbal/roll/cmd_pos
+    gz_pitch_cmd_topic: /sim/gimbal/pitch/cmd_pos
+    gz_joint_states_topic: /sim/gimbal/joint_states
+    gz_odometry_topic: /sim/drone/odometry
+    gz_photo_image_topic: /sim/camera/photo/image
+    gz_photo_camera_info_topic: /sim/camera/photo/camera_info
+    gz_photo_trigger_topic: /sim/camera/photo/trigger
+    yaw_joint: gimbal_yaw         # joint names in the drone SDF (sim_models iris_a8mini)
+    roll_joint: gimbal_roll
+    pitch_joint: gimbal_pitch
+    optical_zoom_topics: ""       # comma list of CameraZoomPlugin topics; "" = digital zoom only
+    hfov_rad: 1.4137              # [rad] Gazebo photo camera HFOV at 1x (81 deg)
+    optical_zoom_ref_hfov_rad: 2.0  # [rad] CameraZoomPlugin's built-in reference HFOV
+
+    # ---- ROS extras and logging ----------------------------------------------------------------
+    publish_photo_info: true      # /sim/camera/photo_info (JSON) for every saved photo
+    photo_info_topic: /sim/camera/photo_info
+    publish_state_hz: 2.0         # [Hz] /sim/camera/emulator_state (JSON); 0 = off
+    state_topic: /sim/camera/emulator_state
+    log_commands: false           # true = log every SDK command and reply at INFO

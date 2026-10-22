@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!--
+  sim_demo/package.xml - PURPOSE: the ROS 2 package manifest of sim_demo, the part of the
+  ASTRA simulator that the user WATCHES: the demo panel (live camera view, newest photo with
+  detection boxes, detection list, mission phase, buttons), the optional truth_detector
+  stand-in, the RViz markers and the run scorer. It lists every package the code imports so
+  rosdep can install them.
+-->
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>sim_demo</name>
+  <version>0.1.0</version>
+  <description>
+    ASTRA simulation demo tools: demo_panel (PyQt5 window with the live camera POV, the newest
+    photo with the detector's boxes, the detection table, the mission phase strip, telemetry and
+    big buttons), truth_detector (optional stand-in that publishes the team detector's
+    interfaces/ImageResult on /image_detection from the world's answer key), demo_markers (RViz
+    MarkerArray of the search area, targets, detections, photo footprints, drone track and drop
+    points) and score_run (writes a Markdown + JSON score report for each simulated mission).
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- ROS message and client libraries -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
+  <exec_depend>vision_msgs</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <!-- The team's own message package: interfaces/msg/ImageResult (the detector's output). -->
+  <exec_depend>interfaces</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Python libraries (installed by simulation/setup/01_install_humble.sh) -->
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pyqt5</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+  <!-- pymavlink comes from pip (docker/requirements-dev.txt); the panel works without it
+       (it then falls back to MAVROS services for "Upload mission + Start" and "RTL"). -->
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

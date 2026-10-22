@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- sim_worlds/package.xml - PURPOSE: ROS 2 package manifest of the simulated worlds (runway test field and the
+     SUAS 2026 field) with their survey missions, ground-truth files and the Python helpers that make them. -->
+<package format="3">
+  <name>sim_worlds</name>
+  <version>0.1.0</version>
+  <description>
+    Gazebo Harmonic worlds for the SUAS search demo: a small fast "runway" test world and the SUAS 2026
+    competition field (Skyway Range), each with one hiker (mannequin) and one open pop-up tent per search area,
+    QGC WPL 110 survey missions in the exact shape the team's main_controller expects, ground-truth files for
+    scoring, and the generators/tools that build and check them.
+  </description>
+  <maintainer email="astra-sim@example.com">SUAS team (CPP Aerial Vision Analysis System)</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- only needed to RE-GENERATE worlds and to save preview pictures -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pil</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

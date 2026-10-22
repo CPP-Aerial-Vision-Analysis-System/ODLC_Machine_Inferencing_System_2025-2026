@@ -1,0 +1,6 @@
+# white placeholder material for quad.obj (the SDF <material> replaces it)
+newmtl white
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+d 1

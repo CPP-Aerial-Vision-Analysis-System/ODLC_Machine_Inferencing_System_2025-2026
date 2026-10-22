@@ -1,0 +1,260 @@
+<?xml version="1.0" ?>
+<!--
+  siyi_emulator/test/fixtures/gimbal_stand.sdf
+
+  PURPOSE: a small Gazebo Harmonic test world for the SIYI camera emulator (NOT the real drone).
+  A floating "drone" body named iris carries the same 3-axis gimbal chain, joint names, joint
+  controller topics, cameras and output topics as the simulation contract (sim_models iris_a8mini):
+      /sim/gimbal/{yaw,roll,pitch}/cmd_pos   gz.msgs.Double  JointPositionController targets (rad)
+      /sim/gimbal/joint_states                gz.msgs.Model   JointStatePublisher, 50 Hz
+      /sim/drone/odometry                     gz.msgs.Odometry OdometryPublisher, dimensions 3, 50 Hz
+      /sim/camera/video/image (+camera_info)  1280x720 live camera, HFOV 1.4137 rad
+      /sim/camera/photo/image (+camera_info)  2560x1440 TRIGGERED camera, trigger /sim/camera/photo/trigger
+  Gravity is OFF and the body is free, so a test can tilt the "drone" with the
+  /world/gimbal_stand/set_pose service and check that the emulator keeps the camera level.
+
+  Coloured objects at known bearings (the camera sits about 0.9 m above the ground at x=0, y=0,
+  looking east (+x) when yaw = pitch = 0):
+      RED box    6 m straight ahead                  (yaw 0 centres it)
+      GREEN box  6 m away, 30 deg to the LEFT        (yaw +30 centres it: +yaw = camera turns left)
+      BLUE box   6 m away, 30 deg to the RIGHT       (yaw -30 centres it)
+      YELLOW disc on the ground under the camera     (pitch -90 = straight down centres it)
+      WHITE pole 12 m ahead, 3 m tall                (zoom target)
+  The ground is 25 tiles of a texture (ground.png) that the e2e script generates next to this file.
+
+  Run headless:  gz sim -s -r gimbal_stand.sdf      (see test/e2e/run_e2e_gazebo.sh)
+  NOTE for editors: XML comments must never contain two hyphens in a row.
+-->
+<sdf version="1.9">
+  <world name="gimbal_stand">
+    <gravity>0 0 0</gravity>
+    <physics name="2ms" type="ode">
+      <max_step_size>0.002</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <scene>
+      <ambient>0.75 0.75 0.75 1</ambient>
+      <background>0.55 0.72 0.95 1</background>
+      <shadows>false</shadows>
+      <grid>false</grid>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 50 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <!-- ===== ground: 5 x 5 tiles of 40 m, each showing the whole texture (2 cm per texel) ===== -->
+    <model name="ground">
+      <static>true</static>
+      <link name="link">
+        <visual name="t00"><pose>-80 -80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t01"><pose>-80 -40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t02"><pose>-80 0 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t03"><pose>-80 40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t04"><pose>-80 80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t10"><pose>-40 -80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t11"><pose>-40 -40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t12"><pose>-40 0 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t13"><pose>-40 40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t14"><pose>-40 80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t20"><pose>0 -80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t21"><pose>0 -40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t22"><pose>0 0 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t23"><pose>0 40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t24"><pose>0 80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t30"><pose>40 -80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t31"><pose>40 -40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t32"><pose>40 0 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t33"><pose>40 40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t34"><pose>40 80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t40"><pose>80 -80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t41"><pose>80 -40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t42"><pose>80 0 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t43"><pose>80 40 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+        <visual name="t44"><pose>80 80 0 0 0 0</pose><geometry><plane><normal>0 0 1</normal><size>40 40</size></plane></geometry><material><diffuse>1 1 1 1</diffuse><pbr><metal><albedo_map>ground.png</albedo_map><roughness>1</roughness><metalness>0</metalness></metal></pbr></material></visual>
+      </link>
+    </model>
+
+    <!-- ===== reference objects ===== -->
+    <model name="red_box_ahead">
+      <static>true</static>
+      <pose>6 0 0.5 0 0 0</pose>
+      <link name="link"><visual name="v"><geometry><box><size>1 1 1</size></box></geometry>
+        <material><ambient>1 0 0 1</ambient><diffuse>1 0 0 1</diffuse></material></visual></link>
+    </model>
+    <model name="green_box_left30">
+      <static>true</static>
+      <pose>5.196 3.0 0.5 0 0 0</pose>
+      <link name="link"><visual name="v"><geometry><box><size>1 1 1</size></box></geometry>
+        <material><ambient>0 1 0 1</ambient><diffuse>0 1 0 1</diffuse></material></visual></link>
+    </model>
+    <model name="blue_box_right30">
+      <static>true</static>
+      <pose>5.196 -3.0 0.5 0 0 0</pose>
+      <link name="link"><visual name="v"><geometry><box><size>1 1 1</size></box></geometry>
+        <material><ambient>0 0 1 1</ambient><diffuse>0 0 1 1</diffuse></material></visual></link>
+    </model>
+    <model name="yellow_disc_below">
+      <static>true</static>
+      <pose>0.09 0 0.02 0 0 0</pose>
+      <link name="link"><visual name="v"><geometry><cylinder><radius>0.3</radius><length>0.04</length></cylinder></geometry>
+        <material><ambient>1 1 0 1</ambient><diffuse>1 1 0 1</diffuse></material></visual></link>
+    </model>
+    <model name="white_pole_far">
+      <static>true</static>
+      <pose>12 0 1.5 0 0 0</pose>
+      <link name="link"><visual name="v"><geometry><cylinder><radius>0.15</radius><length>3</length></cylinder></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material></visual></link>
+    </model>
+
+    <!-- ===== the "drone": model iris, a floating body with the gimbal under its nose ===== -->
+    <model name="iris">
+      <pose>0 0 1.0 0 0 0</pose>
+
+      <!-- heavy body so the gimbal motors barely push it around (no gravity in this world) -->
+      <link name="base_link">
+        <inertial><mass>50.0</mass><inertia><ixx>5</ixx><iyy>5</iyy><izz>5</izz></inertia></inertial>
+        <visual name="body">
+          <geometry><box><size>0.3 0.3 0.04</size></box></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient><diffuse>0.3 0.3 0.3 1</diffuse></material>
+        </visual>
+      </link>
+
+      <!-- same chain and offsets as sim_models iris_a8mini (and the A8 mini URDF) -->
+      <link name="gimbal_base">
+        <pose relative_to="base_link">0.07 0 -0.06 0 0 0</pose>
+        <inertial><mass>0.05</mass><inertia><ixx>1e-5</ixx><iyy>1e-5</iyy><izz>1e-5</izz></inertia></inertial>
+      </link>
+      <joint name="gimbal_mount" type="fixed">
+        <parent>base_link</parent>
+        <child>gimbal_base</child>
+      </joint>
+
+      <link name="gimbal_yaw_link">
+        <pose relative_to="gimbal_base">0 0 -0.011 0 0 0</pose>
+        <inertial><mass>0.015</mass><inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>2e-5</izz></inertia></inertial>
+      </link>
+      <joint name="gimbal_yaw" type="revolute">
+        <parent>gimbal_base</parent>
+        <child>gimbal_yaw_link</child>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit><lower>-2.7925</lower><upper>2.7925</upper><effort>10</effort><velocity>3.14</velocity></limit>
+        </axis>
+      </joint>
+
+      <link name="gimbal_roll_link">
+        <pose relative_to="gimbal_yaw_link">-0.018 0 -0.027 0 0 0</pose>
+        <inertial><mass>0.015</mass><inertia><ixx>2e-5</ixx><iyy>2e-5</iyy><izz>2e-5</izz></inertia></inertial>
+      </link>
+      <joint name="gimbal_roll" type="revolute">
+        <parent>gimbal_yaw_link</parent>
+        <child>gimbal_roll_link</child>
+        <axis>
+          <xyz>1 0 0</xyz>
+          <limit><lower>-0.5236</lower><upper>0.5236</upper><effort>10</effort><velocity>3.14</velocity></limit>
+        </axis>
+      </joint>
+
+      <link name="gimbal_pitch_link">
+        <pose relative_to="gimbal_roll_link">0.027 -0.025 0.001 0 0 0</pose>
+        <inertial><mass>0.025</mass><inertia><ixx>3e-5</ixx><iyy>3e-5</iyy><izz>3e-5</izz></inertia></inertial>
+        <visual name="camera_head">
+          <pose>0.0 0.025 0 0 0 0</pose>
+          <geometry><box><size>0.04 0.05 0.04</size></box></geometry>
+          <material><ambient>0.05 0.05 0.05 1</ambient><diffuse>0.05 0.05 0.05 1</diffuse></material>
+        </visual>
+
+        <!-- live video: 1280x720, A8 mini optics (HFOV 81 deg) -->
+        <sensor name="video_camera" type="camera">
+          <pose>0.013 0.025 0.001 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>10</update_rate>
+          <visualize>false</visualize>
+          <topic>/sim/camera/video/image</topic>
+          <camera>
+            <horizontal_fov>1.4137</horizontal_fov>
+            <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
+            <clip><near>0.05</near><far>3000</far></clip>
+            <camera_info_topic>/sim/camera/video/camera_info</camera_info_topic>
+          </camera>
+        </sensor>
+
+        <!-- photo camera: ONE frame per message on the trigger topic (2560x1440 = ZR10 / video_cam "2K") -->
+        <sensor name="photo_camera" type="camera">
+          <pose>0.013 0.025 0.001 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/sim/camera/photo/image</topic>
+          <camera>
+            <horizontal_fov>1.4137</horizontal_fov>
+            <image><width>2560</width><height>1440</height><format>R8G8B8</format></image>
+            <clip><near>0.05</near><far>3000</far></clip>
+            <noise><type>gaussian</type><mean>0.0</mean><stddev>0.005</stddev></noise>
+            <triggered>true</triggered>
+            <trigger_topic>/sim/camera/photo/trigger</trigger_topic>
+            <camera_info_topic>/sim/camera/photo/camera_info</camera_info_topic>
+          </camera>
+          <!-- OPTICAL_ZOOM_PLUGIN (the e2e script inserts ardupilot_gazebo's CameraZoomPlugin here for the optical-zoom check) -->
+        </sensor>
+      </link>
+      <joint name="gimbal_pitch" type="revolute">
+        <parent>gimbal_roll_link</parent>
+        <child>gimbal_pitch_link</child>
+        <axis>
+          <xyz>0 -1 0</xyz>
+          <limit><lower>-2.3562</lower><upper>0.7854</upper><effort>10</effort><velocity>3.14</velocity></limit>
+        </axis>
+      </joint>
+
+      <!-- joint controllers in velocity mode (exact tracking, slew limited to 90 deg/s) -->
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>gimbal_yaw</joint_name>
+        <topic>/sim/gimbal/yaw/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands>
+        <cmd_max>1.5708</cmd_max>
+        <cmd_min>-1.5708</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>gimbal_roll</joint_name>
+        <topic>/sim/gimbal/roll/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands>
+        <cmd_max>1.5708</cmd_max>
+        <cmd_min>-1.5708</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-position-controller-system" name="gz::sim::systems::JointPositionController">
+        <joint_name>gimbal_pitch</joint_name>
+        <topic>/sim/gimbal/pitch/cmd_pos</topic>
+        <use_velocity_commands>true</use_velocity_commands>
+        <cmd_max>1.5708</cmd_max>
+        <cmd_min>-1.5708</cmd_min>
+      </plugin>
+      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+        <topic>/sim/gimbal/joint_states</topic>
+        <joint_name>gimbal_yaw</joint_name>
+        <joint_name>gimbal_roll</joint_name>
+        <joint_name>gimbal_pitch</joint_name>
+        <update_rate>50</update_rate>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <odom_frame>world</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <odom_topic>/sim/drone/odometry</odom_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <dimensions>3</dimensions>
+      </plugin>
+    </model>
+  </world>
+</sdf>

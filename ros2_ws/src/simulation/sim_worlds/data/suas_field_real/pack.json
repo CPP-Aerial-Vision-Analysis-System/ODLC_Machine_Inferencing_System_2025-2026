@@ -1,0 +1,578 @@
+{
+ "version": 1,
+ "world": "suas_field_real",
+ "generated": "2026-10-17",
+ "generator": "sim_worlds/realfield/pack.py (stage 2) from prepare.py (stage 1)",
+ "frame": "x = metres east, y = metres north of the Runway 2 pad centre on the exact WGS84 local tangent plane (what Gazebo uses); z = metres NAVD88 minus home altitude. +proj=tmerc +lat_0=36.2147411 +lon_0=-96.006723 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs",
+ "home": {
+  "lat": 36.2147411,
+  "lon": -96.006723,
+  "alt_msl": 210.2,
+  "heading": 0.0,
+  "dtm_median_over_pad": 210.19
+ },
+ "extent": [
+  -950.9,
+  -672.1,
+  897.1,
+  1175.9
+ ],
+ "near_box": [
+  -158.9,
+  -672.1,
+  633.1,
+  383.9
+ ],
+ "detail_box": [
+  -92.9,
+  -342.1,
+  369.1,
+  119.9
+ ],
+ "rasters": {
+  "height": {
+   "file": "height_1m.png",
+   "x0": -954.9,
+   "y1": 1179.9,
+   "res": 1.0,
+   "offset": 150.0,
+   "scale": 0.01,
+   "what": "bare-earth ground height, metres NAVD88 = offset + value * scale (USGS 3DEP lidar DTM 2017 + edits, 1 m means of the 0.5 m DTM)"
+  },
+  "colour_near": {
+   "file": "colour_near_0p25m.jpg",
+   "x0": -160.9,
+   "y1": 385.9,
+   "res": 0.25,
+   "what": "ground colour RGB (NAIP 2023-09-18 graded to Sept 2026, 3D-tree crowns painted out) around the search areas and the pad"
+  },
+  "class": {
+   "file": "class_detail_0p25m.png",
+   "x0": -94.9,
+   "y1": 121.9,
+   "res": 0.25,
+   "classes": {
+    "0": "grass",
+    "1": "dry_grass",
+    "2": "bare_soil",
+    "3": "gravel",
+    "4": "asphalt",
+    "5": "water",
+    "6": "canopy",
+    "7": "under_tree",
+    "8": "wetland"
+   },
+   "what": "ground class per pixel in the search areas and at the pad"
+  },
+  "colour_far": {
+   "file": "colour_far_1m.jpg",
+   "x0": -954.9,
+   "y1": 1179.9,
+   "res": 1.0,
+   "what": "ground colour RGB of the whole terrain at 1 m (same processing)"
+  },
+  "canopy": {
+   "file": "canopy_1m.png",
+   "x0": -954.9,
+   "y1": 1179.9,
+   "res": 1.0,
+   "offset": 0.0,
+   "scale": 0.125,
+   "what": "closed-forest canopy height above the ground, m (2017 lidar, highest return within 1.5 m, smoothed, + estimated growth to 2026); 0 = no forest"
+  }
+ },
+ "class_share": {
+  "grass": 0.5842,
+  "dry_grass": 0.1274,
+  "bare_soil": 0.0335,
+  "gravel": 0.0118,
+  "asphalt": 0.0213,
+  "water": 0.0164,
+  "canopy": 0.0929,
+  "under_tree": 0.0985,
+  "wetland": 0.014
+ },
+ "files": {
+  "trees": "trees.csv",
+  "features": "features.json"
+ },
+ "trees": {
+  "cedars": 6827,
+  "crown_mask_share": 0.2959,
+  "forest_area_m2": 240200,
+  "from_lidar_2017": 10585,
+  "height_p50_p95_max": [
+   11.6,
+   18.4,
+   46.2
+  ],
+  "in_closed_forest": 3532,
+  "lidar_trees_gone_by_2023": 3019,
+  "new_in_photo_2023": 10217,
+  "photo_blobs_without_meta_tree": 9384,
+  "total": 20802,
+  "as_3d_models": 17270
+ },
+ "detail_textures": [
+  {
+   "name": "grass_aerial",
+   "file": "detail/grass_aerial.png",
+   "use": "grass",
+   "real_size_m": 15.0,
+   "px": 1024,
+   "amplitude": 0.55,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_grass_rock/aerial_grass_rock_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  },
+  {
+   "name": "grass_close",
+   "file": "detail/grass_close.png",
+   "use": "grass",
+   "real_size_m": 2.51,
+   "px": 512,
+   "amplitude": 0.35,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/grass_ground/grass_ground_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  },
+  {
+   "name": "dry_ground",
+   "file": "detail/dry_ground.png",
+   "use": "dry_grass",
+   "real_size_m": 4.0,
+   "px": 512,
+   "amplitude": 0.5,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/dry_ground_01/dry_ground_01_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  },
+  {
+   "name": "dirt_aerial",
+   "file": "detail/dirt_aerial.png",
+   "use": "bare_soil",
+   "real_size_m": 20.0,
+   "px": 1024,
+   "amplitude": 0.5,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/dirt_aerial_02/dirt_aerial_02_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  },
+  {
+   "name": "gravel",
+   "file": "detail/gravel.png",
+   "use": "gravel",
+   "real_size_m": 2.0,
+   "px": 512,
+   "amplitude": 0.45,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/gravel_road/gravel_road_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  },
+  {
+   "name": "asphalt",
+   "file": "detail/asphalt.png",
+   "use": "asphalt",
+   "real_size_m": 30.0,
+   "px": 1024,
+   "amplitude": 0.4,
+   "source_url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/aerial_asphalt_01/aerial_asphalt_01_diff_2k.jpg",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "attribution": "Poly Haven (CC0)"
+  }
+ ],
+ "dtm_edits": [
+  {
+   "max_lowered_m": 9.81,
+   "name": "soil_piles_levelled",
+   "volume_removed_m3": 18757,
+   "why": "three soil piles 9.7, 6.4 and 5.4 m tall (about 16,400 m3) south-east of Search Boundary 1 in the 2017 lidar are GONE (levelled pasture) in NAIP 2023, NAIP 2025 and OKMaps 2025. Recipe of the elevation research (v08): grey opening of the DTM with a 41 m window inside this box, which removes bumps narrower than 41 m and keeps the natural slope."
+  },
+  {
+   "max_lowered_m": 0.8,
+   "name": "new_wetland",
+   "volume_removed_m3": 1130,
+   "why": "a wetland basin was dug west of Search Boundary 1 after 2017 (bare excavation with an excavator in NAIP 2023, wet ground in March 2025, green in September 2026). Its depth is NOT known: 0.8 m is an estimate (the research suggested 0.5 to 1.5 m). Smooth bowl, deepest in the middle."
+  },
+  {
+   "name": "pad_levelled",
+   "max_lowered_m": null,
+   "why": "the 12.2 m pad square (+0.5 m, 2.0 m feather) is set to the home height so the flat concrete pad model sits flush (the old strip there slopes by 0.344 m)"
+  }
+ ],
+ "season_grade": {
+  "applied_rgb": [
+   0.77,
+   0.88,
+   0.79
+  ],
+  "applied_how": "site.GRASS_GRADE_RGB (site_facts.md 6.3: Sentinel-2 2026-09-15 / 2023-09-18 over pure grass)",
+  "computed_in_stage_1": {
+   "cells": 29964,
+   "factors_rgb": [
+    0.945,
+    0.931,
+    0.955
+   ],
+   "how": "median Sentinel-2 reflectance ratio s2_2026-09-15_B4B3B2B8.tif / s2_2023-09-23_B4B3B2B8.tif over grass-like 10 m cells (R, G, B)"
+  }
+ },
+ "sun_direction_enu": [
+  -0.57,
+  0.444,
+  -0.691
+ ],
+ "sources": [
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228011_NE.tif",
+   "id": "dtm_NE_228011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "c361b9fbbdebd30c8a0e302f2f50fad889c4dd809bb9a07f1146a2e7443a6500"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228011_SE.tif",
+   "id": "dtm_SE_228011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "c3b65b29393b4d93516acde55d8b09490311ca8299efa2cfffcebee50203f444"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228012_SE.tif",
+   "id": "dtm_SE_228012",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "ce4e655624a63deb311f9a32769cf4f4a2550a721fed0f60f63d8dd5fb754e7f"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_NE.tif",
+   "id": "dtm_NE_229011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "c5e76f87e0e510fbfb68c60cc0d9837013f0fef9423a2f339999c4c4f32177b7"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_NW.tif",
+   "id": "dtm_NW_229011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "eca0a9be7466c5c172b619b4aafd7d80845c90f0d6c5d5cc5e2b1861409f8b44"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_SE.tif",
+   "id": "dtm_SE_229011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "a1671332a5f40349481c362370dbd197dde1cd9f6a02925846bd54af7347c49f"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_SW.tif",
+   "id": "dtm_SW_229011",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "4be01922f9fc3ec8c7137590d892c0adabbcca5feebf9b8692de6eafd1d8dc16"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229012_SE.tif",
+   "id": "dtm_SE_229012",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "78feeff8b9220186853062e2e1a582cfd06a51982ad6bc83f9a192b14b8e8a87"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "dtm/USGS_OPR_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229012_SW.tif",
+   "id": "dtm_SW_229012",
+   "layer": "dtm",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "d95ba29d763fec50666546999125560a6d689329e5b959769fa2053486d5b7e3"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228011_NE.laz",
+   "id": "lidar_228011_NE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "31ae5715350d0afa340a7ce8ba88384ed96a1d134bc2001110c3474843566239"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228011_SE.laz",
+   "id": "lidar_228011_SE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "24c7f565326956315683006805d7e032970d8dbaac5d235d1f137e6064b102cd"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA228012_SE.laz",
+   "id": "lidar_228012_SE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "f76e526b99d3deae9ddc89e7f3afe5bb89defaf1f8992835a494df7eaae1c348"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_NE.laz",
+   "id": "lidar_229011_NE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "cf9548c6c4db55ecbf142670ef0fe2e536bafa6ea975f28ed21d69f5662f7c69"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_NW.laz",
+   "id": "lidar_229011_NW",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "3e7d1a5431c58fa6e67397c4af69d8a83a80600756c9c958d2de23a821cfba17"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_SE.laz",
+   "id": "lidar_229011_SE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "a494c092888d1760705c1d95ebcd72529c2a24dc67e6f2b16ee68669a4f8aa73"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229011_SW.laz",
+   "id": "lidar_229011_SW",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "b3656ef3728c3af3d6ae4b9d081ab6ddfc12a9c26d3b0903e3fe1c0294f9612a"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229012_SE.laz",
+   "id": "lidar_229012_SE",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "163cd8fbc53ec7b8ebd632aaf9da561a2ac2a7f3e348c096748fe393d74c6cff"
+  },
+  {
+   "attribution": "U.S. Geological Survey, 3D Elevation Program",
+   "file": "lidar/USGS_LPC_OK_Woodward_FEMA_R6_Lidar_2016_D17_QL1_15STA229012_SW.laz",
+   "id": "lidar_229012_SW",
+   "layer": "lidar",
+   "licence": "public domain (USGS 3D Elevation Program); credit \"U.S. Geological Survey\" requested",
+   "pixel_sha256": null,
+   "sha256": "bf1bbe0ca4ae66cd504344267c5eaa56ed8858eb10c3b4a5837a1c512d4392d7"
+  },
+  {
+   "attribution": "USDA FPAC-BC Geospatial Enterprise Operations, NAIP 2023",
+   "file": "naip/naip_2023_m_3609656_ne_window.tif",
+   "id": "naip_2023",
+   "layer": "naip",
+   "licence": "public domain (USDA Farm Production and Conservation Business Center, NAIP); credit requested",
+   "pixel_sha256": "642b57176b1882ff2088a8e8a4ac1157f2049d5fe25ea7339bf9f532dddc826f",
+   "sha256": null
+  },
+  {
+   "attribution": "(c) OpenStreetMap contributors, https://www.openstreetmap.org/copyright",
+   "file": "osm/overpass_2026-10-10.json",
+   "id": "osm",
+   "layer": "osm",
+   "licence": "Open Database License (ODbL) 1.0; derived data must credit OpenStreetMap and stay ODbL",
+   "pixel_sha256": null,
+   "sha256": null
+  },
+  {
+   "attribution": "Microsoft Global ML Building Footprints",
+   "file": "buildings/ms_buildings_quadkey023112111.geojson",
+   "id": "ms_buildings",
+   "layer": "buildings",
+   "licence": "Open Database License (ODbL) 1.0",
+   "pixel_sha256": null,
+   "sha256": null
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/grass_ground_diff_2k.jpg",
+   "id": "tex_grass_ground",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "4272bddc71a7fa659d1deeb13a9df8c42e68a5ac8cde7523187e4a081e028258"
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/aerial_grass_rock_diff_2k.jpg",
+   "id": "tex_aerial_grass_rock",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "1a2ddfa4652adbe00447b940c40019d46f4b88245bc1b341cdf622c2110b7bc5"
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/dirt_aerial_02_diff_2k.jpg",
+   "id": "tex_dirt_aerial_02",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "f4c81ff69a62773dd6dbfe8f3116980a53d8e730e1731ea7992836115d8f56c6"
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/dry_ground_01_diff_2k.jpg",
+   "id": "tex_dry_ground_01",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "b6b601e75ba68d91ea1b09af87e95f186d15d8210e4f14692f9b20d2e21d437b"
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/gravel_road_diff_2k.jpg",
+   "id": "tex_gravel_road",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "6313bb65816f2890a247cb9a5bae003ddef98cf55099d5abaf543a88e0ab3180"
+  },
+  {
+   "attribution": "Poly Haven (polyhaven.com), CC0",
+   "file": "textures/aerial_asphalt_01_diff_2k.jpg",
+   "id": "tex_aerial_asphalt_01",
+   "layer": "texture",
+   "licence": "CC0 1.0 (public domain dedication), https://polyhaven.com/license",
+   "pixel_sha256": null,
+   "sha256": "a85ce28b8e6ed90acb0234832969b27f5b73fe055a0d5b94f34fc2943d319fb5"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6710.tif",
+   "id": "leafoff_14S_QF_6710",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "bf48e3473ec058aa31fa748e2f47bf6c700292b0ebbde5b0bae8e61a7280490d"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6711.tif",
+   "id": "leafoff_14S_QF_6711",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "b7a773b53c62465d4bcce1fe73d8596b1dedf8c595bc49a642524e509d40deee"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6713.tif",
+   "id": "leafoff_14S_QF_6713",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "3c178980c429fdf39845b228c3cce6a46c8ff51b6a0b96dc43c061353ad4696f"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6812.tif",
+   "id": "leafoff_14S_QF_6812",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "38543f60aebd0013c9017abe7e217e34821d9c4bc409e260f1d87113f7e0d494"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6813.tif",
+   "id": "leafoff_14S_QF_6813",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "7856ee00d5189e89eddecb23931ba39465e7432f8a71db7353a97700d1cc06f3"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/14S_QF_6910.tif",
+   "id": "leafoff_14S_QF_6910",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "5dfbf300618779d0e653dd4a7b8520ce3c86ac33139c191b54d35a1ca2db284b"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/15S_TA_3010.tif",
+   "id": "leafoff_15S_TA_3010",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "a38c68d4ed196e04aaed318d9c6e91e1d370d74cafa9df99f3e55a2daeae29e1"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/15S_TA_3012.tif",
+   "id": "leafoff_15S_TA_3012",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "b71667f70684bb80991d395083e97e0ac0b0e007e4bf67cee3c4b5bb9af63212"
+  },
+  {
+   "attribution": "Oklahoma Office of Geographic Information / OKMaps",
+   "file": "leafoff/15S_TA_3013.tif",
+   "id": "leafoff_15S_TA_3013",
+   "layer": "leafoff",
+   "licence": "free state data (OKMaps WMS: Fees NONE, AccessConstraints NONE); no written redistribution licence found, so it is not redistributed",
+   "pixel_sha256": null,
+   "sha256": "4d334ac1759fe4b17c3a31c22a0261e59d21150f240f1685158b1c23cf2c271c"
+  },
+  {
+   "attribution": "Meta and World Resources Institute (WRI), High Resolution Canopy Height Maps v2 (CC-BY 4.0)",
+   "file": "metachm/meta_chm_v2_0231121112_window.tif",
+   "id": "meta_chm_v2",
+   "layer": "metachm",
+   "licence": "CC-BY 4.0",
+   "pixel_sha256": "dddbe6d4e49844f597a6bcfb2022f8f3bbe0996f92bb1f807ee845d86c51f636",
+   "sha256": null
+  },
+  {
+   "attribution": "Contains modified Copernicus Sentinel data 2023",
+   "file": "s2/s2_2023-09-23_B4B3B2B8.tif",
+   "id": "s2_2023-09-23",
+   "layer": "s2",
+   "licence": "free, full and open Copernicus Sentinel data licence",
+   "pixel_sha256": "ff72aa044a08d6969171d7e538a3dbd818180ed44fcb32760a7503fc4b9d4f32",
+   "sha256": null
+  },
+  {
+   "attribution": "Contains modified Copernicus Sentinel data 2026",
+   "file": "s2/s2_2026-09-15_B4B3B2B8.tif",
+   "id": "s2_2026-09-15",
+   "layer": "s2",
+   "licence": "free, full and open Copernicus Sentinel data licence",
+   "pixel_sha256": "2ebffdb1f4bb667c2f7f912299a6195dcb62026b5d61a53e4957f1529c9b29f5",
+   "sha256": null
+  }
+ ]
+}

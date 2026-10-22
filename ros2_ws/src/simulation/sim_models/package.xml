@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  sim_models/package.xml  PURPOSE: the ROS 2 package manifest of sim_models, the simulated DRONE of the
+  ASTRA simulator: the Gazebo model of the Iris quadcopter with the SIYI A8 mini gimbal camera and two
+  droppable payloads, the extra ArduCopter SITL parameters for it, and the payload_release node that
+  drops a payload in Gazebo when ArduPilot opens its servo. It is an ament_cmake package because it is
+  mostly data (models, meshes, parameter files) plus a small Python helper module and two scripts.
+-->
+<package format="3">
+  <name>sim_models</name>
+  <version>0.1.0</version>
+  <description>
+    Gazebo Harmonic model of the ASTRA drone for the SUAS simulator: ArduPilot Iris (ardupilot_gazebo,
+    flown by ArduCopter SITL) + SIYI A8 mini 3-axis gimbal with a live video camera and a triggered
+    photo camera + person/tent payloads released by SITL servo outputs 11 and 13. Also holds the SITL
+    parameter file astra_sitl.parm and the payload_release node.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <!-- payload_release node -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- generate_model_sdf (xacro -> SDF) -->
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <!-- Gazebo itself, its Python bindings (gz.transport13 / gz.msgs10 come with gz-harmonic:
+       python3-gz-transport13, python3-gz-msgs10) and the spawner -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <!-- ArduPilot SITL, ardupilot_gazebo (ArduPilotPlugin + iris_with_standoffs) and pymavlink are not
+       rosdep keys: simulation/setup/02_setup_ardupilot.sh installs them. -->
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

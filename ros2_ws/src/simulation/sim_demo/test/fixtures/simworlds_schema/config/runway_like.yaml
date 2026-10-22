@@ -1,0 +1,14 @@
+# sim_demo/test/fixtures/simworlds_schema/config/runway_like.yaml - PURPOSE: a trimmed copy of
+# sim_worlds/config/runway.yaml in exactly sim_worlds' schema, so sim_demo's loader is tested
+# against the real format without depending on the sim_worlds package being built.
+world_name: runway
+world_file: worlds/runway.sdf
+home: "36.2143000,-96.0068000,210.0,0"
+spawn: {x: 0.000, y: 0.000, z: 0.250, yaw: 1.5708}
+mission: missions/runway_like.waypoints
+truth: truth/runway_like.yaml
+search_areas:
+  - name: search_box
+    center: [25.000, 95.000]
+    size: [120.000, 100.000]
+    yaw: 0.0000

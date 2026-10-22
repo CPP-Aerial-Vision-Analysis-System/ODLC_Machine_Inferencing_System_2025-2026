@@ -1,0 +1,89 @@
+# sim_demo/config/demo_params.yaml - PURPOSE: every parameter of the four sim_demo nodes with
+# its default value and a one-line explanation, in the standard ROS 2 parameter-file format.
+# Use it as a reference, or copy it, change values and start a node with
+#   ros2 run sim_demo demo_panel --ros-args --params-file my_params.yaml
+# Units: metres (m), seconds (s), degrees (deg), radians (rad).
+
+demo_panel:
+  ros__parameters:
+    world: runway                       # world name: sim_worlds/config/<world>.yaml
+    worlds_dir: ""                      # sim_worlds folder ("" = installed package / $ASTRA_WORLDS_DIR)
+    truth_file: ""                      # override the answer-key YAML
+    photo_dir: ""                       # "" = <ws>/src/video_cam/mapping_photos (same rule as video_cam)
+    camera_topic: /sim/camera/image     # live camera picture (sensor_msgs/Image, bridged from Gazebo)
+    detector: auto                      # label hint only; the panel detects new_od / truth_detector itself
+    mavlink_url: "udpin:127.0.0.1:14553"  # extra MAVProxy output (--out udp:127.0.0.1:14553) for the buttons
+    mission_link: auto                  # auto (MAVLink, else MAVROS) / mavlink / mavros
+    auto_start: false                   # true = press UPLOAD MISSION + START automatically
+    auto_start_delay_s: 5.0             # [s] wait before the automatic start
+    settle_timeout_s: 150.0             # [s] keep retrying to arm this long (SITL settles in ~30 s)
+    look_down_on_start: true            # send LOOK DOWN before arming (photos must point down)
+    look_down_command: "gimbal_set_angles 0,-90"     # /camera/command text (video_cam protocol)
+    look_forward_command: "gimbal_set_angles 0,0"
+    hit_hold_s: 8.0                     # [s] Auto photo view keeps a photo with targets this long
+    window_width: 1600                  # [px]
+    window_height: 960                  # [px]
+    fullscreen: false
+    screenshot_path: ""                 # save a PNG of the window (e.g. for docs / tests)
+    screenshot_after_s: 6.0             # [s] after start
+    screenshot_every_s: 0.0             # [s] > 0 = keep taking screenshots (files _01, _02 ...)
+    screenshot_count: 1                 # total number of screenshots
+    quit_after_screenshot: false        # close the panel after the last screenshot
+    mission_planner_exe: ""             # OPEN MISSION PLANNER starts this ("" = $MISSION_PLANNER_EXE,
+                                        # else C:\Program Files (x86)\Mission Planner\MissionPlanner.exe)
+
+truth_detector:
+  ros__parameters:
+    world: runway
+    worlds_dir: ""
+    truth_file: ""
+    photo_dir: ""
+    poll_period_s: 0.5                  # [s] how often the photo folder is checked
+    processing_delay_s: 0.5             # [s] pretend model time before each result
+    hfov_rad: 1.4137                    # [rad] camera horizontal field of view at zoom 1 (81 deg)
+    zoom: 0.0                           # > 0 forces a zoom; 0 = follow the camera (emulator / status text)
+    gimbal_pitch_deg: -90.0             # [deg] camera tilt during the search (-90 = straight down)
+    gimbal_yaw_offset_deg: 0.0          # [deg] camera yaw relative to the nose (+ = right)
+    capture_latency_s: 1.0              # [s] shutter-to-file delay, used when a name has no GPS
+    geolocation: filename               # filename = drone GPS from the file name (like new_od); projected
+    position_noise_m: 0.5               # [m] noise of projected positions
+    min_visible_fraction: 0.5           # part of a target box that must be inside the photo
+    min_pixels: 12.0                    # [px] smallest detectable target (longest side)
+    good_pixels: 60.0                   # [px] size at which confidence is highest
+    detect_probability: 0.97            # chance a visible target is reported
+    confidence_noise: 0.03              # standard deviation of the confidence noise
+    seed: 0                             # change to get different (but repeatable) random draws
+    include_distractors: false          # true = also report look-alikes (standing people): false alarms
+
+demo_markers:
+  ros__parameters:
+    world: runway
+    worlds_dir: ""
+    truth_file: ""
+    photo_dir: ""
+    frame_id: world                     # RViz fixed frame (Gazebo world ENU, origin = SITL home)
+    publish_rate_hz: 2.0                # [Hz]
+    hfov_rad: 1.4137
+    zoom: 0.0
+    gimbal_pitch_deg: -90.0
+    max_footprints: 800                 # newest photo footprints kept
+    max_detection_markers: 60           # newest detection spheres kept
+    track_min_step_m: 1.0               # [m] drone track point spacing
+    gz_payload_tracking: true           # read payload positions from Gazebo (gz-transport)
+
+score_run:
+  ros__parameters:
+    world: runway
+    worlds_dir: ""
+    truth_file: ""
+    photo_dir: ""
+    run_dir: ""                         # "" = $ASTRA_RUN_DIR or ~/astra_sim_runs/<world>_<time>
+    detector: auto                      # report label: auto / real / truth
+    hfov_rad: 1.4137
+    zoom: 0.0
+    gimbal_pitch_deg: -90.0
+    finish_on_landed: true              # write the report when the drone has landed
+    linger_s: 8.0                       # [s] wait after landing for late detector messages
+    gz_payload_tracking: true           # payload landing points from Gazebo
+    footprint_margin_m: 2.0             # [m] a target this close outside a footprint still counts
+    geo_match_radius_m: 50.0            # [m] matching radius when a photo footprint is unknown
