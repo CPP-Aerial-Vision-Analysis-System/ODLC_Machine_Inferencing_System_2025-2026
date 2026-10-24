@@ -28,6 +28,10 @@
 #                --zoom survey|team      survey (default): photos keep the full 81 deg view the mission was
 #                                        planned for; team: let video_cam's 5x zoom rack shrink the photos
 #                --headless              no windows (for tests and servers)
+#                --panel                 also open the old ASTRA demo panel (the Qt window). It is OFF by default:
+#                                        Mission Planner is the ground station (the camera picture is at
+#                                        http://127.0.0.1:8081/pov.mjpg, see docs/simulation/MISSION_PLANNER.md)
+#                --no-panel              (the default) do not open the ASTRA demo panel
 #                --no-windows-gcs        no MAVLink copy for Mission Planner / QGroundControl on Windows (by default,
 #                                        inside WSL, it goes to the Windows host: Mission Planner -> UDP -> port 14550)
 #                --windows-gcs HOST[:PORT]  send that copy somewhere else (another laptop, mirrored networking)
@@ -75,6 +79,7 @@ WINDOWS_GCS=true; WINDOWS_GCS_ADDR=""
 # place and what you type always wins over the profile. PLUGIN=0 = exactly the old behaviour, no profile read.
 PROFILE=""; SETS=(); TYPED=(); PLUGIN=0; PARAM_FILES=""; EXTRA_OUTS=""
 MANUAL=0          # --manual: Mission Planner mode (a person uploads, arms and starts; see start_over.sh too)
+PANEL=0           # --panel: also open the old ASTRA demo panel (off by default: Mission Planner replaces it)
 FIRST=1
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -83,6 +88,8 @@ while [ $# -gt 0 ]; do
     --camera) shift; CAMERA="${1:-}"; TYPED+=("camera.model=$CAMERA") ;;
     --zoom) shift; ZOOM="${1:-}"; TYPED+=("camera.zoom=$ZOOM") ;;
     --headless) HEADLESS=1; TYPED+=("run.headless=true") ;;
+    --panel) PANEL=1 ;;
+    --no-panel) PANEL=0 ;;
     --no-windows-gcs) WINDOWS_GCS=false; TYPED+=("network.windows_gcs=false") ;;
     --windows-gcs) shift; WINDOWS_GCS_ADDR="${1:-}"; [ -n "$WINDOWS_GCS_ADDR" ] || die "--windows-gcs needs HOST or HOST:PORT"
                    TYPED+=("network.windows_gcs_addr=$WINDOWS_GCS_ADDR") ;;
@@ -220,6 +227,7 @@ SIM_ARGS=("world:=$WORLD" "camera_model:=$CAMERA" "detector:=$DETECTOR" "score:=
           "sitl_instance:=$INSTANCE" "gcs_port:=$GCS_PORT" "mavros_port:=$MAVROS_PORT" "panel_port:=$PANEL_PORT")
 [ -n "$MAX_ZOOM" ] && SIM_ARGS+=("camera_max_zoom:=$MAX_ZOOM")
 [ "$HEADLESS" = 1 ] && SIM_ARGS+=("gui:=false" "rviz:=false" "panel:=false")
+[ "$PANEL" = 0 ] && SIM_ARGS+=("panel:=false")        # --launch-arg panel:=true still wins (it comes last)
 # The copy of the MAVLink for Mission Planner / QGroundControl on Windows (the launch finds the address itself).
 SIM_ARGS+=("windows_gcs:=$WINDOWS_GCS")
 [ -n "$WINDOWS_GCS_ADDR" ] && SIM_ARGS+=("windows_gcs_addr:=$WINDOWS_GCS_ADDR")
@@ -374,7 +382,7 @@ say "STEP 1/6  Starting the simulator (Gazebo, SITL, camera emulator$([ "$HEADLE
 setsid ros2 launch sim_bringup sim.launch.py "${SIM_ARGS[@]}" > "$RUN_DIR/sim.log" 2>&1 < /dev/null &
 SIM_PG=$!
 info "log: $RUN_DIR/sim.log"
-[ "$HEADLESS" = 0 ] && info "Windows: Gazebo (3D view follows the drone, live camera top-right), RViz, and the demo panel."
+[ "$HEADLESS" = 0 ] && info "Windows: Gazebo (3D view follows the drone, live camera top-right) and RViz$([ "$PANEL" = 1 ] && echo ", and the demo panel"). Mission Planner: camera picture at http://127.0.0.1:8081/pov.mjpg"
 
 say "STEP 2/6  Waiting for the autopilot (GPS + EKF + pre-arm checks; the first ~30-60 s are normal settling)"
 if ! ros2 run sim_bringup mission_tool --url "$GCS_URL" --timeout 360 wait-ready; then

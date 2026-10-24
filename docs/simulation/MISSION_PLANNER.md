@@ -30,6 +30,14 @@ position, mode and messages. PLAN → Read downloads the mission, including newl
 Writing a mission, changing mode or arming/disarming takes control of the simulated vehicle, so reserve
 those actions for the manual flow or deliberate intervention.
 
+## The old ASTRA demo panel is off by default
+
+Mission Planner is the ground station, so `demo.sh` no longer opens the Qt "ASTRA Simulation" window. Bring it back
+with `bash simulation/scripts/demo.sh runway --panel` (it still works and is unchanged). What the panel did and where it
+lives now: flight mode, height, speed, heading, the mission map, mission upload, arm, AUTO and RTL are native in Mission
+Planner; the live camera picture is the stream below; the mission phase, detections and drops still need to be sent to
+Mission Planner over MAVLink (not built yet, see docs/HANDOFF.md).
+
 ## Camera picture (POV) inside Mission Planner
 
 The simulator starts a small program, `pov_server`, next to the other windows. It turns the gimbal camera's live
