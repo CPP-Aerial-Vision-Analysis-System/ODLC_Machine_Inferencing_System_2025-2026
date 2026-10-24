@@ -43,6 +43,7 @@ The team's own flight stack is **not** started here: run `./launcher.sh sim`, or
 | `headless_rendering` | `false` | render cameras with EGL and no display (servers, CI) |
 | `detector` | `real` | `real` = the team's `new_od` / `truth` = start sim_demo `truth_detector` |
 | `markers` | `true` | start sim_demo `demo_markers` |
+| `pov_server` / `pov_port` | `true` / `8081` | serve the camera picture as an MJPEG stream for Mission Planner at `http://127.0.0.1:<pov_port>/pov.mjpg` ([how](../../../../docs/simulation/MISSION_PLANNER.md)) |
 | `sitl` / `sitl_instance` / `sitl_wipe` | `true` / `0` / `false` | SITL on ports 5760+10I and 9002+10I; `sitl_wipe` erases saved parameters + mission |
 | `sitl_bin` / `mavproxy_bin` | `""` | override the binaries (default search below) |
 | `mavproxy` | `true` | start MAVProxy |

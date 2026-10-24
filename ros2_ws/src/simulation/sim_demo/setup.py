@@ -7,6 +7,7 @@ the README, and creates the four commands teammates run with `ros2 run sim_demo 
     truth_detector  optional stand-in detector that publishes the same /image_detection
     demo_markers    RViz markers (search area, targets, detections, footprints, track, drops)
     score_run       records a run and writes a Markdown + JSON score report
+    pov_server      the camera picture as an MJPEG web stream, for Mission Planner (http://127.0.0.1:8081/pov.mjpg)
 """
 from glob import glob
 
@@ -38,6 +39,7 @@ setup(
             'truth_detector = sim_demo.truth_detector:main',
             'demo_markers = sim_demo.demo_markers:main',
             'score_run = sim_demo.score_run:main',
+            'pov_server = sim_demo.pov_server:main',
         ],
     },
 )

@@ -30,6 +30,31 @@ position, mode and messages. PLAN → Read downloads the mission, including newl
 Writing a mission, changing mode or arming/disarming takes control of the simulated vehicle, so reserve
 those actions for the manual flow or deliberate intervention.
 
+## Camera picture (POV) inside Mission Planner
+
+The simulator starts a small program, `pov_server`, next to the other windows. It turns the gimbal camera's live
+picture (the ROS topic `/sim/camera/image`) into an **MJPEG web stream** that Mission Planner can show. No extra
+software is needed on Windows (Mission Planner's GStreamer option would need GStreamer installed; MJPEG does not).
+
+1. Start the simulator as usual (`demo.sh runway`, or `--manual`). The launch log prints a line like
+   `camera feed for Mission Planner: http://127.0.0.1:8081/pov.mjpg`.
+2. Check it first in any browser on Windows: open <http://127.0.0.1:8081/>. You should see the live picture and these
+   same instructions. (A grey "waiting for the camera" picture means Gazebo has not produced a frame yet.)
+3. In Mission Planner, on the **DATA** screen: **right-click the HUD** (the blue-and-brown horizon) -> **Video** ->
+   **Set MJPEG Source** -> paste `http://127.0.0.1:8081/pov.mjpg` -> OK. The camera picture replaces the HUD
+   background. To switch it off or on again: right-click the HUD -> **Video** -> **Start/Stop**.
+
+Good to know:
+
+* It only **reads** the camera topic, so it cannot change the flight. If it crashes, nothing else notices.
+* It listens on `127.0.0.1` (this computer) only, and reaches Mission Planner on Windows through WSL's localhost
+  forwarding. Other computers cannot see it unless you set `-p host:=0.0.0.0` yourself.
+* Pictures are shrunk to 960 pixels wide and limited to 10 per second (about 100-300 KB/s).
+* Turn it off with `pov_server:=false`, or move it with `pov_port:=8082` (a launch argument of `sim.launch.py`).
+  Settings of the program itself (`ros2 run sim_demo pov_server --ros-args -p max_fps:=5.0`): `topic`, `host`,
+  `port`, `max_fps`, `quality`, `max_width`.
+* Quick checks: `curl http://127.0.0.1:8081/health` prints how many pictures it has and how old the newest is.
+
 ## Manual flight
 
 ```bash

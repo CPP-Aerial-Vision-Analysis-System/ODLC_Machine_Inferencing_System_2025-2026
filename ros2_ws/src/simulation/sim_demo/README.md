@@ -177,6 +177,16 @@ targets), `best` (what main_controller flies to), `route` (mission from the auto
 `track` (where the drone flew), `drone` (arrow), `drops` (release points), `landed` (payload
 resting points from Gazebo).
 
+## Camera picture for Mission Planner (`pov_server`)
+
+`ros2 run sim_demo pov_server` turns the live camera topic `/sim/camera/image` into an MJPEG web stream:
+`http://127.0.0.1:8081/pov.mjpg` (Mission Planner: right-click the HUD, Video, Set MJPEG Source), `/pov.jpg` for one
+picture, `/` for a page with the picture and the instructions, `/health` for a status line. `sim.launch.py` starts it
+by default (`pov_server:=false` turns it off, `pov_port:=8082` moves it). It only reads the topic and listens on
+this computer only. Parameters: `topic`, `host`, `port`, `max_fps`, `quality`, `max_width`. Step by step:
+[docs/simulation/MISSION_PLANNER.md](../../../../docs/simulation/MISSION_PLANNER.md). Tests without ROS or Gazebo:
+`python3 -m pytest test/test_pov_server.py`.
+
 ## Interfaces
 
 ### Topics and services

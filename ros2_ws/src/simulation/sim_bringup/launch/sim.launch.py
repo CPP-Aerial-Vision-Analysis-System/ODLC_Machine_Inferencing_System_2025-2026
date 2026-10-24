@@ -71,6 +71,8 @@ ARGUMENTS = [
     ('gui', 'true', 'open the Gazebo window (false = server only, no window)'),
     ('rviz', 'true', 'open RViz with the camera POV layout'),
     ('panel', 'true', 'open the demo panel (sim_demo demo_panel)'),
+    ('pov_server', 'true', 'serve the camera picture as an MJPEG stream for Mission Planner (sim_demo pov_server)'),
+    ('pov_port', '8081', 'TCP port of that camera stream: http://127.0.0.1:<pov_port>/pov.mjpg'),
     ('headless_rendering', 'false', 'render the cameras without any display (EGL); for servers/CI'),
     ('detector', 'real', 'real = the team\'s new_od finds targets | truth = sim_demo truth_detector stand-in'),
     ('markers', 'true', 'start sim_demo demo_markers (RViz markers: search area, targets, footprints, track)'),
@@ -589,6 +591,13 @@ def _launch_setup(context):
         say('detector:=custom -> a teammate\'s detector publishes /image_detection (started with the team stack: '
             'team_stack.launch.py detector:=custom profile:=...)')
     say(f'team photo folder (the panel shows the newest photo): {photo_dir}')
+
+    # ---- 10a. the camera picture for Mission Planner (MJPEG over HTTP, this computer only) ---------------
+    if sp.truthy(cfg['pov_server']) and shares['sim_demo'] and executable_or_none('sim_demo', 'pov_server'):
+        actions.append(Node(package='sim_demo', executable='pov_server', name='pov_server', output='screen',
+                            parameters=[{'port': int(cfg['pov_port']), 'topic': '/sim/camera/image'}]))
+        say(f'camera feed for Mission Planner: http://127.0.0.1:{cfg["pov_port"]}/pov.mjpg '
+            f'(HUD right-click > Video > Set MJPEG Source)')
 
     # ---- 10b. plug-in profile: custom camera + extras that start with the simulator ----------------
     if profile_rp is not None:
