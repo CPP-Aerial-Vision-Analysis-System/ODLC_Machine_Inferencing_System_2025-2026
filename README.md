@@ -52,9 +52,16 @@ Open the folder in VS Code → **Reopen in Container** (or Ctrl/Cmd+Shift+P →
 
 ```bash
 cd ros2_ws
+source /opt/ros/humble/setup.bash     # load ROS 2 first (the dev container does this for you)
 colcon build --symlink-install
 source install/setup.bash
 ```
+
+**Error "Could not find a package configuration file provided by `ament_cmake`"?** ROS 2 is not loaded in the
+terminal you are building in. Run `bash simulation/setup/check_ros.sh`: it checks whether you are on Ubuntu 22.04
+(or in the dev container), whether ROS 2 Humble is installed, and whether it is loaded in this terminal, and it
+prints the one fix. ROS 2 Humble cannot be built in plain Windows PowerShell or on macOS: use the Docker dev
+container or an Ubuntu 22.04 WSL terminal. (The simulator's `bash simulation/setup/03_build.sh` loads ROS by itself.)
 
 Check the container matches the Jetson (run the same script on both and compare):
 

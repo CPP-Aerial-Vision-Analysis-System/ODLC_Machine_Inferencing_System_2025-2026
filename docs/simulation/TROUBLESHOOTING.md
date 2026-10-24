@@ -16,6 +16,7 @@ do not rebuild the mirror underneath a running mission.
 
 | Symptom | Check and remedy |
 |---|---|
+| `Could not find a package configuration file provided by "ament_cmake"` (or `ament_cmake_python`, `rosidl_default_generators`) | ROS 2 Humble is not loaded in the terminal that runs colcon/cmake. Run `bash simulation/setup/check_ros.sh`: it says which case you are in. Usual fixes: `source /opt/ros/humble/setup.bash` (ROS installed but not loaded; add it to `~/.bashrc`); install ROS with `sudo bash simulation/setup/01_install_humble.sh` (not installed); or use the Docker dev container / an Ubuntu 22.04 WSL terminal (plain Windows PowerShell and macOS cannot build ROS 2 Humble). `03_build.sh` loads ROS itself and stops with a clear message when it is missing. |
 | Changes on Windows have no effect | Run the Windows checkout's `simulation/setup/03_build.sh` again, then source the Linux environment. The mirror is a build/run copy. |
 | Build path has spaces or lies under `/mnt/...` | Use `03_build.sh`; it mirrors a Windows checkout to the Linux home directory. Do not invoke colcon in the Windows folder. |
 | ROS packages/`package.sh` are missing | Build all dependencies with `03_build.sh`, or use `--packages "package_name"` (packages-up-to). Re-source `sim_env.sh`. |
