@@ -84,7 +84,7 @@ astra_prepare_data
 
 DISPLAY_MODE="$(astra_display_mode)"
 astra_gui_run_args "$DISPLAY_MODE"
-astra_gpu_run_args "$DISPLAY_MODE" "$GPU"
+astra_gpu_run_args "$GPU"
 [ "$DISPLAY_MODE" = x11 ] && astra_x11_allow
 
 R="$ASTRA_CONTAINER_REPO"

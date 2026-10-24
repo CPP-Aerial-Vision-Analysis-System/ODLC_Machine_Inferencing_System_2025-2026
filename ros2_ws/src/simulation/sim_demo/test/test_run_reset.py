@@ -5,7 +5,7 @@ MAVLink answers, the command line tools and the clock, so these tests check:
   * the whole state machine: every step in order, the drone removed WHILE SITL still runs (Gazebo waits for
     SITL in lock-step), SITL restarted only after the new drone listens, the team stack restarted with the
     SAME TRACKER_CMD/FCU_URL as before, a new run folder for the score report, photos archived;
-  * landing first (LAND, then wait for landed + disarmed) and the landing timeout (clear warning, continues);
+  * landing first (LAND, then wait for landed + disarmed); an unverified landing leaves the drone in place;
   * process selection: which processes start over may stop (never Gazebo, the windows, the panel, another
     person's simulator), process groups, Ctrl+C -> TERM -> KILL escalation;
   * helpers: ROS parameter overrides, wait_then_exec unwrapping, the progress file reader, the photo archive,
@@ -342,15 +342,14 @@ def test_full_reset_while_flying_runs_every_step_in_order(machine):
     assert cur['run_dir'] == str(run_dir) and cur['session'] == SESSION
 
 
-def test_landing_timeout_warns_and_continues(machine):
+def test_landing_timeout_leaves_the_drone_in_place(machine):
     m = machine
     m.mav.lands = False                                           # the drone never comes down
     r = m.make(rr.Options(fly=False))
     r.opts.timeouts.land = 30.0
-    assert r.run() == 0
-    warns = [e['text'] for e in _progress(m) if e['kind'] == 'warn']
-    assert any('did not land within 30 s' in w for w in warns)
-    assert any(e[0] == 'gz.spawn' for e in m.events)               # the reset went on
+    assert r.run() == 1
+    assert 'did not land within 30 s' in _progress(m)[-1]['text']
+    assert not any(e[0] in ('gz.remove', 'gz.spawn') for e in m.events)
     assert not any('fly' == c[-1] for c in m.cmd.calls)            # no --fly: no take-off
 
 
@@ -407,23 +406,78 @@ def test_sitl_missing_is_started_before_the_drone_is_removed(machine):
 
 def test_second_start_over_is_refused_while_one_runs(machine):
     m = machine
+    path = rr.progress_path(m.home)
+    active = rr.Progress(path, 'active-reset', 14, echo=lambda _t: None)
+    active.start()
+    active.step('land', 4)
+    before, inode = path.read_bytes(), path.stat().st_ino
     lock = open(m.home / 'state' / 'start_over.lock', 'a+')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
         assert m.make().run() == 1
-        assert 'already running' in _progress(m)[-1]['text']
+        assert 'already running' in m.printed[-1]
+        assert path.read_bytes() == before and path.stat().st_ino == inode
+        assert not m.events                           # no shared state or processes changed
     finally:
         fcntl.flock(lock, fcntl.LOCK_UN)
         lock.close()
 
 
-def test_mav_port_problem_does_not_stop_the_reset(machine):
+def test_mav_port_problem_leaves_the_drone_in_place(machine):
     m = machine
 
     def broken(url):
         raise OSError('Address already in use')
-    assert m.make(mav_factory=broken).run() == 0
-    assert any('cannot talk to the autopilot' in e['text'] for e in _progress(m) if e['kind'] == 'warn')
+    assert m.make(mav_factory=broken).run() == 1
+    assert 'Cannot talk to the autopilot' in _progress(m)[-1]['text']
+    assert not any(e[0] in ('gz.remove', 'gz.spawn') for e in m.events)
+
+
+def test_missing_mavproxy_leaves_the_drone_in_place(machine):
+    m = machine
+    m.ops.procs.pop(104)
+    assert m.make().run() == 1
+    assert 'landing cannot be verified' in _progress(m)[-1]['text']
+    assert not any(e[0] in ('gz.remove', 'gz.spawn') for e in m.events)
+
+
+def test_absent_drone_can_be_recovered_without_a_landing_link(machine):
+    m = machine
+    m.gz.model = False
+    m.ops.procs.pop(104)
+    # Save the old MAVProxy command, as a previous reset does before removing a drone.
+    (m.home / 'state' / 'start_over_specs.json').write_text(json.dumps({
+        'mavproxy': {'argv': ['/home/u/sitl/venv/bin/mavproxy.py', '--master', 'tcp:127.0.0.1:5760'],
+                     'cwd': str(m.home)}}))
+    assert m.make().run() == 0, '\n'.join(m.printed)
+    assert not any(e[0] == 'gz.remove' for e in m.events)
+    assert any(e[0] == 'gz.spawn' for e in m.events)
+
+
+def test_disarmed_drone_in_the_air_must_still_land(machine):
+    m = machine
+    m.mav.armed, m.mav.alt, m.mav.lands = False, 30.0, False
+    r = m.make()
+    r.opts.timeouts.land = 1.0
+    assert r.run() == 1
+    assert ('mav.mode', 'LAND') in m.events
+    assert not any(e[0] == 'gz.remove' for e in m.events)
+
+
+def test_unowned_team_stack_is_left_running_and_blocks_reset(machine):
+    m = machine
+    m.ops.add(403, ['/usr/bin/python3', '/ws/install/main/lib/main/main_controller.py'],
+              session='', env={'ROS_DOMAIN_ID': '0'})
+    assert m.make().run() == 1
+    assert m.ops.alive(403)
+    assert 'Stop it in its own terminal' in _progress(m)[-1]['text']
+    assert not m.events
+
+
+def test_failed_gazebo_model_query_is_not_treated_as_an_absent_drone(monkeypatch):
+    monkeypatch.setattr(rr.GzOps, '_gz', lambda *_a, **_kw: None)
+    with pytest.raises(rr.ResetError, match='Gazebo did not answer'):
+        rr.GzOps('runway').model_exists('iris')
 
 
 # ---------------------------------------------------------------------------------------------
@@ -474,7 +528,7 @@ def test_select_never_returns_protected_or_foreign_processes():
         _p(['/bin/bash', './launcher.sh', 'sim'], pid=7),                                    # ourselves (excluded)
     ]
     chosen = rr.select(procs, SESSION, ['team', 'gz_server', 'panel'], domain='0', exclude=[7])
-    assert [p.pid for p in chosen] == [1, 2]
+    assert [p.pid for p in chosen] == [1]
 
 
 def test_demo_script_is_found_through_its_tagged_child():
@@ -579,14 +633,21 @@ def test_progress_writes_json_lines(tmp_path):
 
 def test_mp_steps_name_the_mission_file_and_port():
     mission = '/home/u/repo/ros2_ws/install/sim_worlds/share/sim_worlds/missions/runway_survey.waypoints'
-    env = {'ASTRA_WINDOWS_REPO': 'D:\\Projects ext\\SUAS\\gazebo\\ODLC_Machine_Inferencing_System_2025-2026'}
+    env = {'ASTRA_WINDOWS_REPO': 'D:\\Example checkout\\astra'}
     lines = rr.mp_steps(mission, 'udp:172.24.128.1:14550', env, wsl_name=lambda p: '\\\\wsl.localhost\\U\\x.waypoints')
     text = '\n'.join(lines)
-    assert ('D:\\Projects ext\\SUAS\\gazebo\\ODLC_Machine_Inferencing_System_2025-2026\\ros2_ws\\src\\simulation'
+    assert ('D:\\Example checkout\\astra\\ros2_ws\\src\\simulation'
             '\\sim_worlds\\missions\\runway_survey.waypoints') in text
     assert '\\\\wsl.localhost\\U\\x.waypoints' in text and 'port 14550' in text
-    for word in ('CONNECT', 'LOAD WP FILE', 'WRITE WPS', 'ARM', 'AUTO', 'START OVER'):
-        assert word in text
+    # both Mission Planner generations' button names, in the competition order
+    order = ['CONNECT', 'click PLAN', 'Load File', 'Load WP File', '"Write"', 'Write WPs', 'DATA', 'Arm/Disarm',
+             'AUTO', 'Set Mode', 'START OVER']
+    pos = [text.index(word) for word in order]
+    assert pos == sorted(pos), list(zip(order, pos))
+    # readable in an 80-120 column terminal (the file paths may be longer: they must stay whole)
+    assert all(len(line) <= 110 for line in lines if '\\' not in line)
+    # another port when the Windows copy goes elsewhere (mirrored networking: 14551)
+    assert 'port 14551' in '\n'.join(rr.mp_steps(mission, 'udp:127.0.0.1:14551', env, wsl_name=lambda p: ''))
     # a mission from somewhere else: no made-up D:\ path
     assert 'D:\\' not in '\n'.join(rr.mp_steps('/tmp/my.waypoints', '', env, wsl_name=lambda p: ''))
 
@@ -617,3 +678,177 @@ def test_plan_lists_every_step(capsys):
     assert rr.main(['plan']) == 0
     out = capsys.readouterr().out
     assert out.count('\n') == len(rr.STEPS) and 'only with --fly' in out
+
+
+# ---------------------------------------------------------------------------------------------
+# Added by the finisher: recorded environment, detector check, plug-in leftovers, Ctrl+C, guard,
+# the demo panel's progress tracker, the panel launcher
+# ---------------------------------------------------------------------------------------------
+
+def _set_state(m, **changes):
+    import yaml
+    path = m.home / 'state' / 'current_launch.yaml'
+    data = yaml.safe_load(path.read_text())
+    data.update(changes)
+    path.write_text(yaml.safe_dump(data))
+
+
+def test_simulators_own_partition_and_domain_are_used(machine):
+    """A terminal with other GZ_PARTITION / ROS_DOMAIN_ID must not make start over talk to another Gazebo or
+    restart the team stack in another ROS domain: the simulator's recorded values win."""
+    m = machine
+    _set_state(m, gz_partition='astra_so_test', ros_domain_id='77')
+    r = m.make()
+    assert r.run() == 0, '\n'.join(m.printed)
+    assert r.environ['GZ_PARTITION'] == 'astra_so_test' and r.environ['ROS_DOMAIN_ID'] == '77'
+    team = [e for e in m.events if e[:2] == ('spawn', 'team')][0]
+    assert team[3]['ROS_DOMAIN_ID'] == '77' and team[3]['GZ_PARTITION'] == 'astra_so_test'
+    infos = [e['text'] for e in _progress(m) if e['kind'] == 'info']
+    assert any("simulator's own ROS_DOMAIN_ID=77" in t for t in infos)
+    import os
+    assert os.environ.get('GZ_PARTITION') != 'astra_so_test'          # a test's environ never leaks out
+
+
+def test_another_detector_is_refused_before_anything_changes(machine):
+    m = machine
+    assert m.make(rr.Options(detector='truth')).run() == 1
+    text = _progress(m)[-1]['text']
+    assert '"real"' in text and 'demo.sh runway --detector truth' in text
+    assert not any(e[0] in ('gz.remove', 'kill', 'killpg') for e in m.events)
+    assert m.make(rr.Options(detector='real')).run() == 0             # the same detector is fine
+
+
+def test_a_plug_in_node_in_the_team_group_is_stopped_too(machine):
+    """A plug-in's own node (not one of the team patterns) in launcher.sh's process group belongs to the team
+    stack: it must not survive, or the new run would have two detectors."""
+    m = machine
+    m.ops.add(305, ['/usr/bin/python3', '/ws/install/example_detector/lib/example_detector/example_detector'],
+              pgid=300, ppid=300)
+    # ... but a process of ANOTHER group that only happens to look alike is never touched
+    m.ops.add(306, ['/usr/bin/python3', '/ws/install/example_detector/lib/example_detector/example_detector'],
+              pgid=306, session='')
+    # Sharing the launcher group alone does not grant ownership of a different session's process.
+    m.ops.add(307, ['other-worker'], pgid=300, session='other-session')
+    assert m.make().run() == 0, '\n'.join(m.printed)
+    assert not m.ops.alive(305) and m.ops.alive(306) and m.ops.alive(307)
+    assert any('other program(s) the team stack had started' in e['text'] for e in _progress(m))
+
+
+def test_ctrl_c_ends_with_a_failed_line_and_frees_the_lock(machine):
+    m = machine
+
+    def interrupted(url):
+        raise KeyboardInterrupt
+    r = m.make(mav_factory=interrupted)
+    assert r.run() == 130
+    last = _progress(m)[-1]
+    assert last['kind'] == 'failed' and 'Ctrl+C' in last['text'] and 'land' in last['text']
+    # the lock is free again: the next START OVER (the one that finishes the job) may start at once
+    lock = open(m.home / 'state' / 'start_over.lock', 'a+')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    fcntl.flock(lock, fcntl.LOCK_UN)
+    lock.close()
+
+
+def test_guard_waits_for_the_gazebo_server_then_cleans_up():
+    events = []
+    ops = FakeOps(events)
+    ops.add(990010, ['ruby', '/usr/bin/gz', 'sim', '-s', '-r', 'w.sdf'])
+    ops.add(990011, ['/a/arducopter', '--model', 'JSON'])
+
+    class Clock(FakeClock):
+        def sleep(self, s):
+            super().sleep(s)
+            self.naps = getattr(self, 'naps', 0) + 1
+            if self.naps == 3:                     # Gazebo ends after a while (window closed, Ctrl+C ...)
+                ops.procs.pop(990010)
+            assert ops.alive(990011), 'nothing may be stopped while Gazebo still runs'
+    clock = Clock()
+    assert rr.guard(SESSION, ops=ops, clock=clock) == 0
+    assert clock.naps == 3 and not ops.procs                           # SITL stopped right after Gazebo ended
+
+
+def test_progress_tracker_follows_one_start_over(tmp_path):
+    path = tmp_path / 'state' / 'start_over_progress.jsonl'
+    now = [100.0]
+    tr = rr.ProgressTracker(path, stale_s=900.0, now=lambda: now[0])
+    assert tr.poll() == [] and not tr.busy                             # no file yet
+    old = rr.Progress(path, 'old', 14, echo=lambda _t: None)
+    old.start()
+    old.step('check', 1)
+    old.finish(False, 'an old one, before the panel started')
+    tr.skip_existing()                                                 # ... is never replayed
+    assert tr.poll() == []
+    prog = rr.Progress(path, 'new', 14, echo=lambda _t: None)
+    prog.start()                                                       # (truncates: the tracker copes)
+    prog.run_dir = '/r/20261024-1_runway'
+    prog.step('check', 1)
+    prog.say('ok', 'simulator found')
+    prog.detail('a tool line')
+    ups = tr.poll()
+    assert [(u.kind, u.new_reset, u.detail) for u in ups] == [('step', True, False), ('ok', False, False),
+                                                              ('detail', False, True)]
+    assert ups[0].text == 'STEP 1/14: Check the running simulator' and ups[1].level == 'ok'
+    assert tr.busy and (tr.n, tr.total, tr.run_dir) == (1, 14, '/r/20261024-1_runway')
+    prog.step('land', 4)
+    prog.say('warn', 'did not land')
+    ups = tr.poll()
+    assert [u.new_reset for u in ups] == [False, False] and ups[1].level == 'warn' and tr.n == 4
+    prog.finish(True, 'ready to fly again')
+    (done,) = tr.poll()
+    assert done.finished is True and done.text.startswith('START OVER done: ') and not tr.busy
+    # the run watcher writes its own line later: shown, but it is not a start over
+    watch = rr.Progress(path, 'watch-x', 0, echo=lambda _t: None)
+    watch.say('ok', 'Run finished (the drone has landed)')
+    (w,) = tr.poll()
+    assert w.finished is None and not w.new_reset and not tr.busy and w.level == 'ok'
+    # a start over killed from outside (no last line) stops counting as running after stale_s
+    again = rr.Progress(path, 'again', 14, echo=lambda _t: None)
+    again.start()
+    again.step('check', 1)
+    assert tr.poll()[0].new_reset and tr.busy
+    now[0] += 901.0
+    assert not tr.busy
+    again.finish(False, 'broken')
+    (f,) = tr.poll()
+    assert f.finished is False and f.level == 'error' and f.text == 'START OVER FAILED: broken'
+
+
+def test_panel_launch_falls_back_to_python_without_the_script(monkeypatch, tmp_path):
+    started = []
+
+    class FakePopen:
+        def __init__(self, argv, **kw):
+            started.append((argv, kw))
+            self.pid = 4242
+    monkeypatch.setattr(rr, 'find_start_over_script', lambda env=None, here=None: None)
+    monkeypatch.setattr(rr.subprocess, 'Popen', FakePopen)
+    pid, log = rr.launch_start_over(['--no-fresh'], environ={'A': '1'}, log_dir=tmp_path)
+    argv, kw = started[0]
+    assert pid == 4242 and log.startswith(str(tmp_path)) and log.endswith('_panel.log')
+    assert argv[1:] == ['-m', 'sim_demo.run_reset', 'reset']          # --no-fresh is the script's own option
+    assert kw['start_new_session'] and kw['env'] == {'A': '1'}
+    monkeypatch.setattr(rr, 'find_start_over_script', lambda env=None, here=None: '/r/start_over.sh')
+    rr.launch_start_over(['--no-fresh'], environ={}, log_dir=tmp_path)
+    assert started[1][0] == ['bash', '/r/start_over.sh', '--no-fresh']
+
+
+def test_progress_tracker_restores_active_state_without_replaying_history(tmp_path):
+    import time
+    path = tmp_path / 'progress.jsonl'
+    active = rr.Progress(path, 'active', 14, echo=lambda _t: None)
+    active.start()
+    active.step('land', 4)
+    tracker = rr.ProgressTracker(path)
+    tracker.skip_existing()
+    assert tracker.busy and tracker.n == 4 and tracker.step_text == rr.STEP_TITLES['land']
+    assert tracker.poll() == []
+    active.finish(True, 'ready again')
+    tracker.skip_existing()
+    assert not tracker.busy and tracker.poll() == []
+    # A killed reset with only an old unfinished step must not regain a fresh lockout on restart.
+    path.write_text(json.dumps({'id': 'old', 'kind': 'step', 'step': 'land', 'n': 4, 'total': 14,
+                                'text': 'Old landing', 't': time.time() - 901}) + '\n')
+    tracker = rr.ProgressTracker(path)
+    tracker.skip_existing()
+    assert not tracker.busy and tracker.poll() == []

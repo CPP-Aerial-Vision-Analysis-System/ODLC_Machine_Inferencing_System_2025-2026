@@ -3,11 +3,15 @@ sim_demo/score_run.py -- PURPOSE: record one simulated search mission and write 
 report. While the mission runs it listens to the detector (/image_detection), the autopilot
 (MAVROS), the team's status texts and the photo folder; when the drone has landed (or when
 you stop it, or call the /sim/demo/write_score service) it writes into the run folder:
-    score_report.md    human-readable report (targets found, confidences, location and drop
-                       errors, detection quality, time line)
+    score_report.md    human-readable report (targets found, confidences, aim, photo GPS and
+                       drop errors, detection quality, time line)
     score_report.json  the same numbers for scripts
     run_data.json      every input the score was computed from (to re-score later)
     events.jsonl       a running log of everything that happened (one JSON object per line)
+
+The AIM ERROR (October 2026) comes from main_controller's own status text
+"Aim <class> <lat>,<lon>": the point it really flies to and drops on. Runs recorded before that
+have no "aims" in run_data.json; --rescore then finds the texts in the run's events.jsonl.
 
 Run during a mission:
     ros2 run sim_demo score_run --ros-args -p world:=runway -p run_dir:=/tmp/run1
@@ -28,8 +32,49 @@ from .camera_model import DEFAULT_HFOV_RAD
 from .detections import DETECTION_TOPIC, Box, DetectionFrame, image_result_to_frame
 from .mission_file import analyze_items, load_waypoints_file
 from .phases import PhaseTracker
-from .scoring import DropRecord, PhotoRecord, report_markdown, score_run_data, write_reports
+from .scoring import (AimRecord, DropRecord, PhotoRecord, latest_aims, parse_aim_text,
+                      report_markdown, score_run_data, write_reports)
 from .world_info import load_world
+
+# Two "Aim" texts for the same class and position closer together than this are one text heard
+# twice (e.g. on /mavros/statustext/send and again through the autopilot).
+AIM_DUPLICATE_WINDOW_S = 5.0
+
+
+def add_aim(aims: list, t: float, text: str) -> AimRecord | None:
+    """Append the AimRecord of an "Aim <class> <lat>,<lon>" text to `aims` (skipping repeats).
+
+    Returns:
+        the new AimRecord, or None when the text is not an aim text or a repeat.
+    """
+    parsed = parse_aim_text(text)
+    if parsed is None:
+        return None
+    cls, lat, lon = parsed
+    for a in aims:
+        same_point = a.cls == cls and a.lat == lat and a.lon == lon
+        if same_point and abs(a.t - t) < AIM_DUPLICATE_WINDOW_S:
+            return None
+    rec = AimRecord(cls, float(t), lat, lon)
+    aims.append(rec)
+    return rec
+
+
+def aims_from_events(events_path: str) -> list[AimRecord]:
+    """The "Aim" texts recorded in a run's events.jsonl (for runs without "aims" in run_data)."""
+    aims: list[AimRecord] = []
+    try:
+        with open(events_path, encoding='utf-8') as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue                      # a half-written last line
+                if isinstance(ev, dict) and ev.get('kind') == 'statustext':
+                    add_aim(aims, float(ev.get('t', 0.0)), str(ev.get('text', '')))
+    except OSError:
+        pass                                      # no events file: no aims
+    return aims
 
 
 def default_run_dir(world: str) -> str:
@@ -48,16 +93,24 @@ def frame_from_dict(d: dict) -> DetectionFrame:
     return DetectionFrame(boxes=boxes, **keep)
 
 
-def draw_map(run_dir: str, info, frames, photos, drops, track, title: str) -> str:
-    """Draw mission_map.png into run_dir (see mission_map.py). Returns the file name or ''."""
+def draw_map(run_dir: str, info, frames, photos, drops, track, title: str,
+             aims: list[AimRecord] | None = None) -> str:
+    """Draw mission_map.png into run_dir (see mission_map.py). Returns the file name or ''.
+
+    The "chosen" rings are where main_controller aims (its "Aim" texts) when they are known,
+    else the photo position of the best detection (where the old code flew to).
+    """
     try:
         from .detections import best_per_class
         from .mission_map import draw_mission_map
         o = info.origin
         dets = [(b.cls, *o.to_enu(f.lat, f.lon)[:2], b.score) for f in frames if f.has_gps
                 for b in f.boxes]
-        choices = [(cls, *o.to_enu(f.lat, f.lon)[:2])
-                   for cls, (_s, f, _b) in best_per_class(frames).items() if f.has_gps]
+        aimed = latest_aims(aims)
+        choices = [(cls, *o.to_enu(a.lat, a.lon)[:2]) for cls, a in aimed.items()]
+        choices += [(cls, *o.to_enu(f.lat, f.lon)[:2])
+                    for cls, (_s, f, _b) in best_per_class(frames).items()
+                    if f.has_gps and cls not in aimed]
         drop_pts = []
         for d in drops:
             if d.landing_en is not None:
@@ -87,11 +140,15 @@ def rescore(run_dir: str, world: str = '', truth: str = '', worlds_dir: str = ''
         if d.get('landing_en') is not None:
             d = dict(d, landing_en=tuple(d['landing_en']))
         drops.append(DropRecord(**d))
+    if 'aims' in data:
+        aims = [AimRecord(**a) for a in data['aims']]
+    else:                       # recorded before October 2026: look for the texts in events.jsonl
+        aims = aims_from_events(os.path.join(run_dir, 'events.jsonl'))
     rs = score_run_data(info.name, info.origin, info.targets, frames, photos, drops,
                         [tuple(x) for x in data['timeline']], data['started'], data['ended'],
-                        data.get('detector', 'real'), notes=data.get('notes', []))
+                        data.get('detector', 'real'), notes=data.get('notes', []), aims=aims)
     rs.map_file = draw_map(run_dir, info, frames, photos, drops, data.get('track', []),
-                           f'{info.name}: mission map')
+                           f'{info.name}: mission map', aims=aims)
     md, _ = write_reports(rs, run_dir)
     return md
 
@@ -173,6 +230,7 @@ def _ros_main(args=None) -> None:
                              if self.world else None)
             self.frames: list[DetectionFrame] = []
             self.photos: list[PhotoRecord] = []
+            self.aims: list[AimRecord] = []   # main_controller's "Aim <class> <lat>,<lon>" texts
             self.preexisting = 0
             self.detector_nodes: set[str] = set()
             self.payloads = PayloadTracker()
@@ -200,6 +258,9 @@ def _ros_main(args=None) -> None:
         def _on_text(self, t, text, source):
             self.phases.on_statustext(t, text)
             self._event('statustext', source=source, text=text, phase=self.phases.phase)
+            aim = add_aim(self.aims, t, text)       # where main_controller will drop
+            if aim is not None:
+                self._event('aim', cls=aim.cls, lat=aim.lat, lon=aim.lon, source=source)
 
         def _on_state(self, t, connected, armed, mode):
             was_armed = self.phases.armed
@@ -324,7 +385,7 @@ def _ros_main(args=None) -> None:
                         frames=[asdict(f) for f in self.frames],
                         photos=[asdict(p) for p in self.photos],
                         drops=[asdict(d) for d in drops], timeline=timeline, notes=notes,
-                        track=track)
+                        track=track, aims=[asdict(a) for a in self.aims])
 
         def write(self, reason: str) -> str:
             data = self.collect()
@@ -335,13 +396,14 @@ def _ros_main(args=None) -> None:
                 return ''
             frames = [frame_from_dict(d) for d in data['frames']]
             drops = [DropRecord(**d) for d in data['drops']]
+            aims = [AimRecord(**a) for a in data['aims']]
             rs = score_run_data(self.world.name, self.world.origin, self.world.targets, frames,
                                 self.photos, drops, data['timeline'], data['started'],
                                 data['ended'], data['detector'], self.margin, self.radius,
-                                data['notes'])
+                                data['notes'], aims=aims)
             rs.map_file = draw_map(self.run_dir, self.world, frames, self.photos, drops,
                                    data['track'], f'{self.world.name}: mission map '
-                                   f'({rs.detector} detector)')
+                                   f'({rs.detector} detector)', aims=aims)
             md, js = write_reports(rs, self.run_dir)
             self.get_logger().info(f'Score report written ({reason}): {md}')
             for line in report_markdown(rs).splitlines()[:16]:

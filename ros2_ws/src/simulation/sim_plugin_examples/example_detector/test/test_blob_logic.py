@@ -60,10 +60,18 @@ def test_detect_without_downscale_matches():
     assert tent.cx == pytest.approx(949.5, abs=1) and tent.w == pytest.approx(100, abs=1)
 
 
-def test_small_blobs_are_ignored():
+@pytest.mark.parametrize('minimum,classes', [
+    (800, {'0', '1'}),
+    (801, {'1'}),
+    (5000, {'1'}),
+    (8000, {'1'}),
+    (8001, set()),
+])
+def test_small_blobs_are_ignored(minimum, classes):
+    """Area limits count colored pixels: person = 20*40, tent = 100*80; equal to the limit is accepted."""
     img = _image_with_patches()
-    dets = blob_logic.detect(img, min_area_px=5000, downscale=1)      # both patches are smaller
-    assert dets == []
+    dets = blob_logic.detect(img, min_area_px=minimum, downscale=1)
+    assert {d.class_id for d in dets} == classes
 
 
 def test_empty_field_gives_no_detections():

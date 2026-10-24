@@ -63,7 +63,7 @@ astra_use_host_fuel
 DISPLAY_MODE="$(astra_display_mode)"
 [ "$HEADLESS" = 1 ] && DISPLAY_MODE=none
 astra_gui_run_args "$DISPLAY_MODE"
-astra_gpu_run_args "$DISPLAY_MODE" "$GPU"
+astra_gpu_run_args "$GPU"
 [ "$DISPLAY_MODE" = x11 ] && astra_x11_allow
 astra_mem_check 4000
 

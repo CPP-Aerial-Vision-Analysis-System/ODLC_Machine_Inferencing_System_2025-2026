@@ -39,8 +39,9 @@ Parameters (ros2 run main main_controller.py --ros-args -p name:=value):
   target_ground_height_m    0.0    ground height under the targets above HOME (heights are
                                    measured from home)
   max_aim_offset_m          150.0  an aim point farther than this from the photo is not trusted
-How the photo is turned relative to the drone is video_cam's parameter image_top_direction_deg;
-it arrives here inside each photo's sidecar.
+The four numbers accept whole numbers too (`-p target_ground_height_m:=3` as well as `:=3.0`; see
+_number_parameter). How the photo is turned relative to the drone is video_cam's parameter
+image_top_direction_deg; it arrives here inside each photo's sidecar.
 
 Talks to: /image_detection (in), /mavros/mission/waypoints + /mavros/mission/reached (in),
 /parameter_events + /waypoint_manager/get_parameters (mission indices), /addWaypoint (out),
@@ -56,7 +57,7 @@ from mavros_msgs.msg import WaypointReached, VfrHud, StatusText, WaypointList, S
 from sensor_msgs.msg import NavSatFix, Image
 from std_msgs.msg import Bool
 from rcl_interfaces.srv import GetParameters
-from rcl_interfaces.msg import ParameterEvent
+from rcl_interfaces.msg import ParameterDescriptor, ParameterEvent
 
 from cv_bridge import CvBridge
 
@@ -112,15 +113,11 @@ class MainController(Node):
 
         # Parameters of the drop aiming (see the module docstring).
         self.declare_parameter('aim_at_detection_box', True)
-        self.declare_parameter('default_camera_pitch_deg', -90.0)
-        self.declare_parameter('default_camera_hfov_deg', 81.0)
-        self.declare_parameter('target_ground_height_m', 0.0)
-        self.declare_parameter('max_aim_offset_m', 150.0)
         self.aim_at_box = bool(self.get_parameter('aim_at_detection_box').value)
-        self.default_pitch = float(self.get_parameter('default_camera_pitch_deg').value)
-        self.default_hfov = float(self.get_parameter('default_camera_hfov_deg').value)
-        self.ground_height = float(self.get_parameter('target_ground_height_m').value)
-        self.max_aim_offset = float(self.get_parameter('max_aim_offset_m').value)
+        self.default_pitch = self._number_parameter('default_camera_pitch_deg', -90.0)
+        self.default_hfov = self._number_parameter('default_camera_hfov_deg', 81.0)
+        self.ground_height = self._number_parameter('target_ground_height_m', 0.0)
+        self.max_aim_offset = self._number_parameter('max_aim_offset_m', 150.0)
 
         # Subscribers
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -189,6 +186,22 @@ class MainController(Node):
         # self.actuate_servos(TENT_SERVO_CHANNELS)
         # self.actuate_servos(PERSON_SERVO_CHANNELS)
         # self.get_logger().info("Startup servo test complete.")  # startup servo test disabled
+
+    def _number_parameter(self, name, default):
+        """Declare a decimal parameter that also accepts a whole number; return it as a float.
+
+        ROS 2 gives a parameter the type of its default value: with a plain 0.0 default,
+        `-p target_ground_height_m:=3` (a whole number, so an INTEGER) makes this node refuse to
+        start (InvalidParameterTypeException), and then nobody is left to drop. dynamic_typing
+        accepts any type; a value that is not a number is reported and the default is used.
+        """
+        self.declare_parameter(name, default, ParameterDescriptor(dynamic_typing=True))
+        value = self.get_parameter(name).value
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        self.get_logger().error(
+            f"Parameter {name}={value!r} is not a number: using the default {default:g}")
+        return float(default)
 
     def fetch_mission_indices(self):
         """Ask for a fresh read of the mission indices (never blocks; see _on_mission_indices)."""

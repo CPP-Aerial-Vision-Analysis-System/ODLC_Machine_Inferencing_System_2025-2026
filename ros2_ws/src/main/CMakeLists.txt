@@ -71,6 +71,7 @@ if(BUILD_TESTING)
   if(ament_cmake_pytest_FOUND)
     ament_add_pytest_test(test_target_geolocation test/test_target_geolocation.py)
     ament_add_pytest_test(test_timed_steps test/test_timed_steps.py)
+    ament_add_pytest_test(test_number_parameters test/test_number_parameters.py)
   endif()
 endif()
 

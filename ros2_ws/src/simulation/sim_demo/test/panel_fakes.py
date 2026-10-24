@@ -3,8 +3,10 @@ sim_demo/test/panel_fakes.py -- PURPOSE: fake inputs for rendering the demo pane
 or a simulator: a synthetic aerial camera frame (grass, runway, tent, mannequin), a synthetic
 2560x1440 photo written into a temporary photo folder under a real "<lat> , <lon>.jpg" name,
 matching detector boxes, FakePanelNode, an object with the same attributes the window
-reads from demo_panel.PanelNode, and FakeMissionPlanner, a stand-in for the Mission Planner
-worker that shows a chosen state and only records button presses (it never touches Windows).
+reads from demo_panel.PanelNode, FakeMissionPlanner, a stand-in for the Mission Planner
+worker that shows a chosen state and only records button presses (it never touches Windows),
+and for START OVER a real StartOverLink on a temporary folder whose launcher only records the
+call (start_over_link) plus a writer of progress lines (progress_writer): no script ever runs.
 Used by test_panel_offscreen.py and render_panel_preview.py.
 Needs numpy and Pillow (python3-numpy, python3-pil); no OpenCV.
 """
@@ -15,6 +17,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -109,6 +112,7 @@ class FakePanelNode:
         self.world = world
         self.world_error = '' if world else 'world "runway" not found (offscreen test)'
         self.mission_items = list(mission_items or [])
+        self.mission_summary = None
         self.phases = PhaseTracker()
         self.photo_dir = photo_dir
         self.frames: list[DetectionFrame] = []
@@ -137,6 +141,18 @@ class FakePanelNode:
 
     def get_logger(self):
         return SimpleNamespace(info=print, warn=print, error=print)
+
+    def reset_run(self):
+        """Same as PanelNode.reset_run (START OVER): forget phases, detections and the shutter count."""
+        with self.lock:
+            self.phases = PhaseTracker()
+            if self.mission_summary is not None:
+                self.phases.set_mission(self.mission_summary)
+            self.frames, self.frame_by_name = [], {}
+            self.frame_queue.clear()
+            self.last_hit, self.last_hit_t = None, 0.0
+            self.trigger_count = 0
+        self.resets = getattr(self, 'resets', 0) + 1
 
     # helpers for tests
     def set_image(self, arr):
@@ -170,6 +186,25 @@ def planner_state(kind: str) -> 'mpl.PlannerState':
     if kind == 'not installed':
         return mpl.PlannerState(True, False, None, '', 'not installed', mpl.not_installed_message())
     return mpl.PlannerState(True, False, None, '', 'unknown', mpl.INTEROP_MESSAGE)
+
+
+def start_over_link(home: str, launches: list | None = None, pid: int = 0):
+    """A real demo_panel.StartOverLink on a temporary sim home whose launcher only RECORDS the call
+    (appends its arguments to `launches`): no script ever runs. pid 0 = 'still running'."""
+    from sim_demo.demo_panel import StartOverLink
+    calls = launches if launches is not None else []
+
+    def launcher(args):
+        calls.append(list(args))
+        return pid, os.path.join(home, 'logs', 'start_over_test_panel.log')
+    return StartOverLink(home=home, launcher=launcher)
+
+
+def progress_writer(home: str, reset_id: str = 'r1', total: int = 14):
+    """run_reset.Progress writing into <home>/state/start_over_progress.jsonl, like a real START OVER
+    (prints nothing). Tests call start(), step(), say(), detail(), finish() on it."""
+    from sim_demo import run_reset as rr
+    return rr.Progress(rr.progress_path(Path(home)), reset_id, total, echo=lambda _t: None)
 
 
 class FakeMissionPlanner:

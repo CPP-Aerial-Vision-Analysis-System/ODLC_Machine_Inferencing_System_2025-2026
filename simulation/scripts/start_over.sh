@@ -22,12 +22,14 @@
 #                bash start_over.sh --fly            reset and fly the mission again right away
 #                bash start_over.sh --fly --follow   ... and show the mission phases here until it lands
 #  Options:      --world W              the world you expect. Start over keeps the windows open, so it restarts
-#                                       the SAME world; another world needs stop_sim.sh, then demo.sh W
+#                                       the SAME world (and the same detector and camera); another world needs
+#                                       stop_sim.sh, then demo.sh W
 #                --mission FILE         upload another .waypoints mission (default: the one the last run flew)
 #                --land land|rtl        how a flying drone comes down first (default land = straight down)
 #                --land-timeout S       stop waiting for the landing after S seconds (default 300)
 #                --no-team-stack        do not start ./launcher.sh sim again
-#                --detector real|truth  detector of the new run (default: the same as before)
+#                --no-fresh             when no simulator runs, only say so (never start a fresh demo);
+#                                       the demo panel's button uses this
 #  It takes about 2-3 minutes (mostly the autopilot's normal settling time and the team stack's start).
 #  Log: ~/.astra_sim/logs/start_over_<time>.log      New run: ~/.astra_sim/runs/<time>_<world>/
 # =============================================================================
@@ -35,7 +37,7 @@ set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 
-FLY=0; FOLLOW=0; WORLD=""; PASS=()
+FLY=0; FOLLOW=0; FRESH=1; WORLD=""; PASS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) astra_usage "$0"; exit 0 ;;
@@ -46,7 +48,7 @@ while [ $# -gt 0 ]; do
     --land) shift; case "${1:-}" in land|rtl) PASS+=(--land "$1") ;; *) die "--land must be land or rtl" ;; esac ;;
     --land-timeout) shift; case "${1:-}" in ''|*[!0-9]*) die "--land-timeout needs seconds" ;; esac; PASS+=(--land-timeout "$1") ;;
     --no-team-stack) PASS+=(--no-team-stack) ;;
-    --detector) shift; case "${1:-}" in real|truth) PASS+=(--detector "$1") ;; *) die "--detector must be real or truth" ;; esac ;;
+    --no-fresh) FRESH=0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
   shift
@@ -56,9 +58,11 @@ astra_load_env
 astra_require_built
 ros2 pkg prefix sim_demo >/dev/null 2>&1 || die "sim_demo is not built (it holds start over). Run setup/03_build.sh."
 
-# No simulator? Then "start over" simply means "start": a fresh demo, kept open.
+# No simulator? Then "start over" simply means "start": a fresh demo, kept open (not with --no-fresh: the
+# demo panel's button must never start a second simulator from inside the first one).
 start_fresh() {
   local w="${WORLD:-runway}"
+  [ "$FRESH" = 1 ] || die "No simulator is running, so there is nothing to start over (start one with demo.sh)."
   say "No simulator is running, so there is nothing to start over: starting a fresh demo ($w) instead"
   if [ "$FLY" = 1 ]; then
     exec bash "$ASTRA_SCRIPTS_DIR/demo.sh" "$w" --keep

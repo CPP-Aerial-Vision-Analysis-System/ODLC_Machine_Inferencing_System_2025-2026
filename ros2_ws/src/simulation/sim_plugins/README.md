@@ -1,3 +1,5 @@
+<!-- PURPOSE: describe the plug-in package's commands, modules and quick checks for contributors. The user-facing guide lives in docs/simulation/PLUGINS.md. -->
+
 # sim_plugins: plug-and-play slots for the ASTRA simulator
 
 `sim_plugins` lets a teammate swap **one piece** of the simulation for their own (the autopilot, the
@@ -17,8 +19,13 @@ ros2 run sim_plugins profile_tool plan --profile NAME [--set K=V] [--check] [--f
 ros2 run sim_plugins profile_tool resolve --profile NAME                # the complete settings as YAML
 ros2 run sim_plugins profile_tool contract [--slot detector] [--markdown]
 ros2 run sim_plugins profile_tool shell --for demo|start_sim ...        # used by demo.sh / start_sim.sh
+ros2 run sim_plugins profile_tool docs --check | --write                # the generated parts of PLUGINS.md
 ros2 run sim_plugins check_slot --slot detector|mission_brain|camera|autopilot|world|extras [--node N]
 ```
+
+**Changed `schema.py` or `contracts.py`?** Run `python3 -m sim_plugins.profile_tool docs --write`: it rewrites
+the profile reference and the contract tables in `docs/simulation/PLUGINS.md` (only the parts between the
+`BEGIN GENERATED` / `END GENERATED` markers). `test/test_doc_blocks.py` fails until you do.
 
 Every `ros2 run sim_plugins profile_tool ...` also works as `python3 -m sim_plugins.profile_tool ...`.
 
@@ -36,6 +43,7 @@ Every `ros2 run sim_plugins profile_tool ...` also works as `python3 -m sim_plug
 | `siyi_probe.py` | knocks on a SIYI camera (UDP SDK 0x02, HTTP media API) for the camera check | no |
 | `launch_support.py` | profile entries -> launch actions (used by `sim.launch.py` and `team_stack.launch.py`) | launch |
 | `check_slot.py` | the conformance checker over a `Graph` (live `RosGraph`, or `FakeGraph` in tests) | rclpy (main only) |
+| `doc_blocks.py` | the generated parts of `docs/simulation/PLUGINS.md` (profile reference, contract tables) | no |
 | `profile_tool.py` | the command line | no |
 
 The rule that keeps today's behaviour: **only settings that differ from the defaults produce

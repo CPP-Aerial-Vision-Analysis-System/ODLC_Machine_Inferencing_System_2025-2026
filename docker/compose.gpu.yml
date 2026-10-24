@@ -1,40 +1,39 @@
 # =============================================================================
-#  docker/compose.gpu.yml  --  ADD-ON to compose.sim.yml: give both containers the NVIDIA card for CUDA
+#  docker/compose.gpu.yml  --  ADD-ON to compose.sim.yml: give both containers the NVIDIA card (CUDA + OpenGL)
 #
-#  PURPOSE: the team's detector (new_od: YOLO + SAHI with PyTorch) is about 10x faster on the graphics card
-#  than on the processor. This file asks Docker for the NVIDIA card ("--gpus all") through the NVIDIA
-#  Container Toolkit, which simulation/docker/install_docker_engine.sh installs when it sees an NVIDIA card.
-#  It is a separate file because Docker refuses to start a container that asks for a GPU on a PC without
-#  NVIDIA card or toolkit; compose_up.sh adds it automatically only when `docker info` lists the "nvidia"
-#  runtime (or never, with --no-gpu).
-#  Note: drawing the 3D windows on Windows does NOT need this file (that goes through /dev/dxg + Mesa d3d12,
-#  already in compose.sim.yml). PyTorch only uses CUDA when the images were built with CUDA PyTorch:
-#  build_images.sh does that by default on a PC with an NVIDIA card (--torch cuda).
+#  PURPOSE: the team's detector (new_od: YOLO + SAHI with PyTorch) is about 10x faster on the graphics card than
+#  on the processor. This file asks Docker for the NVIDIA card ("--gpus all") through the NVIDIA Container
+#  Toolkit, which simulation/docker/install_docker_engine.sh installs when it sees an NVIDIA card. On a Linux PC
+#  it also brings NVIDIA's OpenGL driver into the containers, so Gazebo and RViz draw on the card.
+#  It is a separate file because Docker refuses to start a container that asks for a GPU on a PC without an
+#  NVIDIA card or without the toolkit; compose_up.sh adds it only when `docker info` lists the "nvidia" runtime
+#  (never with --no-gpu).
+#  NVIDIA_DRIVER_CAPABILITIES=all = compute (CUDA) + utility (nvidia-smi) + graphics (OpenGL/Vulkan) + video.
+#  Tested on Windows 11 / WSL2: with "all", Mesa still draws through d3d12 on the NVIDIA card (compose.wslg.yml),
+#  so the same value works on Windows and Linux and the order of the -f files does not matter.
+#  PyTorch only uses CUDA when the images were built with CUDA PyTorch: build_images.sh does that by default on a
+#  PC with an NVIDIA card (--torch cuda).
 #
-#  HOW TO USE:  docker compose -f docker/compose.sim.yml -f docker/compose.gpu.yml up
-#               (Linux PC: put docker/compose.linux.yml AFTER this file, it widens the capabilities below)
+#  HOW TO USE:  docker compose -f docker/compose.sim.yml [-f docker/compose.wslg.yml | -f docker/compose.linux.yml] \
+#                 -f docker/compose.gpu.yml up ...
 #  Check:       docker run --rm --gpus all ubuntu:22.04 nvidia-smi      (must list the card)
 # =============================================================================
 
+x-nvidia: &nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
 services:
   sim:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    <<: *nvidia
     environment:
-      # compute = CUDA, utility = nvidia-smi. compose.linux.yml widens it to "all" (drawing on Linux needs it).
-      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-all}
   jetson:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    <<: *nvidia
     environment:
-      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-all}

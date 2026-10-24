@@ -301,6 +301,12 @@ finish() {   # write the score, collect the photos, stop everything (called once
   [ "$FINISHED" = 1 ] && return
   FINISHED=1
   trap - INT TERM
+  # START OVER owns the old run's collection and the new recorder now. A late finish here could ask
+  # the NEW score_run to write an unfinished report, or copy NEW photos into the old run folder.
+  if taken_over; then
+    info "START OVER owns this simulator now; its run recorder collects the results."
+    return
+  fi
   [ -n "$MON_PID" ] && kill -INT "$MON_PID" 2>/dev/null
   say "Finishing the demo"
   if [ ! -s "$RUN_DIR/score_report.md" ] && [ -n "$SIM_PG" ] && kill -0 -- "-$SIM_PG" 2>/dev/null; then
@@ -327,7 +333,12 @@ finish() {   # write the score, collect the photos, stop everything (called once
   fi
   if [ "$KEEP" = 1 ] && [ "$INTERRUPTED" = 0 ]; then
     ok "--keep: everything keeps running. Stop it later with:  bash $ASTRA_SCRIPTS_DIR/stop_sim.sh"
-    info "fly it again: START OVER in the demo panel (click twice), or  bash $ASTRA_SCRIPTS_DIR/start_over.sh --fly"
+    if [ "$MANUAL" = 1 ]; then
+      info "another run: START OVER in the demo panel (click twice) or  bash $ASTRA_SCRIPTS_DIR/start_over.sh ;" \
+           "then do the Mission Planner steps 2-5 again (Load File, Write, Arm, Auto)"
+    else
+      info "fly it again: START OVER in the demo panel (click twice), or  bash $ASTRA_SCRIPTS_DIR/start_over.sh --fly"
+    fi
   else
     if [ "$INTERRUPTED" = 0 ] && [ "$HEADLESS" = 0 ] && [ -t 0 ]; then
       # Give the audience a moment to look at the panel, the markers and the payloads on the ground.
@@ -348,6 +359,16 @@ finish() {   # write the score, collect the photos, stop everything (called once
 }
 on_interrupt() { INTERRUPTED=1; echo; warn "Ctrl+C: stopping the demo (the score report is still written)"; finish; exit 130; }
 trap on_interrupt INT TERM
+# START OVER (start_over.sh, the demo panel's button) can take this simulator over at any moment: it stops the
+# step this script waits for (wait-ready, stack_check, the phase monitor ...) and does the rest itself. Then this
+# script must not retry, report an error or close anything: it says so and ends (everything keeps running).
+taken_over() { [ "$(cat "$ASTRA_STATE_DIR/keep_open" 2>/dev/null)" = "$ASTRA_SIM_SESSION" ]; }
+handed_over() {
+  ok "START OVER has taken this simulator over (progress: demo panel / start_over.sh). This script ends here; everything keeps running."
+  FINISHED=1
+  trap - INT TERM
+  exit 0
+}
 
 say "STEP 1/6  Starting the simulator (Gazebo, SITL, camera emulator$([ "$HEADLESS" = 0 ] && echo ", windows"))"
 setsid ros2 launch sim_bringup sim.launch.py "${SIM_ARGS[@]}" > "$RUN_DIR/sim.log" 2>&1 < /dev/null &
@@ -357,6 +378,7 @@ info "log: $RUN_DIR/sim.log"
 
 say "STEP 2/6  Waiting for the autopilot (GPS + EKF + pre-arm checks; the first ~30-60 s are normal settling)"
 if ! ros2 run sim_bringup mission_tool --url "$GCS_URL" --timeout 360 wait-ready; then
+  taken_over && handed_over
   warn "the simulated autopilot never became ready. Last lines of the simulator log:"
   tail -25 "$RUN_DIR/sim.log" | sed 's/^/    /'
   finish; exit 1
@@ -375,6 +397,7 @@ if [ "$MANUAL" = 1 ]; then
 else
   info "uploading the survey mission (like Mission Planner)"
   if ! ros2 run sim_bringup mission_tool --url "$GCS_URL" upload --mission "$MISSION"; then
+    taken_over && handed_over
     finish; exit 1
   fi
 fi
@@ -385,6 +408,7 @@ if [ "$TEAM_STACK_WHERE" = external ]; then
   info "start it there now:  TRACKER_CMD=\"ros2 launch sim_bringup team_stack.launch.py detector:=$DETECTOR\" ./launcher.sh sim"
   info "(its MAVROS fcu_url must listen where network.mavros_out sends the MAVLink)"
   if ! ros2 run sim_bringup stack_check --timeout 600 --settle 20 "${NEED[@]}" "${PLUGIN_STACK_ARGS[@]}" "${NOMISSION[@]}"; then
+    taken_over && handed_over
     warn "the team stack that runs elsewhere did not get ready in 10 minutes"
     finish; exit 1
   fi
@@ -393,8 +417,9 @@ else
   info "log: $RUN_DIR/team_stack.log"
   [ -z "$PLUGIN_DETECTOR_TEXT" ] || info "plug-in profile: detector $PLUGIN_DETECTOR_TEXT"
 fi
-# --settle 20: the team's main_controller sometimes dies ~10 s after start (a parameter read that times out is
-# not handled, see simulation/README.md); then the team stack is started once more before anything flies.
+# --settle 20: older team code's main_controller sometimes died ~10 s after start (a parameter read that timed
+# out was not handled; fixed in October 2026, see ros2_ws/src/main/README.md). The check and the restart stay as a
+# safety net: if a team node stops early, the team stack is started once more before anything flies.
 for attempt in 1 2; do
   [ "$TEAM_STACK_WHERE" != external ] || break
   ( cd "$ASTRA_REPO" && TRACKER_CMD="$TRACKER" FCU_URL="$TEAM_FCU_URL" \
@@ -403,6 +428,7 @@ for attempt in 1 2; do
   if ros2 run sim_bringup stack_check --timeout 300 --settle 20 "${NEED[@]}" "${PLUGIN_STACK_ARGS[@]}" "${NOMISSION[@]}"; then
     break
   fi
+  taken_over && handed_over        # (start over restarts the team stack itself: never start a second one)
   if [ "$attempt" = 1 ]; then
     warn "the team stack is not ready (a node stopped or never started): starting it once more. Its log so far:"
     grep -aE 'process has died|Error|ERROR' "$RUN_DIR/team_stack.log" | tail -6 | sed 's/^/    /'
@@ -433,6 +459,7 @@ if [ "$MANUAL" = 1 ]; then
 else
   say "STEP 5/6  Arming and starting the mission (AUTO)"
   if ! ros2 run sim_bringup mission_tool --url "$GCS_URL" fly; then
+    taken_over && handed_over
     warn "the mission did not start (see the messages above)"
     finish; exit 1
   fi
@@ -450,6 +477,8 @@ while true; do
   fi
   sleep 2
 done
+# START OVER stopped the phase monitor to watch the NEW run itself: not an error, and no report to wait for.
+taken_over && handed_over
 case "$RESULT" in
   0) ok "The drone has landed: mission complete." ;;
   3) warn "The demo timed out after $TIMEOUT_MIN minutes." ;;

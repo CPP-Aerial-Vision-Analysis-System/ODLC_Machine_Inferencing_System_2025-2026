@@ -9,18 +9,33 @@
 #      volume, or a missing host folder, owned by root; the image's user has password-free sudo for this);
 #    * build_workspace: build the repo's ros2_ws with colcon INSIDE the container, into that container's own
 #      Docker volumes (ros2_ws/build, install, log), only when needed (never built, or a source file changed),
-#      with few parallel jobs so a laptop stays usable;
+#      with few parallel jobs so a laptop stays usable; in the containers that run Gazebo it then also makes
+#      the real-terrain world's Gazebo models when that world's generator is in the repo (build_world_assets);
+#    * display_available / prepare_runtime_dir: is there a desktop to draw on (X11 or Wayland socket)?
 #    * my_ip: this container's address on the drone network (192.168.144.x);
-#    * fetch_fuel_models: download the Gazebo Fuel 3D models the worlds use, once (kept in a volume).
+#    * fetch_fuel_models: download the Gazebo Fuel 3D models the worlds use, once (kept in a volume);
+#    * the hand-over files the two containers share in the data folder (see "Hand-over files" below).
 #  Used by container_sim.sh ("sim"), container_jetson.sh ("jetson") and container_solo.sh (one container).
 #  Settings (environment variables, set by docker/compose.sim.yml or the run_*_container.sh scripts):
 #    ASTRA_REPO        the repo inside the container (default /ODLC_Machine_Inferencing_System_2025-2026)
 #    ASTRA_BUILD       auto (default) | always | never | clean   when to run colcon (clean = wipe and rebuild)
 #    ASTRA_BUILD_JOBS  packages / compiler jobs at the same time (default 4)
+#
+#  Hand-over files: both containers mount the same data folder at ~/.astra_sim, so its state/ folder is how they
+#  tell each other things (plain small files, no network needed):
+#    state/docker_mission_ready          sim -> jetson  the survey mission is uploaded: start the team's code now
+#                                                        (the same order as demo.sh: upload first, then launcher.sh)
+#    state/docker_team_restart.request   sim -> jetson  "start the team's code again" (a token), like demo.sh's
+#    state/docker_team_restart.done      jetson -> sim   second attempt when a team node stopped; .done = done
+#    state/team_stack.env                sim -> START OVER  TEAM_STACK_WHERE=external: the team's code runs in the
+#                                                        jetson container (run_reset must not start it in "sim")
+#    state/start_over_progress.jsonl     START OVER -> jetson  its steps; the jetson container stops the team's
+#                                                        code at "stop_team" and starts it again at "team"
 # =============================================================================
 
 export ASTRA_REPO="${ASTRA_REPO:-/ODLC_Machine_Inferencing_System_2025-2026}"
 export ASTRA_SIM_HOME="${ASTRA_SIM_HOME:-$HOME/.astra_sim}"
+ASTRA_STATE_DIR="$ASTRA_SIM_HOME/state"
 
 say()  { printf '\033[1;36m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -50,6 +65,21 @@ fix_ownership() {
   done
 }
 
+# display_available : true when a desktop can be drawn on (the X11 socket of $DISPLAY or a Wayland socket).
+display_available() {
+  local n="${DISPLAY#*:}"
+  n="${n%%.*}"                                  # DISPLAY=:0 or :0.0 -> the socket /tmp/.X11-unix/X0
+  [ -n "${DISPLAY:-}" ] && [ -S "/tmp/.X11-unix/X$n" ] && return 0
+  [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/$WAYLAND_DISPLAY" ]
+}
+
+# prepare_runtime_dir : Qt wants a private runtime folder; a Linux desktop setup points it into /tmp.
+prepare_runtime_dir() {
+  case "${XDG_RUNTIME_DIR:-}" in
+    /tmp/*) [ -d "$XDG_RUNTIME_DIR" ] || mkdir -p -m 700 "$XDG_RUNTIME_DIR" 2>/dev/null ;;
+  esac
+}
+
 # workspace_needs_build STAMP : true when ros2_ws was never built here or a source file is newer than STAMP.
 # Photos, detector output and Python caches inside src/ do not count (they change on every flight).
 workspace_needs_build() {
@@ -61,7 +91,7 @@ workspace_needs_build() {
             -o -type f -newer "$stamp" -print -quit 2>/dev/null)" ]
 }
 
-# build_workspace NAME : colcon build of ros2_ws for container NAME ("sim" or "jetson"), when needed.
+# build_workspace NAME : colcon build of ros2_ws for container NAME ("sim", "jetson" or "solo"), when needed.
 # Same build as simulation/setup/03_build.sh (all packages except the unused vendored ultralytics_ros,
 # --symlink-install), but into this container's volumes, so it never mixes with a native build.
 build_workspace() {
@@ -82,6 +112,7 @@ build_workspace() {
   esac
   if [ "$mode" = auto ] && ! workspace_needs_build "$stamp"; then
     ok "ros2_ws is already built in this container and nothing changed (ASTRA_BUILD=always forces a build)"
+    case "$name" in sim|solo) build_world_assets ;; esac
     return 0
   fi
   mkdir -p "$ASTRA_SIM_HOME/logs"
@@ -106,6 +137,30 @@ build_workspace() {
   fi
   touch "$stamp"
   ok "ros2_ws built"
+  case "$name" in sim|solo) build_world_assets ;; esac
+}
+
+# build_world_assets : the real-terrain world (suas_field_real) gets its Gazebo models (terrain tiles, ground
+# pictures, trees) made from the site pack in the repo AFTER the build, like simulation/setup/03_build.sh does
+# natively:  python3 sim_worlds/scripts/build_real_field.py assets --install --if-needed  (1-2 min the first
+# time, then nothing). Only when that generator stage exists in this repo; a failure is only a warning (the
+# other worlds do not need it).
+build_world_assets() {
+  local src="$ASTRA_REPO/ros2_ws/src/simulation/sim_worlds" log
+  [ -f "$src/scripts/build_real_field.py" ] && [ -f "$src/sim_worlds/realfield/assets_build.py" ] || return 0
+  [ -d "$src/data/suas_field_real" ] || return 0
+  log="$ASTRA_SIM_HOME/logs/docker_world_assets_$(date +%Y%m%d-%H%M%S).log"
+  info "real-terrain world: making / checking its Gazebo models (build_real_field.py assets; log $log)"
+  if ! (
+    set +u
+    # shellcheck disable=SC1091
+    source /opt/ros/humble/setup.bash && source "$ASTRA_REPO/ros2_ws/install/setup.bash" \
+      && cd "$src" && nice -n 10 timeout 1800 python3 scripts/build_real_field.py assets --install --if-needed
+  ) > "$log" 2>&1; then
+    warn "the real-terrain world's models could not be made (see $log); the other worlds are not affected"
+    return 0
+  fi
+  tail -1 "$log" | sed 's/^/    /'
 }
 
 # fetch_fuel_models : the worlds use a few 3D models from Gazebo Fuel (the internet model library). Download
@@ -118,3 +173,9 @@ fetch_fuel_models() {
   say "Downloading the Gazebo Fuel 3D models the worlds use (about 110 MB, only the first time)"
   timeout 1800 bash "$fetch" || warn "some Fuel models could not be downloaded (internet?): the world loads with fewer details"
 }
+
+# new_token : a value that is different every time (for the hand-over files).
+new_token() { printf '%s-%s\n' "$(date +%s%N)" "$$"; }
+
+# file_token FILE : the TOKEN=... value written in a hand-over file, or "".
+file_token() { awk -F= '$1 == "TOKEN" {print $2; exit}' "$1" 2>/dev/null; }

@@ -6,8 +6,11 @@ photo with its boxes is displayed, the detection table has the rows, the right p
 the amber stand-in banner appears only when the truth_detector is the detector, and the OPEN /
 CLOSE MISSION PLANNER buttons, their status light and hint are visible, readable (not clipped,
 also in the smallest window) and clickable only when it makes sense. A press only reaches the
-fake worker: these tests never ask or touch Windows. Also checks the raw-image conversion used
-for the live view. Skipped when PyQt5 / rclpy are not installed.
+fake worker: these tests never ask or touch Windows. START OVER: two clicks within 5 s start
+it (a recording fake instead of start_over.sh), its progress lines (written exactly like
+run_reset.py writes them) reach the Events list and the status line, the mission buttons wait
+for it, the old run leaves the display, failures and lockouts are explained. Also checks the
+raw-image conversion used for the live view. Skipped when PyQt5 / rclpy are not installed.
 Set SIM_DEMO_PREVIEW_DIR to keep the PNGs (e.g. to look at them).
 """
 import os
@@ -66,6 +69,24 @@ def test_panel_renders_all_states(tmp_path):
     assert (res['standin_mp']['open_enabled'], res['standin_mp']['close_enabled']) == (False, False)
     assert 'WSL' in res['standin_mp']['open_tip']      # greyed out, and the tooltip says why
     assert 'opening' in res['small_mp']['pill']
+    # START OVER: visible in every state; its text fits (checked with the Controls card above) also in the
+    # smallest window while it runs; the window keeps its size (the extra row does not grow it).
+    for state in ('waiting', 'searching', 'standin', 'small', 'restarting', 'small_restarting'):
+        so = res[f'{state}_so']
+        assert so['reset_visible'], state
+    for state in ('waiting', 'searching', 'standin', 'small'):
+        assert (res[f'{state}_so']['reset_text'], res[f'{state}_so']['reset_enabled']) == ('START OVER', True)
+    assert res['small_so']['size'] == (1200, 760) and res['small_restarting_so']['size'] == (1200, 760)
+    for state in ('restarting', 'small_restarting'):
+        mp, so = res[f'{state}_mp'], res[f'{state}_so']
+        assert mp['visible'] and mp['fits'], (state, mp['sizes'])
+        assert res[f'{state}_rows_before'] == 2 and so['rows'] == 0     # the old run left the display
+        assert res[f'{state}_launches'] == [['--no-fresh']]            # 2 clicks = 1 start (never a fresh demo)
+        assert so['reset_text'] == 'STARTING OVER 9/14 ...' and not so['reset_enabled']
+        assert not so['start_enabled']                                  # mission buttons wait for it
+        assert 'START OVER 9/14' in so['status']
+    assert res['armed_so']['reset_text'].startswith('CLICK AGAIN TO START OVER') and res['armed_so']['reset_enabled']
+    assert res['armed_mp']['fits'], res['armed_mp']['sizes']
 
 
 def test_mission_planner_buttons(tmp_path):
@@ -80,7 +101,7 @@ def test_mission_planner_buttons(tmp_path):
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(['t'])
     node = pf.FakePanelNode(str(tmp_path / 'mapping_photos'))
     fake = pf.FakeMissionPlanner(pf.planner_state('not running'))
-    w = DemoWindow(node, app, mission_planner=fake)
+    w = DemoWindow(node, app, mission_planner=fake, start_over=pf.start_over_link(str(tmp_path)))
     try:
         assert fake.started                            # the window starts its worker
         w.win.show()
@@ -114,3 +135,164 @@ def test_mission_planner_buttons(tmp_path):
         w.close()
         w.win.close()
     assert fake.stopped                                # closing the window stops the worker
+
+
+def _window(tmp_path, launches, pid=0, launcher_error=None):
+    """A panel with an old run on screen (one photo + its detections) and a recording START OVER link."""
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import panel_fakes as pf
+    from PyQt5 import QtWidgets
+    from sim_demo.demo_panel import DemoWindow, prepare_qt_environment
+    prepare_qt_environment()
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(['t'])
+    folder = str(tmp_path / 'mapping_photos')
+    name = pf.write_photo(folder, 36.2146, -96.0064)
+    node = pf.FakePanelNode(folder, mission_items=['item'])           # a mission: UPLOAD MISSION + START works
+    node.add_frame(pf.demo_frame(name, 36.2146, -96.0064))
+    link = pf.start_over_link(str(tmp_path), launches, pid=pid)
+    if launcher_error is not None:
+        def broken(_args):
+            raise launcher_error
+        link._launcher = broken
+    w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(), start_over=link)
+    w.win.show()
+    for _ in range(3):
+        app.processEvents()
+        w._poll_photos()
+        w._update_ui()
+    return w, node, pf, app
+
+
+def test_start_over_button_needs_two_clicks_and_follows_the_progress(tmp_path):
+    """START OVER: one click only asks; a second click within 5 s starts start_over.sh (here: a recording fake,
+    always with --no-fresh); its progress lines appear in the Events list and the status line; the mission
+    buttons are locked meanwhile; the old run leaves the display at its start; at its end everything unlocks."""
+    launches = []
+    w, node, pf, app = _window(tmp_path, launches)
+    try:
+        assert w.table.rowCount() == 2 and w.btn_start.isEnabled()
+        assert w.btn_reset.text() == 'START OVER' and w.btn_reset.isEnabled()
+        w.btn_reset.click()                                            # 1st click: nothing starts yet
+        w._update_ui()
+        assert launches == [] and 'again within 5 s' in w.cmd_status.text()
+        assert w.btn_reset.text().startswith('CLICK AGAIN TO START OVER') and w.btn_reset.property('armed')
+        w._reset_armed_until = 1.0                                     # ... 5 s pass without a 2nd click
+        w._update_ui()
+        assert w.btn_reset.text() == 'START OVER' and not w.btn_reset.property('armed')
+        assert 'not confirmed' in w.cmd_status.text() and launches == []
+        w.btn_reset.click()
+        w.btn_reset.click()                                            # 2 clicks within 5 s: it starts
+        w._update_ui()
+        assert launches == [['--no-fresh']]
+        assert not w.btn_reset.isEnabled() and not w.btn_start.isEnabled()   # locked until it reports back
+        w.btn_reset.click()
+        w._on_start()                                                  # (a press that slips through: refused)
+        w._update_ui()
+        assert launches == [['--no-fresh']] and 'still running' in w.cmd_status.text()
+
+        prog = pf.progress_writer(str(tmp_path), 'r1', 14)
+        prog.start()
+        prog.step('check', 1)
+        prog.say('ok', 'simulator found: world runway, session demo-1')
+        w._poll_start_over()
+        w._update_ui()
+        assert w.table.rowCount() == 0 and node.frames == [] and node.resets == 1   # old run left the display
+        assert w.btn_reset.text() == 'STARTING OVER 1/14 ...' and not w.btn_start.isEnabled()
+        prog.step('land', 4)
+        prog.detail('landing: height 12.0 m, mode LAND, armed')
+        prog.say('warn', 'the drone did not land within 300 s')
+        w._poll_start_over()
+        w._update_ui()
+        assert 'STARTING OVER 4/14' in w.btn_reset.text()
+        prog.run_dir = str(tmp_path / 'runs' / '20261024-101010_runway')
+        prog.finish(True, 'ready to fly again. Press UPLOAD MISSION + START in the demo panel ...')
+        w._poll_start_over()
+        w._update_ui()
+        assert w.btn_reset.text() == 'START OVER' and w.btn_reset.isEnabled() and w.btn_start.isEnabled()
+        assert 'START OVER done: ready' in w.cmd_status.text() and '20261024-101010_runway' in w.cmd_status.text()
+        assert node.resets == 2                                        # the new run starts clean too
+        log = w.log.toPlainText()
+        for text in ('START OVER clicked once', 'START OVER confirmed', 'STEP 1/14', 'simulator found',
+                     'STEP 4/14', 'did not land within 300 s', 'START OVER done'):
+            assert text in log, text
+        assert 'landing: height 12.0 m' not in log                     # tool details: status line only
+    finally:
+        w.close()
+        w.win.close()
+
+
+def test_start_over_failure_and_lockouts(tmp_path):
+    """A failed START OVER unlocks the panel with its reason; START OVER waits while UPLOAD MISSION + START
+    runs; a launcher that cannot start says so; a script that ends without any progress is reported."""
+    launches = []
+    w, node, pf, app = _window(tmp_path, launches)
+    try:
+        w.commander.busy = True                                       # UPLOAD MISSION + START is running
+        w._update_ui()
+        assert not w.btn_reset.isEnabled() and 'UPLOAD MISSION + START' in w.btn_reset.toolTip()
+        w._on_reset()
+        w._update_ui()
+        assert launches == [] and 'still running' in w.cmd_status.text()
+        w.commander.busy = False
+        w._update_ui()
+        assert w.btn_reset.isEnabled()
+        # a START OVER started in a TERMINAL (start_over.sh) also locks the panel's mission buttons
+        prog = pf.progress_writer(str(tmp_path), 'r2', 14)
+        prog.start()
+        prog.step('check', 1)
+        w._poll_start_over()
+        w._update_ui()
+        assert not w.btn_start.isEnabled() and not w.btn_reset.isEnabled()
+        prog.finish(False, 'Gazebo did not remove the drone (service /world/.../remove failed).')
+        w._poll_start_over()
+        w._update_ui()
+        assert w.btn_start.isEnabled() and w.btn_reset.isEnabled()
+        assert 'START OVER FAILED: Gazebo did not remove the drone' in w.cmd_status.text()
+        assert '[start over] START OVER FAILED' in w.log.toPlainText()
+    finally:
+        w.close()
+        w.win.close()
+    # the launcher cannot start at all
+    w, node, pf, app = _window(tmp_path, [], launcher_error=OSError('bash not found'))
+    try:
+        w.btn_reset.click()
+        w.btn_reset.click()
+        w._update_ui()
+        assert 'START OVER could not start: bash not found' in w.cmd_status.text() and w.btn_reset.isEnabled()
+    finally:
+        w.close()
+        w.win.close()
+    # the script ends before writing any progress (e.g. "sim_demo is not built"): its last log line is shown
+    log_dir = tmp_path / 'logs'
+    log_dir.mkdir(exist_ok=True)
+    (log_dir / 'start_over_test_panel.log').write_text('==> START OVER\n\x1b[1;31m XX sim_demo is not built\x1b[0m\n')
+    w, node, pf, app = _window(tmp_path, [], pid=4194305)   # above Linux's largest pid: "it has ended"
+    try:
+        w.btn_reset.click()
+        w.btn_reset.click()
+        w._poll_start_over()
+        w._update_ui()
+        assert 'START OVER did not start: XX sim_demo is not built' in w.cmd_status.text()
+        assert w.btn_reset.isEnabled() and w.btn_start.isEnabled()
+    finally:
+        w.close()
+        w.win.close()
+
+
+def test_panel_started_during_reset_keeps_mission_controls_locked(tmp_path):
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import panel_fakes as pf
+    prog = pf.progress_writer(str(tmp_path), 'active-before-panel', 14)
+    prog.start()
+    prog.step('land', 4)
+    w, _node, _pf, _app = _window(tmp_path, [])
+    try:
+        assert not w.btn_start.isEnabled() and not w.btn_reset.isEnabled()
+        assert w.btn_reset.text() == 'STARTING OVER 4/14 ...'
+        assert 'Bring the drone down' in w.cmd_status.text()
+        assert 'STEP 4/14' not in w.log.toPlainText()       # history was used for state, not replayed
+    finally:
+        w.close()
+        w.win.close()

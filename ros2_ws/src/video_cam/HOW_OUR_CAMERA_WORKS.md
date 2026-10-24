@@ -1,3 +1,4 @@
+<!-- Purpose: describe the SIYI capture pipeline, photo metadata, and camera settings. -->
 # How our camera works
 
 ## October 2026 update: no more lost photos, and a "sidecar" for every photo
@@ -32,7 +33,7 @@ New settings:
 
 | Where | Name | Default | Meaning |
 |---|---|---|---|
-| ROS parameter of `siyi` | `image_top_direction_deg` | 0 | where the TOP of a photo points, clockwise from the drone's nose, when the camera looks straight down (0 = nose; 180 = camera mounted backwards). Check it on the real drone: a marker 5 m in front of the nose must be at the top of the photo for 0. |
+| ROS parameter of `siyi` | `image_top_direction_deg` | 0 | where the TOP of a photo points, clockwise from the drone's nose, when the camera looks straight down (0 = nose; 180 = camera mounted backwards). Check it on the real drone: a marker 5 m in front of the nose must be at the top of the photo for 0. Set it with e.g. `-p image_top_direction_deg:=180` (whole numbers and decimals both work). |
 | `config.py` | `CAMERA_HFOV_DEG` | 81 | photo field of view per model, used to turn pixels into metres. Measure the ZR10 / ZR30 values. |
 | `config.py` | `MAX_PENDING_CAPTURES` | 5 | photo requests that may wait |
 | `config.py` | `WRITE_PHOTO_SIDECAR` | True | write the `.json` next to every photo |
@@ -59,7 +60,7 @@ Indexing
         when new files are found it sends a confirmation log
 
 Downlading
-    we send a HTTP get image request to the 192.168.144.25:82 with the image name that we found from the previous 
+    we send a HTTP get image request to the 192.168.144.25:82 with the image name that we found from the previous
         we decode it( turn jpeg to raw pixel data so that the program can use)
         atomic write (file saving technique that makes sure that nothing is corrupted)
         verifying dimensions
@@ -67,10 +68,10 @@ Downlading
 
 advantages
 
-when we are not using video streaming and switch to udp/http pipeline, 
+when we are not using video streaming and switch to udp/http pipeline,
 we are droping from 7Mbs to 0.5Mbs
 
-on top of that, image_pub is not only streaming, but its also recording? which is very very memory consuming. This is more suitable for a surveilance camera and adds additional pressure on the jetson. 
+on top of that, image_pub is not only streaming, but its also recording? which is very very memory consuming. This is more suitable for a surveilance camera and adds additional pressure on the jetson.
 ough “pixel data moved” per second at 10 Hz:
 
 1080p: ~118.7 MiB/s (2 copies)

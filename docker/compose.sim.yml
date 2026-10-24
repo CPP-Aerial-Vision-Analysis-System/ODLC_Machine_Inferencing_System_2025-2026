@@ -15,49 +15,42 @@
 #
 #  * The camera emulator's container has the real camera's address (.25), and the team's code runs at the
 #    real Jetson's address (.100), so the team's code needs NO change: what works here works on the drone.
-#  * MAVProxy in "sim" sends the autopilot's MAVLink to 192.168.144.100:14552, where launcher.sh's MAVROS
-#    listens (fcu_url udp://:14552@localhost:14552) - see simulation/docker/container_sim.sh.
-#  * Both containers mount the SAME repo folder, so the photos video_cam saves are seen by the demo panel.
-#    Each container builds ros2_ws into its own Docker volumes (ros2_ws/build, install, log), so the two
-#    builds and the native build on the host never mix.
-#  * Windows 11: windows (Gazebo, RViz, demo panel) appear on the Windows desktop through WSLg, and 3D is
-#    drawn by the graphics card through Mesa's d3d12 driver (/dev/dxg + /usr/lib/wsl, settings below).
-#    Extra files for other cases (add them with -f, simulation/docker/compose_up.sh does it for you):
-#      docker/compose.gpu.yml    CUDA for PyTorch (the detector) when the NVIDIA Container Toolkit is installed
-#      docker/compose.linux.yml  a Linux PC instead of Windows: X11 + NVIDIA (or Intel/AMD) graphics
+#  * MAVProxy in "sim" sends the autopilot's MAVLink to 192.168.144.100:14552 (sim.launch.py's mavros_out
+#    setting), where launcher.sh's MAVROS listens (fcu_url udp://:14552@localhost:14552).
+#  * Both containers mount the SAME repo folder, so the photos video_cam saves are seen by the demo panel, and
+#    the SAME data folder (runs, logs, detector weights, the simulator's state files). Each container builds
+#    ros2_ws into its own Docker volumes (ros2_ws/build, install, log), so the two builds and a native build
+#    on the host never mix.
 #
-#  HOW TO RUN (inside the Ubuntu-22.04 WSL distro or on Linux; the full guide is docs/simulation/DOCKER.md):
-#      bash simulation/docker/build_images.sh        once (about 1 hour; the images live on the D: drive)
-#      bash simulation/docker/compose_up.sh          the full search demo (it picks the right files and settings)
+#  THIS FILE ALONE = no windows and no graphics card ("headless"): it works on any Linux PC or WSL2. Add-on
+#  files (add them with more -f options; simulation/docker/compose_up.sh picks them for you):
+#      docker/compose.wslg.yml   Windows 10/11 (WSL2): windows on the Windows desktop (WSLg) + 3D drawn by the
+#                                graphics card through Mesa's d3d12 driver
+#      docker/compose.linux.yml  a Linux desktop: windows on its X11 screen
+#      docker/compose.dri.yml    a Linux PC's own graphics chip for 3D (/dev/dri: Intel, AMD, most NVIDIA)
+#      docker/compose.gpu.yml    the NVIDIA card for CUDA (the detector) + OpenGL, via the NVIDIA Container Toolkit
+#
+#  HOW TO RUN (inside Ubuntu: the WSL distro on Windows, or a Linux PC; full guide: docs/simulation/DOCKER.md):
+#      bash simulation/docker/build_images.sh        once (about 1 hour), or import_images.sh from a teammate
+#      bash simulation/docker/compose_up.sh          the full search demo (picks the files and settings)
 #      bash simulation/docker/compose_down.sh        stop and remove the containers
-#  By hand (what compose_up.sh runs):
-#      docker compose -f docker/compose.sim.yml [-f docker/compose.gpu.yml] up --abort-on-container-exit
-#  Check this file without starting anything:   docker compose -f docker/compose.sim.yml config
+#  By hand, from the repo folder (what compose_up.sh runs on a Windows PC with an NVIDIA card):
+#      docker compose -f docker/compose.sim.yml -f docker/compose.wslg.yml -f docker/compose.gpu.yml \
+#        up --no-build --abort-on-container-exit --exit-code-from sim
+#  Check the files without starting anything:   docker compose -f docker/compose.sim.yml config --quiet
 #
 #  Settings: every ${NAME:-default} below can be set in the environment (compose_up.sh sets them from its
 #  options). The most useful ones:
-#      ASTRA_REPO_HOST    the repo folder to mount (default: the repo this file is in; compose_up.sh uses the
-#                         Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 on Windows)
+#      ASTRA_REPO_HOST    the repo folder to mount (default: the repo this file is in)
 #      ASTRA_DOCKER_DATA  where runs, logs and the detector weights are kept on the host (~/.astra_docker)
-#      ASTRA_SIM_WORLD    runway | suas_field          ASTRA_CAMERA    zr10 | a8mini
-#      ASTRA_DETECTOR     real (team new_od) | truth   ASTRA_DEMO      1 = fly the demo by itself, 0 = you fly
-#  Needs Docker Compose 2.24 or newer (simulation/docker/install_docker_engine.sh installs a current one).
+#      ASTRA_SIM_WORLD    runway | suas_field | ...      ASTRA_CAMERA    zr10 | a8mini
+#      ASTRA_DETECTOR     real (team new_od) | truth     ASTRA_DEMO      1 = fly the demo by itself, 0 = you fly
+#  Needs Docker Compose 2.20 or newer (simulation/docker/install_docker_engine.sh installs a current one).
 # =============================================================================
 
 name: astra
 
-# ---- shared pieces (YAML "anchors": written once, used by both containers) ---------------------------
-# Windows 11's built-in Linux GUI (WSLg) and graphics card, as seen from inside a container.
-x-wslg-env: &wslg_env
-  DISPLAY: ${DISPLAY:-:0}                         # X11 display of WSLg (Qt windows use X11, see sim_env.sh)
-  WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
-  XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir          # WSLg's own runtime folder (the distro's /run/user/1000 is not shared)
-  PULSE_SERVER: unix:/mnt/wslg/PulseServer        # sound (not needed, but keeps programs from complaining)
-  LD_LIBRARY_PATH: /usr/lib/wsl/lib               # Windows' DirectX / CUDA libraries for Linux
-  GALLIUM_DRIVER: d3d12                           # Mesa draws through DirectX 12 = on the real graphics card
-  MESA_D3D12_DEFAULT_ADAPTER_NAME: NVIDIA         # pick the NVIDIA card, not the CPU's built-in graphics
-  QT_X11_NO_MITSHM: "1"                           # Qt must not try X11 shared memory across the VM boundary
-
+# ---- shared settings (a YAML "anchor": written once, used by both containers) ----------------------------
 # ROS 2 and the settings both container scripts read (simulation/docker/_container_common.sh).
 x-astra-env: &astra_env
   ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}              # the drone uses 0; both containers must match
@@ -66,6 +59,7 @@ x-astra-env: &astra_env
   ASTRA_BUILD: ${ASTRA_BUILD:-auto}               # auto | always | never | clean (colcon build at start)
   ASTRA_BUILD_JOBS: ${ASTRA_BUILD_JOBS:-2}        # per container; 2 + 2 keeps a laptop usable during the build
   ASTRA_DETECTOR: ${ASTRA_DETECTOR:-real}         # must be the same in both containers
+  ASTRA_DEMO: ${ASTRA_DEMO:-1}                    # 1 = automatic demo flight (both containers follow its steps)
   PYTHONUNBUFFERED: "1"
 
 services:
@@ -73,13 +67,15 @@ services:
   sim:
     image: ${ASTRA_SIM_IMAGE:-astra-sim:latest}
     # Only used when the image does not exist yet (or with `docker compose build`). Recommended instead:
-    # bash simulation/docker/build_images.sh (builds one image after the other, with a log).
+    # bash simulation/docker/build_images.sh (one image after the other, your user id, a log per image).
     build:
       context: .
       dockerfile: Dockerfile
       target: sim
       args:
         BUILD_JOBS: ${ASTRA_IMAGE_BUILD_JOBS:-4}  # parallel C/C++ compile jobs (ArduPilot, Gazebo plugin)
+        USER_UID: ${ASTRA_UID:-1000}              # export ASTRA_UID=$(id -u) ASTRA_GID=$(id -g) first if yours
+        USER_GID: ${ASTRA_GID:-1000}              # are not 1000 (files in the mounted repo then belong to you)
     container_name: astra-sim
     hostname: astra-sim
     init: true                                    # a tiny init process passes Ctrl+C / docker stop on cleanly
@@ -93,18 +89,19 @@ services:
     ipc: host
     stop_grace_period: 45s                        # time to write the score report and copy the photos
     environment:
-      <<: [*wslg_env, *astra_env]
+      <<: *astra_env
       ASTRA_SIM_WORLD: ${ASTRA_SIM_WORLD:-runway}
       ASTRA_CAMERA: ${ASTRA_CAMERA:-zr10}
       ASTRA_SIM_OPTIONS: ${ASTRA_SIM_OPTIONS:-}   # extra start_sim.sh options, e.g. --headless
       ASTRA_SIM_ARGS: ${ASTRA_SIM_ARGS:-}         # extra sim.launch.py settings "name:=value ..."
-      ASTRA_JETSON_MAVLINK: 192.168.144.100:14552 # where the Jetson stand-in's MAVROS listens
+      ASTRA_JETSON_MAVLINK: 192.168.144.100:14552 # where the Jetson stand-in's MAVROS listens (mavros_out)
       ASTRA_WINDOWS_GCS: ${ASTRA_WINDOWS_GCS:-}   # HOST:PORT of Mission Planner on Windows ("" = none)
-      ASTRA_DEMO: ${ASTRA_DEMO:-1}                # 1 = upload + fly the search mission by itself (like demo.sh)
       ASTRA_KEEP: ${ASTRA_KEEP:-0}                # 1 = keep everything running after the landing
       ASTRA_TIMEOUT_MIN: ${ASTRA_TIMEOUT_MIN:-30} # give up the demo after this many minutes
       ASTRA_LINGER_S: ${ASTRA_LINGER_S:-120}      # windows stay open this long after the landing
       ASTRA_SCORE: ${ASTRA_SCORE:-1}              # 1 = write score_report.md for the run
+      # Other ArduCopter versions (simulation/setup/fetch_sitl.sh, sitl_version:=...) are kept in the data folder.
+      ASTRA_SITL_VERSIONS: /home/ubuntu/.astra_sim/sitl_versions
     volumes:
       # The repo (code), mounted, never copied into the image: edit on the host, restart, done.
       - ${ASTRA_REPO_HOST:-..}:/ODLC_Machine_Inferencing_System_2025-2026
@@ -116,12 +113,6 @@ services:
       - ${ASTRA_DOCKER_DATA:-${HOME}/.astra_docker}:/home/ubuntu/.astra_sim
       # Gazebo Fuel 3D models the worlds download once (a Docker volume, or the host's ~/.gz/fuel).
       - ${ASTRA_FUEL_DIR:-astra_gz_fuel}:/home/ubuntu/.gz/fuel
-      # WSLg: the Windows desktop (X11 + Wayland sockets) and the graphics card's Linux libraries.
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /mnt/wslg:/mnt/wslg
-      - /usr/lib/wsl:/usr/lib/wsl:ro
-    devices:
-      - /dev/dxg:/dev/dxg                         # WSL2's door to the Windows graphics driver
 
   # ---- the Jetson stand-in: the team's dev image (= the Jetson's software) running ./launcher.sh sim -------
   jetson:
@@ -132,6 +123,8 @@ services:
       target: dev
       args:
         BUILD_JOBS: ${ASTRA_IMAGE_BUILD_JOBS:-4}
+        USER_UID: ${ASTRA_UID:-1000}
+        USER_GID: ${ASTRA_GID:-1000}
     container_name: astra-jetson
     hostname: jetson
     init: true
@@ -143,10 +136,10 @@ services:
     ipc: host
     depends_on:
       - sim                                       # start order only; it waits for the simulator's MAVLink itself
-    stop_grace_period: 20s
+    stop_grace_period: 30s                        # launcher.sh stops MAVROS and the mission stack in order
     environment:
-      <<: [*wslg_env, *astra_env]
-      ASTRA_WAIT_FOR_SIM: ${ASTRA_WAIT_FOR_SIM:-1800} # seconds to wait for the simulator's first MAVLink
+      <<: *astra_env
+      ASTRA_WAIT_FOR_SIM: ${ASTRA_WAIT_FOR_SIM:-1800} # seconds to wait for the simulator (first start builds)
       ASTRA_TRACKER_CMD: ${ASTRA_TRACKER_CMD:-}       # "" = team_stack.launch.py (see container_jetson.sh)
       ASTRA_MAVROS_PORT: "14552"                      # launcher.sh sim's MAVROS port
     volumes:
@@ -155,14 +148,10 @@ services:
       - astra_jetson_ws_install:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install
       - astra_jetson_ws_log:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/log
       - ${ASTRA_DOCKER_DATA:-${HOME}/.astra_docker}:/home/ubuntu/.astra_sim
-      - /tmp/.X11-unix:/tmp/.X11-unix
-      - /mnt/wslg:/mnt/wslg
-      - /usr/lib/wsl:/usr/lib/wsl:ro
-    devices:
-      - /dev/dxg:/dev/dxg
 
 # The drone's camera network. Fixed name (not "astra_astra_net") so simulation/docker/run_jetson_container.sh
-# can join it with --network astra_net.
+# can join it with --network astra_net. If this subnet is already used on your PC (docs: troubleshooting),
+# Docker refuses to create it; the team's code needs these exact addresses, so free the subnet instead.
 networks:
   astra_net:
     name: astra_net
@@ -172,8 +161,9 @@ networks:
         - subnet: 192.168.144.0/24
           gateway: 192.168.144.1                  # the WSL/Linux host itself
 
-# Docker-managed folders (they live in /var/lib/docker, i.e. on the D: drive in our WSL setup). Fixed names so
-# the one-container scripts (run_sim_container.sh, run_jetson_container.sh) reuse the same builds.
+# Docker-managed folders (inside Docker's storage, /var/lib/docker; on Windows that is inside the WSL distro's
+# virtual disk). Fixed names so the one-container scripts (run_sim_container.sh, run_jetson_container.sh) and the
+# VS Code dev container reuse the same builds.
 volumes:
   astra_sim_ws_build: {name: astra_sim_ws_build}
   astra_sim_ws_install: {name: astra_sim_ws_install}

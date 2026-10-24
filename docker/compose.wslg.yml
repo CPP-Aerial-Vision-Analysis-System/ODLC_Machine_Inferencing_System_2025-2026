@@ -1,0 +1,45 @@
+# =============================================================================
+#  docker/compose.wslg.yml  --  ADD-ON to compose.sim.yml for WINDOWS 10/11 (Docker inside WSL2)
+#
+#  PURPOSE: shows the containers' windows (Gazebo, RViz, the demo panel) on the Windows desktop and lets them
+#  draw 3D on the PC's graphics card. Both come from WSLg, the Linux-GUI part that WSL2 has built in:
+#    * windows: WSLg runs an X11 + Wayland server for Linux programs; its sockets (/tmp/.X11-unix, /mnt/wslg)
+#      are handed to the containers, so a window opened inside a container appears on the Windows desktop;
+#    * 3D: WSL2 has a "door" to the Windows graphics driver (/dev/dxg) plus the Windows DirectX/CUDA libraries for
+#      Linux (/usr/lib/wsl/lib). Mesa's d3d12 driver (in the sim image) draws OpenGL through them, so Gazebo and
+#      RViz run on the real graphics card instead of the processor. MESA_D3D12_DEFAULT_ADAPTER_NAME picks the
+#      card: NVIDIA by default (set it to AMD or Intel before compose_up.sh if that is your card).
+#  The same two doors also give PyTorch CUDA on an NVIDIA card; compose.gpu.yml adds the official way.
+#  Only for WSL2: these folders and /dev/dxg do not exist on a normal Linux PC (use compose.linux.yml there).
+#
+#  HOW TO USE (simulation/docker/compose_up.sh adds this file by itself inside WSL):
+#      docker compose -f docker/compose.sim.yml -f docker/compose.wslg.yml [-f docker/compose.gpu.yml] up
+#  Check WSLg first (inside Ubuntu):  ls /mnt/wslg /tmp/.X11-unix  and  echo $DISPLAY   (should print :0)
+# =============================================================================
+
+x-wslg-env: &wslg_env
+  DISPLAY: ${DISPLAY:-:0}                         # X11 display of WSLg (Qt windows use X11, see sim_env.sh)
+  WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+  XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir          # WSLg's own runtime folder (the distro's /run/user/... is not shared)
+  PULSE_SERVER: unix:/mnt/wslg/PulseServer        # sound (not needed, but keeps programs from complaining)
+  LD_LIBRARY_PATH: /usr/lib/wsl/lib               # Windows' DirectX / CUDA libraries for Linux
+  GALLIUM_DRIVER: d3d12                           # Mesa draws through DirectX 12 = on the real graphics card
+  MESA_D3D12_DEFAULT_ADAPTER_NAME: ${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}   # which card (not the CPU's chip)
+  QT_X11_NO_MITSHM: "1"                           # Qt must not try X11 shared memory across the VM boundary
+
+x-wslg-volumes: &wslg_volumes
+  - /tmp/.X11-unix:/tmp/.X11-unix                 # the X11 socket of WSLg
+  - /mnt/wslg:/mnt/wslg                           # Wayland + sound sockets, WSLg's runtime folder
+  - /usr/lib/wsl:/usr/lib/wsl:ro                  # the graphics card's Linux libraries (read-only)
+
+services:
+  sim:
+    environment: *wslg_env
+    volumes: *wslg_volumes
+    devices:
+      - /dev/dxg:/dev/dxg                         # WSL2's door to the Windows graphics driver
+  jetson:
+    environment: *wslg_env
+    volumes: *wslg_volumes
+    devices:
+      - /dev/dxg:/dev/dxg

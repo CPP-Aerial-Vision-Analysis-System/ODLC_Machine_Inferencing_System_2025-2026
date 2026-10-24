@@ -40,17 +40,21 @@ Why this order (measured in Gazebo Harmonic 8.15 + ardupilot_gazebo, see simulat
 
 Used by: simulation/scripts/start_over.sh (terminal, Windows "Start Over.bat") and the demo panel's START
 OVER button. Progress goes to stdout AND, as JSON lines, to <sim home>/state/start_over_progress.jsonl,
-which the demo panel reads to show every step in its Events list.
+which the demo panel follows (ProgressTracker below) to show every step in its Events list and status line,
+to keep its mission buttons locked while a start over runs, and to clear the old run from its display.
+Settings of the running simulator win over the terminal's: its GZ_PARTITION and ROS_DOMAIN_ID (recorded in
+state/current_launch.yaml) are used for every gz / ros2 command and for the restarted team stack.
 
 Command line (start_over.sh calls these; all output is plain words):
   python3 -m sim_demo.run_reset reset [--fly] [--world W] [--mission FILE] [--land rtl|land]
-                                       [--land-timeout S] [--no-team-stack] [--detector real|truth]
+                                       [--land-timeout S] [--no-team-stack]
   python3 -m sim_demo.run_reset watch-run --run-dir DIR [--photo-dir DIR] [--timeout-min M]   (internal)
   python3 -m sim_demo.run_reset guard --session ID                                            (internal)
   python3 -m sim_demo.run_reset mp-steps [--world W] [--mission FILE]     print the Mission Planner steps
   python3 -m sim_demo.run_reset plan                                       print the steps, change nothing
 Exit codes: 0 = done, 1 = a step failed (the message says which and what to do), 2 = bad usage,
-3 = no simulator is running (start_over.sh then starts a fresh demo instead).
+3 = no simulator is running (start_over.sh then starts a fresh demo instead, unless --no-fresh),
+130 = stopped with Ctrl+C (run it again to finish).
 
 Everything that touches the outside world (processes, Gazebo, MAVLink, the clock) goes through small
 adapter classes, so test/test_run_reset.py checks the whole state machine with fakes, without ROS or Gazebo.
@@ -162,6 +166,8 @@ class SimState:
     sitl_run_dir: str = ''
     photo_dir: str = ''
     home: str = ''
+    gz_partition: str = ''           # GZ_PARTITION the simulator runs in (gz commands must use the same)
+    ros_domain_id: str = ''          # ROS_DOMAIN_ID of the simulator (the team stack must use the same)
 
     @property
     def fdm_port(self) -> int:
@@ -191,7 +197,7 @@ def load_sim_state(home: Path) -> SimState:
         raise ResetError(f'Cannot read {path}: {exc}') from None
     st = SimState()
     for key in ('session', 'world', 'world_name', 'model_file', 'mission', 'detector', 'windows_gcs',
-                'sitl_run_dir', 'photo_dir', 'home'):
+                'sitl_run_dir', 'photo_dir', 'home', 'gz_partition', 'ros_domain_id'):
         if data.get(key) not in (None, ''):
             setattr(st, key, str(data[key]))
     for key in ('sitl_instance', 'gcs_port', 'mavros_port', 'panel_port'):
@@ -287,10 +293,10 @@ def select(procs: Iterable[Proc], session: str, roles: Sequence[str], domain: st
            exclude: Iterable[int] = ()) -> List[Proc]:
     """The processes of `session` whose role is in `roles`.
 
-    A team stack started BY HAND in another terminal (./launcher.sh sim, no session tag) is also selected
-    when it uses the same ROS_DOMAIN_ID: two team stacks would both insert target waypoints. Processes of
-    ANOTHER session (another simulator / another person's test) are never selected. `exclude` = pids that
-    must never be touched (start over itself and its parents).
+    Only the simulator's session tag establishes ownership. A team stack started by hand in another
+    terminal has no such tag and must be stopped by its operator, even if it uses the same ROS domain.
+    `exclude` = pids that must never be touched (start over itself and its parents). `domain` is retained
+    for callers of older versions; it never grants permission to stop an untagged process.
     """
     skip = set(exclude)
     out = []
@@ -301,8 +307,6 @@ def select(procs: Iterable[Proc], session: str, roles: Sequence[str], domain: st
         if role not in roles or role in PROTECTED_ROLES:
             continue
         if p.session == session and session:
-            out.append(p)
-        elif role == 'team' and not p.session and domain and p.env.get('ROS_DOMAIN_ID', '0') == domain:
             out.append(p)
     return out
 
@@ -564,7 +568,10 @@ class GzOps:
 
     def model_exists(self, name: str) -> bool:
         """True when `gz model --list` shows the model."""
-        out = self._gz(['model', '--list'], timeout=25.0) or ''
+        out = self._gz(['model', '--list'], timeout=25.0)
+        if out is None:
+            raise ResetError('Cannot check whether the drone exists: Gazebo did not answer the model list. '
+                             'The drone is left in place; check the simulator before trying START OVER again.')
         return re.search(rf'^\s*-\s*{re.escape(name)}\s*$', out, re.M) is not None
 
     def remove_model(self, name: str) -> bool:
@@ -772,10 +779,16 @@ class Progress:
         self.last_detail = 0.0
 
     def start(self) -> None:
-        """Begin a new progress file (the panel sees a new reset id and clears its run display)."""
+        """Begin a new progress file (the panel sees a new reset id and clears its run display).
+
+        The old file is REPLACED (a new file under the same name), not emptied: a reader that checks the
+        file's identity (ProgressTracker) then always notices the new start, even when the new file has
+        already grown past the old one's size before it looks again."""
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text('', encoding='utf-8')
+            tmp = self.path.with_name(self.path.name + '.new')
+            tmp.write_text('', encoding='utf-8')
+            os.replace(tmp, self.path)
 
     def _write(self, kind: str, text: str) -> None:
         if not self.path:
@@ -836,6 +849,110 @@ def read_progress(path: Path, offset: int = 0):
         except ValueError:
             continue
     return entries, offset + end
+
+
+@dataclass
+class ProgressUpdate:
+    """One thing the demo panel shows, made from one progress line.
+
+    text      the sentence (Events list and status line)
+    level     '' | 'ok' | 'warn' | 'error' (the colour)
+    step      the step id the line belongs to ('' for a run watcher's line)
+    kind      the progress line's kind: step | info | ok | warn | error | detail | done | failed
+    new_reset True on the first line of a NEW start over: the panel clears the old run from its display
+    finished  True = the start over is done, False = it failed, None = still running / not a start over line
+    detail    True = a tool's progress line: status line only (it would flood the Events list)
+    """
+    text: str
+    level: str = ''
+    step: str = ''
+    kind: str = ''
+    new_reset: bool = False
+    finished: Optional[bool] = None
+    detail: bool = False
+
+
+class ProgressTracker:
+    """Follows the progress file (progress_path) for the demo panel: which START OVER runs, at which step,
+    and whether it ended. Pure Python (no Qt, no ROS), so test/test_run_reset.py checks it with plain files.
+
+    A start over counts as running from its first 'step' line until its 'done' / 'failed' line, but at most
+    `stale_s` seconds after its last line: a start over killed from outside (it then writes no last line)
+    must not lock the panel's buttons forever. Its longest silent wait is far shorter (spawn: 90 s)."""
+
+    def __init__(self, path: Path, stale_s: float = 900.0, now: Callable[[], float] = time.time):
+        self.path, self.stale_s, self.now = Path(path), stale_s, now
+        self.offset = 0
+        self.file_id = None         # (device, inode) of the file being read: Progress.start makes a new one
+        self.reset_id = ''          # id of the start over seen last
+        self.running = False
+        self.n, self.total = 0, 0   # its current step number / number of steps
+        self.step_text = ''         # its current step's title
+        self.run_dir = ''           # the new run folder it announced
+        self.t_last = 0.0           # when its last line was read
+
+    def _identity(self):
+        try:
+            st = self.path.stat()
+        except OSError:
+            return None, 0
+        return (st.st_dev, st.st_ino), st.st_size
+
+    def skip_existing(self) -> None:
+        """Load current state without replaying history when a panel starts during a reset.
+
+        Completed resets stay history. An unfinished reset still locks the mission controls immediately,
+        using its recorded timestamp rather than the panel's start time to decide whether it is stale.
+        """
+        self.file_id, _size = self._identity()
+        entries, self.offset = read_progress(self.path)
+        for entry in entries:
+            self.feed(entry)
+            if str(entry.get('id', '')) == self.reset_id:
+                try:
+                    self.t_last = float(entry.get('t', 0.0))
+                except (TypeError, ValueError):
+                    self.t_last = 0.0
+
+    @property
+    def busy(self) -> bool:
+        """True while a start over runs (it has not finished and its last line is not too old)."""
+        return self.running and self.now() - self.t_last < self.stale_s
+
+    def poll(self) -> List[ProgressUpdate]:
+        """Read the lines written since the last call and turn them into updates (oldest first)."""
+        file_id, _size = self._identity()
+        if file_id != self.file_id:            # a new start over replaced the file: read it from the start
+            self.file_id, self.offset = file_id, 0
+        entries, self.offset = read_progress(self.path, self.offset)
+        return [u for u in (self.feed(e) for e in entries) if u is not None]
+
+    def feed(self, e: dict) -> Optional[ProgressUpdate]:
+        """One progress line -> one update (None for an empty line)."""
+        kind, text, rid = str(e.get('kind', '')), str(e.get('text', '')).strip(), str(e.get('id', ''))
+        step = str(e.get('step', ''))
+        if not text:
+            return None
+        ours = rid == self.reset_id
+        if kind == 'step':
+            new = not ours or not self.running
+            if new:
+                self.reset_id, self.running = rid, True
+            self.n, self.total, self.step_text = int(e.get('n', 0) or 0), int(e.get('total', 0) or 0), text
+            self.run_dir = str(e.get('run_dir', '') or self.run_dir)
+            self.t_last = self.now()
+            return ProgressUpdate(f'STEP {self.n}/{self.total}: {text}', '', step, kind, new_reset=new)
+        level = {'ok': 'ok', 'warn': 'warn', 'error': 'error', 'failed': 'error', 'done': 'ok'}.get(kind, '')
+        if not (ours and self.running):
+            # Not part of a running start over: e.g. the run watcher's "Run finished" line after a flight.
+            return ProgressUpdate(text, level, step, kind, detail=kind == 'detail')
+        self.t_last = self.now()
+        self.run_dir = str(e.get('run_dir', '') or self.run_dir)
+        if kind in ('done', 'failed'):
+            self.running = False
+            return ProgressUpdate(('START OVER done: ' if kind == 'done' else 'START OVER FAILED: ') + text,
+                                  level, step, kind, finished=kind == 'done')
+        return ProgressUpdate(text, level, step, kind, detail=kind == 'detail')
 
 
 # ---------------------------------------------------------------------------------------------
@@ -919,6 +1036,9 @@ class Resetter:
         self.cmd = cmd or CommandOps()
         self.clock = clock or Clock()
         self.environ = dict(os.environ if environ is None else environ)
+        # With the real environment, a setting taken from the running simulator (see use_recorded_env) must
+        # also reach the gz / ros2 tools this process runs; a test's own environ dict never touches os.environ.
+        self._own_env = environ is None
         self.exclude = set(self_pids if self_pids is not None else ancestors())
         self.stamp = time.strftime('%Y%m%d-%H%M%S')
         steps = [s for s, _ in STEPS if s != 'fly' or opts.fly]
@@ -973,32 +1093,45 @@ class Resetter:
 
     # -- main ------------------------------------------------------------------------------------
     def run(self) -> int:
-        """Run every step. Returns 0 (done), 1 (a step failed) or 3 (no simulator running)."""
-        self.progress.start()
+        """Run every step. Returns 0 (done), 1 (a step failed), 3 (no simulator running) or 130 (Ctrl+C).
+
+        Whatever happens, the progress file gets a last 'done' or 'failed' line (the demo panel waits for it
+        to unlock its buttons), and only THEN is the one-at-a-time lock released."""
         try:
+            self.acquire_lock()
+        except ResetError as exc:
+            # A rejected concurrent request must not replace or append to the active reset's progress.
+            self.progress.echo(f'[start over] FAILED: {exc}')
+            return 1
+        code, ok = 0, True
+        try:
+            self.progress.start()
             for n, step in enumerate(self.steps, start=1):
                 self.progress.step(step, n)
                 getattr(self, f'step_{step}')()
+            if self.opts.fly:
+                text = f'the drone is flying the mission again. New run folder: {self.run_dir}'
+            else:
+                text = (f'ready to fly again. Press UPLOAD MISSION + START in the demo panel, or ARM + AUTO in '
+                        f'Mission Planner. New run folder: {self.run_dir}')
         except NotRunning as exc:
-            self.progress.finish(False, str(exc))
-            return 3
+            code, ok, text = 3, False, str(exc)
         except ResetError as exc:
-            self.progress.finish(False, f'{exc}  (full log: {self.run_dir or self.home / "logs"})')
-            return 1
+            code, ok, text = 1, False, f'{exc}  (full log: {self.run_dir or self.home / "logs"})'
+        except KeyboardInterrupt:
+            # Ctrl+C in the start_over.sh terminal: what already restarted keeps running; a second START OVER
+            # finishes the job (it copes with a missing drone, a stopped SITL and a stopped team stack).
+            code, ok, text = 130, False, (f'stopped with Ctrl+C during step "{self.progress.step_id}". Run START '
+                                          'OVER again to finish putting everything back.')
         except Exception as exc:  # noqa: BLE001 - a bug must still end with a clear line for the panel
             import traceback
             traceback.print_exc()
-            self.progress.finish(False, f'unexpected error in step "{self.progress.step_id}": {exc!r}')
-            return 1
+            code, ok, text = 1, False, f'unexpected error in step "{self.progress.step_id}": {exc!r}'
+        try:
+            self.progress.finish(ok, text)
         finally:
             self.release_lock()
-        if self.opts.fly:
-            text = f'the drone is flying the mission again. New run folder: {self.run_dir}'
-        else:
-            text = (f'ready to fly again. Press UPLOAD MISSION + START in the demo panel, or ARM + AUTO in '
-                    f'Mission Planner. New run folder: {self.run_dir}')
-        self.progress.finish(True, text)
-        return 0
+        return code
 
     def release_lock(self) -> None:
         if self.lock_file is not None:
@@ -1009,8 +1142,8 @@ class Resetter:
                 pass
             self.lock_file = None
 
-    # -- 1. check --------------------------------------------------------------------------------
-    def step_check(self) -> None:
+    def acquire_lock(self) -> None:
+        """Claim the reset before touching its shared progress file or any simulator state."""
         state_dir = self.home / 'state'
         state_dir.mkdir(parents=True, exist_ok=True)
         # One start over at a time (the panel button and a terminal could both ask).
@@ -1022,16 +1155,33 @@ class Resetter:
             self.lock_file = None
             raise ResetError('Another START OVER is already running. Wait for it to finish (see the demo panel '
                              'or ~/.astra_sim/logs/start_over_*.log).') from None
+
+    # -- 1. check --------------------------------------------------------------------------------
+    def step_check(self) -> None:
+        state_dir = self.home / 'state'
         self.state = st = load_sim_state(self.home)
         if not st.session:
             raise NotRunning('No simulator session is recorded.')
         roles = {classify(p) for p in self.table() if p.session == st.session}
         if 'gz_server' not in roles:
             raise NotRunning(f'The simulator (session {st.session}) is not running any more.')
+        self.use_recorded_env(st)
+        domain = self.environ.get('ROS_DOMAIN_ID', '0')
+        unowned = [p for p in self.table() if p.pid not in self.exclude and not p.session
+                   and classify(p) == 'team' and p.env.get('ROS_DOMAIN_ID', '0') == domain]
+        if unowned:
+            raise ResetError('A team flight stack started outside this simulator uses the same ROS domain '
+                             f'({domain}). Stop it in its own terminal before START OVER; no unowned process '
+                             'was stopped: ' + '; '.join(f'{p.pid} {p.cmd[:80]}' for p in unowned))
         if self.opts.world and self.opts.world not in (st.world, st.world_name):
             raise ResetError(f'The running simulator shows the world "{st.world}", not "{self.opts.world}". '
                              'START OVER keeps the windows open, so it restarts the SAME world. To fly another '
                              f'world: bash stop_sim.sh, then bash demo.sh {self.opts.world}')
+        if self.opts.detector and st.detector and self.opts.detector != st.detector:
+            # The detector is part of the simulator (truth_detector starts with it), so it cannot change here.
+            raise ResetError(f'The running simulator uses the detector "{st.detector}", not "{self.opts.detector}". '
+                             'START OVER keeps the same setup. To switch: bash stop_sim.sh, then bash demo.sh '
+                             f'{st.world} --detector {self.opts.detector}')
         if not st.model_file or not Path(st.model_file).is_file():
             raise ResetError(f'The drone model file of this simulator is missing ({st.model_file or "not recorded"}).'
                              ' Restart the simulator (stop_sim.sh, then demo.sh).')
@@ -1050,6 +1200,19 @@ class Resetter:
         self.gz = self.gz_factory(st.world_name)
         self.say('ok', f'simulator found: world {st.world}, session {st.session}, mission {self.mission}')
         self.say('info', f'new run folder: {self.run_dir}')
+
+    def use_recorded_env(self, st: SimState) -> None:
+        """Talk to the simulator in ITS Gazebo partition and ROS domain (recorded by sim.launch.py), even when
+        start over runs from a terminal with other settings: otherwise `gz service` would ask another (or no)
+        Gazebo, and the restarted team stack would not see the simulator's ROS topics."""
+        for key, value in (('GZ_PARTITION', st.gz_partition), ('ROS_DOMAIN_ID', st.ros_domain_id)):
+            if not value or self.environ.get(key, '0' if key == 'ROS_DOMAIN_ID' else '') == value:
+                continue
+            self.say('info', f'using the simulator\'s own {key}={value} (this terminal had '
+                             f'"{self.environ.get(key, "")}")')
+            self.environ[key] = value
+            if self._own_env:
+                os.environ[key] = value
 
     def find_old_run_dir(self) -> str:
         """The run folder of the run that is ending: the last start over's, else the one demo.sh gave the
@@ -1117,14 +1280,29 @@ class Resetter:
             return
         # How demo.sh started it: TRACKER_CMD and FCU_URL are in launcher.sh's own environment (demo.sh sets
         # them for it), so the restart uses exactly the same ones, whatever profile demo.sh used.
-        for p in self.session_procs(['team']):
+        team = self.session_procs(['team'])
+        for p in team:
             if 'launcher.sh' in p.cmd:
                 self.launcher_env = {k: p.env[k] for k in ('TRACKER_CMD', 'FCU_URL') if p.env.get(k)}
                 break
+        # The process groups the team stack LEADS (demo.sh and start over start launcher.sh with setsid, so it
+        # is the leader of its own group). Everything else in such a group belongs to the team stack too, e.g.
+        # a plug-in's own detector node that the patterns above do not know.
+        groups = {p.pgid for p in team if p.pid == p.pgid and p.pgid > 1}
         n = self.stop(['team'], 'team flight stack (launcher.sh, MAVROS, team nodes)', self.opts.timeouts.stop)
         self.had_team = n > 0
         if not n:
             self.say('info', 'the team flight stack was not running')
+        everyone = self.table()
+        rest = [p for p in everyone if p.pgid in groups and p.session == self.state.session
+                and p.pid not in self.exclude
+                and classify(p) not in PROTECTED_ROLES]
+        if rest:
+            self.say('info', f'also stopping {len(rest)} other program(s) the team stack had started (plug-ins)')
+            left = stop_procs(self.ops, rest, everyone, self.clock, self.opts.timeouts.stop, self.exclude)
+            if left:
+                raise ResetError('Could not stop part of the team stack: still running: '
+                                 + '; '.join(f'{p.pid} {p.cmd[:80]}' for p in left))
 
     def read_team_record(self) -> Dict[str, str]:
         """state/team_stack.env, written by demo.sh when it starts the team stack (TRACKER_CMD, FCU_URL,
@@ -1142,26 +1320,29 @@ class Resetter:
     # -- 4. land ---------------------------------------------------------------------------------
     def step_land(self) -> None:
         to = self.opts.timeouts
-        if not self.session_procs(['mavproxy']):
-            self.say('warn', 'MAVProxy is not running: cannot ask the autopilot whether it flies (continuing)')
+        if not self.gz.model_exists(DRONE_ENTITY):
+            self.say('info', 'the old drone is already absent; no landing is needed to finish the reset')
             return
+        if not self.session_procs(['mavproxy']):
+            raise ResetError('MAVProxy is not running, so the drone\'s landing cannot be verified. '
+                             'The drone is left in place; restore the link and land it before START OVER.')
         try:
             mav = self.mav_factory(self.state.gcs_url)
         except Exception as exc:  # noqa: BLE001 - e.g. the port is used by another program
-            self.say('warn', f'cannot talk to the autopilot on {self.state.gcs_url} ({exc}). '
-                             'Continuing without the landing check.')
-            return
+            raise ResetError(f'Cannot talk to the autopilot on {self.state.gcs_url} ({exc}). '
+                             'The drone is left in place; restore the link and land it before START OVER.') from None
         try:
             snap = mav.snapshot(2.0)
             alt = f'{snap.rel_alt:.1f} m' if snap.rel_alt is not None else '? m'
-            if not snap.armed:
+            if not snap.armed and snap.on_ground:
                 self.say('ok', f'the drone is on the ground and disarmed (mode {snap.mode}, height {alt})')
                 return
             if snap.on_ground:
                 self.say('info', f'armed on the ground (mode {snap.mode}): disarming')
                 mav.disarm(force=True)
                 if not wait_until(self.clock, 10.0, lambda: not mav.snapshot(1.0).armed, 0.5):
-                    self.say('warn', 'the autopilot did not disarm; continuing (the new autopilot starts disarmed)')
+                    raise ResetError('The autopilot did not disarm on the ground. The drone is left in place; '
+                                     'disarm it before trying START OVER again.')
                 return
             mode = 'RTL' if self.opts.land == 'rtl' else 'LAND'
             self.say('info', f'the drone is FLYING ({alt}, mode {snap.mode}): commanding {mode} and waiting until '
@@ -1182,8 +1363,8 @@ class Resetter:
                     alt = f'{snap.rel_alt:.1f} m' if snap.rel_alt is not None else '? m'
                     self.progress.detail(f'landing: height {alt}, mode {snap.mode}, '
                                          f'{"armed" if snap.armed else "disarmed"}')
-            self.say('warn', f'the drone did not land within {to.land:.0f} s. This is a simulator, so START OVER '
-                             'continues: the old drone is removed and a fresh one is put on the ground.')
+            raise ResetError(f'The drone did not land within {to.land:.0f} s. It is left in place; '
+                             'land and disarm it before trying START OVER again.')
         finally:
             mav.close()
 
@@ -1533,7 +1714,10 @@ def guard(session: str, home: Optional[Path] = None, ops=None, clock=None, poll_
     children of the simulator's launch, so its Ctrl+C does not reach them)."""
     ops, clock = ops or ProcessOps(), clock or Clock()
     me = set(ancestors())
-    while any(p.session == session and classify(p) == 'gz_server' for p in ops.table()):
+    # Start over never restarts Gazebo, so the server's pids found now are the ones to wait for. Checking
+    # only those pids is cheap; reading the whole process table every 2 s for hours would not be.
+    servers = [p.pid for p in ops.table() if p.session == session and classify(p) == 'gz_server']
+    while any(ops.alive(pid) for pid in servers):
         clock.sleep(poll_s)
     everyone = ops.table()
     left = [p for p in everyone if p.session == session and p.pid not in me and classify(p) not in ('guard',)]
@@ -1575,9 +1759,10 @@ def mp_steps(mission: str, windows_gcs: str = '', environ: Optional[Dict[str, st
     unc = wsl_name(mission) if mission else ''
     lines = [
         'MISSION PLANNER (Windows) - fly it like at the competition:',
-        f'  1. Open Mission Planner. Top right: choose UDP, click CONNECT, keep port {port}, click OK.',
-        '     You see the drone on the map at the runway, and "Disarmed" in the HUD.',
-        '  2. Click FLIGHT PLAN (top left). On the right: LOAD WP FILE. Pick the mission file:',
+        '  1. CONNECT: open Mission Planner. Top right, set the connection box to UDP, click CONNECT, keep',
+        f'     port {port}, click OK. The drone appears on the map at the runway; the HUD says DISARMED.',
+        '  2. MISSION: click PLAN (top left; older versions say FLIGHT PLAN). On the right click',
+        '     "Load File" (older: "Load WP File") and pick the mission file:',
     ]
     if src:
         lines.append(f'        {src}')
@@ -1586,18 +1771,20 @@ def mp_steps(mission: str, windows_gcs: str = '', environ: Optional[Dict[str, st
     if not src and not unc:
         lines.append(f'        {mission}')
     lines += [
-        '     Then click WRITE WPS. The bottom bar says it was written ("Done") and the team code',
-        '     re-reads the mission by itself (ArduPilot says "Flight plan received").',
-        '  3. Click DATA (top left). Wait until the autopilot has settled: about 30 s after the start',
-        '     ("PreArm: ..." / "Gyros inconsistent" messages before that are normal).',
-        '  4. In the ACTIONS tab (under the HUD): click ARM/DISARM. The HUD says "ARMED".',
-        '  5. Within 10 s (or the motors disarm again), switch to AUTO: pick AUTO in the mode box and click',
-        '     SET MODE (or click the "Auto" button in the QUICK/ACTIONS area). The drone takes off.',
-        '     (Also fine: SET MODE to AUTO first, then ARM: it takes off right away.)',
-        '  6. Watch: take-off, search lanes with a photo every second, detections, the team code adds the',
+        '     Then click "Write" (older: "Write WPs"). A small window shows the upload and closes. The team',
+        '     code then re-reads the mission by itself (DATA > Messages shows "Flight plan received").',
+        '  3. WAIT: click DATA (top left). Wait until the autopilot has settled: about 30 s after the start',
+        '     ("PreArm: ..." and "Gyros inconsistent" messages before that are normal).',
+        '  4. ARM: in the Actions tab under the HUD, click "Arm/Disarm". The HUD says ARMED.',
+        '  5. AUTO: within 10 s (or the motors switch off again), pick AUTO in the mode box of the Actions',
+        '     tab and click "Set Mode" (or click the "Auto" button). The drone takes off.',
+        '     (Also fine: "Set Mode" AUTO first, then "Arm/Disarm": it takes off at once.)',
+        '  6. WATCH: take-off, search lanes with a photo every second, detections, the team code adds the',
         '     target waypoints, both payloads fall, the drone flies home (RTL) and lands.',
-        'RUN IT AGAIN: press START OVER in the demo panel (twice), or run simulation/scripts/start_over.sh;',
-        '  then repeat steps 2-5 in Mission Planner (it stays connected; reconnect if it lost the link).',
+        'RUN IT AGAIN: press START OVER in the demo panel (click it twice) and wait for "START OVER done"',
+        '  (about 2-3 minutes); then repeat steps 2-5. Mission Planner stays connected (if it lost the',
+        '  link: DISCONNECT, then CONNECT again). Always do step 2: the autopilot remembers the last',
+        '  mission it had, even after a restart (after a flight: with the target waypoints the team code added).',
     ]
     return lines
 
@@ -1631,7 +1818,9 @@ def launch_start_over(args: Sequence[str] = (), environ: Optional[Dict[str, str]
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f'start_over_{time.strftime("%Y%m%d-%H%M%S")}_panel.log'
     script = find_start_over_script(env)
-    argv = ['bash', script, *args] if script else [sys.executable, '-m', 'sim_demo.run_reset', 'reset', *args]
+    # (--no-fresh is start_over.sh's own option; the Python fallback never starts a fresh demo anyway)
+    argv = ['bash', script, *args] if script else [sys.executable, '-m', 'sim_demo.run_reset', 'reset',
+                                                   *[a for a in args if a != '--no-fresh']]
     with open(log_path, 'ab') as log:
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                 start_new_session=True)
@@ -1653,7 +1842,9 @@ def main(argv=None) -> int:
     p.add_argument('--land', choices=('land', 'rtl'), default='land', help='how a flying drone comes down first')
     p.add_argument('--land-timeout', type=float, default=Timeouts.land, help='seconds to wait for the landing')
     p.add_argument('--no-team-stack', action='store_true', help='do not start ./launcher.sh sim again')
-    p.add_argument('--detector', choices=('', 'real', 'truth'), default='', help='detector of the new run')
+    p.add_argument('--detector', choices=('', 'real', 'truth'), default='',
+                   help='only a check: START OVER keeps the detector the simulator runs (another one: stop_sim.sh, '
+                        'then demo.sh --detector X)')
     p.add_argument('--watch-timeout-min', type=float, default=120.0, help='how long the run watcher waits')
     w = sub.add_parser('watch-run', help='(internal) watch one run until landed, then collect it')
     w.add_argument('--run-dir', required=True)

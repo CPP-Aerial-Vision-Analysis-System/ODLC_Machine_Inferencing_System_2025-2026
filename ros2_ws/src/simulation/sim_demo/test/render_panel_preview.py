@@ -1,15 +1,20 @@
 """
 sim_demo/test/render_panel_preview.py -- PURPOSE: draw the demo panel OFFSCREEN with fake
 inputs and save PNG screenshots, so the look of the window can be checked (by a person or a
-test) without ROS, a simulator or a screen. Four states are rendered:
+test) without ROS, a simulator or a screen. Six states are rendered:
     panel_waiting.png    nothing running yet ("waiting for ..."), Mission Planner not running
     panel_searching.png  searching with the REAL detector: live view, newest photo with boxes;
                          Mission Planner running
     panel_standin.png    flying to a target with the truth_detector stand-in (amber banner);
                          not inside WSL, so the Mission Planner buttons are greyed out
     panel_small.png      the smallest window (1200 x 760) while Mission Planner is opening
-plus a close-up of the Controls card for each (controls_<state>.png). The Mission Planner
-worker is a fake (panel_fakes.FakeMissionPlanner): rendering never asks or touches Windows.
+    panel_restarting.png START OVER running (step 9 of 14) after a flight: the old run has left
+                         the display, the steps are in the Events list, the mission buttons wait
+    panel_small_restarting.png  the same in the smallest window
+plus a close-up of the Controls card for each (controls_<state>.png) and controls_armed.png
+(START OVER after its first click: "CLICK AGAIN ..."). The Mission Planner worker is a fake
+(panel_fakes.FakeMissionPlanner) and START OVER's launcher only records the call
+(panel_fakes.start_over_link): rendering never touches Windows and never runs a script.
 
 Run:  python3 test/render_panel_preview.py OUTPUT_DIR      (from the sim_demo folder)
 """
@@ -55,8 +60,16 @@ def mission_planner_facts(window) -> dict:
                 sizes={w.text(): (w.sizeHint().width(), w.width()) for w in texts})
 
 
+def start_over_facts(window) -> dict:
+    """What START OVER and UPLOAD MISSION + START show (text, clickable) and the status line."""
+    return dict(reset_text=window.btn_reset.text(), reset_enabled=window.btn_reset.isEnabled(),
+                reset_visible=window.btn_reset.isVisible(), start_enabled=window.btn_start.isEnabled(),
+                status=window.cmd_status.text(), rows=window.table.rowCount(),
+                size=(window.win.width(), window.win.height()))
+
+
 def _shoot(window, out_dir: str, state: str, results: dict) -> None:
-    """Save the window and a close-up of its Controls card; note the Mission Planner facts."""
+    """Save the window and a close-up of its Controls card; note the Mission Planner + START OVER facts."""
     path = os.path.join(out_dir, f'panel_{state}.png')
     window.win.grab().save(path)
     crop = os.path.join(out_dir, f'controls_{state}.png')
@@ -64,10 +77,65 @@ def _shoot(window, out_dir: str, state: str, results: dict) -> None:
     results[state] = path
     results[f'{state}_controls'] = crop
     results[f'{state}_mp'] = mission_planner_facts(window)
+    results[f'{state}_so'] = start_over_facts(window)
+
+
+def _restarting(app, out_dir: str, world, items, size, state: str, results: dict, armed_shot: bool) -> None:
+    """START OVER after a flight: the old run on screen, two clicks (the first shown in close-up), then
+    progress lines up to step 9 of 14 as run_reset.py writes them."""
+    import panel_fakes as pf
+    from sim_demo import run_reset as rr
+    from sim_demo.demo_panel import DemoWindow
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = os.path.join(tmp, 'mapping_photos')
+        lat, lon, _ = world.origin.to_geo(31.0, 38.0)
+        name = pf.write_photo(folder, lat, lon)
+        node = pf.FakePanelNode(folder, world, items)
+        node.detector_nodes = ['new_od']
+        node.flight.snap.update(connected=True, armed=False, mode='LAND', state_t=time.time(), lat=lat, lon=lon,
+                                rel_alt=0.1, heading=91.0, ground_speed=0.0)
+        node.add_frame(pf.demo_frame(name, lat, lon))
+        launches = []
+        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('running')),
+                       start_over=pf.start_over_link(tmp, launches))
+        w.win.resize(*size)
+        w.win.show()
+        w.new_photos = 97
+        _pump(app, w, until=lambda: w.shown_photo == name)          # the old run is on screen
+        results[f'{state}_rows_before'] = w.table.rowCount()
+        w.btn_reset.click()                                           # 1st click: asks for a 2nd one
+        _pump(app, w, timeout=0.3)
+        if armed_shot:
+            crop = os.path.join(out_dir, 'controls_armed.png')
+            w.controls_card.grab().save(crop)
+            results['armed_controls'] = crop
+            results['armed_mp'] = mission_planner_facts(w)
+            results['armed_so'] = start_over_facts(w)
+        w.btn_reset.click()                                           # 2nd click: starts it (fake launcher)
+        prog = pf.progress_writer(tmp, 'render', 14)
+        prog.start()
+        steps = [s for s, _ in rr.STEPS if s != 'fly']
+        notes = {'check': ('ok', 'simulator found: world runway'), 'land': ('ok', 'the drone is on the ground '
+                 'and disarmed (mode LAND, height 0.1 m)'), 'archive': ('ok', 'moved 97 photo(s) and 97 detector '
+                 'result(s) of the previous run to the old run folder'), 'spawn': ('ok', 'tent payload is attached '
+                 'under the drone (9 cm from its centre)'), 'start_ap': ('ok', 'SITL and MAVProxy run again with '
+                 'their old command lines')}
+        for n, step in enumerate(steps[:9], start=1):
+            prog.step(step, n)
+            if step in notes:
+                prog.say(*notes[step])
+        prog.detail('mission: waiting for a GPS fix and a healthy EKF (12 s)')
+        w._poll_start_over()
+        _pump(app, w, timeout=0.6)
+        _shoot(w, out_dir, state, results)
+        results[f'{state}_launches'] = list(launches)
+        results[f'{state}_node_resets'] = getattr(node, 'resets', 0)
+        w.close()
+        w.win.close()
 
 
 def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
-    """Render the four states; returns {state: png_path} plus the window objects' facts."""
+    """Render the six states; returns {state: png_path} plus the window objects' facts."""
     os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
     from sim_demo.demo_panel import DemoWindow, prepare_qt_environment
     from sim_demo.mission_file import analyze_items, load_waypoints_file
@@ -88,7 +156,8 @@ def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
     # ---------------------------------------------------------------- 1. waiting
     with tempfile.TemporaryDirectory() as photos:
         node = pf.FakePanelNode(os.path.join(photos, 'mapping_photos'), world, items)
-        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('not running')))
+        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('not running')),
+                       start_over=pf.start_over_link(photos))
         w.win.resize(1600, 960)
         w.win.show()
         _pump(app, w, timeout=0.8)
@@ -129,7 +198,8 @@ def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
         node.event('detector', f'TENT 91%, PERSON 78% in {name}')
         node.set_image(pf.aerial_scene(1280, 720, seed=3, tent_xy=(700, 260), person_xy=None,
                                        scale=0.8))
-        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('running')))
+        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('running')),
+                       start_over=pf.start_over_link(photos))
         w.win.resize(1600, 960)
         w.win.show()
         w.new_photos = 2
@@ -173,7 +243,8 @@ def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
         node.set_image(pf.aerial_scene(1280, 720, seed=5, tent_xy=(640, 360), person_xy=(300, 200),
                                        scale=1.4))
         w = DemoWindow(node, app,
-                       mission_planner=pf.FakeMissionPlanner(pf.planner_state('not on Windows')))
+                       mission_planner=pf.FakeMissionPlanner(pf.planner_state('not on Windows')),
+                       start_over=pf.start_over_link(photos))
         w.win.resize(1600, 960)
         w.win.show()
         w.new_photos = 182
@@ -186,7 +257,8 @@ def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
     # ---------------------------------------------------------------- 4. smallest window, MP opening
     with tempfile.TemporaryDirectory() as photos:
         node = pf.FakePanelNode(os.path.join(photos, 'mapping_photos'), world, items)
-        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('opening')))
+        w = DemoWindow(node, app, mission_planner=pf.FakeMissionPlanner(pf.planner_state('opening')),
+                       start_over=pf.start_over_link(photos))
         w.win.resize(1200, 760)            # = the window's minimum size
         w.win.show()
         _pump(app, w, timeout=0.8)
@@ -194,6 +266,10 @@ def render_all(out_dir: str, worlds_dir: str | None = None) -> dict:
         results['small_size'] = (w.win.width(), w.win.height())
         w.close()
         w.win.close()
+
+    # ---------------------------------------------------------------- 5./6. START OVER running
+    _restarting(app, out_dir, world, items, (1600, 960), 'restarting', results, armed_shot=True)
+    _restarting(app, out_dir, world, items, (1200, 760), 'small_restarting', results, armed_shot=False)
     return results
 
 

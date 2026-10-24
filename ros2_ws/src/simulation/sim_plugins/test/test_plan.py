@@ -82,8 +82,11 @@ def test_default_demo_vars_equal_demo_sh_defaults(sim_home):
 def test_default_start_sim_vars_add_nothing(sim_home):
     sv = plan.start_sim_vars(resolve('default'))
     assert sv.scalars['WORLD'] == 'runway' and sv.arrays['PLUGIN_SIM_ARGS'] == []
+    # = simulation/README.md "OR BY HAND" and start_sim.sh --dry-run without a profile (byte for byte)
     assert sv.scalars['PLUGIN_TEAM_HINT'] == \
-        'TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py detector:=real" ./launcher.sh sim'
+        'TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim'
+    start_sim = (REPO / 'simulation' / 'scripts' / 'start_sim.sh').read_text(encoding='utf-8')
+    assert '&& ' + sv.scalars['PLUGIN_TEAM_HINT'].replace('"', '\\"') + '"' in start_sim
 
 
 # ---- each example profile ------------------------------------------------------------------------------
@@ -179,6 +182,13 @@ def test_start_sim_typed_arguments_win(sim_home):
 def test_team_stack_hint_with_other_mavros_port(sim_home):
     hint = plan.team_stack_hint(resolve('default', 'network.mavros_port=14562'))
     assert hint.startswith('FCU_URL=udp://:14562@localhost:14562 TRACKER_CMD=')
+
+
+def test_team_stack_hint_adds_only_what_differs(sim_home):
+    assert plan.team_stack_hint(resolve('truth_detector')) == \
+        'TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py detector:=truth" ./launcher.sh sim'
+    hint = plan.team_stack_hint(resolve('example_detector'), '/gen/p.yaml')
+    assert 'detector:=custom profile:=/gen/p.yaml' in hint
 
 
 def test_summary_mentions_every_slot(sim_home):

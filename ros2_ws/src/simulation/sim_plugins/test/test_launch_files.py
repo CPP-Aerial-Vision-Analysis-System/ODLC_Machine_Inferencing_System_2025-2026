@@ -9,6 +9,8 @@ SITL, no ROS graph): the tests only look at the commands the launch files WOULD 
   * every example profile, and the new arguments one by one (another ArduCopter version, real-drone parameter
     files, an external autopilot, Docker network outputs, camera bind / strict, custom detector / mission brain /
     camera / extras) -> the right changes and nothing else.
+Included launch files are found with conftest.include_location(): their location is performed in the
+LaunchContext (and the file is read), like the launch system does; `.location` alone is not the path in Humble.
 Needs ROS 2 Humble's Python libraries (launch, launch_ros, launch_xml): skipped without them.
 """
 
@@ -18,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import PROFILES, write_fake_arducopter
+from conftest import PROFILES, include_location, write_fake_arducopter
 
 SIM = Path(__file__).resolve().parents[2]            # ros2_ws/src/simulation
 SRC = SIM.parent
@@ -235,7 +237,7 @@ def test_sim_profile_example_detector(sim_home, monkeypatch, tmp_path):
     rec, actions, ctx = run_sim(monkeypatch, tmp_path, {'profile': 'example_detector'})
     assert not shutdown_requested(actions), messages(actions, ctx)
     demo = [a for a in actions if isinstance(a, IncludeLaunchDescription)
-            and a.launch_description_source.location.endswith('demo_nodes.launch.py')][0]
+            and include_location(a, ctx).endswith('demo_nodes.launch.py')][0]
     assert dict(demo.launch_arguments)['detector'] == 'real'           # custom = "a real detector" for the panel
     text = messages(actions, ctx)
     assert 'from the profile: detector:=custom' in text and 'from the profile: camera_max_zoom:=1' in text
@@ -314,16 +316,48 @@ def run_team(monkeypatch, args=None, block_plugins=False):
     return rec, actions, ctx
 
 
-def tracker_include(actions):
+TEAM_TRACKER = SRC / 'main' / 'launch' / 'tracker.launch.xml'
+
+
+def tracker_include_action(actions):
+    """The IncludeLaunchDescription of the tracker file (team_stack.launch.py puts it in a scoped GroupAction)."""
     from launch.actions import GroupAction, IncludeLaunchDescription
     group = [a for a in actions if isinstance(a, GroupAction)][0]
-    inner = group._GroupAction__actions
-    return [a for a in inner if isinstance(a, IncludeLaunchDescription)][0].launch_description_source.location
+    return [a for a in group.get_sub_entities() if isinstance(a, IncludeLaunchDescription)][0]
+
+
+def tracker_include(actions, ctx):
+    """The tracker launch file team_stack.launch.py includes, its location performed in ctx."""
+    return include_location(tracker_include_action(actions), ctx)
+
+
+def nodes_of(description, ctx):
+    """'pkg/exec' of every node a loaded LaunchDescription would start (its pkg/exec performed in ctx)."""
+    from launch.utilities import normalize_to_list_of_substitutions, perform_substitutions
+    from launch_ros.actions import Node
+
+    def text(value):
+        return perform_substitutions(ctx, normalize_to_list_of_substitutions(value))
+    return [f'{text(e.node_package)}/{text(e.node_executable)}' for e in description.entities if isinstance(e, Node)]
+
+
+def tracker_nodes(actions, ctx):
+    """The nodes the INCLUDED tracker file would start, read by the launch system (comments do not count)."""
+    include = tracker_include_action(actions)
+    include_location(include, ctx)
+    return nodes_of(include.launch_description_source.get_launch_description(ctx), ctx)
+
+
+def team_tracker_nodes(ctx):
+    """The nodes the team's own tracker.launch.xml starts (read from the team's file, so a team change is seen)."""
+    from launch_xml.launch_description_sources import XMLLaunchDescriptionSource
+    return nodes_of(XMLLaunchDescriptionSource(str(TEAM_TRACKER)).get_launch_description(ctx), ctx)
 
 
 def test_team_default_is_todays_launch_without_sim_plugins(sim_home, monkeypatch):
     rec, actions, ctx = run_team(monkeypatch, block_plugins=True)
-    assert tracker_include(actions) == str(SRC / 'main' / 'launch' / 'tracker.launch.xml')
+    assert tracker_include(actions, ctx) == str(TEAM_TRACKER)
+    assert 'detection/new_od' in tracker_nodes(actions, ctx) and 'main/main_controller.py' in tracker_nodes(actions, ctx)
     assert rec.params == [('use_batched_inference', False)]           # (no weights in the test home)
     assert not shutdown_requested(actions)
 
@@ -339,14 +373,15 @@ def test_team_default_with_model(sim_home, monkeypatch):
 def test_team_truth(sim_home, monkeypatch):
     rec, actions, ctx = run_team(monkeypatch, {'detector': 'truth'}, block_plugins=True)
     assert ('camera_feed_path', str(sim_home['home'] / 'truth_mode_empty_feed')) in rec.params
-    assert tracker_include(actions).endswith('main/launch/tracker.launch.xml')
+    assert tracker_include(actions, ctx).endswith('main/launch/tracker.launch.xml')
 
 
 def test_team_custom_detector_without_profile(sim_home, monkeypatch):
     rec, actions, ctx = run_team(monkeypatch, {'detector': 'custom'})
-    path = Path(tracker_include(actions))
-    assert path.parent == sim_home['home'] / 'generated' and 'new_od' not in path.read_text()
-    assert 'main_controller.py' in path.read_text()
+    path = Path(tracker_include(actions, ctx))
+    assert path.parent == sim_home['home'] / 'generated'               # a generated copy, the team file untouched
+    team = team_tracker_nodes(ctx)
+    assert tracker_nodes(actions, ctx) == [n for n in team if n != 'detection/new_od']   # only new_od is gone
     assert rec.params == []                                           # no new_od parameters at all
     assert 'start your detector yourself' in messages(actions, ctx)
 
@@ -354,9 +389,9 @@ def test_team_custom_detector_without_profile(sim_home, monkeypatch):
 def test_team_profile_example_detector(sim_home, monkeypatch):
     from launch.actions import IncludeLaunchDescription
     rec, actions, ctx = run_team(monkeypatch, {'profile': 'example_detector'})
-    assert 'new_od' not in Path(tracker_include(actions)).read_text()
+    assert tracker_nodes(actions, ctx) == [n for n in team_tracker_nodes(ctx) if n != 'detection/new_od']
     plugin = [a for a in actions if isinstance(a, IncludeLaunchDescription)]
-    assert plugin and plugin[0].launch_description_source.location.endswith('example_detector.launch.py')
+    assert plugin and include_location(plugin[0], ctx).endswith('example_detector/launch/example_detector.launch.py')
     assert 'from the profile: detector:=custom' in messages(actions, ctx)
 
 
@@ -366,8 +401,7 @@ def test_team_profile_custom_mission_brain(sim_home, monkeypatch, tmp_path):
     prof.write_text('mission_brain:\n  kind: custom\n  custom: {package: my_brain, executable: brain, '
                     'node_name: brain, args: {hold_s: 4}}\n')
     rec, actions, ctx = run_team(monkeypatch, {'profile': str(prof)})
-    text = Path(tracker_include(actions)).read_text()
-    assert 'main_controller.py' not in text and 'new_od' in text
+    assert tracker_nodes(actions, ctx) == [n for n in team_tracker_nodes(ctx) if n != 'main/main_controller.py']
     nodes = [a for a in actions if isinstance(a, Node)]
     assert nodes and nodes[0].node_package == 'my_brain' and nodes[0].node_executable == 'brain'
 
@@ -375,7 +409,7 @@ def test_team_profile_custom_mission_brain(sim_home, monkeypatch, tmp_path):
 def test_team_profile_extra(sim_home, monkeypatch):
     from launch_ros.actions import Node
     rec, actions, ctx = run_team(monkeypatch, {'profile': 'example_listener'})
-    assert tracker_include(actions).endswith('main/launch/tracker.launch.xml')
+    assert tracker_include(actions, ctx).endswith('main/launch/tracker.launch.xml')
     assert [a.node_executable for a in actions if isinstance(a, Node)] == ['example_listener']
 
 

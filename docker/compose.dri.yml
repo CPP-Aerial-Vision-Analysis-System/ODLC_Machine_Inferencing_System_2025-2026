@@ -1,0 +1,27 @@
+# =============================================================================
+#  docker/compose.dri.yml  --  ADD-ON to compose.sim.yml: a Linux PC's own graphics chip for 3D (/dev/dri)
+#
+#  PURPOSE: lets Gazebo and RViz inside the containers draw on the PC's graphics hardware through Mesa (the
+#  open-source OpenGL drivers in the sim image) instead of on the processor. /dev/dri holds the "render nodes"
+#  of Intel and AMD graphics (and of NVIDIA cards whose driver shows them). The containers' user must be in the
+#  group that owns /dev/dri/renderD128, whose number differs between PCs: compose_up.sh reads it and sets
+#  ASTRA_RENDER_GID (by hand:  export ASTRA_RENDER_GID=$(stat -c %g /dev/dri/renderD128) ).
+#  A separate file because Docker refuses to start a container whose device is missing (virtual machines and
+#  WSL2 have no /dev/dri). Not for WSL2: there the graphics go through /dev/dxg (compose.wslg.yml).
+#
+#  HOW TO USE (Linux only):
+#      ls /dev/dri                       # must list renderD128 (and card0)
+#      docker compose -f docker/compose.sim.yml -f docker/compose.linux.yml -f docker/compose.dri.yml up ...
+# =============================================================================
+
+services:
+  sim:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${ASTRA_RENDER_GID:-video}"      # the group of /dev/dri/renderD128 (default: video, the group of card0)
+  jetson:
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "${ASTRA_RENDER_GID:-video}"

@@ -302,8 +302,8 @@
    "file": "buildings/ms_buildings_quadkey023112111.geojson",
    "features_sha256": "8406acc3526ad653fc9d66353a27144d926892fc1fcfeced07ab11957ac51286",
    "what": "Microsoft Global ML Building Footprints (release 2026-02-03), buildings inside the terrain box",
-   "licence": "Open Database License (ODbL) 1.0",
-   "attribution": "Microsoft Global ML Building Footprints"
+   "licence": "Community Data License Agreement - Permissive, Version 2.0 (CDLA Permissive 2.0), https://cdla.dev/permissive-2-0/ ; keep the credit",
+   "attribution": "Microsoft Global ML Building Footprints (CDLA Permissive 2.0)"
   },
   {
    "id": "tex_grass_ground",
@@ -548,9 +548,11 @@
    "file": "s2/s2_2023-09-23_B4B3B2B8.tif",
    "pixel_sha256": "ff72aa044a08d6969171d7e538a3dbd818180ed44fcb32760a7503fc4b9d4f32",
    "scene": "S2A_MSIL2A_20230923T170021_R069_T14SQF_20241031T091541",
-   "what": "Sentinel-2 L2A surface reflectance x10000 (B04 red, B03 green, B02 blue, B08 NIR), 10 m, 2023-09-23; only used to re-colour the 2023 grass to competition week",
+   "what": "Sentinel-2 L2A surface reflectance x10000 stored with +1000 (BOA_ADD_OFFSET -1000, processing baseline 04.00 and later) (B04 red, B03 green, B02 blue, B08 NIR), 10 m, 2023-09-23; only used to re-colour the 2023 grass to competition week",
    "licence": "free, full and open Copernicus Sentinel data licence",
-   "attribution": "Contains modified Copernicus Sentinel data 2023"
+   "attribution": "Contains modified Copernicus Sentinel data 2023",
+   "processing_baseline": "05.10",
+   "boa_add_offset": -1000
   },
   {
    "id": "s2_2026-09-15",
@@ -573,9 +575,11 @@
    "file": "s2/s2_2026-09-15_B4B3B2B8.tif",
    "pixel_sha256": "2ebffdb1f4bb667c2f7f912299a6195dcb62026b5d61a53e4957f1529c9b29f5",
    "scene": "S2B_MSIL2A_20260915T170849_R112_T14SQF_20260915T210317",
-   "what": "Sentinel-2 L2A surface reflectance x10000 (B04 red, B03 green, B02 blue, B08 NIR), 10 m, 2026-09-15; only used to re-colour the 2023 grass to competition week",
+   "what": "Sentinel-2 L2A surface reflectance x10000 stored with +1000 (BOA_ADD_OFFSET -1000, processing baseline 04.00 and later) (B04 red, B03 green, B02 blue, B08 NIR), 10 m, 2026-09-15; only used to re-colour the 2023 grass to competition week",
    "licence": "free, full and open Copernicus Sentinel data licence",
-   "attribution": "Contains modified Copernicus Sentinel data 2026"
+   "attribution": "Contains modified Copernicus Sentinel data 2026",
+   "processing_baseline": "05.12",
+   "boa_add_offset": -1000
   }
  ]
 }

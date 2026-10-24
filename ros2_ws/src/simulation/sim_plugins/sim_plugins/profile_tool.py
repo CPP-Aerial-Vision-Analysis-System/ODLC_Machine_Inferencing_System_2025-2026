@@ -11,6 +11,8 @@ profile before a run; demo.sh and start_sim.sh use it to turn a profile into lau
     ros2 run sim_plugins profile_tool contract --slot detector     what a detector must do (--markdown: tables)
     ros2 run sim_plugins profile_tool shell --for demo|start_sim [--profile P] [--set K=V]...
                                                                    shell variables (used by the scripts)
+    ros2 run sim_plugins profile_tool docs --check | --write       the generated parts of docs/simulation/PLUGINS.md
+                                                                   (profile reference + slot contracts)
 Without ROS:  python3 -m sim_plugins.profile_tool <same arguments>
 A profile is a name in simulation/profiles (truth_detector) or a path (./my_profile.yaml).
 Exit codes: 0 = fine, 1 = a problem in the profile or a missing file (printed in plain words), 2 = bad usage.
@@ -169,6 +171,36 @@ def cmd_contract(args) -> int:
     return 0
 
 
+def cmd_docs(args) -> int:
+    """Print, check or rewrite the generated parts of docs/simulation/PLUGINS.md (doc_blocks.py)."""
+    from . import doc_blocks, paths
+    if not (args.check or args.write):
+        for name in doc_blocks.BLOCKS:
+            print(f'{doc_blocks.begin_marker(name)}\n{doc_blocks.generate(name)}\n{doc_blocks.end_marker(name)}\n')
+        return 0
+    doc = Path(args.file) if args.file else paths.repo_dir() / 'docs' / 'simulation' / 'PLUGINS.md'
+    try:
+        text = doc.read_text(encoding='utf-8')
+    except OSError as exc:
+        print(f' XX cannot read {doc}: {exc}', file=sys.stderr)
+        return 1
+    new_text, changed, missing = doc_blocks.replace_blocks(text)
+    for name in missing:
+        print(f' XX {doc}: the markers of the generated part "{name}" are missing:\n'
+              f'      {doc_blocks.begin_marker(name)}\n      {doc_blocks.end_marker(name)}', file=sys.stderr)
+    if args.check:
+        for name in changed:
+            print(f' XX {doc}: the generated part "{name}" is out of date. Fix: '
+                  'python3 -m sim_plugins.profile_tool docs --write', file=sys.stderr)
+        if not changed and not missing:
+            print(f' OK {doc}: the generated parts ({", ".join(doc_blocks.BLOCKS)}) are up to date')
+        return 1 if changed or missing else 0
+    if changed:
+        doc.write_text(new_text, encoding='utf-8', newline='\n')
+    print(f' OK {doc}: ' + (f'rewrote {", ".join(changed)}' if changed else 'already up to date'))
+    return 1 if missing else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The argument parser (one sub-command per job)."""
     parser = argparse.ArgumentParser(prog='profile_tool', description=__doc__.split('\n\n')[0],
@@ -206,6 +238,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('--slot', default='', help=f'one of {", ".join(contracts.CONTRACTS)} (default: all)')
     p.add_argument('--markdown', action='store_true', help='Markdown tables instead of text')
     p.set_defaults(func=cmd_contract)
+    p = sub.add_parser('docs', help='the generated parts of docs/simulation/PLUGINS.md (print / --check / --write)')
+    p.add_argument('--file', default='', help='the Markdown file (default <repo>/docs/simulation/PLUGINS.md)')
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument('--check', action='store_true', help='exit 1 when a generated part is out of date')
+    mode.add_argument('--write', action='store_true', help='rewrite the generated parts in the file')
+    p.set_defaults(func=cmd_docs)
     return parser
 
 

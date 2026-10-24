@@ -62,9 +62,11 @@ SEARCH_BOUNDARIES_LATLON = {       #: revised 2026-09-14 ("New search boundaries
 }
 MIN_AGL_M, MAX_AGL_M = 45.7, 121.9         #: 150 ft .. 400 ft above the ground (handbook)
 
-#: Grass colour of competition week (15-17 Sept 2026) relative to the NAIP photo day (18 Sept 2023): the grass
-#: was greener and darker after rain on 10-13 Sept. Ratio of Sentinel-2 grass reflectance 2026-09-15 / 2023-09-18
-#: over pure NAIP-grass pixels (site_facts.md section 6.3). Applied to grass pixels only (realfield/pack.py).
+#: FALLBACK grass colour of competition week (15-17 Sept 2026) relative to the NAIP photo day (18 Sept 2023): the
+#: grass was greener and darker after rain on 10-13 Sept. Ratio of Sentinel-2 grass reflectance 2026-09-15 /
+#: 2023-09-18 over pure NAIP-grass pixels (site_facts research, section 6.3). pack.py uses the grade that stage 1
+#: MEASURES from the downloaded Sentinel-2 pair (prepare.prepare_season_grade) and only falls back to this one
+#: when no pair was downloaded. Applied to grass pixels only.
 GRASS_GRADE_RGB = (0.77, 0.88, 0.79)
 
 #: Sun of the NAIP photo (its shadows point north-west: about 11:00 CDT) = competition day 15 Sept 2026 at
@@ -76,6 +78,38 @@ ELEVATION_RULE_FT = (633.0, 748.0)         #: "between 633 ft MSL and 748 ft MSL
 #: Area of interest of the research downloads (flight boundary + about 150 m)
 AOI_LAT = (36.2093, 36.2222)
 AOI_LON = (-96.0160, -95.9999)
+
+# ------------------------------------------------------------------------------------------------------------
+# Things NO map database has, added by hand (research fix 3). Positions are the measured WGS84 points; the world
+# x/y are computed from them (manual_structures_xy). Each item says where it comes from. Keep this list SHORT and
+# only for things that matter to the drone or the detector.
+# ------------------------------------------------------------------------------------------------------------
+MANUAL_STRUCTURES = [
+    {'name': 'sb1_pole_a', 'kind': 'pole', 'latlon': (36.2125201, -96.0039364), 'height_m': 10.2, 'diameter_m': 0.3,
+     'source': 'USGS 3DEP lidar 2017: isolated narrow point cluster 10.2 m tall (terrain_sources research, script '
+               'v05); OK Aerial 2025 15 cm photo: wooden pole with a long thin shadow (v06). Research pad-frame '
+               'position (250.6, -246.4). Inside Search Boundary 1.'},
+    {'name': 'sb1_pole_b', 'kind': 'pole', 'latlon': (36.2125291, -96.0037362), 'height_m': 10.2, 'diameter_m': 0.3,
+     'source': 'as sb1_pole_a (lidar cluster 10.2 m, pole + shadow in the 2025 photo); research position '
+               '(268.6, -245.4). Inside Search Boundary 1.'},
+    {'name': 'sb1_pole_c', 'kind': 'pole', 'latlon': (36.2125201, -96.0027464), 'height_m': 10.1, 'diameter_m': 0.3,
+     'source': 'as sb1_pole_a (lidar cluster 10.1 m, pole + shadow in the 2025 photo); research position '
+               '(357.6, -246.4). Inside Search Boundary 1.'},
+]
+#: A wire between the three poles is LIKELY (a faint line in the 2025 photo) but NOT confirmed (no lidar returns on
+#: it), so it is OFF by default; `build_real_field.py world --pole-wire` draws it (2 cm cable, 0.6 m sag).
+POLE_WIRE = {'poles': ['sb1_pole_a', 'sb1_pole_b', 'sb1_pole_c'], 'attach_below_top_m': 0.4, 'sag_m': 0.6,
+             'diameter_m': 0.02, 'default_on': False,
+             'source': 'unconfirmed: a faint line between the poles in the OK Aerial 2025 photo (terrain_sources v06)'}
+
+# ------------------------------------------------------------------------------------------------------------
+# Survey altitude rule on REAL ground (research fix 6). SUAS: 150 ft (45.72 m) to 400 ft (121.92 m) above the
+# ground. The mission flies at ONE altitude above home (frame 3), but the ground under it goes up and down, so the
+# floor must hold over the HIGHEST ground under the survey and the ceiling over the LOWEST ground.
+# ------------------------------------------------------------------------------------------------------------
+RULE_MIN_AGL_M, RULE_MAX_AGL_M = 45.72, 121.92     #: exact 150 ft / 400 ft
+ALTITUDE_MARGIN_M = 1.0                            #: extra metres above the floor (GPS / baro altitude error)
+ALTITUDE_CAP_REL_HOME_M = 122.0                    #: never plan higher than this above home
 
 # ------------------------------------------------------------------------------------------------------------
 # Ground changes since the lidar was flown (February 2017). The elevation research (elevation_lidar.md section
@@ -123,7 +157,10 @@ TILE_KINDS = {
     'near': {'size': 2 * TILE_M, 'tolerance': 0.10, 'tex_px': 512, 'tex_px_hd': 512, 'micro': False},
     'far': {'size': BLOCK_M, 'tolerance': 0.25, 'tex_px': 256, 'tex_px_hd': 256, 'micro': False},
 }
-COLLISION_TOLERANCE = {'detail': 0.08, 'near66': 0.15, 'near': 0.25, 'far': 0.60}
+#: simplification tolerance (m) of the physics (collision) mesh per tile kind. In the search areas and at the pad
+#: it EQUALS the visual tolerance, so the collision surface is exactly the ground you see: a payload or a landing
+#: drone never floats above or sinks into the picture there. Coarser elsewhere (fewer triangles for physics).
+COLLISION_TOLERANCE = {'detail': 0.05, 'near66': 0.15, 'near': 0.25, 'far': 0.60}
 
 
 def home_at(alt_msl):
@@ -161,6 +198,15 @@ def search_box_xy(name, home):
     x0, y0 = world_xy(b['lat_min'], b['lon_min'], home)
     x1, y1 = world_xy(b['lat_max'], b['lon_max'], home)
     return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+
+
+def manual_structures_xy(home):
+    """MANUAL_STRUCTURES with world 'x', 'y' added (WGS84 tangent plane, like everything real)."""
+    out = []
+    for s in MANUAL_STRUCTURES:
+        x, y = world_xy(s['latlon'][0], s['latlon'][1], home)
+        out.append(dict(s, x=round(x, 2), y=round(y, 2)))
+    return out
 
 
 def strip_axis_xy(home):

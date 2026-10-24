@@ -13,12 +13,17 @@ sim_demo/demo_panel.py -- PURPOSE: the window people WATCH during the simulated 
   * big buttons: TAKE PHOTO (/camera/trigger, the team's own shutter topic), LOOK DOWN /
     LOOK FORWARD (the team's /camera/command protocol), UPLOAD MISSION + START (uploads the
     world's mission, waits out the settling window, arms, starts AUTO) and RTL;
+  * START OVER (click it twice within 5 s): puts the whole run back to the start while every
+    window stays open (simulation/scripts/start_over.sh -> run_reset.py: a flying drone lands, a
+    fresh drone with both payloads, a fresh autopilot and team stack, a new run folder). Its steps
+    appear in the Events list and the status line; the mission buttons stay locked meanwhile, and
+    the old run's phases, detections and photos leave the display;
   * OPEN / CLOSE MISSION PLANNER: starts or closes the Windows ground station through WSL, with
     a "Mission Planner: running / not running" light and the connect hint (mission_planner.py).
 A big amber banner says so whenever the truth_detector stand-in (not the AI model) is the
 detector. Nothing blocks the window: ROS spins on a background thread, the autopilot commands
-run on their own thread, and the Mission Planner checks and buttons on another one. It starts
-fine with nothing running ("waiting for ...").
+run on their own thread, the Mission Planner checks and buttons on another one, and START OVER
+is a separate background program. It starts fine with nothing running ("waiting for ...").
 
 Run:  ros2 run sim_demo demo_panel --ros-args -p world:=runway
 Screenshot without a screen:
@@ -29,12 +34,14 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import signal
 import sys
 import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -51,6 +58,13 @@ from .world_info import load_world
 
 WINDOW_TITLE = 'ASTRA Simulation - Search Demo'
 QUIET_TEAM_TEXTS = ('No objects detected', 'SUCCESS: Captured', 'Simulation photo captured')
+#: START OVER needs a second click within this many seconds (a click by mistake must not end a flight).
+RESET_CONFIRM_S = 5.0
+#: After the second click, start_over.sh must write its first progress line within this time [s].
+RESET_REPLY_S = 60.0
+RESET_TIP = ('Put the whole run back to the start, every window stays open: a flying drone lands first, then a '
+             'fresh drone with both payloads, a fresh autopilot and team code, and a new run folder. Click twice '
+             '(within 5 s).')
 
 
 def prepare_qt_environment() -> str:
@@ -183,6 +197,61 @@ class MavrosAdapter:
         return bool(resp and resp.success)
 
 
+class StartOverLink:
+    """The panel's side of START OVER (the work itself is sim_demo/run_reset.py).
+
+    launch() starts simulation/scripts/start_over.sh --no-fresh in the background, detached from the
+    panel (its own session: it keeps running even if the panel closes, and stop_sim.sh still finds it by
+    the simulator's session tag). poll() reads the progress lines it writes (run_reset.ProgressTracker).
+    The panel's own Qt thread only reads a small file here, so the window never waits for the reset.
+    Tests pass a temporary sim home and a fake launcher, so no script ever runs.
+    """
+
+    def __init__(self, home=None, launcher=None):
+        from . import run_reset
+        self._rr = run_reset
+        self._launcher = launcher or run_reset.launch_start_over
+        self.tracker = run_reset.ProgressTracker(run_reset.progress_path(Path(home) if home else
+                                                                         run_reset.sim_home()))
+        self.tracker.skip_existing()       # restore an active reset's lockout without replaying history
+        self.pid = 0
+        self.log_path = ''
+
+    @property
+    def busy(self) -> bool:
+        """True while a START OVER runs (also one started from a terminal with start_over.sh)."""
+        return self.tracker.busy
+
+    @property
+    def step_label(self) -> str:
+        """'5/14' while it runs ('' before its first step)."""
+        t = self.tracker
+        return f'{t.n}/{t.total}' if t.running and t.total else ''
+
+    def launch(self) -> str:
+        """Start start_over.sh in the background; returns its log file. Raises OSError if bash is missing."""
+        self.pid, self.log_path = self._launcher(['--no-fresh'])
+        return self.log_path
+
+    def poll(self) -> list:
+        """New progress (run_reset.ProgressUpdate list, oldest first)."""
+        return self.tracker.poll()
+
+    def ended_without_progress(self) -> str:
+        """After launch(): '' while the script still runs; else the last line of its log (it ended before
+        writing any progress, e.g. 'sim_demo is not built')."""
+        if not self.pid or self._rr.ProcessOps().alive(self.pid):
+            return ''
+        try:
+            lines = [ln.strip() for ln in Path(self.log_path).read_text(encoding='utf-8', errors='replace')
+                     .splitlines() if ln.strip()]
+        except OSError:
+            lines = []
+        # (the scripts colour their messages: drop the terminal colour codes for the panel)
+        last = re.sub(r'\x1b\[[0-9;]*m', '', lines[-1]).strip() if lines else ''
+        return last or 'no output'
+
+
 class PanelNode(Node):
     """ROS side of the panel: subscriptions, publishers, mission state (no Qt here)."""
 
@@ -234,11 +303,13 @@ class PanelNode(Node):
             self.world_error = str(exc)
             self.event('panel', f'World not loaded: {exc}', 'warn')
         self.mission_items = []
+        self.mission_summary = None                # kept for reset_run (START OVER)
         self.phases = PhaseTracker()
         if self.world and self.world.mission_path:
             try:
                 self.mission_items = load_waypoints_file(self.world.mission_path)
-                self.phases.set_mission(analyze_items(self.mission_items, self.world.hold_index))
+                self.mission_summary = analyze_items(self.mission_items, self.world.hold_index)
+                self.phases.set_mission(self.mission_summary)
             except Exception as exc:  # noqa: BLE001
                 self.event('panel', f'Mission file not readable: {exc}', 'warn')
         self.photo_dir, how = resolve_photo_dir(str(gp('photo_dir').value))
@@ -275,6 +346,18 @@ class PanelNode(Node):
     def event(self, source: str, text: str, level: str = '') -> None:
         """Add a line to the event log (thread-safe)."""
         self.events.append((time.time(), source, text, level))
+
+    def reset_run(self) -> None:
+        """START OVER began or finished: forget the old run (mission phases, detections, shutter count).
+        The subscriptions stay: the new autopilot and team stack come back on the same topics."""
+        with self.lock:
+            self.phases = PhaseTracker()
+            if self.mission_summary is not None:
+                self.phases.set_mission(self.mission_summary)
+            self.frames, self.frame_by_name = [], {}
+            self.frame_queue.clear()
+            self.last_hit, self.last_hit_t = None, 0.0
+            self.trigger_count = 0
 
     def _refresh_detectors(self) -> None:
         nodes = detector_publishers(self, DETECTION_TOPIC)
@@ -364,9 +447,11 @@ class DemoWindow:
     mission_planner: the worker behind OPEN / CLOSE MISSION PLANNER (default: a new
     mission_planner.MissionPlannerMonitor). Tests pass a fake with the same five methods
     (start, stop, snapshot, request_open, request_close), so they never touch Windows.
+    start_over: the link behind START OVER (default: a StartOverLink on the simulator's state
+    folder). Tests pass a StartOverLink with a temporary folder and a fake launcher.
     """
 
-    def __init__(self, node: PanelNode, app, mission_planner=None):
+    def __init__(self, node: PanelNode, app, mission_planner=None, start_over=None):
         from PyQt5 import QtCore, QtGui, QtWidgets
 
         from . import panel_widgets as pw
@@ -516,11 +601,18 @@ class DemoWindow:
         self.btn_rtl.setObjectName('rtlBtn')
         for b in (self.btn_down, self.btn_fwd, self.btn_start, self.btn_rtl):
             b.setMinimumHeight(38)
+        # START OVER: right under the mission buttons, across both columns, in its own colour. It needs a
+        # second click within RESET_CONFIRM_S (the text then says so): no dialog box to click away.
+        self.btn_reset = QtWidgets.QPushButton('START OVER')
+        self.btn_reset.setObjectName('resetBtn')
+        self.btn_reset.setMinimumHeight(34)
+        self.btn_reset.setToolTip(RESET_TIP)
         clay.addWidget(self.btn_photo, 0, 0, 1, 2)
         clay.addWidget(self.btn_down, 1, 0)
         clay.addWidget(self.btn_fwd, 1, 1)
         clay.addWidget(self.btn_start, 2, 0)
         clay.addWidget(self.btn_rtl, 2, 1)
+        clay.addWidget(self.btn_reset, 3, 0, 1, 2)
         # Mission Planner (the Windows ground station) can be opened and closed from here. The
         # checks and presses run on a worker thread (mission_planner.MissionPlannerMonitor):
         # starting a Windows program takes seconds, and the window must never freeze.
@@ -535,14 +627,14 @@ class DemoWindow:
             b.setMinimumHeight(30)
             b.setEnabled(False)            # until the first check says they can work here
             mp_row.addWidget(b, 1)
-        clay.addLayout(mp_row, 3, 0, 1, 2)
+        clay.addLayout(mp_row, 4, 0, 1, 2)
         self.mp_hint = QtWidgets.QLabel(CONNECT_HINT)
         self.mp_hint.setObjectName('mpHint')
-        clay.addWidget(self.mp_hint, 4, 0, 1, 2)
+        clay.addWidget(self.mp_hint, 5, 0, 1, 2)
         self.cmd_status = QtWidgets.QLabel('Ready.')
         self.cmd_status.setObjectName('cmdStatus')
         self.cmd_status.setWordWrap(True)
-        clay.addWidget(self.cmd_status, 5, 0, 1, 2)
+        clay.addWidget(self.cmd_status, 6, 0, 1, 2)
         self.btn_photo.clicked.connect(self._on_photo)
         self.btn_down.clicked.connect(
             lambda: node.camera_command(str(cfg['look_down_command']), 'LOOK DOWN'))
@@ -550,11 +642,14 @@ class DemoWindow:
             lambda: node.camera_command(str(cfg['look_forward_command']), 'LOOK FORWARD'))
         self.btn_start.clicked.connect(self._on_start)
         self.btn_rtl.clicked.connect(self._on_rtl)
+        self.btn_reset.clicked.connect(self._on_reset)
         self.btn_mp_open.clicked.connect(self._on_mp_open)
         self.btn_mp_close.clicked.connect(self._on_mp_close)
+        self._start_tip = ''               # UPLOAD MISSION + START's tooltip when START OVER does not lock it
         if not node.mission_items:
             self.btn_start.setEnabled(False)
-            self.btn_start.setToolTip('No mission file found for this world.')
+            self._start_tip = 'No mission file found for this world.'
+            self.btn_start.setToolTip(self._start_tip)
         self.log = pw.EventLog()
         bottom = QtWidgets.QHBoxLayout()
         bottom.setSpacing(8)
@@ -572,7 +667,7 @@ class DemoWindow:
         bottom.addWidget(l_card, 5)
         bw = QtWidgets.QWidget()
         bw.setLayout(bottom)
-        bw.setFixedHeight(272)             # 214 + the Mission Planner row and its hint line
+        bw.setFixedHeight(312)             # 214 + the Mission Planner row and its hint + the START OVER row
         root.addWidget(bw)
         self.win.setCentralWidget(central)
 
@@ -586,6 +681,7 @@ class DemoWindow:
         self.photo_cache: dict[str, tuple] = {}
         self.loading: set[str] = set()
         self.loaded_q: deque = deque()     # finished photo loads (worker thread -> Qt thread)
+        self._photo_gen = 0                # +1 at START OVER: a load that finishes later is from the old run
         self.loader = ThreadPoolExecutor(max_workers=1, thread_name_prefix='photo_loader')
         self.last_image_seq = -1
         self.tele['gps'].setStyleSheet('font-size: 15px;')
@@ -600,14 +696,28 @@ class DemoWindow:
         self.mission_planner = mission_planner
         self.mission_planner.start()
         self._mp_shown = None              # the PlannerState drawn last (redraw only on change)
+        # START OVER: the background script's progress file is read every 0.5 s (_poll_start_over).
+        try:
+            self.start_over = start_over or StartOverLink()
+        except Exception as exc:  # noqa: BLE001 - e.g. run_reset not importable: the panel works without it
+            self.start_over = None
+            self.btn_reset.setEnabled(False)
+            self.btn_reset.setToolTip(f'START OVER is not available here ({exc}).')
+        self._reset_armed_until = 0.0      # first click seen: a second one before this time confirms
+        self._reset_launched_t = 0.0       # second click: waiting for start_over.sh's first progress line
+        self._reset_shown = None           # what the START OVER button shows (redraw only on change)
         self._cmd_text = ('Ready. UPLOAD MISSION + START flies the search; TAKE PHOTO works '
                           'any time.')
         if node.world_error:
             self._cmd_text = f'World not loaded: {node.world_error}'
+        # An already-running reset owns the controls; show its current action even if this newly opened
+        # panel could not load its world metadata. The world warning remains in the Events list.
+        if self.start_over is not None and self.start_over.busy:
+            self._cmd_text = f'START OVER {self.start_over.step_label}: {self.start_over.tracker.step_text}'
 
         self._timers = []
         for ms, fn in ((40, self._update_video), (250, self._update_ui),
-                       (500, self._poll_photos), (200, lambda: None)):
+                       (500, self._poll_photos), (500, self._poll_start_over), (200, lambda: None)):
             tm = QtCore.QTimer(self.win)
             tm.timeout.connect(fn)
             tm.start(ms)
@@ -644,6 +754,9 @@ class DemoWindow:
 
     def _on_start(self) -> None:
         node = self.node
+        if self._resetting():
+            self._cmd_text = 'START OVER is still running: UPLOAD MISSION + START works again when it is done.'
+            return
         if self.commander.busy:
             self._cmd_text = 'A start sequence is already running ...'
             return
@@ -657,6 +770,137 @@ class DemoWindow:
     def _on_rtl(self) -> None:
         self.commander.request_rtl()
         self.node.event('panel', 'RTL requested')
+
+    # ------------------------------------------------------------------ START OVER
+    def _resetting(self) -> bool:
+        """True from the confirming click until START OVER has finished (also one started in a terminal)."""
+        if self.start_over is None:
+            return False
+        return self.start_over.busy or self._reset_launched_t > 0.0
+
+    def _on_reset(self) -> None:
+        """START OVER: the first click asks for a second one within RESET_CONFIRM_S; the second click starts
+        start_over.sh in the background (returns at once; the steps then arrive in _poll_start_over)."""
+        if self.start_over is None or self._resetting():
+            return
+        if self.commander.busy:
+            self._cmd_text = ('UPLOAD MISSION + START is still running: wait until it has finished (or press RTL), '
+                              'then START OVER.')
+            return
+        now = time.time()
+        if now > self._reset_armed_until:
+            self._reset_armed_until = now + RESET_CONFIRM_S
+            self._cmd_text = (f'START OVER puts everything back to the start (2-3 min): a flying drone lands first, '
+                              f'then a fresh drone, autopilot and team code. Click it again within '
+                              f'{RESET_CONFIRM_S:.0f} s to go ahead.')
+            self.node.event('panel', f'START OVER clicked once: click again within {RESET_CONFIRM_S:.0f} s to '
+                                     'confirm')
+            return
+        self._reset_armed_until = 0.0
+        try:
+            log = self.start_over.launch()
+        except Exception as exc:  # noqa: BLE001 - e.g. bash missing: say so, the panel keeps working
+            self._cmd_text = f'START OVER could not start: {exc}'
+            self.node.event('panel', self._cmd_text, 'error')
+            return
+        self._reset_launched_t = now
+        self._cmd_text = 'START OVER started: every window stays open. Its steps appear in the Events list.'
+        self.node.event('panel', f'START OVER confirmed -> simulation/scripts/start_over.sh (log: {log})')
+
+    def _poll_start_over(self) -> None:
+        """Qt timer (0.5 s): show START OVER's new progress lines, clear the old run at its start and end."""
+        so = self.start_over
+        if so is None:
+            return
+        try:
+            updates = so.poll()
+        except Exception as exc:  # noqa: BLE001 - an unreadable progress file must not stop the panel
+            updates = []
+            self.node.get_logger().warn(f'START OVER progress not readable: {exc}')
+        for u in updates:
+            if u.new_reset:
+                # From now on the old run is history: its photos are being archived and its detections
+                # would mislead (the new run has none yet).
+                self._reset_launched_t = 0.0
+                self._reset_display()
+            if u.detail:                       # a tool's progress line: status line only
+                self._cmd_text = f'START OVER {so.step_label}: {u.text}'
+                continue
+            level = {'warn': 'warn', 'error': 'error'}.get(u.level, '')
+            self.node.event('start over', u.text, level)
+            if u.finished is True:
+                self._reset_display()          # the new run starts clean (nothing from the landing etc.)
+                folder = os.path.basename(so.tracker.run_dir.rstrip('/'))
+                self._cmd_text = (('START OVER done: the drone flies the search again' if 'is flying' in u.text
+                                   else 'START OVER done: ready. Press UPLOAD MISSION + START (or Write, Arm, '
+                                        'Auto in Mission Planner)') + (f'. New run: {folder}' if folder else '.'))
+            elif u.finished is False:
+                self._cmd_text = f'START OVER FAILED: {u.text.split(": ", 1)[-1]}'
+            elif u.kind == 'step' or so.busy:
+                self._cmd_text = f'START OVER {so.step_label}: {u.text}'
+            else:
+                self._cmd_text = u.text        # e.g. the run watcher's "Run finished" line
+        if self._reset_launched_t and not updates:
+            why = so.ended_without_progress()
+            if why or time.time() - self._reset_launched_t > RESET_REPLY_S:
+                self._reset_launched_t = 0.0
+                self._cmd_text = (f'START OVER did not start: {why or "no reply"} (log: {so.log_path})')
+                self.node.event('panel', self._cmd_text, 'error')
+
+    def _reset_display(self) -> None:
+        """Forget the old run on screen: phases, detections, photo list and caches (the windows stay)."""
+        self.node.reset_run()
+        self.table.setRowCount(0)
+        self.best_label.setText('main_controller will fly to: nothing yet')
+        self.photo_names, self.new_photos, self.preexisting = [], 0, 0
+        self.photo_cache.clear()
+        self.loading.clear()
+        self.loaded_q.clear()
+        self._photo_gen += 1
+        self.shown_photo, self.shown_frame_id, self.pinned_name = '', None, ''
+        if self.photo_mode == 'pinned':
+            self._set_photo_mode('auto')
+            self.mode_buttons['auto'].setChecked(True)
+        self.photo.set_photo(None, (0, 0), '', [], '', self.pw.THEME['muted'])
+
+    def _update_reset_button(self) -> None:
+        """START OVER's text, colour and clickability; UPLOAD MISSION + START is locked while it runs."""
+        if self.start_over is None:
+            return
+        now = time.time()
+        resetting = self._resetting()
+        if self._reset_armed_until and (resetting or now > self._reset_armed_until):
+            if not resetting:
+                self._cmd_text = 'START OVER not confirmed (no second click within 5 s): nothing was changed.'
+            self._reset_armed_until = 0.0
+        if resetting:
+            label = self.start_over.step_label
+            state, text, enabled, tip = ('busy', f'STARTING OVER {label} ...' if label else 'STARTING OVER ...',
+                                         False, 'START OVER is running: its steps appear in the Events list.')
+        elif self._reset_armed_until:
+            left = max(1, math.ceil(self._reset_armed_until - now))
+            state, text, enabled, tip = ('armed', f'CLICK AGAIN TO START OVER ({left} s)', True,
+                                         'Click again to start over now.')
+        elif self.commander.busy:
+            state, text, enabled, tip = ('idle', 'START OVER', False,
+                                         'Wait until UPLOAD MISSION + START has finished (or press RTL).')
+        else:
+            state, text, enabled, tip = 'idle', 'START OVER', True, RESET_TIP
+        start_ok = bool(self.node.mission_items) and not resetting
+        shown = (state, text, enabled, tip, start_ok)
+        if shown == self._reset_shown:
+            return                             # nothing changed since the last tick: skip restyling
+        self._reset_shown = shown
+        self.btn_reset.setText(text)
+        self.btn_reset.setEnabled(enabled)
+        self.btn_reset.setToolTip(tip)
+        if bool(self.btn_reset.property('armed')) != (state == 'armed'):
+            # The style sheet has an armed colour (QPushButton#resetBtn[armed="true"]): re-read it.
+            self.btn_reset.setProperty('armed', state == 'armed')
+            self.btn_reset.style().unpolish(self.btn_reset)
+            self.btn_reset.style().polish(self.btn_reset)
+        self.btn_start.setEnabled(start_ok)
+        self.btn_start.setToolTip('Wait until START OVER is done.' if resetting else self._start_tip)
 
     def _on_mp_open(self) -> None:
         """OPEN MISSION PLANNER: hand the press to the worker thread (returns at once)."""
@@ -720,8 +964,9 @@ class DemoWindow:
         if len(self.photo_names) > 5000:
             del self.photo_names[:1000]
 
-    def _load_photo(self, name: str):
-        """Worker thread: read + downscale a photo (JPEG decoder scales while decoding)."""
+    def _load_photo(self, name: str, gen: int = 0):
+        """Worker thread: read + downscale a photo (JPEG decoder scales while decoding). `gen` = the
+        photo generation it was asked for (START OVER starts a new one, see _drain_loaded_photos)."""
         QtGui, QtCore = self.QtGui, self.QtCore
         path = os.path.join(self.node.photo_dir, name)
         reader = QtGui.QImageReader(path)
@@ -730,16 +975,18 @@ class DemoWindow:
         if size.width() > 1600:
             reader.setScaledSize(size.scaled(1600, 1600, QtCore.Qt.KeepAspectRatio))
         img = reader.read()
-        return name, (img if not img.isNull() else None), orig
+        return name, (img if not img.isNull() else None), orig, gen
 
     def _drain_loaded_photos(self) -> None:
         """Qt thread: take finished photo loads from the worker and cache them."""
         while self.loaded_q:
             fut = self.loaded_q.popleft()
             try:
-                name, img, orig = fut.result()
+                name, img, orig, gen = fut.result()
             except Exception:  # noqa: BLE001 - unreadable file: try again next time
                 continue
+            if gen != self._photo_gen:
+                continue                   # a photo of the run before START OVER: never show it again
             self.loading.discard(name)
             if img is not None:
                 self.photo_cache[name] = (img, orig)
@@ -785,7 +1032,8 @@ class DemoWindow:
             if name not in self.loading:
                 self.loading.add(name)
                 # The worker only appends to a deque; the Qt timer picks the result up.
-                self.loader.submit(self._load_photo, name).add_done_callback(self.loaded_q.append)
+                self.loader.submit(self._load_photo, name, self._photo_gen).add_done_callback(
+                    self.loaded_q.append)
             return
         img, orig = cached
         boxes, extra = [], []
@@ -925,6 +1173,7 @@ class DemoWindow:
             except IndexError:
                 break
             self.log.add(t, source, text, level)
+        self._update_reset_button()        # (may change the status text: a first click that timed out)
         self.cmd_status.setText(self._cmd_text)
         self.btn_start.setText('STARTING ...' if self.commander.busy else 'UPLOAD MISSION + START')
 

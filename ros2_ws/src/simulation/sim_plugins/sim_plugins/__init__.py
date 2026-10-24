@@ -25,11 +25,12 @@ A "profile" (simulation/profiles/*.yaml) says which component fills each slot. T
     siyi_probe    talks to a SIYI-compatible camera (UDP SDK + HTTP media API) for the camera check
     tracker_filter  a copy of the team's tracker.launch.xml without the nodes a profile replaces
     launch_support  helpers the sim_bringup launch files use to apply a profile
-    profile_tool  the command line: validate, plan, shell, resolve, list, contract
+    doc_blocks    the generated parts of docs/simulation/PLUGINS.md (profile reference, slot contracts)
+    profile_tool  the command line: validate, plan, shell, resolve, list, contract, docs
 
 Everything except check_slot's ROS part and launch_support's launch actions is plain Python and is
 unit-tested with pytest (no ROS, no Gazebo).
 """
 
 __all__ = ['schema', 'profiles', 'params', 'autopilot', 'plan', 'contracts', 'tracker_filter', 'launch_support',
-           'check_slot', 'siyi_probe', 'profile_tool', 'paths']
+           'check_slot', 'siyi_probe', 'doc_blocks', 'profile_tool', 'paths']

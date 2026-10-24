@@ -23,6 +23,7 @@ THEME = {
     'text': '#e6edf3', 'muted': '#8b98a5', 'accent': '#2f81f7', 'cyan': '#39c5ff',
     'green': '#3fb950', 'amber': '#f0b429', 'red': '#f85149', 'orange': '#ff9f1a',
     'person': '#ff4d4d', 'tent': '#ffa31a', 'done': '#1f3b2c',
+    'reset': '#a371f7',                  # START OVER: its own colour (not green "go", not red "abort")
 }
 CLASS_COLORS = {'person': THEME['person'], 'tent': THEME['tent']}
 CLASS_LABELS = {'person': 'PERSON', 'tent': 'TENT'}
@@ -50,6 +51,8 @@ QPushButton#startBtn {{ background: #1d5b30; border-color: {THEME['green']}; }}
 QPushButton#rtlBtn {{ background: #6b1f1c; border-color: {THEME['red']}; }}
 QPushButton#modeBtn {{ padding: 3px 10px; font-size: 12px; border-radius: 6px; }}
 QPushButton#modeBtn:checked {{ background: {THEME['accent']}; border-color: {THEME['accent']}; }}
+QPushButton#resetBtn {{ background: #3b2370; border-color: {THEME['reset']}; padding: 5px 12px; }}
+QPushButton#resetBtn[armed="true"] {{ background: {THEME['amber']}; border-color: #ffd36b; color: #111; }}
 QPushButton#mpBtn {{ padding: 4px 6px; font-size: 12px; }}
 QLabel#mpHint {{ color: {THEME['muted']}; font-size: 12px; background: transparent; }}
 QTableWidget {{ background: {THEME['panel']}; border: none; gridline-color: {THEME['border']};
@@ -442,8 +445,8 @@ class EventLog(QtWidgets.QPlainTextEdit):
     """Read-only, colour-coded event list (newest at the bottom, auto-scrolling)."""
 
     SOURCE_COLORS = {'autopilot': THEME['cyan'], 'team': THEME['text'], 'camera': THEME['amber'],
-                     'panel': THEME['green'], 'detector': THEME['orange'], 'warn': THEME['amber'],
-                     'error': THEME['red']}
+                     'panel': THEME['green'], 'detector': THEME['orange'], 'start over': '#d2b8ff',
+                     'warn': THEME['amber'], 'error': THEME['red']}
 
     def __init__(self, parent=None):
         super().__init__(parent)

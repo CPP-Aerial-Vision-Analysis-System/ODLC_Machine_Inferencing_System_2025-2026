@@ -360,16 +360,20 @@ def _md_escape(text: str) -> str:
     return text.replace('|', '\\|')
 
 
+#: The verb for a topic rule's role in a sentence ("The component ... publishes").
+ROLE_VERBS = {'publish': 'publishes', 'subscribe': 'subscribes to'}
+
+
 def render_markdown(c: SlotContract) -> str:
     """The contract as Markdown tables (used to write docs/simulation/PLUGINS.md)."""
-    out: List[str] = [f'**Default:** {c.default}  ', f'**Alternatives:** {c.alternatives}  ', '', c.summary, '']
+    out: List[str] = [f'**Default:** {c.default}', '', f'**Alternatives:** {c.alternatives}', '', c.summary, '']
     if c.node_names:
         out += [f'Node name the stack waits for: `{"`, `".join(c.node_names)}` (a custom component says its own '
                 'with `node_name`).', '']
     if c.topics:
         out += ['| Topic | Type | The component ... | QoS | Required | Notes |', '|---|---|---|---|---|---|']
-        out += [f'| `{t.name}` | `{t.type}` | {t.role}s | {t.qos} | {"yes" if t.required else "no"} | '
-                f'{_md_escape(t.note)} |' for t in c.topics]
+        out += [f'| `{t.name}` | `{t.type}` | {ROLE_VERBS.get(t.role, t.role)} | {t.qos} | '
+                f'{"yes" if t.required else "no"} | {_md_escape(t.note)} |' for t in c.topics]
         out.append('')
     if c.services:
         out += ['| Service | Type | The component is the ... | Required | Notes |', '|---|---|---|---|---|']

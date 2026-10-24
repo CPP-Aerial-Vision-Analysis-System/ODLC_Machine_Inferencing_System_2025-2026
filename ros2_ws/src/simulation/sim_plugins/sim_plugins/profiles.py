@@ -36,6 +36,8 @@ MAVOUT_KINDS = ('udp', 'udpout', 'udpbcast', 'tcp', 'tcpin')
 MAVURL_KINDS = ('tcp', 'tcpin', 'udp', 'udpin', 'udpout', 'udpbcast')
 VERSION_RE = re.compile(r'^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$')
 PARAM_NAME_RE = re.compile(r'^[A-Z][A-Z0-9_]{0,15}$')
+#: Programs that only RUN another program: a command entry is named after what they run, not after them.
+LAUNCHER_WORDS = ('python', 'python3', 'bash', 'sh', 'env', 'nice', 'stdbuf', 'exec', 'node')
 
 
 # ---------------------------------------------------------------------------------------------
@@ -399,6 +401,22 @@ def check_value(spec: Field, value: Any, where: str, base_dir: Optional[Path],
     raise ValueError(f'unknown schema kind {kind}')          # pragma: no cover - programming error
 
 
+def command_label(cmd: Sequence[str]) -> str:
+    """A short default name for a command entry: the program or script it runs.
+
+    ['./tools/log.py', '--fast'] -> 'log';  ['python3', '/home/me/logger.py', '--fast'] -> 'logger'.
+    Options (words starting with -) and launcher programs (python3, bash, env ...) are skipped, because the
+    name is used in log lines and as the launch process name: "--fast" or "python3" would tell nobody anything.
+    """
+    for word in cmd:
+        text = str(word).strip()
+        base = Path(text).name
+        if not text or text.startswith('-') or base in LAUNCHER_WORDS or re.fullmatch(r'python3?(\.\d+)?', base):
+            continue
+        return Path(base).stem or base
+    return Path(str(cmd[0])).stem if cmd else 'extra'
+
+
 def check_entry(value: Any, where: str, base_dir: Optional[Path], problems: List[Problem],
                 source: str = '', extras: bool = False) -> Optional[Dict[str, Any]]:
     """Check one custom-component entry (see schema.ENTRY_KEYS); returns the clean entry or None."""
@@ -464,7 +482,7 @@ def check_entry(value: Any, where: str, base_dir: Optional[Path], problems: List
         problems.append(Problem(f'{where}.start_with', 'only extras have start_with', severity='warning',
                                 source=source))
     if not entry['name']:
-        entry['name'] = entry['package'] or (Path(entry['command'][-1]).stem if entry['command'] else 'extra')
+        entry['name'] = entry['package'] or (command_label(entry['command']) if entry['command'] else 'extra')
     return entry
 
 

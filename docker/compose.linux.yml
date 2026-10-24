@@ -1,58 +1,35 @@
 # =============================================================================
-#  docker/compose.linux.yml  --  ADD-ON to compose.sim.yml for a LINUX PC (instead of Windows 11 + WSL2)
+#  docker/compose.linux.yml  --  ADD-ON to compose.sim.yml for a LINUX DESKTOP (instead of Windows + WSL2)
 #
-#  PURPOSE: compose.sim.yml shows the windows through WSLg and draws 3D through DirectX (/dev/dxg), which only
-#  exist inside WSL2. On a normal Ubuntu PC the windows go to the X11 desktop instead, and 3D is drawn by
-#  the PC's own graphics driver:
-#    * NVIDIA card: add docker/compose.gpu.yml too (the NVIDIA Container Toolkit then also brings the
-#      OpenGL driver into the containers; NVIDIA_DRIVER_CAPABILITIES=all below asks for it);
-#    * Intel / AMD graphics: the /dev/dri device below (Mesa inside the image drives it).
-#  The "!override" tags REPLACE the volume and device lists of compose.sim.yml (they are not merged), so the
-#  WSLg folders are not mounted here. KEEP THE REPO / BUILD / DATA LINES IN STEP WITH compose.sim.yml.
-#  Needs Docker Compose 2.24 or newer (docker compose version).
+#  PURPOSE: shows the containers' windows (Gazebo, RViz, the demo panel) on a normal Linux desktop. The
+#  desktop's X11 server listens on a socket in /tmp/.X11-unix; handing that folder and $DISPLAY to the
+#  containers lets their windows appear on your screen. (Ubuntu's default Wayland desktop also runs an X11
+#  server, "XWayland", for such programs, so this works there too.)
+#  For 3D on the graphics card add ONE of these as well (simulation/docker/compose_up.sh picks them for you):
+#    * docker/compose.dri.yml   Intel / AMD graphics (and NVIDIA cards that show /dev/dri/renderD128)
+#    * docker/compose.gpu.yml   NVIDIA card + NVIDIA Container Toolkit (also gives CUDA to the detector)
+#  Without either, Mesa draws on the processor ("llvmpipe"): everything works, only slower.
+#  The X server must allow the containers in (once per login; compose_up.sh does it):
+#      xhost +SI:localuser:$(id -un)
+#  This only works when the images were built with YOUR user id (build_images.sh does that), because the X
+#  server checks who connects.
 #
-#  HOW TO USE (simulation/docker/compose_up.sh does all of this by itself on Linux):
-#      xhost +SI:localuser:$(id -un)        # let containers of your user open windows (once per login)
-#      docker compose -f docker/compose.sim.yml [-f docker/compose.gpu.yml] -f docker/compose.linux.yml up
-#  Keep this file LAST: with several -f files the last one wins, and NVIDIA_DRIVER_CAPABILITIES=all from here
-#  must beat compose.gpu.yml's compute,utility (OpenGL on a Linux NVIDIA PC needs "graphics" too).
-#  The images must be built with your user id (build_images.sh does: --build-arg USER_UID=$(id -u)), so
-#  the X11 permission above and the files in the mounted repo match.
+#  HOW TO USE:
+#      docker compose -f docker/compose.sim.yml -f docker/compose.linux.yml [-f docker/compose.dri.yml] \
+#        [-f docker/compose.gpu.yml] up --no-build --abort-on-container-exit --exit-code-from sim
 # =============================================================================
 
 x-linux-env: &linux_env
-  DISPLAY: ${DISPLAY:-:0}
-  WAYLAND_DISPLAY: ""                     # Qt then uses X11 (xcb)
-  XDG_RUNTIME_DIR: /tmp/runtime-ubuntu
-  PULSE_SERVER: ""
-  LD_LIBRARY_PATH: ""
-  GALLIUM_DRIVER: ""                      # "" = Mesa picks the driver of the graphics card itself
-  MESA_D3D12_DEFAULT_ADAPTER_NAME: ""
-  NVIDIA_DRIVER_CAPABILITIES: all         # with compose.gpu.yml: CUDA + OpenGL/Vulkan for the windows
+  DISPLAY: ${DISPLAY:-:0}                 # your desktop's X11 display (echo $DISPLAY shows it, e.g. :0 or :1)
+  XDG_RUNTIME_DIR: /tmp/runtime-ubuntu    # a private runtime folder for Qt inside the container
+  QT_X11_NO_MITSHM: "1"                   # no X11 shared memory between the container and the X server
 
 services:
   sim:
-    environment:
-      <<: *linux_env
-    volumes: !override
-      - ${ASTRA_REPO_HOST:-..}:/ODLC_Machine_Inferencing_System_2025-2026
-      - astra_sim_ws_build:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/build
-      - astra_sim_ws_install:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install
-      - astra_sim_ws_log:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/log
-      - ${ASTRA_DOCKER_DATA:-${HOME}/.astra_docker}:/home/ubuntu/.astra_sim
-      - ${ASTRA_FUEL_DIR:-astra_gz_fuel}:/home/ubuntu/.gz/fuel
+    environment: *linux_env
+    volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-    devices: !override
-      - /dev/dri:/dev/dri                 # Intel/AMD graphics (exists on NVIDIA PCs too; harmless there)
   jetson:
-    environment:
-      <<: *linux_env
-    volumes: !override
-      - ${ASTRA_REPO_HOST:-..}:/ODLC_Machine_Inferencing_System_2025-2026
-      - astra_jetson_ws_build:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/build
-      - astra_jetson_ws_install:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/install
-      - astra_jetson_ws_log:/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/log
-      - ${ASTRA_DOCKER_DATA:-${HOME}/.astra_docker}:/home/ubuntu/.astra_sim
+    environment: *linux_env
+    volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix
-    devices: !override
-      - /dev/dri:/dev/dri

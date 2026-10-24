@@ -159,7 +159,14 @@ class AsyncParameterReader:
             self._tracker.finished(self._now(), ok=False)
             self._log_failure(f'not set (yet): {", ".join(missing)}')
             return
+        failed_before = self._tracker.failures      # failures in a row before this success
         self._tracker.finished(self._now(), ok=True)
+        if failed_before:
+            # Says the warnings are over (otherwise the log ends with "Could not read ..." and
+            # nobody can tell whether the values ever arrived).
+            self._log().info(
+                f'Read {", ".join(self._names)} from {self._service} again after '
+                f'{failed_before} failed attempt(s): the values are up to date.')
         try:
             self._on_values(values)
         except Exception as exc:  # noqa: BLE001 - a bug in the caller's handler must not kill us

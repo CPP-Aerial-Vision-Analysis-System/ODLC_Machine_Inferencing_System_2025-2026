@@ -278,13 +278,24 @@ def start_sim_vars(rp: ResolvedProfile, typed: Sequence[str] = (), resolved_file
     return sv
 
 
+#: The team-stack launch for terminal 2, exactly as simulation/README.md ("OR BY HAND") gives it. start_sim.sh
+#: prints the same command without a profile, so the default profile's printout is identical to no profile.
+TEAM_STACK_LAUNCH = 'ros2 launch sim_bringup team_stack.launch.py'
+
+
 def team_stack_hint(rp: ResolvedProfile, resolved_file: str = '') -> str:
-    """The command for terminal 2 (the team stack) that matches this profile."""
-    args = [f'detector:={DETECTOR_LAUNCH_VALUE[rp.get("detector.kind")]}'] + team_launch_args(rp, resolved_file)
+    """The command for terminal 2 (the team stack) that matches this profile.
+
+    Only what differs from the defaults is added: the default profile gives exactly the README's command
+    TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim (detector:=real is
+    team_stack.launch.py's own default, and launcher.sh sim's own FCU_URL matches MAVProxy's 14552 output).
+    """
+    kind = rp.get('detector.kind')
+    args = ([] if kind == 'team' else [f'detector:={DETECTOR_LAUNCH_VALUE[kind]}']) + team_launch_args(rp, resolved_file)
     fcu = rp.get('network.fcu_url') or (default_fcu_url(rp.get('network.mavros_port'))
                                         if rp.get('network.mavros_port') != 14552 else '')
     env = f'FCU_URL={fcu} ' if fcu else ''
-    return f'{env}TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py {" ".join(args)}" ./launcher.sh sim'
+    return f'{env}TRACKER_CMD="{" ".join([TEAM_STACK_LAUNCH] + args)}" ./launcher.sh sim'
 
 
 # ---------------------------------------------------------------------------------------------
@@ -385,10 +396,14 @@ def render_summary(rp: ResolvedProfile, env: Optional[Dict] = None) -> str:
     """The slot table as text (the first part of every plan)."""
     src = rp.source or 'no profile file'
     head = f'PROFILE {rp.name}  ({src}{"; overrides: " + " ".join(rp.sets) if rp.sets else ""})'
-    body = [f'  {slot:13s} {text}' for slot, text in summary_lines(rp, env)]
-    notes = [f'  {"":13s} .. {n}' for n in (env or {}).get('notes', [])]
+    body = []
+    for slot, text in summary_lines(rp, env):
+        body.append(f'  {slot:13s} {text}')
+        if slot == 'autopilot':
+            # check_environment's notes are about the autopilot (parameter files, stock files): show them here.
+            body += [f'  {"":13s} .. {n}' for n in (env or {}).get('notes', [])]
     warns = [f'  !! {w.text()}' for w in rp.warnings] + [f'  !! {w}' for w in (env or {}).get('warnings', [])]
-    return '\n'.join([head] + body + notes + warns)
+    return '\n'.join([head] + body + warns)
 
 
 # ---------------------------------------------------------------------------------------------

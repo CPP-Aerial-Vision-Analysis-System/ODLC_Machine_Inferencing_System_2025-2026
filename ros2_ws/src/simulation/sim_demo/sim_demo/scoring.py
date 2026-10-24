@@ -4,9 +4,16 @@ write the result as a Markdown report (for people) and a JSON file (for scripts)
 
 What it measures:
   * per target (hiker, tent): found yes/no, best confidence, in how many photos it was
-    detected, location error = distance between the latitude/longitude the detector
-    reported (the drone's GPS when the photo was taken, from the file name) and the truth;
-  * what main_controller chose to fly to (highest confidence per class) and how far that is
+    detected,
+      - AIM ERROR = distance between the point main_controller said it will drop on (its
+        STATUSTEXT "Aim <class> <lat>,<lon>", sent when it diverts to the targets) and the truth.
+        Since October 2026 main_controller projects the centre of the detection box onto the
+        ground, so this is the number that tells how well the drop is aimed;
+      - photo GPS error (the old "location error", kept for comparison with older reports) =
+        distance between the latitude/longitude the detector reported (the drone's GPS when the
+        photo was taken, from the file name) and the truth. Before October 2026 main_controller
+        flew to exactly that point;
+  * what main_controller chose (highest confidence per class), where it aims and how far that is
     from the real target;
   * payload drop error = distance from where the payload landed in Gazebo (or, when Gazebo
     poses are unavailable, where the drone was when the release servo opened) to the target;
@@ -19,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from dataclasses import asdict, dataclass, field
 
@@ -66,6 +74,51 @@ class DropRecord:
 
 
 @dataclass
+class AimRecord:
+    """Where main_controller said it will drop one payload.
+
+    Attributes:
+        cls: 'person' or 'tent'. t: when the text arrived [s].
+        lat, lon: the aim point from its STATUSTEXT "Aim <cls> <lat>,<lon>".
+    """
+
+    cls: str
+    t: float
+    lat: float
+    lon: float
+
+
+# main_controller's text when it diverts, e.g. "Aim tent 36.2150261,-96.0068008"
+# (main/src/main_controller.py _divert_to_targets; 7 decimals = about 1 cm).
+_RE_AIM = re.compile(r'^\s*Aim\s+(person|tent)\s+'
+                     r'([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*$', re.IGNORECASE)
+
+
+def parse_aim_text(text: str | None) -> tuple[str, float, float] | None:
+    """Read main_controller's "Aim <class> <lat>,<lon>" status text.
+
+    Returns:
+        (class, lat, lon) with class 'person' or 'tent', or None when the text is something else
+        (or the numbers cannot be a position on Earth).
+    """
+    m = _RE_AIM.match(text or '')
+    if not m:
+        return None
+    lat, lon = float(m.group(2)), float(m.group(3))
+    if abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    return m.group(1).lower(), lat, lon
+
+
+def latest_aims(aims: list[AimRecord] | None) -> dict[str, AimRecord]:
+    """The newest aim per class (main_controller sends one per target and divert)."""
+    out: dict[str, AimRecord] = {}
+    for a in sorted(aims or [], key=lambda a: a.t):
+        out[a.cls] = a
+    return out
+
+
+@dataclass
 class TargetScore:
     """Result for one real target."""
 
@@ -79,7 +132,11 @@ class TargetScore:
     best_confidence: float = 0.0
     best_photo: str = ''
     first_detected_s: float | None = None
+    # Photo GPS error (the old "location error"): the best detection's reported lat/lon (= the
+    # drone's GPS at the shutter) to the truth. The JSON key stays the same for older scripts.
     location_error_m: float | None = None
+    # Aim error: main_controller's own drop point ("Aim ..." text) to the truth.
+    aim_error_m: float | None = None
     drop_error_m: float | None = None
     drop_source: str = ''
 
@@ -115,6 +172,7 @@ class RunScore:
     targets: list[TargetScore] = field(default_factory=list)
     classes: list[ClassScore] = field(default_factory=list)
     choices: list[dict] = field(default_factory=list)
+    aims: list[dict] = field(default_factory=list)          # main_controller's drop points
     drops: list[dict] = field(default_factory=list)
     false_detections: list[dict] = field(default_factory=list)
     photos_taken: int = 0
@@ -153,7 +211,8 @@ def score_run_data(world_name: str, origin: GeoOrigin, targets: list[TruthTarget
                    drops: list[DropRecord], timeline: list[tuple[float, str]],
                    started: float, ended: float, detector: str = 'real',
                    footprint_margin_m: float = 2.0, geo_match_radius_m: float = 50.0,
-                   notes: list[str] | None = None) -> RunScore:
+                   notes: list[str] | None = None,
+                   aims: list[AimRecord] | None = None) -> RunScore:
     """Grade a run (see the module docstring for what is measured).
 
     Args:
@@ -165,6 +224,9 @@ def score_run_data(world_name: str, origin: GeoOrigin, targets: list[TruthTarget
         footprint_margin_m: a target this close outside a photo footprint still counts as shown.
         geo_match_radius_m: without a footprint, a detection matches a target of its class
             within this distance of the reported position.
+        notes: extra lines for the report.
+        aims: main_controller's "Aim" texts (AimRecord; the newest per class counts). None or
+            [] = unknown (older team code): the aim error is then shown as '-'.
     Returns:
         RunScore.
     """
@@ -230,7 +292,26 @@ def score_run_data(world_name: str, origin: GeoOrigin, targets: list[TruthTarget
                     cscores[t.cls].fn += 1
     rs.photos_processed = len(processed)
 
-    # What main_controller would have flown to.
+    # Where main_controller aims: its "Aim <class> <lat>,<lon>" texts, the point it really flies
+    # to and drops on (since October 2026 the ground under the centre of the detection box).
+    for cls, a in sorted(latest_aims(aims).items()):
+        entry = {'class': cls, 'lat': a.lat, 'lon': a.lon, 'time_s': round(a.t - started, 1),
+                 'target': None, 'error_m': None}
+        same = [t for t in targets if t.cls == cls]
+        if same:
+            ae = origin.to_enu(a.lat, a.lon)[:2]
+            t = min(same, key=lambda tt: _dist_en((tt.east, tt.north), ae))
+            err = round(_dist_en((t.east, t.north), ae), 2)
+            entry.update(target=t.name, error_m=err, east=round(ae[0], 2), north=round(ae[1], 2))
+            ts = tscores[id(t)]
+            if ts.aim_error_m is None or err < ts.aim_error_m:
+                ts.aim_error_m = err
+        rs.aims.append(entry)
+    aim_by_cls = {e['class']: e for e in rs.aims}
+
+    # What main_controller chose: per class its best detection, and (from its texts) where it
+    # aims. 'lat', 'lon' and 'error_m' are the photo's GPS: where the OLD code (before October
+    # 2026) flew to; 'aim_lat', 'aim_lon' and 'aim_error_m' are where it flies to now.
     for cls, (score, f, _box) in sorted(best_per_class(frames).items()):
         entry = {'class': cls, 'confidence': round(score, 3), 'photo': f.image_name,
                  'lat': f.lat, 'lon': f.lon, 'nearest_target': None, 'error_m': None}
@@ -242,6 +323,10 @@ def score_run_data(world_name: str, origin: GeoOrigin, targets: list[TruthTarget
             entry['error_m'] = round(_dist_en((t.east, t.north), fe), 2)
         elif not f.has_gps:
             entry['note'] = 'detector reported lat/lon 0,0 (no GPS in the photo name)'
+        aim = aim_by_cls.get(cls)
+        entry.update(aim_lat=aim['lat'] if aim else None, aim_lon=aim['lon'] if aim else None,
+                     aim_error_m=aim['error_m'] if aim else None,
+                     aim_target=aim['target'] if aim else None)
         rs.choices.append(entry)
 
     # Payload drops.
@@ -311,23 +396,42 @@ def report_markdown(rs: RunScore) -> str:
         '## Targets',
         '',
         '| Target | Class | Found? | Best confidence | Detected in photos | Shown in photos '
-        '| Location error | Drop error |',
-        '|---|---|---|---|---|---|---|---|',
+        '| Aim error | Photo GPS error (old measure) | Drop error |',
+        '|---|---|---|---|---|---|---|---|---|',
     ]
     for t in rs.targets:
         lines.append(
             f'| {t.name} | {t.cls} | {"YES" if t.detected else "no"} | '
             f'{_fmt(t.best_confidence if t.detected else None, "", 2)} | {t.detections} | '
-            f'{_fmt(t.photos_showing)} | {_fmt(t.location_error_m, " m")} | '
+            f'{_fmt(t.photos_showing)} | {_fmt(t.aim_error_m, " m")} | '
+            f'{_fmt(t.location_error_m, " m")} | '
             f'{_fmt(t.drop_error_m, " m")}{" (" + t.drop_source + ")" if t.drop_source else ""} |')
     lines += ['', '## What main_controller chose', '']
-    if rs.choices:
-        lines += ['| Class | Confidence | Flies to (lat, lon) | Distance to the real target | Photo |',
-                  '|---|---|---|---|---|']
+    aim_by_cls = {a['class']: a for a in rs.aims}
+    if rs.choices or rs.aims:
+        lines += ['| Class | Confidence | Aims at (lat, lon) | Aim error | Photo '
+                  '| Photo GPS error (old measure) |',
+                  '|---|---|---|---|---|---|']
         for c in rs.choices:
-            tgt = f'{_fmt(c["error_m"], " m")} ({c["nearest_target"]})' if c.get('nearest_target') else '-'
-            lines.append(f'| {c["class"]} | {c["confidence"]:.2f} | {c["lat"]:.6f}, {c["lon"]:.6f} '
-                         f'| {tgt} | {c["photo"]} |')
+            aim = aim_by_cls.get(c['class'])
+            at = f'{aim["lat"]:.7f}, {aim["lon"]:.7f}' if aim else '-'
+            aim_err = (f'{_fmt(aim["error_m"], " m")} ({aim["target"]})'
+                       if aim and aim.get('target') else '-')
+            old = (f'{_fmt(c["error_m"], " m")} ({c["nearest_target"]})'
+                   if c.get('nearest_target') else '-')
+            lines.append(f'| {c["class"]} | {c["confidence"]:.2f} | {at} | {aim_err} '
+                         f'| {c["photo"]} | {old} |')
+        chosen = {c['class'] for c in rs.choices}
+        for a in rs.aims:                 # an aim without a recorded detection (rare)
+            if a['class'] not in chosen:
+                aim_err = f'{_fmt(a["error_m"], " m")} ({a["target"]})' if a.get('target') else '-'
+                lines.append(f'| {a["class"]} | - | {a["lat"]:.7f}, {a["lon"]:.7f} | {aim_err} '
+                             f'| - | - |')
+        no_aim = sorted(chosen - set(aim_by_cls))
+        if no_aim:
+            lines += ['', f'main_controller did not report where it aims for: {", ".join(no_aim)} '
+                          '(no "Aim <class> <lat>,<lon>" text: older team code, or the run ended '
+                          'before it chose the targets), so the aim error is unknown there.']
     else:
         lines.append('No detections, so main_controller had nothing to fly to (it returns home).')
     lines += ['', '## Payload drops', '']
@@ -358,11 +462,19 @@ def report_markdown(rs: RunScore) -> str:
     for e in rs.timeline:
         lines.append(f'| {_mmss(e["time_s"])} | {e["event"]} |')
     lines += ['', '## How these numbers are computed', '',
-              '- **Location error**: distance between the latitude/longitude in the detector\'s '
-              'message for the best detection and the true target. Last year\'s detector reports '
-              'the DRONE\'s GPS when the photo was taken (from the photo\'s file name), not the '
-              'target\'s own position, so this error is about how far the target was from the '
-              'middle of that photo.',
+              '- **Aim error**: distance between the point main_controller said it will drop on '
+              '(its status text "Aim <class> <lat>,<lon>", sent when it diverts to the targets) '
+              'and the true target. Since October 2026 main_controller aims at the ground under '
+              'the centre of the detection box (main/src/target_geolocation.py), so this is how '
+              'well the drop is AIMED. The drop error below also includes how well the drone '
+              'held its position and how the payload fell.',
+              '- **Photo GPS error (old measure)**: called "location error" in reports before '
+              'October 2026. Distance between the latitude/longitude in the detector\'s message '
+              'for the best detection and the true target. Last year\'s detector reports the '
+              'DRONE\'s GPS when the photo was taken (from the photo\'s file name), not the '
+              'target\'s own position, so this is how far the target was from the middle of that '
+              'photo. The old main_controller flew to exactly this point; it is kept to compare '
+              'with older reports.',
               '- **Drop error**: distance from where the payload came to rest in Gazebo (or, if '
               'Gazebo poses were not available, where the drone was when the release servo '
               'opened) to the true target.',

@@ -115,10 +115,12 @@ if [ "$DRY" = 1 ]; then
   say "DRY RUN: this is what would run (nothing was started)"
   [ -z "$PLUGIN_SUMMARY" ] || printf '%s\n' "$PLUGIN_SUMMARY" | sed 's/^/    /'
   echo "    1. ${CMD[*]}"
+  # Step 2 is only printed (the team stack is started by hand): README.md's "OR BY HAND" command. A profile prints
+  # the same command plus what it changes (sim_plugins plan.team_stack_hint; the default profile adds nothing).
   if [ -n "$PLUGIN_TEAM_HINT" ]; then
     echo "    2. (second terminal) cd $ASTRA_REPO && $PLUGIN_TEAM_HINT"
   else
-    echo "    2. (second terminal) cd $ASTRA_REPO && ./launcher.sh sim"
+    echo "    2. (second terminal) cd $ASTRA_REPO && TRACKER_CMD=\"ros2 launch sim_bringup team_stack.launch.py\" ./launcher.sh sim"
   fi
   exit 0
 fi

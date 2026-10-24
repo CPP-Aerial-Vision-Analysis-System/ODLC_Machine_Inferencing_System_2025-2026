@@ -6,7 +6,10 @@ sim_plugins/test/conftest.py -- PURPOSE: shared pytest fixtures for the sim_plug
   * REPO / PROFILES / SIM: paths inside the repo (the real simulation/profiles folder is tested too);
   * sim_home: a temporary ~/.astra_sim and ~/sitl for each test (nothing in your real home is touched);
   * fake_arducopter(path, version): writes a tiny file that looks like an ArduCopter SITL program
-    (ELF header + the version text ArduPilot compiles in), executable.
+    (ELF header + the version text ArduPilot compiles in), executable;
+  * include_location(include, context): the launch file an IncludeLaunchDescription really loads, worked out
+    with a LaunchContext the way the launch system does it (see its docstring for why `.location` alone is
+    not enough in ROS 2 Humble).
 """
 
 import os
@@ -64,6 +67,22 @@ def profiles_dir():
 @pytest.fixture
 def repo():
     return REPO
+
+
+def include_location(include, context) -> str:
+    """The file an IncludeLaunchDescription loads, found exactly the way the launch system finds it.
+
+    A launch-description source keeps its location as a list of launch SUBSTITUTIONS. Until they are
+    performed, `source.location` only joins their text forms, and in ROS 2 Humble (launch 1.0.x) that text
+    is the object's repr ("<...TextSubstitution object at 0x...>"), never the path. So the location is
+    performed in the LaunchContext with get_launch_description(context): that is what
+    IncludeLaunchDescription.execute() does at launch time, and it also READS the file, so a missing or
+    broken launch file (for example a bad generated copy of tracker.launch.xml) fails the test. Nothing is
+    started: loading a launch file only builds its LaunchDescription.
+    """
+    source = include.launch_description_source
+    source.get_launch_description(context)
+    return source.location
 
 
 def bash_available() -> bool:

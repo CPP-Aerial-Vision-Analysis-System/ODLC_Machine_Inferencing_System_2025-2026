@@ -1,3 +1,5 @@
+<!-- Purpose: explain the simulation panel, repeat-run controls, detector stand-in and mission score,
+including their interfaces and the unit checks used before flying the simulator. -->
 # sim_demo: what you WATCH during a simulated search
 
 `sim_demo` is the part of the ASTRA simulator that people look at. It has four programs:
@@ -78,6 +80,7 @@ From top to bottom:
    | **LOOK DOWN / LOOK FORWARD** | send `gimbal_set_angles 0,-90` / `gimbal_set_angles 0,0` on `/camera/command` (the team's camera command protocol). |
    | **UPLOAD MISSION + START** | uploads the world's `.waypoints` mission, points the camera down, waits out the simulator's settling time (the first ~30 s "Arm: Gyros inconsistent" is normal), arms and starts AUTO. It talks MAVLink to MAVProxy's extra output `udp:127.0.0.1:14553`; if nothing answers there it uses MAVROS services instead. After the upload it asks MAVROS to re-read the mission so the team's `waypoint_manager` and `main_controller` see it. |
    | **RTL (FLY HOME)** | sends the drone home. |
+   | **START OVER** | click twice within 5 seconds to land, reset the drone and both payloads, restart the autopilot and team stack, and create a new run folder while the windows stay open. Progress appears in Events; UPLOAD MISSION + START waits until the reset finishes. |
    | **OPEN MISSION PLANNER** | (Windows laptop only) starts Mission Planner, the team's ground-station program on Windows, so you can watch the simulated drone in it. It stays open when the panel closes. If it is already open, nothing happens (the panel says so). |
    | **CLOSE MISSION PLANNER** | asks Mission Planner to close, like clicking its X. If it is still open 5 s later, it is forced closed. Safe during a flight: the simulated autopilot has no ground-station failsafe. |
    | **● Mission Planner: running** (right of the CONTROLS title) | green = Mission Planner is open; grey = `not running` (or `not installed` / `not on Windows`); amber = `opening ...` / `closing ...`. It is checked every 2 s. |
@@ -100,6 +103,18 @@ From top to bottom:
 Nothing in the window ever waits for ROS or for Windows: ROS runs on a background thread, the
 autopilot commands run on their own thread, and the Mission Planner checks and buttons on a
 third one.
+
+To reset and fly immediately from a terminal, run `bash simulation/scripts/start_over.sh --fly`.
+Without `--fly`, press UPLOAD MISSION + START after the reset, or upload, arm and select AUTO in
+Mission Planner. `demo.sh --manual` starts the simulator and team stack while leaving those flight
+steps to the operator. These flows still need the live checks listed in `docs/HANDOFF.md` Task 3.
+
+Reset stops only processes carrying the simulator's session tag. A manually started team stack in
+the same ROS domain must be stopped in its own terminal first. A landing timeout or lost MAVLink
+connection leaves the old drone in place and reports failure; restoring the link and landing safely
+lets you try again. Recovery without a landing link is allowed when Gazebo confirms the drone is
+already absent. A second reset cannot overwrite the running reset's progress, and reopening the
+panel during a reset keeps its mission controls locked.
 
 ## How the stand-in detector works
 
@@ -137,7 +152,8 @@ The test suite checks the messages against the **team's own** `main_controller.i
 `ros2 service call /sim/demo/write_score std_srvs/srv/Trigger`):
 
 * `score_report.md` - targets found, best confidence, in how many photos each target was
-  detected / was visible, **location error** (detector's lat/lon vs truth), **drop error**
+  detected / was visible, **aim error** (main_controller's `Aim <class> <lat>,<lon>` status
+  text vs truth), **photo GPS error** (the old location error: detector's lat/lon vs truth), **drop error**
   (payload resting point in Gazebo, or the drone's position when the release servo opened,
   vs truth), what main_controller chose, per-photo precision/recall, false alarms, time line.
 * `mission_map.png` - a top-down picture: search area, every photo's footprint, the drone's
@@ -146,6 +162,10 @@ The test suite checks the messages against the **team's own** `main_controller.i
 * `score_report.json` - the same numbers for scripts.
 * `run_data.json` - all inputs, so `score_run --rescore DIR` can recompute the report later.
 * `events.jsonl` - everything that happened, one JSON object per line.
+
+The JSON keeps `location_error_m` for older analysis scripts and adds `aim_error_m`. Without an
+aim status text the aim error stays unknown. Re-scoring an older run searches `events.jsonl` for
+those texts. The map's chosen-target rings use the aim position when available.
 
 ## RViz markers
 
@@ -267,7 +287,7 @@ PyQt5 (the panel also removes those variables if something else imported cv2).
 
 ```bash
 cd ros2_ws/src/simulation/sim_demo
-python3 -m pytest -q test/                      # 155 unit tests (no simulator needed)
+python3 -m pytest -q test/                      # unit tests (no simulator needed)
 bash test/ros_e2e/run_fake_mission_e2e.sh /tmp/e2e   # all 4 nodes against a scripted 90 s mission
 ```
 

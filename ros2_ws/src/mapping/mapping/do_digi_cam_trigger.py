@@ -11,10 +11,12 @@ survey mission's DO_DIGICAM_CONTROL item it says "Mission: <n> DigiCamCtrl"
 and stops both when the drone reaches waypoint `buffer_wp` (a waypoint_manager parameter).
 
 October 2026: the two periods became ROS parameters (same defaults as before), e.g.
-    ros2 run mapping trigger --ros-args -p autofocus_period_s:=0.0
+    ros2 run mapping trigger --ros-args -p autofocus_period_s:=0
+(whole numbers and decimals both work: `:=0` and `:=0.0`, see number_parameter()).
 The camera node now skips autofocus by itself on cameras that cannot do it (A8 mini) and no
 longer drops photos while the lens focuses, so the defaults are safe; the parameters let a team
 switch the loop off for a fixed-focus survey or slow the photos down for a slower detector.
+Tests: test/test_trigger_node.py (runs the real node with rclpy in a private ROS domain).
 """
 
 import rclpy
@@ -24,7 +26,7 @@ from mavros_msgs.msg import StatusText, WaypointReached
 import re
 from rclpy.qos import QoSProfile, qos_profile_sensor_data
 from rcl_interfaces.srv import GetParameters
-from rcl_interfaces.msg import ParameterEvent
+from rcl_interfaces.msg import ParameterDescriptor, ParameterEvent
 
 
 # Seconds between the repeating autofocus passes that DO_DIGICAM_CONTROL starts
@@ -54,11 +56,12 @@ class MissionCameraTrigger(Node):
         self.camera_command_pub = self.create_publisher(String, "/camera/command", 10)
         self.create_subscription(ParameterEvent, "/parameter_events", self.parameter_event_cb, 10)
 
-        # Periods as parameters (October 2026); the defaults are the old constants.
-        self.declare_parameter('capture_period_s', CAPTURE_PERIOD_SECONDS)
-        self.declare_parameter('autofocus_period_s', AUTOFOCUS_PERIOD_SECONDS)
-        self.capture_period_s = max(0.1, float(self.get_parameter('capture_period_s').value))
-        self.autofocus_period_s = float(self.get_parameter('autofocus_period_s').value)
+        # Periods as parameters (October 2026); the defaults are the old constants. A photo
+        # request faster than every 0.1 s is not useful, so smaller values (and 0) mean 0.1 s.
+        self.capture_period_s = max(0.1, self.number_parameter('capture_period_s',
+                                                               CAPTURE_PERIOD_SECONDS))
+        self.autofocus_period_s = self.number_parameter('autofocus_period_s',
+                                                        AUTOFOCUS_PERIOD_SECONDS)
 
         self.buffer_wp = -1
         self.waypoint_reached = 0
@@ -80,6 +83,24 @@ class MissionCameraTrigger(Node):
         self.param_client = self.create_client(
             GetParameters, 'waypoint_manager/get_parameters')
         self.param_timer = self.create_timer(2.0, self.fetch_mission_indices)
+
+    def number_parameter(self, name, default):
+        """Declare a decimal ROS parameter that also accepts a whole number; return it as a float.
+
+        ROS 2 gives a parameter the type of its default value. With a plain 5.0 default,
+        `-p autofocus_period_s:=0` (a whole number, so an INTEGER) makes this node refuse to
+        start (InvalidParameterTypeException), and then not a single survey photo is taken.
+        dynamic_typing=True accepts any type; a value that is not a number (true, 'abc', a list)
+        is reported in the log and the default is used, so a typo never costs the photos.
+        """
+        self.declare_parameter(name, default, ParameterDescriptor(dynamic_typing=True))
+        value = self.get_parameter(name).value
+        # bool is a kind of int in Python, but `:=true` is certainly not a number of seconds.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        self.get_logger().error(
+            f'Parameter {name}={value!r} is not a number: using the default {default:g}')
+        return float(default)
 
     def fetch_mission_indices(self):
         # Retried by the timer until waypoint_manager shows up.

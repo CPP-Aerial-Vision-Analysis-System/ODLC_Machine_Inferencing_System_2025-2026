@@ -36,6 +36,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, NavSatFix
 from std_msgs.msg import Bool, Float64, String
 from mavros_msgs.msg import StatusText
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.qos import qos_profile_sensor_data
 from cv_bridge import CvBridge
 
@@ -126,7 +127,10 @@ class SIYINode(Node):
         # Where the top of a photo points, clockwise from the drone's nose, when the gimbal looks
         # straight down (0 = nose, the simulator; config.DEFAULT_IMAGE_TOP_DIRECTION_DEG says how
         # to check it on the real drone). Written into every photo's sidecar for the drop aiming.
-        self.declare_parameter('image_top_direction_deg', DEFAULT_IMAGE_TOP_DIRECTION_DEG)
+        # dynamic_typing: whole numbers are accepted too (`:=90` as well as `:=90.0`). With a plain
+        # 0.0 default ROS 2 refuses an INTEGER and this node would not start (no photos at all).
+        self.declare_parameter('image_top_direction_deg', DEFAULT_IMAGE_TOP_DIRECTION_DEG,
+                               ParameterDescriptor(dynamic_typing=True))
 
         self.use_real_camera = self.get_parameter('use_real_camera').value
         self.altitude_threshold = self.get_parameter('min_altitude_agl').value
@@ -146,9 +150,15 @@ class SIYINode(Node):
         self.resolution = self.resolution_override
         self.rotate_180 = self.get_parameter('rotate_180').value
         # The saved photo is turned another 180 deg when rotate_180 is on.
+        top = self.get_parameter('image_top_direction_deg').value
+        if isinstance(top, bool) or not isinstance(top, (int, float)):
+            # Not a number (e.g. `:=true` or a word): say so, and keep taking photos.
+            self.get_logger().error(
+                f"image_top_direction_deg={top!r} is not a number: using the default "
+                f"{DEFAULT_IMAGE_TOP_DIRECTION_DEG:g}")
+            top = DEFAULT_IMAGE_TOP_DIRECTION_DEG
         self.image_top_direction_deg = (
-            float(self.get_parameter('image_top_direction_deg').value)
-            + (180.0 if self.rotate_180 else 0.0)) % 360.0
+            float(top) + (180.0 if self.rotate_180 else 0.0)) % 360.0
 
         # 'AUTO' (the default) asks the camera itself once it is connected,
         # below. An explicit model here pins it and skips detection.

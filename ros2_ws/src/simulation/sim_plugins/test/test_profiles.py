@@ -208,6 +208,14 @@ def test_command_entry_relative_program(sim_home, tmp_path):
     assert entry['name'] == 'log' and entry['start_with'] == 'team_stack'
 
 
+def test_command_label_names_the_program_not_its_options():
+    assert profiles.command_label(['python3', '/home/me/logger.py', '--fast']) == 'logger'
+    assert profiles.command_label(['/usr/bin/python3.10', '-u', 'tools/rec.py']) == 'rec'
+    assert profiles.command_label(['bash', '-c', 'echo hi']) == 'echo hi'       # (launch_support makes it echo_hi)
+    assert profiles.command_label(['./tools/log.py', '--fast']) == 'log'
+    assert profiles.command_label(['--only-options']) == '--only-options'
+
+
 def test_autopilot_cross_checks(sim_home):
     with pytest.raises(ProfileError, match='source_dir is empty'):
         profiles.resolve(None, sets=['autopilot.kind=sitl_source'])

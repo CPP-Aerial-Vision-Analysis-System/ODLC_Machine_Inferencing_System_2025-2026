@@ -367,8 +367,15 @@ def check_image_result(msg, report: Report, photo_dir: str = '', allow_truth: bo
         report.add('ok', f'sample: method "{method}"')
     dets = list(getattr(getattr(msg, 'detections', None), 'detections', []) or [])
     num = getattr(msg, 'num_detections', None)
-    if num is not None and int(num) != len(dets):
-        report.add('warn', f'sample: num_detections = {num} but {len(dets)} detection(s) in the list')
+    classes = list(getattr(msg, 'classes', []) or [])
+    # new_od counts EVERY detection in num_detections and the parallel lists (classes ...), also the class
+    # "object" it keeps OUT of detections (only persons / tents go there). So num_detections equals len(classes)
+    # when the lists are filled (else the detections list), and it is never smaller than the detections list.
+    expected = len(classes) if classes else len(dets)
+    if num is not None and (int(num) != expected or int(num) < len(dets)):
+        report.add('warn', f'sample: num_detections = {num}, but {len(dets)} person/tent detection(s) and '
+                           f'{len(classes)} entries in classes',
+                   'num_detections = every detection (= len(classes)); detections = only persons and tents')
     bad = []
     for i, det in enumerate(dets):
         results = list(getattr(det, 'results', []) or [])

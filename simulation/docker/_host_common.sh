@@ -3,29 +3,37 @@
 #  _host_common.sh  --  helpers for the Docker scripts that run on the HOST (sourced, never run)
 #
 #  PURPOSE: the checks and choices every host-side Docker script (build_images.sh, compose_up.sh,
-#  compose_down.sh, run_sim_container.sh, run_jetson_container.sh) needs, written once:
+#  compose_down.sh, run_sim_container.sh, run_jetson_container.sh, export/import_images.sh, check_host.sh)
+#  needs, written once:
 #    * friendly messages (say / info / ok / warn / die), the same style as the other simulation scripts;
-#    * astra_need_docker: is "docker" really Docker Engine (not the Windows Docker Desktop shim), may this
+#    * astra_need_docker: is "docker" really a Docker Engine (not the Windows Docker Desktop program), may this
 #      user use it (the "docker" group), does Compose exist and is it new enough;
-#    * astra_pick_repo: which repo folder to mount into the containers (on Windows the Linux-side copy
-#      ~/ODLC_Machine_Inferencing_System_2025-2026, because the D: drive is slow and has a space in its path);
+#    * astra_pick_repo: which repo folder to mount into the containers (on Windows, when the scripts are run from
+#      a Windows drive /mnt/c, /mnt/d ..., the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 that
+#      simulation/setup/03_build.sh keeps, because Windows drives are slow and their paths often have spaces);
 #    * astra_prepare_data: the host folder for runs, logs and detector weights (~/.astra_docker);
-#    * astra_display_mode / astra_gui_run_args / astra_gpu_run_args: how containers show windows (WSLg on
-#      Windows 11, X11 on Linux, none) and get the graphics card (DirectX via /dev/dxg, /dev/dri, NVIDIA CUDA);
-#    * astra_free_camera_ip: the native simulator gives this computer the camera address 192.168.144.25 on
-#      its loopback; while that is there, the "sim" container (which IS 192.168.144.25 on the Docker network)
-#      gets no internet and the host answers in its place, so it is taken away (the native scripts put it
-#      back by themselves the next time they run);
+#    * astra_display_mode / astra_compose_files / astra_gui_run_args / astra_gpu_run_args: how containers show
+#      windows (WSLg on Windows, X11 on Linux, none) and get the graphics card (DirectX through /dev/dxg,
+#      /dev/dri, NVIDIA CUDA), for `docker compose` (which add-on files) and for `docker run` (which options);
+#    * astra_check_image_user: the images have one user id built in; warn when it is not yours;
+#    * astra_free_camera_ip: the native simulator gives this computer the camera address 192.168.144.25 on its
+#      loopback; while that is there, the "sim" container (which IS 192.168.144.25 on the Docker network) gets
+#      no internet and the host answers in its place, so it is taken away (the native scripts put it back);
+#    * astra_subnet_conflict: is 192.168.144.0/24 already used here (another network, the real drone's)?
 #    * astra_run: run a command, or only print it with --dry-run.
+#  Nothing here knows about one particular computer: every path is found at run time.
 # =============================================================================
 
 ASTRA_DOCKER_SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ASTRA_REPO_HERE="$(cd "$ASTRA_DOCKER_SCRIPTS/../.." && pwd)"   # the repo these scripts belong to
 ASTRA_LINUX_COPY="$HOME/ODLC_Machine_Inferencing_System_2025-2026"
 ASTRA_CONTAINER_REPO=/ODLC_Machine_Inferencing_System_2025-2026
+ASTRA_CONTAINER_HOME=/home/ubuntu                              # the images' user (docker/Dockerfile USERNAME)
 ASTRA_CAMERA_IP=192.168.144.25                                 # real SIYI camera = the "sim" container
 ASTRA_JETSON_IP=192.168.144.100                                # real Jetson eth0 = the "jetson" container
+ASTRA_SUBNET=192.168.144.0/24
 ASTRA_NET=astra_net
+ASTRA_IMAGES="astra-dev:latest astra-sitl:latest astra-sim:latest"
 export ASTRA_DOCKER_DATA="${ASTRA_DOCKER_DATA:-$HOME/.astra_docker}"
 ASTRA_DRY="${ASTRA_DRY:-0}"
 
@@ -56,12 +64,13 @@ astra_need_docker() {
   if [ -z "$where" ]; then
     die "Docker is not installed in this Ubuntu. Install Docker Engine once (admin rights):
     sudo bash $ASTRA_DOCKER_SCRIPTS/install_docker_engine.sh
-    (from Windows PowerShell:  wsl -d ${WSL_DISTRO_NAME:-Ubuntu-22.04} -u root -- bash <that file> --user $(id -un))"
+    (Windows, from PowerShell:  wsl -d ${WSL_DISTRO_NAME:-Ubuntu-22.04} -u root -- bash <that file> --user $(id -un))"
   fi
   case "$where" in
-    /mnt/*) die "\"docker\" here is Docker Desktop's Windows program ($where), not Docker Engine.
+    /mnt/*) die "\"docker\" here is Docker Desktop's Windows program ($where), not a Docker Engine for Linux.
     Install Docker Engine inside this Ubuntu:  sudo bash $ASTRA_DOCKER_SCRIPTS/install_docker_engine.sh
-    then open a NEW terminal (type -a docker must show /usr/bin/docker first)." ;;
+    then open a NEW terminal (type -a docker must show /usr/bin/docker first).
+    (Or switch on Docker Desktop's WSL integration for this distro instead: docs/simulation/DOCKER.md, A6.)" ;;
   esac
   [ "$ASTRA_DRY" = 1 ] && return 0
   local err
@@ -69,8 +78,8 @@ astra_need_docker() {
     case "$err" in
       *"permission denied"*)
         die "You may not use Docker yet: your user is not in the \"docker\" group in THIS terminal.
-    Close every Ubuntu window, run  wsl --terminate ${WSL_DISTRO_NAME:-Ubuntu-22.04}  in PowerShell, open Ubuntu again.
-    (Right now, for one command:  sg docker -c \"bash $0\")" ;;
+    Windows: close every Ubuntu window, run  wsl --terminate ${WSL_DISTRO_NAME:-Ubuntu-22.04}  in PowerShell, open Ubuntu again.
+    Linux: log out and in again (or restart).   Right now, for one command:  sg docker -c \"bash $0\"" ;;
       *) die "Docker is not running or not reachable:
     $err
     Start it:  sudo systemctl start docker     (logs: journalctl -u docker --no-pager | tail -40)" ;;
@@ -81,15 +90,15 @@ astra_need_docker() {
   local v major minor
   v="$(docker compose version --short 2>/dev/null)"; v="${v#v}"
   major="${v%%.*}"; minor="$(printf '%s' "$v" | cut -d. -f2)"
-  if [ "${major:-0}" -lt 2 ] 2>/dev/null || { [ "${major:-0}" -eq 2 ] && [ "${minor:-0}" -lt 24 ]; } 2>/dev/null; then
-    die "Docker Compose $v is too old (2.24 or newer is needed). Install the current one from Docker's apt source:
+  if [ "${major:-0}" -lt 2 ] 2>/dev/null || { [ "${major:-0}" -eq 2 ] && [ "${minor:-0}" -lt 20 ]; } 2>/dev/null; then
+    die "Docker Compose $v is too old (2.20 or newer is needed). Install the current one from Docker's apt source:
     sudo bash $ASTRA_DOCKER_SCRIPTS/install_docker_engine.sh"
   fi
 }
 
 astra_image_exists() { docker image inspect "$1" >/dev/null 2>&1; }
 
-# astra_require_images "IMAGE TARGET"... : stop when an image is missing and say how to build it.
+# astra_require_images "IMAGE TARGET"... : stop when an image is missing and say how to get it.
 astra_require_images() {
   local pair img target missing=()
   [ "$ASTRA_DRY" = 1 ] && return 0
@@ -98,15 +107,37 @@ astra_require_images() {
     astra_image_exists "$img" || missing+=("$img (bash simulation/docker/build_images.sh $target)")
   done
   if [ "${#missing[@]}" -gt 0 ]; then
-    warn "These Docker images are not built yet:"
+    warn "These Docker images are not on this computer yet:"
     for img in "${missing[@]}"; do warn "    $img"; done
-    die "Build them first (the first build takes about an hour; afterwards only changed steps are rebuilt)."
+    die "Build them first (the first build takes about an hour; afterwards only changed steps are rebuilt),
+    or copy them from a teammate:  bash simulation/docker/import_images.sh <their astra_images_*.tar.gz>"
   fi
 }
 
+# astra_image_uid IMAGE : the user id built into IMAGE (label org.astra.uid, set by build_images.sh), or "".
+astra_image_uid() { docker image inspect "$1" --format '{{index .Config.Labels "org.astra.uid"}}' 2>/dev/null; }
+
+# astra_check_image_user IMAGE... : warn when an image's built-in user id is not this user's. Then files the
+# containers write into the mounted repo belong to someone else, and an X11 desktop refuses their windows.
+astra_check_image_user() {
+  local img uid
+  [ "$ASTRA_DRY" = 1 ] && return 0
+  for img in "$@"; do
+    uid="$(astra_image_uid "$img")"
+    [ -z "$uid" ] && uid="$(docker run --rm --entrypoint id "$img" -u 2>/dev/null)"
+    if [ -n "$uid" ] && [ "$uid" != "$(id -u)" ]; then
+      warn "$img was built for user id $uid, you are $(id -u) (images copied from another PC?)."
+      warn "  It still runs; files it writes into the repo then belong to user id $uid. For a clean setup rebuild"
+      warn "  with your id:  bash $ASTRA_DOCKER_SCRIPTS/build_images.sh   (docs/simulation/DOCKER.md, troubleshooting)"
+      ASTRA_UID_MISMATCH="$uid"
+    fi
+  done
+}
+
 # astra_pick_repo [FOLDER] : print the repo folder to mount into the containers.
-# On Windows the scripts usually live on D: (/mnt/d/..., slow, path with a space); the Linux-side copy that
-# simulation/setup/03_build.sh keeps (~/ODLC_Machine_Inferencing_System_2025-2026) is used instead when it exists.
+# When these scripts are run from a Windows drive (/mnt/c, /mnt/d ...: slow, often a space in the path), the
+# Linux-side copy that simulation/setup/03_build.sh keeps (~/ODLC_Machine_Inferencing_System_2025-2026) is used
+# instead when it exists. A repo cloned inside Linux (the recommended way) is used as it is.
 astra_pick_repo() {
   local want="${1:-}"
   if [ -n "$want" ]; then
@@ -168,7 +199,7 @@ astra_use_host_fuel() {
 astra_display_mode() {
   if astra_is_wsl && [ -d /mnt/wslg ] && [ -d /tmp/.X11-unix ]; then
     echo wslg
-  elif [ -n "${DISPLAY:-}" ] && [ -d /tmp/.X11-unix ]; then
+  elif ! astra_is_wsl && [ -n "${DISPLAY:-}" ] && [ -d /tmp/.X11-unix ]; then
     echo x11
   else
     echo none
@@ -180,41 +211,90 @@ astra_has_nvidia_runtime() {
   docker info --format '{{range $k, $v := .Runtimes}}{{$k}} {{end}}' 2>/dev/null | tr ' ' '\n' | grep -qx nvidia
 }
 
-# astra_gui_run_args MODE : fill the array GUI_ARGS with `docker run` options for windows + 3D drawing.
-astra_gui_run_args() {
-  GUI_ARGS=()
-  case "$1" in
-    wslg)
-      GUI_ARGS=(-e "DISPLAY=${DISPLAY:-:0}" -e "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}"
-                -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir -e PULSE_SERVER=unix:/mnt/wslg/PulseServer
-                -v /tmp/.X11-unix:/tmp/.X11-unix -v /mnt/wslg:/mnt/wslg
-                -v /usr/lib/wsl:/usr/lib/wsl:ro --device /dev/dxg -e LD_LIBRARY_PATH=/usr/lib/wsl/lib
-                -e GALLIUM_DRIVER=d3d12 -e MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA -e QT_X11_NO_MITSHM=1) ;;
-    x11)
-      GUI_ARGS=(-e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix -e QT_X11_NO_MITSHM=1
-                -e XDG_RUNTIME_DIR=/tmp/runtime-ubuntu)
-      [ -e /dev/dri ] && GUI_ARGS+=(--device /dev/dri) ;;
-  esac
+# astra_render_gid : the group id that owns /dev/dri/renderD128 (Linux graphics), or "" when there is none.
+astra_render_gid() {
+  local node
+  for node in /dev/dri/renderD128 /dev/dri/card0; do
+    [ -e "$node" ] && { stat -c %g "$node"; return 0; }
+  done
+  return 0
 }
 
-# astra_gpu_run_args MODE WANT : fill GPU_ARGS with `--gpus all ...` when WANT=yes|auto and Docker has the
-# NVIDIA runtime (MODE x11 also asks for the OpenGL driver: capability "all").
+# astra_compose_files MODE GPU : fill COMPOSE_FILES (-f options for docker compose) and COMPOSE_TEXT (a
+# description) for display MODE (wslg | x11 | none) and GPU (auto | yes | no). See docker/compose.*.yml.
+astra_compose_files() {
+  local mode="$1" gpu="$2" d="$ASTRA_REPO_HERE/docker"
+  COMPOSE_FILES=(-f "$d/compose.sim.yml"); COMPOSE_TEXT="compose.sim.yml"
+  if astra_is_wsl; then
+    # On Windows the WSLg file also carries the 3D path to the graphics card (/dev/dxg), so it is used even
+    # without windows (--headless): Gazebo's camera still draws its pictures on the card.
+    if [ -d /mnt/wslg ] && [ -e /dev/dxg ]; then
+      COMPOSE_FILES+=(-f "$d/compose.wslg.yml"); COMPOSE_TEXT="$COMPOSE_TEXT + compose.wslg.yml"
+    fi
+  else
+    if [ "$mode" = x11 ]; then
+      COMPOSE_FILES+=(-f "$d/compose.linux.yml"); COMPOSE_TEXT="$COMPOSE_TEXT + compose.linux.yml"
+    fi
+    if [ -e /dev/dri ]; then
+      export ASTRA_RENDER_GID="${ASTRA_RENDER_GID:-$(astra_render_gid)}"
+      COMPOSE_FILES+=(-f "$d/compose.dri.yml"); COMPOSE_TEXT="$COMPOSE_TEXT + compose.dri.yml"
+    fi
+  fi
+  if [ "$gpu" != no ] && { [ "$ASTRA_DRY" = 1 ] || astra_has_nvidia_runtime; }; then
+    COMPOSE_FILES+=(-f "$d/compose.gpu.yml"); COMPOSE_TEXT="$COMPOSE_TEXT + compose.gpu.yml"
+  elif [ "$gpu" = yes ]; then
+    die "--gpu: Docker has no NVIDIA runtime (sudo bash $ASTRA_DOCKER_SCRIPTS/install_docker_engine.sh --nvidia)"
+  fi
+}
+
+# astra_gui_run_args MODE : fill the array GUI_ARGS with `docker run` options for windows + 3D drawing
+# (the same as docker/compose.wslg.yml, compose.linux.yml and compose.dri.yml).
+astra_gui_run_args() {
+  GUI_ARGS=()
+  if astra_is_wsl && [ -d /mnt/wslg ] && [ -e /dev/dxg ]; then
+    GUI_ARGS=(-e "DISPLAY=${DISPLAY:-:0}" -e "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}"
+              -e XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir -e PULSE_SERVER=unix:/mnt/wslg/PulseServer
+              -v /tmp/.X11-unix:/tmp/.X11-unix -v /mnt/wslg:/mnt/wslg
+              -v /usr/lib/wsl:/usr/lib/wsl:ro --device /dev/dxg -e LD_LIBRARY_PATH=/usr/lib/wsl/lib
+              -e GALLIUM_DRIVER=d3d12 -e "MESA_D3D12_DEFAULT_ADAPTER_NAME=${MESA_D3D12_DEFAULT_ADAPTER_NAME:-NVIDIA}"
+              -e QT_X11_NO_MITSHM=1)
+    return 0
+  fi
+  if [ "$1" = x11 ]; then
+    GUI_ARGS=(-e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix -e QT_X11_NO_MITSHM=1
+              -e XDG_RUNTIME_DIR=/tmp/runtime-ubuntu)
+  fi
+  if ! astra_is_wsl && [ -e /dev/dri ]; then
+    local gid="${ASTRA_RENDER_GID:-$(astra_render_gid)}"
+    GUI_ARGS+=(--device /dev/dri --group-add "${gid:-video}")
+  fi
+}
+
+# astra_gpu_run_args WANT : fill GPU_ARGS with `--gpus all ...` when WANT=yes|auto and Docker has the
+# NVIDIA runtime (capabilities "all": CUDA + OpenGL; see docker/compose.gpu.yml).
 astra_gpu_run_args() {
   GPU_ARGS=()
-  case "$2" in no) return 0 ;; esac
-  if astra_has_nvidia_runtime; then
-    GPU_ARGS=(--gpus all -e "NVIDIA_DRIVER_CAPABILITIES=$([ "$1" = x11 ] && echo all || echo compute,utility)")
-  elif [ "$2" = yes ]; then
+  case "$1" in no) return 0 ;; esac
+  if [ "$ASTRA_DRY" = 1 ] || astra_has_nvidia_runtime; then
+    GPU_ARGS=(--gpus all -e "NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}")
+  elif [ "$1" = yes ]; then
     die "--gpu was asked for, but Docker has no NVIDIA runtime (install_docker_engine.sh --nvidia installs it)"
   fi
 }
 
-# astra_x11_allow : let containers of this user open windows on a Linux X11 desktop.
+# astra_x11_allow : let containers open windows on a Linux X11 desktop. The X server checks the user id of
+# whoever connects: the containers run as the images' user, normally your own id (build_images.sh).
 astra_x11_allow() {
-  if command -v xhost >/dev/null 2>&1; then
-    astra_run xhost "+SI:localuser:$(id -un)" >/dev/null 2>&1 || warn "xhost failed: windows may not open (no X11 desktop?)"
-  else
+  if ! command -v xhost >/dev/null 2>&1; then
     warn "xhost is missing (sudo apt-get install x11-xserver-utils): windows may be refused by the X server"
+    return 0
+  fi
+  if [ -n "${ASTRA_UID_MISMATCH:-}" ]; then
+    # The images' user is someone else's id: allow local programs of every user (only this PC's own users).
+    warn "allowing every local user's programs on your X11 screen (xhost +local:), because of the user id above"
+    astra_run xhost +local: >/dev/null 2>&1 || warn "xhost failed: windows may not open (no X11 desktop?)"
+  else
+    astra_run xhost "+SI:localuser:$(id -un)" >/dev/null 2>&1 || warn "xhost failed: windows may not open (no X11 desktop?)"
   fi
 }
 
@@ -262,6 +342,22 @@ astra_free_camera_ip() {
   ok "removed"
 }
 
+# astra_subnet_conflict : print a description of what else uses 192.168.144.0/24 on this computer ("" = free).
+# Docker cannot create astra_net when another network (a real network card on the drone's network, a VPN, another
+# Docker network) already has addresses there; the team's code needs exactly these addresses.
+astra_subnet_conflict() {
+  local routes nets n sub
+  routes="$(ip -4 route show 2>/dev/null | awk '$1 ~ /^192\.168\.144\./ && $0 !~ / dev br-/ {print}')"
+  [ -n "$routes" ] && printf 'a network card of this computer: %s\n' "$(printf '%s' "$routes" | head -1)"
+  command -v docker >/dev/null 2>&1 || return 0
+  nets="$(docker network ls --format '{{.Name}}' 2>/dev/null)"
+  for n in $nets; do
+    [ "$n" = "$ASTRA_NET" ] && continue
+    sub="$(docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
+    case " $sub " in *" 192.168.144."*) printf 'the Docker network "%s" (%s)\n' "$n" "${sub% }" ;; esac
+  done
+}
+
 # astra_native_sim_running : true when a NATIVE (not containerised) Gazebo or SITL is running on this computer.
 astra_native_sim_running() {
   local pid
@@ -279,4 +375,11 @@ astra_mem_check() {
     warn "Only ${avail} MB of memory is free; the simulator wants about ${1:-4000} MB. Close other programs (or stop"
     warn "the native simulator: bash simulation/scripts/stop_sim.sh) if it gets slow."
   fi
+}
+
+# astra_free_gb DIR : free space (whole GB) of the file system that holds DIR (or its nearest existing parent).
+astra_free_gb() {
+  local d="$1"
+  while [ -n "$d" ] && [ ! -e "$d" ]; do d="$(dirname "$d")"; done
+  df -BG --output=avail "${d:-/}" 2>/dev/null | tail -1 | tr -dc '0-9'
 }

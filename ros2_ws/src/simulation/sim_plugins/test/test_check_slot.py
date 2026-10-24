@@ -150,6 +150,17 @@ def test_sample_warnings():
     assert not r.failed and levels(r).count('warn') == 4
 
 
+def test_new_od_counting_other_objects_is_fine():
+    # new_od: num_detections and classes count EVERY detection, the "object" class too, while the detections
+    # list holds only persons and tents (detection/new_od.py _publish_results). That is the contract, no warning.
+    r = cs.Report('detector')
+    cs.check_image_result(photo_result(num_detections=2, classes=['tent', 'object']), r)
+    assert not r.failed and 'warn' not in levels(r), texts(r)
+    r = cs.Report('detector')
+    cs.check_image_result(photo_result(num_detections=0, classes=[]), r)      # fewer than the list: warn
+    assert 'warn' in levels(r) and 'num_detections = 0' in texts(r)
+
+
 def test_empty_photo_result_is_fine():
     r = cs.Report('detector')
     cs.check_image_result(photo_result(detections=NS(detections=[]), num_detections=0), r)

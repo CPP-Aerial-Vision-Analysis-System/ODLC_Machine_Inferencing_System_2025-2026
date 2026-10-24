@@ -9,13 +9,23 @@ fetch_real_field_data.sh (folder layout and checksums in sim_worlds/data/real_fi
 
 What it makes (prepared/ folder):
   dtm      0.5 m  bare-earth ground height, NAVD88 m        USGS 3DEP lidar DTM (OPR tiles, 2017 flight)
-  chm      0.5 m  canopy height above ground, m              USGS 3DEP point cloud (first returns - DTM)
+  chm      0.5 m  canopy height above ground, m              USGS 3DEP point cloud (highest return - DTM), with
+                                                             the floating "haze" points removed (see prepare_chm)
   naip     0.25 m R, G, B, NIR photo (uint8)                 USDA NAIP 2023-09-18, 0.3 m
   leafoff  0.5 m  1 = "dark olive in March" = evergreen       OKMaps 2025 leaf-off photo (optional; only a mask)
   metachm  1 m    canopy height (2019 imagery model)          Meta / WRI canopy height v2 (optional fallback)
-  features.json   buildings, water, streams, runway, roads    OpenStreetMap (ODbL) + Microsoft footprints (ODbL)
+  features.json   buildings, water, streams, runway, roads    OpenStreetMap (ODbL 1.0) + Microsoft Global ML
+                                                             Building Footprints (CDLA Permissive 2.0); building
+                                                             heights measured in the lidar
   trees.csv       one row per tree (see trees_detect.py)
   grid.json       where every raster sits, home height, season grade, sources
+
+Research fixes applied here (2026-10-24, from the terrain_sources research; numbers in WORLDS.md):
+  * lidar haze: points more than HAZE_ABOVE_DTM_M above the bare earth are dropped before the canopy model
+    (they made fake 45 m "trees");
+  * Sentinel-2 L2A pixels carry a +1000 offset (processing baseline 04.00 and later): it is removed before NDVI
+    and band ratios, and the grass colour grade is measured on PURE grass cells of the NAIP photo;
+  * building heights come from the lidar (median canopy height inside each footprint).
 
 Why reproject everything onto ONE world grid here: the sources come in three different map projections
 (NAIP: UTM zone 14; the lidar: UTM zone 15, although the field is just WEST of the zone 14/15 line at
@@ -43,7 +53,14 @@ NAIP_RES = 0.25
 LEAFOFF_RES = 0.5
 META_RES = 1.0
 GRID_MARGIN_M = 8.0          #: rasters extend this far past the terrain EXTENT (normals and skirts at the edge)
-DEFAULT_GRASS_GRADE = (0.85, 0.93, 0.85)   #: used when no Sentinel-2 pair is available (see texture.py)
+#: Lidar points higher than this above the bare earth are "haze" (unclassified returns 40-140 m up along the
+#: flight-line edges, terrain_sources research 6.1), not trees: the tallest real tree here is 24.6-29.4 m.
+HAZE_ABOVE_DTM_M = 35.0
+CHM_CLIP_M = 40.0            #: safety clip of the canopy model (nothing real here is taller than about 30 m)
+S2_RES = 10.0                #: Sentinel-2 grid used for the season grade (world grid, nearest neighbour)
+S2_DEFAULT_OFFSET = -1000    #: BOA_ADD_OFFSET of Sentinel-2 L2A since processing baseline 04.00 (2022-01-25)
+PURE_GRASS_SHARE = 0.9       #: a 10 m cell is "pure grass" when this share of its NAIP pixels looks like grass
+BUILDING_MIN_LIDAR_H = 2.0   #: a footprint whose lidar median is lower than this was built after 2017 (no height)
 
 
 def data_dirs(data_root=None):
@@ -223,7 +240,14 @@ def prepare_dtm(raw, manifest, out, meta, log):
 
 def prepare_chm(raw, manifest, out, meta, dtm, log):
     """USGS 3DEP point cloud (LAZ, EPSG:6344 + NAVD88) -> highest return per 0.5 m cell -> canopy height
-    model = DSM - DTM, cleaned of bird/noise spikes."""
+    model = DSM - DTM, cleaned of floating haze and of bird/noise spikes.
+
+    Haze (research fix 1): the point cloud has unclassified returns floating 40-140 m above the ground in narrow
+    north-south strips along the flight-line edges. The old code only clipped the canopy model at 45 m, so those
+    cells stayed at 45 m and became 196 fake 45 m "tree tops" in the research area. Here every point higher than
+    HAZE_ABOVE_DTM_M above the bare earth is dropped BEFORE the highest-return step, so they never exist.
+    Note: the 3x3 spike filter below also removes the three thin wooden poles inside Search Boundary 1 (0.3 m
+    wide); they are added back as explicit structures (site.MANUAL_STRUCTURES)."""
     import laspy
     from pyproj import Transformer
     from scipy import ndimage
@@ -234,7 +258,7 @@ def prepare_chm(raw, manifest, out, meta, dtm, log):
     x0, y1, cols, rows = world_grid(CHM_RES)
     dsm = np.full(rows * cols, -np.inf, dtype=np.float32)
     tr = Transformer.from_crs('EPSG:6344', site.local_proj4(), always_xy=True)
-    total = used = 0
+    total = used = haze = 0
     for path in files:
         t0 = time.time()
         with laspy.open(path) as f:
@@ -250,6 +274,11 @@ def prepare_chm(raw, manifest, out, meta, dtm, log):
                 c = np.floor((x - x0) / CHM_RES).astype(np.int64)
                 r = np.floor((y1 - y) / CHM_RES).astype(np.int64)
                 ok = (c >= 0) & (c < cols) & (r >= 0) & (r < rows)
+                # haze: higher than HAZE_ABOVE_DTM_M above the bare earth under the point -> not a real object
+                floating = np.zeros(len(z), dtype=bool)
+                floating[ok] = z[ok] > dtm.sample(x[ok], y[ok]) + HAZE_ABOVE_DTM_M
+                haze += int(floating.sum())
+                ok &= ~floating
                 np.maximum.at(dsm, r[ok] * cols + c[ok], z[ok])
                 total += len(cls)
                 used += int(ok.sum())
@@ -258,14 +287,20 @@ def prepare_chm(raw, manifest, out, meta, dtm, log):
     empty = ~np.isfinite(dsm)
     ground = dtm.sample(*_centres(x0, y1, cols, rows, CHM_RES))
     chm = np.where(empty, 0.0, dsm - ground).astype(np.float32)
-    chm = np.clip(chm, 0.0, 45.0)                                   # tallest real tree here is about 28 m
+    clipped = int((chm > CHM_CLIP_M).sum())
+    chm = np.clip(chm, 0.0, CHM_CLIP_M)
     med = ndimage.median_filter(chm, size=3)
     spikes = chm > med + 6.0                                        # single-cell birds / wires / noise
     chm[spikes] = med[spikes]
-    log(f'  CHM: {used:,} of {total:,} lidar points on the grid, {100 * empty.mean():.1f} % empty cells, '
-        f'{int(spikes.sum()):,} spikes removed, {100 * (chm > 2).mean():.1f} % of cells above 2 m')
+    meta['chm_cleaning'] = {'haze_points_dropped': haze, 'haze_rule_m_above_dtm': HAZE_ABOVE_DTM_M,
+                            'cells_clipped_at_m': [clipped, CHM_CLIP_M], 'spike_cells_flattened': int(spikes.sum()),
+                            'max_height_m': round(float(chm.max()), 2)}
+    log(f'  CHM: {used:,} of {total:,} lidar points on the grid, {haze:,} haze points dropped (> {HAZE_ABOVE_DTM_M:g} m '
+        f'above the ground), {100 * empty.mean():.1f} % empty cells, {int(spikes.sum()):,} spikes removed, '
+        f'{100 * (chm > 2).mean():.1f} % of cells above 2 m, highest {chm.max():.1f} m')
     grids.save_raster(out, meta, 'chm', chm, x0, y1, CHM_RES,
-                      'canopy/structure height above the DTM, m (USGS 3DEP point cloud, flown 2017-02-10, leaf-off)')
+                      'canopy/structure height above the DTM, m (USGS 3DEP point cloud, flown 2017-02-10, leaf-off; '
+                      f'haze > {HAZE_ABOVE_DTM_M:g} m above the ground removed)')
     return grids.Raster(chm, x0, y1, CHM_RES)
 
 
@@ -324,28 +359,117 @@ def prepare_metachm(raw, manifest, out, meta, log):
     return grids.Raster(a, x0, y1, META_RES)
 
 
+def s2_offset(entry):
+    """BOA_ADD_OFFSET of one Sentinel-2 L2A manifest entry (reflectance x 10000 = DN + offset).
+
+    Since processing baseline 04.00 (25 Jan 2022) every L2A pixel is stored with +1000 added, i.e. the product
+    metadata says BOA_ADD_OFFSET = -1000. Our two scenes are baselines 05.10 and 05.12. Order of trust: the
+    manifest's "boa_add_offset", then the baseline in the product name (N0400 or later -> -1000), else -1000."""
+    import re
+    if entry and 'boa_add_offset' in entry:
+        return float(entry['boa_add_offset'])
+    text = ' '.join((entry or {}).get('urls', []) + [(entry or {}).get('scene', ''), (entry or {}).get('url', '')])
+    m = re.search(r'_N(\d{4})_', text)
+    if m:
+        return -1000.0 if int(m.group(1)) >= 400 else 0.0
+    return float(S2_DEFAULT_OFFSET)
+
+
+def _ndvi(a):
+    """NDVI of a [rows, cols, 4] array ordered R, G, B, NIR (any scale)."""
+    return (a[..., 3] - a[..., 0]) / (a[..., 3] + a[..., 0] + 1e-6)
+
+
+def _ratio_grade(a, b, mask):
+    """Median b / a over mask -> (clipped, unclipped) RGB factors; (None, None) without any samples."""
+    if not np.any(mask):
+        return None, None
+    raw = [float(np.median(b[..., k][mask] / np.maximum(a[..., k][mask], 1.0))) for k in range(3)]
+    return [round(min(max(v, 0.6), 1.3), 3) for v in raw], [round(v, 3) for v in raw]
+
+
+def naip_grass_share(naip, rows, cols, factor, block=40):
+    """Share (0..1) of grass-like NAIP pixels inside every (factor x factor)-pixel cell of a coarser grid that
+    starts at the same corner (the 10 m Sentinel-2 world grid: factor 40 at 0.25 m).
+
+    Grass-like, calibrated on this photo (trees_detect.crown_mask text): sunlit grass has NDVI about 0.20 (95 %
+    below 0.34) and brightness about 96 of 255; tree crowns NDVI about 0.43, shadows are dark, bare clay and
+    concrete have NDVI below 0.08. So: 0.08 <= NDVI <= 0.36 and 70 <= brightness <= 150."""
+    out = np.zeros((rows, cols), dtype=np.float32)
+    d = naip.data
+    for r0 in range(0, rows, block):
+        r1 = min(r0 + block, rows)
+        a = np.asarray(d[r0 * factor:r1 * factor, :cols * factor], dtype=np.float32)
+        R, G, B, N = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+        nd = (N - R) / (N + R + 1e-6)
+        br = (R + G + B) / 3.0
+        g = ((nd >= 0.08) & (nd <= 0.36) & (br >= 70.0) & (br <= 150.0)).astype(np.float32)
+        h = (r1 - r0)
+        out[r0:r1] = g[:h * factor].reshape(h, factor, cols, factor).mean(axis=(1, 3))
+    return out
+
+
 def prepare_season_grade(raw, manifest, meta, naip, log):
-    """Optional: ratio of Sentinel-2 grass colour on competition day (2026-09-15) to the NAIP week (2023-09-23)
-    -> per-band multipliers for grass pixels (texture.py). Falls back to DEFAULT_GRASS_GRADE."""
+    """Optional: how much greener/darker the grass was on competition day (Sentinel-2 2026-09-15) than in the
+    NAIP week (Sentinel-2 2023-09-23) -> per-band multipliers for grass pixels (pack.py applies them).
+
+    Research fix 4: Sentinel-2 L2A values carry a +1000 offset since processing baseline 04.00. The first version
+    used the raw numbers, so NDVI came out too low (the "grass" mask took 75 % of all cells, forest included) and
+    the colour change looked only about half as strong. Now the offset is removed first (s2_offset). Three numbers
+    are recorded so the effect can be checked: as before the fix, offset removed with the old NDVI mask (the
+    research's check), and offset removed over PURE grass cells (>= 90 % grass pixels in the 0.25 m NAIP photo):
+    the last one is what pack.py applies, because the grade is only ever applied to grass pixels."""
+    entries = {os.path.basename(s['file']): s for s in manifest['sources'] if s['layer'] == 's2'}
     files = {os.path.basename(p): p for p in raw_files(raw, manifest, 's2')}
-    old = next((p for n, p in files.items() if '2023' in n), None)
-    new = next((p for n, p in files.items() if '2026' in n), None)
-    grade = {'factors_rgb': list(DEFAULT_GRASS_GRADE), 'how': 'default (no Sentinel-2 pair downloaded)'}
+    old = next((n for n in files if '2023' in n), None)
+    new = next((n for n in files if '2026' in n), None)
+    grade = {'factors_rgb': None, 'how': 'none: no Sentinel-2 pair downloaded (pack.py uses site.GRASS_GRADE_RGB)'}
     if old and new:
-        import rasterio
-        with rasterio.open(old) as a, rasterio.open(new) as b:
-            A = a.read([1, 2, 3, 4]).astype(np.float64)
-            Bv = b.read([1, 2, 3, 4]).astype(np.float64)
-        ndvi_a = (A[3] - A[0]) / (A[3] + A[0] + 1e-6)
-        ndvi_b = (Bv[3] - Bv[0]) / (Bv[3] + Bv[0] + 1e-6)
-        # grass-like 10 m cells: green but not forest in both years (NDVI 0.30..0.62, NIR not forest-dark)
-        m = (ndvi_a > 0.30) & (ndvi_a < 0.62) & (ndvi_b > 0.30) & (ndvi_b < 0.75)
-        if m.sum() > 50:
-            f = [float(np.median(Bv[k][m] / np.maximum(A[k][m], 1.0))) for k in range(3)]
-            f = [round(min(max(v, 0.6), 1.3), 3) for v in f]
-            grade = {'factors_rgb': f, 'cells': int(m.sum()),
-                     'how': f'median Sentinel-2 reflectance ratio {os.path.basename(new)} / {os.path.basename(old)} '
-                            'over grass-like 10 m cells (R, G, B)'}
+        A0, _ = _reproject([files[old]], [1, 2, 3, 4], S2_RES, 'nearest', np.float32)
+        B0, _ = _reproject([files[new]], [1, 2, 3, 4], S2_RES, 'nearest', np.float32)
+        valid = np.isfinite(A0).all(-1) & np.isfinite(B0).all(-1) & (A0 > 0).all(-1) & (B0 > 0).all(-1)
+        A0 = np.nan_to_num(A0)
+        B0 = np.nan_to_num(B0)
+        off_a, off_b = s2_offset(entries.get(old)), s2_offset(entries.get(new))
+
+        def legacy(a, b):                       # the first version's "grass-like" NDVI band (both years)
+            return (_ndvi(a) > 0.30) & (_ndvi(a) < 0.62) & (_ndvi(b) > 0.30) & (_ndvi(b) < 0.75)
+
+        m_before = valid & legacy(A0, B0)
+        f_before, _ = _ratio_grade(A0, B0, m_before)
+        A, B = A0 + off_a, B0 + off_b
+        valid &= (A > 0).all(-1) & (B > 0).all(-1)
+        m_old_mask = valid & legacy(A, B)
+        f_old_mask, f_old_raw = _ratio_grade(A, B, m_old_mask)
+        rows, cols = A.shape[:2]
+        factor = int(round(S2_RES / naip.res))
+        share = naip_grass_share(naip, rows, cols, factor)
+        m_pure = valid & (share >= PURE_GRASS_SHARE) & (_ndvi(A) > 0.2) & (_ndvi(B) > 0.2)
+        f_pure, f_pure_raw = _ratio_grade(A, B, m_pure)
+        n = int(valid.sum())
+        use_pure = int(m_pure.sum()) >= 50
+        use_old = not use_pure and int(m_old_mask.sum()) >= 50
+        # A few pixels (or no overlapping grass at all) cannot establish a season grade. Keep the documented
+        # site fallback rather than emitting NaN JSON or applying an unstable ratio from a tiny sample.
+        how = 'none: too few overlapping grass cells (pack.py uses site.GRASS_GRADE_RGB)'
+        if use_pure or use_old:
+            how = (f'median Sentinel-2 L2A reflectance ratio {new} / {old} (offsets {off_b:g} / {off_a:g} '
+                   'removed) over ' + (f'pure-grass 10 m cells (>= {PURE_GRASS_SHARE:.0%} grass pixels in NAIP)'
+                                      if use_pure else 'grass-like NDVI cells (too few pure-grass cells)'))
+        grade = {'factors_rgb': f_pure if use_pure else f_old_mask if use_old else None,
+                 'how': how,
+                 'cells': int(m_pure.sum() if use_pure else m_old_mask.sum() if use_old else 0),
+                 'unclipped_rgb': f_pure_raw if use_pure else f_old_raw if use_old else None,
+                 'before_offset_fix': {'factors_rgb': f_before, 'cells': int(m_before.sum()),
+                                       'share_of_cells': round(float(m_before.sum()) / max(n, 1), 3)},
+                 'offset_fixed_old_mask': {'factors_rgb': f_old_mask, 'cells': int(m_old_mask.sum()),
+                                           'share_of_cells': round(float(m_old_mask.sum()) / max(n, 1), 3)},
+                 'offset_fixed_pure_grass': {'factors_rgb': f_pure, 'cells': int(m_pure.sum()),
+                                             'share_of_cells': round(float(m_pure.sum()) / max(n, 1), 3)},
+                 'boa_add_offset': {old: off_a, new: off_b}}
+        log(f'  season grade before the offset fix: {f_before} over {grade["before_offset_fix"]["share_of_cells"]:.0%} '
+            f'of the cells; offset removed, same mask: {f_old_mask} over '
+            f'{grade["offset_fixed_old_mask"]["share_of_cells"]:.0%}; pure grass: {f_pure} over {int(m_pure.sum())} cells')
     meta['season_grade'] = grade
     log(f'  season grade for grass (R, G, B): {grade["factors_rgb"]} ({grade["how"]})')
 
@@ -362,8 +486,36 @@ def _ring_area(pts):
     return a / 2.0
 
 
-def prepare_features(raw, manifest, out, meta, home, log):
-    """OSM (Overpass JSON) + Microsoft footprints (GeoJSON) -> features.json in world metres."""
+def building_heights_from_lidar(buildings, chm):
+    """Research fix 5: give every footprint the MEDIAN lidar canopy height inside it ('height_lidar', m) and its
+    90th percentile ('height_lidar_p90'). The 2017 lidar roofs (3.6-5.7 m in the flight boundary) are more
+    trustworthy than Microsoft's AI heights (3.0-3.6 m, two missing) and OSM has none here. A footprint whose
+    median is below BUILDING_MIN_LIDAR_H was probably built after the 2017 flight: it keeps no lidar height."""
+    for b in buildings:
+        poly = b['polygon']
+        xs = [p[0] for p in poly]
+        ys = [p[1] for p in poly]
+        r0, r1, c0, c1 = chm.window(min(xs), min(ys), max(xs), max(ys))
+        if r1 <= r0 or c1 <= c0:
+            continue
+        X, Y = np.meshgrid(chm.x0 + (np.arange(c0, c1) + 0.5) * chm.res, chm.y1 - (np.arange(r0, r1) + 0.5) * chm.res)
+        inside = np.zeros(X.shape, dtype=bool)
+        n = len(poly)
+        for i in range(n):
+            x1, y1 = poly[i]
+            x2, y2 = poly[(i + 1) % n]
+            cond = (y1 > Y) != (y2 > Y)
+            xi = (x2 - x1) * (Y - y1) / ((y2 - y1) if y2 != y1 else 1e-12) + x1
+            inside ^= cond & (X < xi)
+        vals = np.asarray(chm.data[r0:r1, c0:c1])[inside]
+        if vals.size >= 4 and float(np.median(vals)) >= BUILDING_MIN_LIDAR_H:
+            b['height_lidar'] = round(float(np.median(vals)), 2)
+            b['height_lidar_p90'] = round(float(np.percentile(vals, 90)), 2)
+
+
+def prepare_features(raw, manifest, out, meta, home, log, chm=None):
+    """OSM (Overpass JSON) + Microsoft footprints (GeoJSON) -> features.json in world metres (with lidar
+    building heights when the canopy model `chm` is given)."""
     feats = {'buildings': [], 'water': [], 'streams': [], 'runways': [], 'taxiways': [], 'roads': [],
              'pipelines': [], 'note': 'world metres (x east, y north from the Runway 2 pad), polygons counter-clockwise'}
     osm = raw_files(raw, manifest, 'osm')
@@ -430,14 +582,21 @@ def prepare_features(raw, manifest, out, meta, home, log):
             h = (ft.get('properties') or {}).get('height', -1)
             feats['buildings'].append({'source': 'microsoft', 'id': f'ms{k}', 'kind': 'yes', 'name': '',
                                        'polygon': poly, 'levels': None,
-                                       'height': None if h is None or float(h) <= 0 else float(h)})
+                                       'height': None if h is None or float(h) <= 0 else round(float(h), 2)})
             n_ms += 1
+    if chm is not None:
+        building_heights_from_lidar(feats['buildings'], chm)
+    feats['licences'] = {'osm': 'OpenStreetMap contributors, ODbL 1.0 (keep this credit; share changes under ODbL)',
+                         'microsoft': 'Microsoft Global ML Building Footprints, CDLA Permissive 2.0',
+                         'height_lidar': 'USGS 3DEP lidar 2017 (public domain)'}
     path = os.path.join(out, 'features.json')
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
         json.dump(feats, f, indent=0)
     meta.setdefault('files', {})['features'] = 'features.json'
-    log(f'  features: {len(feats["buildings"])} buildings ({n_ms} from Microsoft footprints), {len(feats["water"])} '
-        f'water areas, {len(feats["streams"])} streams, {len(feats["roads"])} roads, {len(feats["runways"])} runway')
+    n_l = sum(1 for b in feats['buildings'] if b.get('height_lidar'))
+    log(f'  features: {len(feats["buildings"])} buildings ({n_ms} from Microsoft footprints, {n_l} with a lidar '
+        f'height), {len(feats["water"])} water areas, {len(feats["streams"])} streams, {len(feats["roads"])} roads, '
+        f'{len(feats["runways"])} runway')
     return feats
 
 
@@ -483,8 +642,8 @@ def run(data_root=None, log=print, skip_lidar=False):
     leafoff = prepare_leafoff(raw, manifest, out, meta, log)
     metachm = prepare_metachm(raw, manifest, out, meta, log)
     prepare_season_grade(raw, manifest, meta, naip, log)
-    prepare_features(raw, manifest, out, meta, home, log)
-    trees_detect.run(out, meta, dtm, chm, naip, leafoff, metachm, home, log)
+    feats = prepare_features(raw, manifest, out, meta, home, log, chm=chm)
+    trees_detect.run(out, meta, dtm, chm, naip, leafoff, metachm, home, log, buildings=feats['buildings'])
     meta['sources'] = [{k: s.get(k) for k in ('id', 'layer', 'file', 'licence', 'attribution', 'sha256', 'pixel_sha256')}
                        for s in manifest['sources'] if os.path.isfile(os.path.join(raw, s['file']))]
     meta['prepare_seconds'] = round(time.time() - t0, 1)

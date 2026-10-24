@@ -12,7 +12,7 @@ import pytest
 from sim_plugins import launch_support as ls
 from sim_plugins import profiles
 
-from conftest import PROFILES
+from conftest import PROFILES, include_location
 
 EXAMPLES = Path(__file__).resolve().parents[2] / 'sim_plugin_examples'
 
@@ -62,14 +62,21 @@ def test_launch_source_by_extension():
 
 def test_entry_actions_launch_file():
     need_launch()
+    from launch import LaunchContext
     from launch.actions import IncludeLaunchDescription
     entry = {'name': 'example_detector', 'package': 'example_detector', 'launch': 'example_detector.launch.py',
-             'executable': '', 'command': [], 'args': {'min_blob_area_px': 150, 'debug': True}}
+             'executable': '', 'command': [], 'args': {'min_blob_area_px': 150, 'serve_health': True}}
     actions = ls.entry_actions(entry, 'detector', share_finder=lambda pkg: str(EXAMPLES / pkg))
     include = [a for a in actions if isinstance(a, IncludeLaunchDescription)][0]
-    assert include.launch_description_source.location.endswith('example_detector/launch/example_detector.launch.py')
+    # The location is performed in a LaunchContext (and the template's launch file is read), like at launch time.
+    location = include_location(include, LaunchContext())
+    assert location == str(EXAMPLES / 'example_detector' / 'launch' / 'example_detector.launch.py')
+    # YAML values become launch-argument TEXT (numbers as digits, booleans as true/false), names the file declares.
     args = dict((k, v) for k, v in include.launch_arguments)
-    assert args == {'min_blob_area_px': '150', 'debug': 'true'}
+    assert args == {'min_blob_area_px': '150', 'serve_health': 'true'}
+    declared = {a.name for a in include.launch_description_source.get_launch_description(LaunchContext())
+                .get_launch_arguments()}
+    assert set(args) <= declared
 
 
 def test_entry_actions_missing_package_is_logged_not_raised():

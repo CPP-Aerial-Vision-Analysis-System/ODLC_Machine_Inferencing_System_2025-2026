@@ -1,3 +1,4 @@
+<!-- Purpose: explain the mission controller, its drop-aiming settings, and regression checks. -->
 # main: the mission controller
 
 `src/main_controller.py` (ROS node `main_controller`) is the part of our code that takes over at the
@@ -39,7 +40,9 @@ old behaviour and says so in the log ("photo position (no sidecar for this photo
 
 ### Parameters
 
-`ros2 run main main_controller.py --ros-args -p name:=value`
+`ros2 run main main_controller.py --ros-args -p name:=value` (whole numbers and decimals both work
+for the numbers: `-p target_ground_height_m:=3` or `:=3.0`; something that is not a number is
+reported in the log and the default is used)
 
 | Name | Default | Meaning |
 |---|---|---|
