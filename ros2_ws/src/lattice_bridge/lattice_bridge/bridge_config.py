@@ -389,8 +389,6 @@ def resolve_config(*, yaml_path: str = '', cli: Optional[Mapping[str, Any]] = No
 
 def check_config(cfg: BridgeConfig) -> None:
     """Cross-checks that need two settings at once. Raises ConfigError."""
-    if cfg.offline_after_s_check_failed() if False else False:        # pragma: no cover (placeholder removed below)
-        pass
     if cfg.drone_offline_after_s < cfg.drone_stale_after_s:
         raise ConfigError('"drone.offline_after_s" must not be smaller than "drone.stale_after_s"')
     if cfg.mission_id:
@@ -400,6 +398,10 @@ def check_config(cfg: BridgeConfig) -> None:
             raise ConfigError(f'"mission.id": {exc}') from None
     if cfg.source == 'replay' and not cfg.replay_run_dir:
         raise ConfigError('--source replay needs a run folder: give --run-dir PATH (or "replay.run_dir")')
+    if cfg.sink == 'rest' and cfg.source == 'replay' and cfg.replay_speed != 1.0:
+        raise ConfigError('a replay into Lattice (--sink rest) must run in real time (--speed 1): Lattice refuses '
+                          'positions time-stamped ahead of its own clock, and a faster replay runs ahead of it. '
+                          'Use --sink jsonl or --sink mock for a fast replay.')
     if cfg.sink == 'rest':
         endpoint = cfg.rest_endpoint
         if endpoint:

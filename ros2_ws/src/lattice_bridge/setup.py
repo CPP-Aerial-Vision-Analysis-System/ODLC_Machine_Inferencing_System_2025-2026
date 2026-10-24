@@ -6,6 +6,8 @@ library is imported by the programs (`from lattice_bridge import build_uav_asset
 Phase 2 adds, one by one, the programs (console scripts, all OFF unless somebody starts them) and the files they
 need (launch/, config/):
   lattice_reporter   the Jetson-side target reporter (reporter_node.py), started by launch/lattice_reporter.launch.py
+  bridge             the ground-laptop bridge program (bridge_node.py): source -> core -> publisher -> sink
+  fake_lattice       a pretend Lattice with a live map page (fake_lattice.py), for trying everything with no account
 """
 import os
 from glob import glob
@@ -28,12 +30,14 @@ setup(
     zip_safe=True,
     maintainer='ASTRA simulation team',
     maintainer_email='astra-sim@example.com',
-    description='ASTRA to Anduril Lattice bridge, phase 1: entity builders, clustering, radio codec, recorder',
+    description='ASTRA to Anduril Lattice bridge: entity builders, clustering, radio codec, publisher, sources, sinks, programs',
     license='MIT',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'lattice_reporter = lattice_bridge.reporter_node:main',
+            'bridge = lattice_bridge.bridge_node:main',
+            'fake_lattice = lattice_bridge.fake_lattice:main',
         ],
     },
 )

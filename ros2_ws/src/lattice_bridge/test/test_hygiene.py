@@ -238,7 +238,9 @@ def test_every_package_folder_has_an_init_file():
 
 
 #: The only programs this package installs (console scripts). Each is OFF unless somebody starts it.
-ALLOWED_CONSOLE_SCRIPTS = {'lattice_reporter'}
+# Phase 2: the Jetson reporter, the ground-laptop bridge and the pretend Lattice. They are installed, never started by
+# a launch file of the flight stack (the test below also checks that).
+ALLOWED_CONSOLE_SCRIPTS = {'lattice_reporter', 'bridge', 'fake_lattice'}
 
 
 def test_only_the_known_programs_are_installed_and_nothing_launches_the_bridge():

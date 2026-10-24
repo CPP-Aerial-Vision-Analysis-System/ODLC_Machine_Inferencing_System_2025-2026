@@ -1,0 +1,199 @@
+# lattice_bridge/config/bridge.yaml -- PURPOSE: every setting of the bridge program, with its default and what it
+# does in plain words. The values below ARE the defaults: delete a line and nothing changes. A test checks that this
+# file lists exactly the settings of bridge_config.OPTIONS with the same defaults (the table in bridge_config.py is
+# the single source of truth; this file is made from it).
+#
+# Use it:
+#   python3 -m lattice_bridge.bridge_node --profile <a copy of this file> --dry-run     # check and print the plan
+#   python3 -m lattice_bridge.bridge_node --profile <a copy of this file>               # run
+# Order of authority (later wins): built-in default < this file < the LATTICE_ENDPOINT variable < command line.
+#
+# SECRETS ARE NOT SETTINGS. The Lattice address and the tokens come only from the environment variables
+# LATTICE_ENDPOINT, LATTICE_TOKEN and SANDBOXES_TOKEN, or from a small file outside git given as secrets.file.
+# Never put a token in this file.
+
+# where the facts come from: mavlink (the telemetry stream, for the ground laptop), ros (MAVROS topics, for a
+# bridge on the Jetson) or replay (a recorded simulator run)
+# choices: mavlink, ros, replay
+source: mavlink
+
+# where the finished requests go: jsonl (a file; the safe default), mock (a built-in test sink) or rest (the real
+# or fake Lattice over HTTP)
+# choices: rest, jsonl, mock
+sink: jsonl
+
+mission:
+  # name of this mission inside every entity id; empty = made from the start time and the label, so a later flight
+  # never overwrites an earlier one
+  id: ''
+
+  # short word put in front of the generated mission id (letters and digits); empty = the replayed world, or "m"
+  label: ''
+
+  # planned length of the mission in seconds; targets expire this long after the bridge started plus the margin
+  # below
+  duration_s: 3600.0
+
+  # extra seconds a target stays on the map after the planned end (for the debrief)
+  target_margin_s: 21600.0
+
+jsonl:
+  # file the jsonl sink appends to (one request per line)
+  path: lattice_requests.jsonl
+
+rest:
+  # Lattice address, e.g. my-env.lattice.example or http://127.0.0.1:8765 for the fake Lattice; empty = take it
+  # from the LATTICE_ENDPOINT environment variable
+  endpoint: ''
+
+  # seconds before one HTTP request to Lattice is given up
+  timeout_s: 10.0
+
+secrets:
+  # optional file with one NAME=value line for each of LATTICE_ENDPOINT, LATTICE_TOKEN and SANDBOXES_TOKEN; it
+  # must live OUTSIDE any git repository
+  file: ''
+
+altitude:
+  # height of the geoid above the WGS84 ellipsoid at the field (about -30 in Oklahoma). Lattice wants height above
+  # the ELLIPSOID, MAVLink gives height above SEA LEVEL: HAE = AMSL + this. Empty/null = not configured: the sea-
+  # level height is published as it is and a loud warning is logged (0 is a deliberate choice)
+  geoid_undulation_m: null
+
+  # what NavSatFix.altitude means on the ROS topics: hae (above the ellipsoid, what MAVROS documents) or amsl
+  # (above sea level)
+  # choices: hae, amsl
+  ros_altitude_is: hae
+
+drone:
+  # name shown for the drone in Lattice
+  name: ASTRA UAV
+
+  # seconds between drone updates (a new position is needed for each)
+  interval_s: 1.0
+
+  # no position for this many seconds = the link is stale and the drone is no longer refreshed
+  stale_after_s: 10.0
+
+  # what a stale link does: stop (just stop refreshing; the entry expires by itself after 2 minutes) or not_live
+  # (also send isLive=false after offline_after_s)
+  # choices: stop, not_live
+  stale_policy: stop
+
+  # with stale_policy not_live: seconds of silence before the isLive=false update
+  offline_after_s: 30.0
+
+targets:
+  # reports below this confidence (0..1) are ignored
+  min_confidence: 0.0
+
+  # two reports of the same kind closer than this are the same physical target
+  merge_radius_m: 12.0
+
+  # send a target update only if its position moved this far
+  update_min_move_m: 1.0
+
+  # or if its confidence grew this much (0..1)
+  update_min_conf_gain: 0.02
+
+  # at most this many targets are tracked
+  max_clusters: 64
+
+areas:
+  # a simulator world file (sim_worlds config/<world>.yaml): its search areas are published once at start; empty =
+  # no areas
+  config: ''
+
+  # optional sim_worlds truth/<world>.yaml: ONLY its flight_boundary and altitude rule are read (never the target
+  # positions); empty = look for the file the config names
+  truth: ''
+
+  # seconds the areas stay in Lattice (finite, never "no expiry")
+  ttl_s: 43200.0
+
+drops:
+  # servo channel -> payload kind of the release line "Servo <channel> -> <pwm>" (main_controller.py: person 11,
+  # tent 13)
+  channels: {11: person, 13: tent}
+
+  # the pulse width that means "released" (main_controller.py PULLEY_OPEN)
+  open_pwm: 1400
+
+  # seconds a drop point stays in Lattice
+  ttl_s: 43200.0
+
+mavlink:
+  # pymavlink connection string: udpin:HOST:PORT (listen), tcp:HOST:PORT, or a serial device like
+  # /dev/ttyUSB0,57600
+  connection: 'udpin:127.0.0.1:14550'
+
+  # MAVLink system id of the drone; 0 = the first autopilot heard
+  vehicle_sysid: 0
+
+  # which clock stamps a position: auto (the autopilot clock while it agrees with this computer, else arrival
+  # time), sensor, or arrival
+  # choices: auto, sensor, arrival
+  time_mode: auto
+
+  # auto mode: the autopilot clock is believed only while it is within this many seconds of the arrival time
+  max_clock_skew_s: 2.0
+
+  # STATUSTEXT severities accepted for TGT reports and release lines (6 = INFO, what the Jetson sends)
+  tgt_severities: [6]
+
+  # log a notice when nothing at all arrived for this long
+  silent_notice_s: 10.0
+
+  # reopen the connection after this much silence; empty/null = 30 s for tcp/serial, never for udp
+  reconnect_after_silence_s: null
+
+  # read the radio stream in its own thread so a slow sink can never make telemetry or target reports back up
+  background_reader: true
+
+ros:
+  # name of the ROS node the ros source creates
+  node_name: lattice_bridge_source
+
+  topics:
+    # sensor_msgs/NavSatFix
+    fix: /mavros/global_position/global
+
+    # std_msgs/Float64, height above home
+    rel_alt: /mavros/global_position/rel_alt
+
+    # std_msgs/Float64, degrees
+    compass: /mavros/global_position/compass_hdg
+
+    # mavros_msgs/State: armed flag and flight mode
+    state: /mavros/state
+
+    # sensor_msgs/BatteryState
+    battery: /mavros/battery
+
+    # texts FROM the autopilot
+    statustext_recv: /mavros/statustext/recv
+
+    # texts the Jetson's nodes SEND (TGT, releases)
+    statustext_send: /mavros/statustext/send
+
+replay:
+  # the run folder to replay, e.g. ~/.astra_sim/runs/<date>_<world>
+  run_dir: ''
+
+  # play at this many times real time; 0 = as fast as possible
+  speed: 1.0
+
+  # shift = move the run so it starts now (a real Lattice refuses old times); recorded = keep the original dates
+  # choices: shift, recorded
+  time_mode: shift
+
+  # speed 0 only: seconds of recorded time per step
+  step_s: 1.0
+
+log:
+  # DEBUG, INFO, WARNING or ERROR
+  # choices: DEBUG, INFO, WARNING, ERROR
+  level: INFO
+
+  # seconds between the one-line health messages; 0 = never
+  health_interval_s: 30.0
