@@ -358,11 +358,11 @@ class _Handler(BaseHTTPRequestHandler):
         fake = self.fake
         with fake._lock:
             fake.counters['requests'] += 1
+        body = self._read_body()                                   # always read it first: answering with the body unread can reset the connection
+        if body is None:
+            return
         if self.path.split('?')[0] != ENTITIES_PATH:
             self._json(404, {'message': 'not found'})
-            return
-        body = self._read_body()
-        if body is None:
             return
         delay, status, retry_after = fake._injected_failure()
         if delay:
@@ -408,11 +408,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:                                     # noqa: N802
         """POST /control: make the server misbehave on purpose (down, slow, a few failures)."""
-        if self.path.split('?')[0] != '/control':
-            self._json(404, {'message': 'not found'})
-            return
         body = self._read_body()
         if body is None:
+            return
+        if self.path.split('?')[0] != '/control':
+            self._json(404, {'message': 'not found'})
             return
         try:
             wanted = json.loads(body.decode('utf-8') or '{}')
