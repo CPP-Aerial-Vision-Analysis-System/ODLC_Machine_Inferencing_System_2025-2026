@@ -110,7 +110,8 @@ astra_require_images() {
     warn "These Docker images are not on this computer yet:"
     for img in "${missing[@]}"; do warn "    $img"; done
     die "Build them first (the first build takes about an hour; afterwards only changed steps are rebuilt),
-    or copy them from a teammate:  bash simulation/docker/import_images.sh <their astra_images_*.tar.gz>"
+    or load images a teammate saved (docs/simulation/DOCKER.md, \"Copy images without rebuilding\").
+    No Docker login is needed: these images are built on your PC and are not on Docker Hub."
   fi
 }
 

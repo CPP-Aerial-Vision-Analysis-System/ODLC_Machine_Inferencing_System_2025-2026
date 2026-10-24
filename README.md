@@ -23,6 +23,14 @@ All versions are `ARG`s at the top of `docker/Dockerfile` — change one and reb
 
 1. **Docker Desktop** (Mac/Windows) or Docker Engine (Linux):
    [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+   *No Docker account or login is needed* (Docker Desktop's sign-in screen can be skipped, and every image and
+   download is public). The one case where `docker login` helps is Docker Hub's anonymous pull limit on a shared
+   network, such as a university Wi-Fi. Details: [Do I need a login?](docs/simulation/DOCKER.md#no-login)
+   **If Docker says "pull access denied ... repository does not exist or may require 'docker login'"**, the image
+   just has not been built on your PC yet (our images are built locally, not downloaded). Build it once with
+   `docker build -t astra-sitl --target sitl docker/`, or `bash simulation/docker/build_images.sh` for all of them.
+   In VS Code, "Reopen in Container" offers two dev containers: **ASTRA ODLC dev** works straight away;
+   **ASTRA simulator** needs `build_images.sh sim` first.
 2. **VS Code** + the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 3. **GUI windows (optional, only for `image_view` etc.)**
    - **Mac:** install [XQuartz](https://www.xquartz.org/). In XQuartz → Settings → Security,

@@ -17,6 +17,68 @@ Gazebo Harmonic, ArduCopter SITL and the supporting tools. The host does not nee
 route. Allow at least the build helper's recommended **40 GB free** for images and temporary build files;
 the script estimates about 25 GB of images. Keep only one simulator or image build running at a time.
 
+### Do I need a login or an account? No (with two small exceptions)
+
+<a id="no-login"></a>
+
+**No Docker login, no GitHub login and no NVIDIA account is needed to build or run the simulator.** This was
+checked by reading the Dockerfile, the compose files and the scripts on 2026-10-24; it still has to be confirmed
+by a clean-PC build (see "Maintainer checks still required" below). The base image is Docker's public
+`ros:humble-ros-base-jammy`, nothing is pulled from a private registry, and the repository contains no
+tokens, passwords or secrets.
+
+| Step | Login needed? | What to know |
+|---|---|---|
+| Clone this repository | **No** | It is public. Only *pushing* needs a GitHub account with write access. |
+| Pull the base image `ros:humble-ros-base-jammy` | **No** | It is a public Docker Hub image. See the rate limit below. |
+| Everything else the build downloads | **No** | Ubuntu and ROS packages (`apt`), Gazebo packages (`packages.osrfoundation.org`), GitHub clones and releases (mavlink-router, ArduPilot, ardupilot_gazebo, onnxruntime), PyTorch wheels (`download.pytorch.org`) and one key from `keyserver.ubuntu.com`. All public. |
+| Docker Engine inside WSL or Linux | **No** | `install_docker_engine.sh` never asks for an account. |
+| Docker Desktop (Windows or Mac) | **No**, by default | The sign-in screen can be skipped. It becomes mandatory only if your school or company enforces it (see [Docker's page](https://docs.docker.com/desktop/enterprise/enforce-sign-in/)). The Engine route in A3 avoids Desktop altogether. |
+| NVIDIA GPU in containers | **No NVIDIA account** | The NVIDIA Container Toolkit comes from a public apt repository. You only need a recent NVIDIA driver on the host. We do not use NVIDIA's NGC registry (`nvcr.io`). |
+| Detector weights `yolo26m.pt` (about 40 MB) | **No** | Downloaded automatically from Ultralytics' public release the first time the real detector runs. Offline? Use `--detector truth` (the answer-key detector) or copy the file to `~/.astra_sim/models/yolo26m.pt`. |
+| Gazebo 3D models (about 110 MB) | **No** | Downloaded once from the public Gazebo Fuel library, then kept in a volume. |
+| Inside the running containers | **No password** | There is no SSH or VNC server. Open a shell with `docker exec -it astra-sim bash` (or `astra-jetson`, or `astra-sim-solo` for the single-container route). You are the user `ubuntu`, who has passwordless `sudo`. |
+
+**The two exceptions, when `docker login` is useful:**
+
+1. **Docker Hub's anonymous pull limit.** Without logging in, Docker Hub allows **100 pulls per 6 hours per IP
+   address** (per IPv6 /64 block); a free Docker account allows 200 per 6 hours
+   ([Docker's limits page](https://docs.docker.com/docker-hub/usage/pulls/)). Our build pulls only one base
+   image, so you will only meet the limit on a **shared network** such as a university or lab Wi-Fi where many
+   people appear as one address. The error says `toomanyrequests: You have reached your unauthenticated pull
+   rate limit`. Fix: create a free account at hub.docker.com, then run `docker login` (use an access token, not
+   your password), or wait 6 hours, or use a teammate's saved images (see "Copy images without rebuilding").
+2. **Publishing images to a registry (optional, not needed to run anything).** Pushing to GitHub's
+   `ghcr.io` needs a GitHub personal access token with the `write:packages` permission:
+   `echo "$TOKEN" | docker login ghcr.io -u <your-github-name> --password-stdin`. Never put a token in a file
+   that is committed to git: this repository is public.
+
+#### "Login required" or "repository does not exist": almost always NOT a login problem
+
+The error `pull access denied for astra-sim, repository does not exist or may require 'docker login'` (or
+`unauthorized: authentication required`) means **the image has not been built on this PC yet**. The images
+`astra-dev`, `astra-sitl` and `astra-sim` exist only on a computer where somebody built them (step A4) or loaded
+them (`docker load`). They are **not** published on Docker Hub, so when anything asks Docker for one that is
+missing, Docker looks for it on Docker Hub, finds nothing and words the failure as a possible login problem.
+
+You can meet it in three ways. All have the same cure, **build the images once** (about 1 hour, about 25 GB):
+
+```bash
+bash simulation/docker/build_images.sh          # all three, one after the other   (or: ... sim   for just the simulator)
+```
+
+| Where you saw it | Why | What happens now |
+|---|---|---|
+| VS Code "Reopen in Container" and you picked **ASTRA simulator (Gazebo + SITL)** | that dev container uses the prebuilt image `astra-sim:latest` | it now stops first with a plain message that says to build the image (`simulation/docker/require_image.sh`). The other choice, **ASTRA ODLC dev**, builds itself the first time and needs no prior step. |
+| `docker run astra-sim` / `astra-sitl` / `astra-dev` | the image does not exist yet | build it first (the root README's `docker build -t astra-sitl --target sitl docker/` does exactly that) |
+| `docker compose -f docker/compose.sim.yml up` typed by hand | older versions of these files first tried to download the images, printed `unauthorized: authentication required`, then built them anyway | `pull_policy: never` is set now, so Compose goes straight to building. The helper `simulation/docker/compose_up.sh` checks for the images first and tells you how to build them. |
+
+**If the failing name is `ros:humble-ros-base-jammy` (the public base image) instead,** you have a different
+problem: a stale or broken Docker login. Docker Hub rejects expired credentials even for public images. Run
+`docker logout`, then try again; also look for a `credsStore` line in `~/.docker/config.json` that names a
+program which is not installed (for example `desktop.exe` in WSL without Docker Desktop) and delete that line.
+If the message says `toomanyrequests`, it is the anonymous rate limit described above.
+
 ### A1. Windows: prepare Ubuntu 22.04 in WSL 2
 
 In an administrator PowerShell terminal:
@@ -245,7 +307,9 @@ require image rebuilds. Keep `numpy < 2` for ROS `cv_bridge` and preserve hardwa
 
 | Symptom | Check/action |
 |---|---|
-| Docker socket permission denied | Reopen the login session after installation; check `id` for `docker` membership. |
+| Docker socket permission denied | Reopen the login session after installation; check `id` for `docker` membership. (This is the Linux session, not a Docker account.) |
+| `toomanyrequests: ... unauthenticated pull rate limit` | Docker Hub's anonymous limit on a shared network: `docker login` with a free account, wait 6 hours, or load saved images. See [Do I need a login?](#no-login). |
+| `pull access denied for astra-sim` (or `astra-dev`, `astra-sitl`), or `repository does not exist or may require 'docker login'` | Not a login problem: these images are built locally, not published. Build or load them first (A4). Details: [the login section](#no-login). |
 | Engine is unreachable | `docker info`; Engine setup: `sudo systemctl start docker`; Desktop setup: start Desktop. |
 | Missing image | Build the named target or load all required image tags; no transfer helper exists yet. |
 | Windows edit has no effect | Check reported mounted repo; refresh the Linux mirror with `--sync-only`. |

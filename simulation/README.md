@@ -49,7 +49,7 @@ Machine-specific paths and instructions belong in ignored `LOCAL_NOTES.md`.
 | Change SITL version, source build, parameters or remote connection | [ARDUPILOT](../docs/simulation/ARDUPILOT.md) |
 | Upload, arm and fly through Mission Planner; restart a run | [MISSION_PLANNER](../docs/simulation/MISSION_PLANNER.md) |
 | Build a world or understand real-terrain status | [WORLDS](../docs/simulation/WORLDS.md) |
-| Run containers or set up another PC | [DOCKER](../docs/simulation/DOCKER.md) |
+| Run containers or set up another PC (no Docker login needed: [details](../docs/simulation/DOCKER.md#no-login)) | [DOCKER](../docs/simulation/DOCKER.md) |
 | Compare locations with Google Earth | [GOOGLE_EARTH](../docs/simulation/GOOGLE_EARTH.md) |
 | Diagnose a failure | [TROUBLESHOOTING](../docs/simulation/TROUBLESHOOTING.md) |
 | Review changes to the team's software | [WHAT_CHANGED](../docs/simulation/WHAT_CHANGED.md) |

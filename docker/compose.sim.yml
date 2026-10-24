@@ -31,7 +31,9 @@
 #      docker/compose.gpu.yml    the NVIDIA card for CUDA (the detector) + OpenGL, via the NVIDIA Container Toolkit
 #
 #  HOW TO RUN (inside Ubuntu: the WSL distro on Windows, or a Linux PC; full guide: docs/simulation/DOCKER.md):
-#      bash simulation/docker/build_images.sh        once (about 1 hour), or import_images.sh from a teammate
+#      bash simulation/docker/build_images.sh        once (about 1 hour), or load a teammate's saved images
+#                                                    (docs/simulation/DOCKER.md, "Copy images without rebuilding").
+#                                                    NO Docker login is needed: the images are built on your PC.
 #      bash simulation/docker/compose_up.sh          the full search demo (picks the files and settings)
 #      bash simulation/docker/compose_down.sh        stop and remove the containers
 #  By hand, from the repo folder (what compose_up.sh runs on a Windows PC with an NVIDIA card):
@@ -66,6 +68,10 @@ services:
   # ---- the simulator: Gazebo + ArduCopter SITL + MAVProxy + SIYI camera emulator + demo panel ------------
   sim:
     image: ${ASTRA_SIM_IMAGE:-astra-sim:latest}
+    # never download: this image is built on YOUR PC and is not on Docker Hub. Without this line `docker compose
+    # up` first tries Docker Hub and prints "unauthorized: authentication required", which looks like a login is
+    # needed (it is not) before it falls back to building.
+    pull_policy: never
     # Only used when the image does not exist yet (or with `docker compose build`). Recommended instead:
     # bash simulation/docker/build_images.sh (one image after the other, your user id, a log per image).
     build:
@@ -117,6 +123,7 @@ services:
   # ---- the Jetson stand-in: the team's dev image (= the Jetson's software) running ./launcher.sh sim -------
   jetson:
     image: ${ASTRA_JETSON_IMAGE:-astra-dev:latest}
+    pull_policy: never                            # built locally, not on Docker Hub (see the sim service)
     build:
       context: .
       dockerfile: Dockerfile
