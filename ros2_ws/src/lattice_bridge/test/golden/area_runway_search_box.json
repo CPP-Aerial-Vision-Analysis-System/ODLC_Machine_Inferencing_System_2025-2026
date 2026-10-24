@@ -1,0 +1,60 @@
+{
+  "entityId": "astra-runway20261024t153000z-area-search-box",
+  "description": "the only search area: one hiker + one tent inside",
+  "isLive": true,
+  "expiryTime": "2026-10-25T03:30:00.000000Z",
+  "aliases": {
+    "name": "Search box"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "mission_area",
+    "sourceUpdateTime": "2026-10-24T15:28:00.000000Z"
+  },
+  "ontology": {
+    "template": "TEMPLATE_GEO"
+  },
+  "geoDetails": {
+    "type": "GEO_TYPE_GENERAL"
+  },
+  "geoShape": {
+    "polygon": {
+      "rings": [
+        {
+          "positions": [
+            {
+              "position": {
+                "latitudeDegrees": 36.21470424,
+                "longitudeDegrees": -96.0071897
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21470424,
+                "longitudeDegrees": -96.00585359
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21560256,
+                "longitudeDegrees": -96.00585359
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21560256,
+                "longitudeDegrees": -96.0071897
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21470424,
+                "longitudeDegrees": -96.0071897
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

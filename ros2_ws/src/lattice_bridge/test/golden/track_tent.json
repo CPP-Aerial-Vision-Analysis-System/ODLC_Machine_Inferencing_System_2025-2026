@@ -1,0 +1,33 @@
+{
+  "entityId": "astra-runway20261024t153000z-tgt-tent-1",
+  "description": "Tent detected by ASTRA ODLC: confidence 85%, 3 sighting(s)",
+  "isLive": true,
+  "expiryTime": "2026-10-24T21:40:00.000000Z",
+  "aliases": {
+    "name": "Tent 1 (ASTRA)"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "odlc_detection",
+    "sourceUpdateTime": "2026-10-24T15:29:20.000000Z"
+  },
+  "createdTime": "2026-10-24T15:28:50.000000Z",
+  "ontology": {
+    "template": "TEMPLATE_TRACK",
+    "platformType": "Tent"
+  },
+  "location": {
+    "position": {
+      "latitudeDegrees": 36.21502595,
+      "longitudeDegrees": -96.00680007
+    }
+  },
+  "milView": {
+    "disposition": "DISPOSITION_NEUTRAL",
+    "environment": "ENVIRONMENT_SURFACE"
+  },
+  "tracked": {
+    "trackQualityWrapper": 13,
+    "lastMeasurementTime": "2026-10-24T15:29:20.000000Z"
+  }
+}

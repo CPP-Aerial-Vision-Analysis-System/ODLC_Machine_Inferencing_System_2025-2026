@@ -1,0 +1,28 @@
+{
+  "entityId": "astra-runway20261024t153000z-drop-person-1",
+  "description": "Person payload released here (drone position at release)",
+  "isLive": true,
+  "expiryTime": "2026-10-25T03:30:00.000000Z",
+  "aliases": {
+    "name": "Person payload drop (ASTRA)"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "payload_drop",
+    "sourceUpdateTime": "2026-10-24T15:29:40.000000Z"
+  },
+  "ontology": {
+    "template": "TEMPLATE_GEO"
+  },
+  "geoDetails": {
+    "type": "GEO_TYPE_GENERAL"
+  },
+  "geoShape": {
+    "point": {
+      "position": {
+        "latitudeDegrees": 36.21513243,
+        "longitudeDegrees": -96.00621469
+      }
+    }
+  }
+}

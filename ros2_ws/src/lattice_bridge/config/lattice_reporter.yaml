@@ -1,0 +1,69 @@
+# lattice_bridge/config/lattice_reporter.yaml -- PURPOSE: every setting of the Jetson-side target reporter
+# (node `lattice_reporter`, ros2 run lattice_bridge lattice_reporter), with its default and what it does in
+# plain words. The values below ARE the defaults: delete a line and nothing changes. test_reporter_docs.py
+# checks that this file lists exactly the settings of reporter_logic.PARAMETERS with the same defaults.
+#
+# The reporter is OFF unless somebody starts it. It never changes the flight: it only listens to the
+# detector (/image_detection) and adds short "TGT" texts to /mavros/statustext/send.
+#
+# Use this file:
+#   ros2 run lattice_bridge lattice_reporter --ros-args --params-file <this file>
+#   ros2 launch lattice_bridge lattice_reporter.launch.py params_file:=<your copy of this file>
+# Change one value without a file:
+#   ros2 run lattice_bridge lattice_reporter --ros-args -p dry_run:=true -p min_confidence:=0.4
+lattice_reporter:
+  ros__parameters:
+
+    # ---- WHAT COUNTS AS A TARGET -----------------------------------------------------------------------
+    # Ignore a detection whose score (0.0 to 1.0) is below this. A score of 0 is always ignored.
+    # 0.0 = the same rule as main_controller, which has no limit of its own (new_od already drops under 0.25).
+    min_confidence: 0.0
+    # What to do when a photo cannot be projected onto the ground (no sidecar .json file, no height or heading
+    # recorded ...): main_controller then aims at the DRONE's own position. false = do not report such a
+    # detection (Lattice must show where the target is, never where the drone was). true = report it anyway.
+    allow_photo_position_fallback: false
+    # The folder with the photos and their .json sidecar files. "" = find it the way main_controller does
+    # (<workspace>/src/video_cam/mapping_photos). Set it only if the reporter was built in another workspace.
+    photo_dir: ''
+
+    # ---- AIMING: must be the same as main_controller's -------------------------------------------------
+    # With follow_main_controller true (below) these five are read from the running main_controller and the
+    # values here are only used until it answers (or when it never does).
+    aim_at_detection_box: true        # true = project the middle of the detection box onto the ground
+    default_camera_pitch_deg: -90.0   # camera pitch when the camera did not report it (-90 = straight down)
+    default_camera_hfov_deg: 81.0     # field of view (degrees) when a sidecar has none
+    target_ground_height_m: 0.0       # ground height under the targets above the launch point (metres)
+    max_aim_offset_m: 150.0           # an aim point farther than this from the photo is not trusted (metres)
+    # true = ask main_controller for those five (without waiting) and use ITS values, so the Lattice picture
+    # always matches where the drone will really aim. false = use the values written above.
+    follow_main_controller: true
+    # How often to ask main_controller again (seconds). 0 = ask only until the first answer.
+    follow_period_s: 60.0
+
+    # ---- WHEN TO SEND A RADIO MESSAGE ------------------------------------------------------------------
+    # Two sightings of the same kind closer than this (metres) are the SAME target (the ground program uses 12 too).
+    same_target_radius_m: 12.0
+    # N: send a target again when its best confidence is at least this many percentage points higher than the
+    # one the ground was told last.
+    min_gain_points: 5.0
+    # M: send a target again when its best sighting is more than this many metres from the position the ground
+    # was told last.
+    min_move_m: 5.0
+    # At least this many seconds between two radio messages, for all targets together. (Under 1 = tests only.)
+    min_interval_s: 2.0
+    # K: at most this many messages for one target in one flight.
+    max_messages_per_target: 6
+    # At most this many TGT messages in one flight, whatever happens (a safety net for the telemetry radio).
+    max_messages_total: 300
+    # How many different targets are remembered. A new target beyond this is ignored (logged once).
+    max_targets: 64
+
+    # ---- OPERATION --------------------------------------------------------------------------------------
+    # true = decide and log everything but do NOT publish. The right way to take a first look on the real drone.
+    dry_run: false
+    # How many detector answers may wait to be processed; when more arrive the oldest are dropped (and counted).
+    queue_size: 16
+    # Seconds between two one-line status messages in the log. 0 = only one at the end.
+    summary_period_s: 60.0
+    # How often the node wakes up to process answers and send a message (seconds). Leave alone.
+    tick_period_s: 0.5

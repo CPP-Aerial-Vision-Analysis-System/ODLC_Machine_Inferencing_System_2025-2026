@@ -1,0 +1,28 @@
+{
+  "entityId": "astra-runway20261024t153000z-uav",
+  "description": "ASTRA UAV telemetry (MAVLink)",
+  "isLive": true,
+  "expiryTime": "2026-10-24T15:32:00.000000Z",
+  "aliases": {
+    "name": "ASTRA UAV"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "uav_telemetry",
+    "sourceUpdateTime": "2026-10-24T15:30:00.000000Z"
+  },
+  "ontology": {
+    "template": "TEMPLATE_ASSET",
+    "platformType": "UAV"
+  },
+  "location": {
+    "position": {
+      "latitudeDegrees": 36.2143,
+      "longitudeDegrees": -96.0068
+    }
+  },
+  "milView": {
+    "disposition": "DISPOSITION_FRIENDLY",
+    "environment": "ENVIRONMENT_AIR"
+  }
+}

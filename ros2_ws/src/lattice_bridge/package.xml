@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!--
+  lattice_bridge/package.xml  PURPOSE: the ROS 2 package manifest of lattice_bridge, the part of the ASTRA
+  software that shows the drone, the detected hiker and tent, the search areas and the drop points in
+  Anduril Lattice (a shared map and tasking platform), WITHOUT ever being able to disturb the flight.
+  Phase 1 (this version) is the core library: pure Python (standard library only) that builds and checks
+  Lattice entities, merges repeated detections of one target, encodes and decodes the short radio message
+  that carries a target report from the drone to the ground, and records requests in a JSONL file. The
+  library needs no ROS at run time. Phase 2 adds programs; the first is the Jetson-side target reporter
+  (reporter_node.py), which does use ROS (see the exec_depend lines). Nothing is started by launcher.sh or
+  tracker.launch.xml. The plan is in docs/lattice/LATTICE_PLAN.md.
+-->
+<package format="3">
+  <name>lattice_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    ASTRA to Anduril Lattice bridge: phase 1 core library (entity builders and a contract checker, target
+    clustering with stable ids, the TGT radio-message codec, a JSONL recorder; standard library only) and the
+    phase 2 programs. Never started by the flight launch files.
+  </description>
+  <maintainer email="astra-sim@example.com">ASTRA simulation team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- The core library imports nothing outside the Python standard library. PyYAML is only used by the tests.
+       The Jetson-side reporter (reporter_node.py) needs: rclpy; interfaces (ImageResult); mavros_msgs
+       (StatusText); main (its installed target_geolocation.py does the aiming maths: it is loaded, never
+       copied); wp_sender (reads main_controller's aim settings without blocking); launch + launch_ros +
+       ament_index_python (launch/lattice_reporter.launch.py). -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>interfaces</exec_depend>
+  <exec_depend>mavros_msgs</exec_depend>
+  <exec_depend>main</exec_depend>
+  <exec_depend>wp_sender</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

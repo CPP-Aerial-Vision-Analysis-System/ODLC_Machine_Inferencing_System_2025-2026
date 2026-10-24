@@ -1,0 +1,29 @@
+{
+  "entityId": "astra-runway20261024t153000z-drop-tent-1",
+  "description": "Tent payload released here (drone position at release)",
+  "isLive": true,
+  "expiryTime": "2026-10-25T03:30:00.000000Z",
+  "aliases": {
+    "name": "Tent payload drop (ASTRA)"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "payload_drop",
+    "sourceUpdateTime": "2026-10-24T15:29:00.000000Z"
+  },
+  "ontology": {
+    "template": "TEMPLATE_GEO"
+  },
+  "geoDetails": {
+    "type": "GEO_TYPE_GENERAL"
+  },
+  "geoShape": {
+    "point": {
+      "position": {
+        "latitudeDegrees": 36.21502595,
+        "longitudeDegrees": -96.00680007,
+        "altitudeHaeMeters": 221.0
+      }
+    }
+  }
+}

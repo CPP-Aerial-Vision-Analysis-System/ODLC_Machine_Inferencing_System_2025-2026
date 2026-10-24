@@ -1,0 +1,102 @@
+{
+  "entityId": "astra-runway20261024t153000z-area-flight-boundary",
+  "description": "flight boundary: fly 45.7-121.9 m above ground",
+  "isLive": true,
+  "expiryTime": "2026-10-25T03:30:00.000000Z",
+  "aliases": {
+    "name": "Flight boundary"
+  },
+  "provenance": {
+    "integrationName": "astra_odlc",
+    "dataType": "mission_area",
+    "sourceUpdateTime": "2026-10-24T15:28:00.000000Z"
+  },
+  "ontology": {
+    "template": "TEMPLATE_GEO"
+  },
+  "geoDetails": {
+    "type": "GEO_TYPE_CONTROL_AREA"
+  },
+  "geoShape": {
+    "polygon": {
+      "rings": [
+        {
+          "positions": [
+            {
+              "position": {
+                "latitudeDegrees": 36.21931439,
+                "longitudeDegrees": -96.00171089
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.22038768,
+                "longitudeDegrees": -96.00413561
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.22080314,
+                "longitudeDegrees": -96.00681782
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.22059541,
+                "longitudeDegrees": -96.00945711
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21981642,
+                "longitudeDegrees": -96.01181746
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21818916,
+                "longitudeDegrees": -96.01424217
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21499513,
+                "longitudeDegrees": -96.01092696
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21283973,
+                "longitudeDegrees": -96.01076603
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21280511,
+                "longitudeDegrees": -96.00916743
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21060637,
+                "longitudeDegrees": -96.00924253
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21065831,
+                "longitudeDegrees": -96.00173235
+              }
+            },
+            {
+              "position": {
+                "latitudeDegrees": 36.21931439,
+                "longitudeDegrees": -96.00171089
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
