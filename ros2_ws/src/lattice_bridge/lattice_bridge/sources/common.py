@@ -30,7 +30,7 @@ from datetime import datetime
 from typing import Deque, Dict, Iterable, List, Optional, Tuple
 
 from .. import constants as C
-from ..events import DropEvent, DroneFix, Event, TargetSighting
+from ..events import DropEvent, DroneFix, Event, SourceNotice, TargetSighting
 from ..geo import is_real_number
 from ..report_codec import decode_tgt
 from ..timeutil import require_aware
@@ -469,8 +469,9 @@ class EventQueue:
     Producers (a MAVLink reader thread, ROS callbacks) call put(); the bridge's main loop calls get_many().
     Two rules protect the mission data: (1) only the NEWEST DroneFix is kept (older ones are worthless once a
     newer position exists, so a slow consumer never builds a backlog of positions); (2) when the queue is
-    full the oldest event of any other kind is dropped and counted, so memory stays bounded however fast the
-    producer is. Target reports and releases are therefore the last thing to be lost.
+    full the oldest NOTICE (news about the source itself) is dropped first, and only when there is none the oldest
+    event of any kind, always counted, so memory stays bounded however fast the producer is. Target reports and
+    releases are therefore the last thing to be lost.
     """
 
     def __init__(self, max_events: int = 1000):
@@ -496,7 +497,8 @@ class EventQueue:
                         self.dropped_fixes += 1
                         break
             if len(self._items) >= self.max_events:
-                self._items.popleft()
+                victim = next((i for i, item in enumerate(self._items) if isinstance(item, SourceNotice)), 0)
+                del self._items[victim]
                 self.dropped_other += 1
             self._items.append(event)
             self._cond.notify()
