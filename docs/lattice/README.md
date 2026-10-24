@@ -20,6 +20,7 @@ can watch the mission from one browser tab. This folder holds the plan and the f
 
 | I want to ... | Read |
 |---|---|
+| **run** the bridge (with the simulator and a pretend Lattice, or from a recording) | [`BRIDGE.md`](BRIDGE.md) |
 | understand why and how we connect to Lattice, and in which phases | [`LATTICE_PLAN.md`](LATTICE_PLAN.md) |
 | know exactly what JSON we send, field by field, and where the numbers come from | [`DATA_CONTRACT.md`](DATA_CONTRACT.md) |
 | use or change the code | the package [README](../../ros2_ws/src/lattice_bridge/README.md) (interface table, examples, tests) |
@@ -32,7 +33,7 @@ can watch the mission from one browser tab. This folder holds the plan and the f
 |---|---|---|
 | 0 | decide why, get sandbox access | open: the questions are in `LATTICE_PLAN.md` section 9; no account or token exists yet |
 | 1 | **core library**: entity builders and checker, stable ids, target clustering, radio message codec, JSONL recorder | **done and tested** (package `lattice_bridge`) |
-| 2 | fake local Lattice, MAVLink source, bridge program, simulator profile, Jetson-side reporter (default off) | not started |
+| 2 | fake local Lattice, MAVLink source, bridge program, simulator profile, Jetson-side reporter (default off) | **built and unit/end-to-end tested on Windows Python; not yet run with Gazebo, ROS 2 or the Jetson.** Run it with [`BRIDGE.md`](BRIDGE.md) |
 | 3 | real Lattice sink with retries and an offline buffer | not started; needs the account |
 | 4-7 | thumbnails and areas, video, tasking (with a human confirm), field use | not started |
 
@@ -43,7 +44,7 @@ Gazebo twin.
 
 ```bash
 cd ros2_ws/src/lattice_bridge
-python3 -m pytest -q -p no:cacheprovider test        # about 1,100 tests, a few seconds
+python3 -m pytest -q -p no:cacheprovider test        # about 1,900 tests, under a minute (a few are skipped without ROS 2)
 ```
 
 The same suite from a clean build, the way the build system sees the package:

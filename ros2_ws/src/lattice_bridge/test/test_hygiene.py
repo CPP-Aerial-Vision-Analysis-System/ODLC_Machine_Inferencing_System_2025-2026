@@ -38,7 +38,7 @@ OUTSIDE_IMPORTS_ALLOWED = {
     # team's helper that reads another node's parameters without blocking
     'reporter_node.py': {'rclpy', 'interfaces', 'mavros_msgs', 'rcl_interfaces', 'wp_sender'},
     # the bridge's settings file reader: PyYAML (part of ROS 2 Humble and of the Jetson image)
-    'bridge_config.py': {'yaml'},
+    'bridge_config.py': {'yaml', 'ament_index_python'},      # both imported lazily, inside a function
     # the ground-side MAVLink reader: pymavlink (installed with MAVProxy; imported only here)
     'sources/mavlink_source.py': {'pymavlink'},
     # the bridge reading ROS topics on one machine (for a bridge that later runs on the Jetson)

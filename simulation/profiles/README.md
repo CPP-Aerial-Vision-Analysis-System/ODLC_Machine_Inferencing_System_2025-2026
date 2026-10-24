@@ -11,6 +11,7 @@ today (`default.yaml` writes every setting out).
 | `truth_detector.yaml` | the answer-key detector instead of the team's YOLO model (= `demo.sh --detector truth`) |
 | `example_detector.yaml` | the template detector `sim_plugin_examples/example_detector` instead of `new_od` |
 | `example_listener.yaml` | adds the template "extra" `sim_plugin_examples/example_listener` (it only listens) |
+| `lattice_mock.yaml` | adds a pretend Lattice (live map at `http://127.0.0.1:8089/`) and the Lattice bridge reading the simulator's MAVLink stream; nothing leaves the computer ([docs/lattice/BRIDGE.md](../../docs/lattice/BRIDGE.md)) |
 | `ardupilot_version.yaml` | ArduCopter 4.7.1 (get it first: `bash simulation/setup/fetch_sitl.sh 4.7.1`) |
 | `ardupilot_source.yaml` | ArduCopter built from an ArduPilot source tree (`/opt/ardupilot` in the Docker sitl image) |
 | `real_drone_params.yaml` | the real drone's Mission Planner `.param` file on top (`params/example_real_drone.param` is only an example) |

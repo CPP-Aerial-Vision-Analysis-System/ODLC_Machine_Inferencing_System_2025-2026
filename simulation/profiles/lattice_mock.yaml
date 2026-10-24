@@ -1,0 +1,50 @@
+# lattice_mock.yaml -- PURPOSE: try the Lattice bridge with the simulated drone and NO Lattice account. It starts
+# two small extra programs next to the simulator:
+#   1. fake_lattice   a pretend Lattice on this computer (http://127.0.0.1:8089/ shows a LIVE MAP of everything the
+#                     bridge publishes: the drone, the targets, the drop points and the search areas)
+#   2. lattice_bridge the real bridge program, reading the simulator's MAVLink stream (the same stream Mission
+#                     Planner shows) and publishing to the pretend Lattice
+# Nothing leaves this computer and the flight is not touched: if either program fails, the drone flies the same.
+#
+# Use it:   bash simulation/scripts/demo.sh --profile lattice_mock
+#           then open http://127.0.0.1:8089/ in a browser while the drone flies.
+# Needs:    the workspace built and sourced (colcon build --packages-select lattice_bridge), pymavlink installed.
+# Change the world: edit "world:runway" below to the world you fly (a world has its own search areas).
+#
+# Why its own MAVLink output (udp 14554): one UDP port can have ONE listener. 14550 belongs to the demo scripts,
+# 14552 to MAVROS, 14553 to the demo panel, so the bridge gets a port of its own.
+#
+# The token below is MADE UP on purpose: the pretend Lattice accepts any token. A real Lattice token never goes into
+# a file in this repository (see docs/lattice/BRIDGE.md, "secrets").
+profile: 1
+name: lattice_mock
+description: the default demo plus a pretend Lattice (live map at http://127.0.0.1:8089/) and the Lattice bridge
+network:
+  extra_outs: ["udp:127.0.0.1:14554"]
+extras:
+  - name: fake_lattice
+    command: [ros2, run, lattice_bridge, fake_lattice, --port, "8089"]
+    start_with: simulator
+  - name: lattice_bridge
+    command:
+      - env
+      - LATTICE_TOKEN=made-up-demo-token
+      - ros2
+      - run
+      - lattice_bridge
+      - bridge
+      - --source
+      - mavlink
+      - --connection
+      - "udpin:127.0.0.1:14554"
+      - --sink
+      - rest
+      - --endpoint
+      - "http://127.0.0.1:8089"
+      - --mission-label
+      - sim
+      - --area-config
+      - "world:runway"
+      - --geoid-undulation
+      - "-30"
+    start_with: simulator

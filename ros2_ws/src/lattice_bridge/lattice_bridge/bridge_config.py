@@ -525,14 +525,42 @@ def redact(text: str, secrets: Secrets) -> str:
 # From settings to the objects the bridge needs
 # ===================================================================================================
 
+def resolve_world_config(name: str) -> str:
+    """The path of the simulator's config/<name>.yaml (what `--area-config world:<name>` means).
+
+    Looked up in the installed `sim_worlds` package first (ROS 2 workspace), then in the repository this file sits in.
+    ConfigError, naming both places, when neither has it.
+    """
+    if not re.fullmatch(r'[A-Za-z0-9_]{1,40}', name or ''):
+        raise ConfigError(f'"world:{name}" is not a world name (letters, digits and underscores, like "runway")')
+    tried: List[str] = []
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        candidate = Path(get_package_share_directory('sim_worlds')) / 'config' / f'{name}.yaml'
+        tried.append(str(candidate))
+        if candidate.is_file():
+            return str(candidate)
+    except Exception:                                           # no ROS 2 here, or the package is not installed
+        pass
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / 'ros2_ws' / 'src' / 'simulation' / 'sim_worlds' / 'config' / f'{name}.yaml'
+        if candidate.is_file():
+            return str(candidate)
+    tried.append('<repository>/ros2_ws/src/simulation/sim_worlds/config/' + f'{name}.yaml')
+    raise ConfigError(f'cannot find the simulator world "{name}"; looked in: ' + '; '.join(tried))
+
+
 def load_areas(config_path: str, truth_path: str = '') -> List[AreaSpec]:
     """The search areas (and the flight boundary, if its file is found) described by a sim_worlds world.
 
-    `config_path` is config/<world>.yaml (search areas as rectangles around home). The flight boundary lives in
+    `config_path` is config/<world>.yaml (search areas as rectangles around home), or `world:<name>` to let the
+    program find the simulator's own file for that world. The flight boundary lives in
     truth/<world>.yaml: `truth_path`, or the file the config names under `truth:` (looked up next to the config
     folder). Only `flight_boundary` and `altitude_rule_agl_m` are taken from the truth file: the target
     positions in it are the answer key and must never reach Lattice.
     """
+    if config_path.startswith('world:'):
+        config_path = resolve_world_config(config_path[len('world:'):])
     config = read_yaml_file(config_path, 'area config')
     try:
         specs = list(search_areas(config))

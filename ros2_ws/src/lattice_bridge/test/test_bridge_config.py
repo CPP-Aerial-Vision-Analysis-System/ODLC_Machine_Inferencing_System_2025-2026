@@ -345,3 +345,24 @@ def test_the_core_gets_every_setting_it_needs():
     assert (settings.uav_name, settings.min_confidence, settings.mission_duration_s) == ('Hawk', 0.4, 1800.0)
     assert settings.stale_policy == 'not_live' and settings.areas == ()
     settings.validate()
+
+
+# ------------------------------------------------------------------------------------------ world:<name>
+def test_world_colon_name_finds_the_simulators_own_file_inside_the_repository():
+    path = BC.resolve_world_config('runway')
+    assert path.replace('\\', '/').endswith('sim_worlds/config/runway.yaml')
+    assert [s.name for s in BC.load_areas('world:runway')] == ['search_box']                 # this world has no boundary
+    field = [s.name for s in BC.load_areas('world:suas_field')]
+    assert field[0] == 'flight_boundary' and len(field) >= 2                                 # this one does
+
+
+@pytest.mark.parametrize('bad', ['', 'a/b', '../x', 'run way', 'x' * 60])
+def test_a_world_name_is_a_plain_word(bad):
+    with pytest.raises(BC.ConfigError, match='not a world name'):
+        BC.resolve_world_config(bad)
+
+
+def test_an_unknown_world_says_where_it_looked():
+    with pytest.raises(BC.ConfigError, match='cannot find the simulator world "nowhere_land"') as caught:
+        BC.load_areas('world:nowhere_land')
+    assert 'sim_worlds' in str(caught.value)
