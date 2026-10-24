@@ -32,6 +32,14 @@ Fixed in October 2026 (found in the Gazebo simulator):
     (timed_steps.StepRunner), so the node keeps handling messages and service answers meanwhile.
     Same timings as before.
 
+Fixed after the Task 2 review for the real drone (October 2026):
+  * The processing hold always ends: a missing/unreadable photo folder used to make the check
+    raise on every tick so the 90 s limit was never reached (processing_hold.py; timed with the
+    monotonic clock).
+  * NaN / infinity can no longer become a waypoint: non-finite GPS (photo name or sidecar), box
+    centre, score or aiming parameter is rejected (target_geolocation.is_finite_number /
+    valid_latlon), and every target is checked once more before /addWaypoint.
+
 Parameters (ros2 run main main_controller.py --ros-args -p name:=value):
   aim_at_detection_box      true   false = old behaviour (fly to the photo's own position)
   default_camera_pitch_deg  -90.0  camera pitch when the camera did not report its attitude
@@ -68,6 +76,7 @@ import time, cv2, math, sys, os, subprocess
 
 # Helpers next to this file (installed beside it by main/CMakeLists.txt).
 import target_geolocation as geo
+import processing_hold as hold
 from timed_steps import StepRunner, call_later
 
 ALT = 49      # in meters (this is ~55ft)
@@ -157,7 +166,8 @@ class MainController(Node):
         self.waiting_for_processing = False  # True when in GUIDED waiting for processing
         self.auto_resumed = False      # set True after one-time AUTO resume; prevents re-triggering
         self.processing_check_timer = None
-        self.processing_started_at = 0.0  # wall time the GUIDED processing hold began
+        self.processing_started_at = 0.0  # time.monotonic() when the GUIDED processing hold began
+        self._photo_folder_error = ''     # last "cannot read the photo folder" reason logged
         self.mission_phase = "survey"   # survey -> processing -> visiting -> done
         self.visit_plan = []            # ordered targets to drop on (tent first, then person)
         self.visit_idx = 0              # how many targets dropped so far
@@ -194,10 +204,13 @@ class MainController(Node):
         `-p target_ground_height_m:=3` (a whole number, so an INTEGER) makes this node refuse to
         start (InvalidParameterTypeException), and then nobody is left to drop. dynamic_typing
         accepts any type; a value that is not a number is reported and the default is used.
+        NaN and infinity (`:=.nan`, `:=.inf`) are not numbers either (Task 2 review fix): a NaN
+        ground height would have turned every aim point into NaN.
         """
         self.declare_parameter(name, default, ParameterDescriptor(dynamic_typing=True))
         value = self.get_parameter(name).value
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and math.isfinite(value)):
             return float(value)
         self.get_logger().error(
             f"Parameter {name}={value!r} is not a number: using the default {default:g}")
@@ -252,7 +265,8 @@ class MainController(Node):
             self.get_logger().info("Holding (GUIDED) at last WP; waiting for all images to be processed")
             self.change_mode("GUIDED")
             self.waiting_for_processing = True
-            self.processing_started_at = time.time()
+            # Monotonic: the Jetson's wall clock can be stepped during a flight (network/GPS time).
+            self.processing_started_at = time.monotonic()
             if self.processing_check_timer is None:
                 self.processing_check_timer = self.create_timer(2.0, self._check_all_images_processed)
             return
@@ -283,6 +297,13 @@ class MainController(Node):
         for obj_type, servos in order:
             if self.valid_detection(obj_type):
                 d = self.detections[obj_type]
+                if not geo.valid_latlon(d.lat, d.long):
+                    # Last check before a waypoint is made (Task 2 review): image_result_cb
+                    # never stores such a point, so this only guards against future changes.
+                    self.get_logger().error(
+                        f"Target {obj_type}: aim point {d.lat}, {d.long} is not a valid "
+                        f"position; no waypoint and no drop for it")
+                    continue
                 self.visit_plan.append({
                     "type": obj_type, "lat": d.lat, "lon": d.long, "alt": ALT,
                     "servos": servos, "wp": -1,
@@ -427,52 +448,74 @@ class MainController(Node):
 
     def _check_all_images_processed(self):
         """Timer during the 'processing' hold: once every captured image has been
-        processed by object detection, stop waiting and divert to the targets."""
+        processed by object detection, stop waiting and divert to the targets.
+
+        The hold ALWAYS ends by PROCESSING_TIMEOUT_SECONDS (Task 2 review fix): a missing or
+        unreadable photo folder used to raise inside the old try/except on every tick, so the
+        timeout branch was never reached and the drone hovered until a failsafe. The listing
+        and the decision are in processing_hold.py (never raise; unit-tested), and the hold is
+        timed with the monotonic clock (a wall-clock jump cannot stretch it).
+        """
         if self.mission_phase != "processing":
             if self.processing_check_timer:
                 self.processing_check_timer.cancel()
                 self.processing_check_timer = None
             return
-        # Checked BEFORE anything that can return early (a missing camera-feed
-        # path used to skip the rest of this callback forever), so the hold is
-        # bounded no matter which way the check below fails.
-        elapsed = time.time() - self.processing_started_at
-        timed_out = elapsed >= PROCESSING_TIMEOUT_SECONDS
+        elapsed = time.monotonic() - self.processing_started_at
+        names, folder_error = hold.list_photo_names(self.camera_feed_path)
+        decision = hold.decide(names, self.processed_image_names, elapsed,
+                               PROCESSING_TIMEOUT_SECONDS)
 
-        try:
-            if not os.path.exists(self.camera_feed_path):
-                self.get_logger().warn(f"Camera feed path not found: {self.camera_feed_path}")
-                if not timed_out:
-                    return
-
-            image_files = set(
-                f for f in os.listdir(self.camera_feed_path)
-                if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))
-            )
-            total = len(image_files)
-            processed = len(self.processed_image_names & image_files)
-            remaining = total - processed
-            self.get_logger().info(f"Processing check: {processed}/{total} images done, {remaining} remaining")
-
-            if remaining <= 0:
-                self.send_ack(f"All {total} images processed. Selecting targets.")
-            elif timed_out:
-                # Divert with whatever finished rather than loiter indefinitely.
+        # Say once (and again only if the reason changes) that the folder cannot be read,
+        # instead of the same error every 2 s.
+        if folder_error != getattr(self, '_photo_folder_error', ''):
+            self._photo_folder_error = folder_error
+            if folder_error:
                 self.get_logger().warn(
-                    f"Processing timeout after {elapsed:.0f}s: {processed}/{total} "
-                    f"done, {remaining} never processed. Diverting anyway.")
-                self.send_ack(
-                    f"Processing timeout ({processed}/{total}). Diverting anyway.")
-            else:
-                return
+                    f"Cannot read the photo folder {self.camera_feed_path} ({folder_error}). "
+                    f"Waiting for the detector until the {PROCESSING_TIMEOUT_SECONDS:.0f} s "
+                    f"limit, then going on with the targets found so far.")
+        if decision.folder_readable:
+            self.get_logger().info(
+                f"Processing check: {decision.processed}/{decision.total} images done, "
+                f"{decision.remaining} remaining")
 
-            if self.processing_check_timer:
-                self.processing_check_timer.cancel()
-                self.processing_check_timer = None
-            self.waiting_for_processing = False
+        if decision.action == hold.WAIT:
+            return
+        if decision.action == hold.ALL_DONE:
+            self.send_ack(f"All {decision.total} images processed. Selecting targets.")
+        elif not decision.folder_readable:
+            self.get_logger().warn(
+                f"Processing timeout after {elapsed:.0f}s and the photo folder is unreadable "
+                f"({folder_error}): diverting with the {len(self.processed_image_names)} "
+                f"detector answer(s) received.")
+            # <= 50 characters (MAVLink STATUSTEXT) and starts like the other timeout text, which
+            # the simulator's phase monitor recognises ("Processing timeout" ... "images").
+            self.send_ack("Processing timeout: images unreadable. Diverting.")
+        else:
+            # Divert with whatever finished rather than loiter indefinitely.
+            self.get_logger().warn(
+                f"Processing timeout after {elapsed:.0f}s: {decision.processed}/{decision.total} "
+                f"done, {decision.remaining} never processed. Diverting anyway.")
+            self.send_ack(
+                f"Processing timeout ({decision.processed}/{decision.total}). Diverting anyway.")
+        self._end_processing_hold()
+
+    def _end_processing_hold(self):
+        """Stop the processing hold for good and divert (or RTL when nothing was found)."""
+        if self.processing_check_timer:
+            self.processing_check_timer.cancel()
+            self.processing_check_timer = None
+        self.waiting_for_processing = False
+        try:
             self._divert_to_targets()
-        except Exception as e:
-            self.get_logger().error(f"Error checking processing status: {e}")
+        except Exception as e:  # noqa: BLE001 - a bug here must not leave the drone hovering
+            # The check timer is already gone, so without this the drone would hover in GUIDED
+            # until a failsafe. Going home is the safe end of the mission.
+            self.get_logger().error(f"Divert failed ({e}); commanding RTL")
+            self.send_ack("Divert failed. Returning to launch.")
+            self.mission_phase = "done"
+            self.change_mode("RTL")
 
     def get_waypoint(self, waypoint_index):     # return copy of an old waypoint given index
         if 0 <= waypoint_index < len(self.waypoints):
@@ -486,11 +529,14 @@ class MainController(Node):
             return None
 
     def locate_detection(self, msg, detection):
-        """Where to drop for one detection box: an AimResult, or None if the photo has no GPS.
+        """Where to drop for one detection box: (AimResult, '') or (None, why it is ignored).
 
         Uses the photo's sidecar (written by video_cam at the shutter) to project the box centre
         onto the ground (target_geolocation.aim_at_box). Falls back to the photo's own position
-        when that is not possible, exactly like the old code did for every detection.
+        when that is not possible, exactly like the old code did for every detection. Returns
+        no aim point when the photo has no usable GPS position (missing, (0, 0), NaN/inf, out of
+        range) or the box centre is not a finite number (Task 2 review fix): such a detection
+        must never become a waypoint or a drop.
         """
         image_path = os.path.join(self.camera_feed_path, msg.image_name or '')
         meta = geo.read_photo_sidecar(image_path) if msg.image_name else None
@@ -501,18 +547,24 @@ class MainController(Node):
             name_lat, name_lon = float(msg.latitude), float(msg.longitude)
         position = geo.photo_position(meta, name_lat, name_lon)
         if position is None:
-            return None
+            return None, 'the photo has no usable GPS position'
         photo_lat, photo_lon = position
-        if not self.aim_at_box:
-            return geo.AimResult(photo_lat, photo_lon, 'photo',
-                                 note='photo position (aim_at_detection_box is false)')
         u = float(detection.bbox.center.position.x)
         v = float(detection.bbox.center.position.y)
-        return geo.aim_at_box(meta, photo_lat, photo_lon, u, v, geo.jpeg_size(image_path),
-                              default_pitch_deg=self.default_pitch,
-                              default_hfov_deg=self.default_hfov,
-                              ground_height_m=self.ground_height,
-                              max_offset_m=self.max_aim_offset)
+        if not geo.is_finite_number(u, v):
+            # Checked even when aiming is off: a box that is not a number is a broken detection.
+            return None, f'the box centre ({u}, {v}) is not a finite number'
+        if not self.aim_at_box:
+            return geo.AimResult(photo_lat, photo_lon, 'photo',
+                                 note='photo position (aim_at_detection_box is false)'), ''
+        aim = geo.aim_at_box(meta, photo_lat, photo_lon, u, v, geo.jpeg_size(image_path),
+                             default_pitch_deg=self.default_pitch,
+                             default_hfov_deg=self.default_hfov,
+                             ground_height_m=self.ground_height,
+                             max_offset_m=self.max_aim_offset)
+        if aim is None:
+            return None, 'no usable aim point'
+        return aim, ''
 
     @staticmethod
     def _latlon_from_name(image_name):
@@ -543,16 +595,23 @@ class MainController(Node):
                         # Ignore classes that are not actionable mission targets.
                         continue
                     obj_conf = result.hypothesis.score
+                    if not geo.is_finite_number(obj_conf):
+                        # An infinite score would win every comparison and lock in this box
+                        # for good; NaN never wins but is still a broken result.
+                        self.get_logger().warn(
+                            f"Ignoring {obj_class} in '{msg.image_name}': its score "
+                            f"{obj_conf} is not a finite number")
+                        continue
 
                     if obj_class in self.detections:        # only works if obj_class is saved as 'person' or 'tent'    // TODO: DOUBLE CHECK THIS
                         if obj_conf > self.detections[obj_class].confidence:        # get highest conf
-                            aim = self.locate_detection(msg, detection)
+                            aim, why = self.locate_detection(msg, detection)
                             if aim is None:
-                                # No GPS in the photo: there is nowhere to fly to. (The old code
-                                # stored 0,0 and would have sent the drone there.)
+                                # Nowhere safe to fly to (no/NaN GPS, broken box). The old code
+                                # stored 0,0 and would have sent the drone there.
                                 self.get_logger().warn(
                                     f"Ignoring {obj_class} ({obj_conf:.2f}) in "
-                                    f"'{msg.image_name}': the photo has no GPS position")
+                                    f"'{msg.image_name}': {why}")
                                 continue
                             self.get_logger().info(f"Updating {obj_class}: old_conf={self.detections[obj_class].confidence:.2f}, new_conf={obj_conf:.2f}")
                             self.send_ack(f"Detected {obj_class}")

@@ -26,6 +26,8 @@ Changed October 2026 (bug "dropped photos", plus the drop-aiming fix):
     written next to every photo: position, height above home, heading, field of view, zoom,
     gimbal angles and the photo's orientation relative to the drone (parameter
     image_top_direction_deg). main_controller uses it to aim the payload drops at the target.
+  * A GPS fix that is NaN, infinite or out of range is treated like "no fix" (Task 2 review):
+    before, it became a photo named "nan , nan.jpg".
 """
 
 from video_cam.logging_utils import configure_console_format, install_wallclock_logging
@@ -41,6 +43,7 @@ from rclpy.qos import qos_profile_sensor_data
 from cv_bridge import CvBridge
 
 import json
+import math
 import os
 import cv2
 import time
@@ -1075,6 +1078,15 @@ class SIYINode(Node):
         except (TypeError, ValueError) as exc:
             self.get_logger().warn(
                 f"Cached NavSatFix has invalid coordinates: {exc}")
+            return None
+
+        # NaN / infinity / out of range (Task 2 review): f"{nan:.6f}" is the text "nan", so the
+        # photo would be called "nan , nan.jpg", which new_od and main_controller parse back as
+        # the float NaN. Treat it as "no fix", like (0, 0) below.
+        if not (math.isfinite(lat) and math.isfinite(lon)
+                and abs(lat) <= 90.0 and abs(lon) <= 180.0):
+            self.get_logger().warn(
+                f"Cached GPS fix ({lat}, {lon}) is not a valid position - treating as no fix")
             return None
 
         # Null Island: the FCU publishes (0.0, 0.0) before GPS lock, so

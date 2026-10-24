@@ -19,8 +19,11 @@ asynchronously, never blocking a callback) when:
   * at start-up once MAVROS is connected.
 When MAVROS publishes the new list, the indices are derived again FROM SCRATCH and only the ones
 that changed are re-published, in ONE parameter event. The echo of this node's own uploads (the
-target waypoints) is ignored, so a re-read never collides with main_controller's divert. The
-rules are in mission_sync.py (pure Python, unit-tested in test/test_mission_sync.py).
+target waypoints) is ignored, so a re-read never collides with main_controller's divert. A
+re-read that MAVROS never answers is abandoned after 45 s (Task 2 review fix): the last good
+mission copy is kept and the read is retried, so one lost answer can no longer block every later
+re-read. The rules are in mission_sync.py (pure Python, unit-tested in test/test_mission_sync.py;
+the node's side in test/test_waypoint_node.py).
 """
 
 import rclpy
@@ -34,11 +37,13 @@ from interfaces.srv import AddWaypoint, DelWaypoint, UpdateMission
 
 from waypoint_mavros.mission_sync import (
     ACTION_PULL,
+    ACTION_TIMEOUT,
     INDEX_NAMES,
     MissionRepullPolicy,
     changed_indices,
     derive_mission_indices,
     is_new_mission_text,
+    nav_waypoint_is_valid,
 )
 
 
@@ -239,7 +244,11 @@ class WaypointManager(Node):
     def _repull_tick(self):
         """Send the mission pull when the policy says it is time (timer callback)."""
         now = time.monotonic()
-        if self.repull.next_action(now, self.waypoint_pull.service_is_ready()) != ACTION_PULL:
+        action = self.repull.next_action(now, self.waypoint_pull.service_is_ready())
+        if action == ACTION_TIMEOUT:
+            self._abandon_pull(now)
+            return
+        if action != ACTION_PULL:
             return
         self._pull_reason = self.repull.reason
         try:
@@ -252,6 +261,39 @@ class WaypointManager(Node):
         self.repull.pulled(now)
         self._pull_future = future
         future.add_done_callback(self._on_pull_done)
+
+    def _abandon_pull(self, now):
+        """
+        Give up on a mission pull that never answered (fix after the Task 2 review).
+
+        Without this, a lost answer (MAVROS restarted or hung, the reply lost on the way) kept
+        the re-read "in flight" forever and every later re-read, including the one at arming,
+        waited behind it. The mission copy is NOT touched: it only ever changes when MAVROS
+        publishes a new list on /mavros/mission/waypoints, so the last good mission stays in use.
+        """
+        future, self._pull_future = self._pull_future, None
+        if future is not None:
+            # A late answer is ignored by _on_pull_done (it is no longer self._pull_future);
+            # if MAVROS did read the mission after all, it still publishes the list and
+            # waypoints_list() picks it up as usual.
+            remove = getattr(self.waypoint_pull, 'remove_pending_request', None)
+            if remove is not None:
+                try:
+                    remove(future)          # rclpy forgets the request (no leak per timeout)
+                except Exception:           # noqa: BLE001 - cleanup must never stop the node
+                    pass
+            future.cancel()
+        outcome = self.repull.finished(now, ok=False)
+        kept = len(self.waypoint_list.waypoints)
+        if outcome == 'retry':
+            next_step = f"trying again in {self.repull.retry_delay_s:.0f} s"
+        else:
+            next_step = ("giving up for now (the next upload or arming re-reads it); by hand: "
+                         "ros2 service call /mavros/mission/pull mavros_msgs/srv/WaypointPull {}")
+        self.get_logger().warn(
+            f"MAVROS did not answer the mission re-read within "
+            f"{self.repull.pull_timeout_s:.0f} s (because {self._pull_reason}). Keeping the last "
+            f"mission copy ({kept} items, rtl_index={self.rtl_index}); {next_step}")
 
     def _on_pull_done(self, future):
         """Handle MAVROS's answer to the pull (runs on this node's executor)."""
@@ -338,6 +380,13 @@ class WaypointManager(Node):
                     new_waypoint.z_alt = 0.0
                     self.get_logger().info(f"Inserting DO_SET_SERVO at index {index}: ch={wp['channel']}, pwm={wp['pwm']}")
                 else:  # MAV_CMD_NAV_WAYPOINT
+                    if not nav_waypoint_is_valid(wp.get('lat'), wp.get('lon'), wp.get('alt')):
+                        # Never upload NaN / infinity / (0, 0) to the autopilot (Task 2 review).
+                        self.get_logger().error(
+                            f"Refusing NAV_WAYPOINT at index {index}: lat={wp.get('lat')}, "
+                            f"lon={wp.get('lon')}, alt={wp.get('alt')} is not a valid position")
+                        self.waypoint_list.waypoints = original_waypoints
+                        return False
                     new_waypoint.frame = 3
                     new_waypoint.command = 16
                     new_waypoint.param1 = float(3)  # Hold time

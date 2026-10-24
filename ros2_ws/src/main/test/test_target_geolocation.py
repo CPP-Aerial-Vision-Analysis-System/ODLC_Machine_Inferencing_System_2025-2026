@@ -7,7 +7,10 @@ Checks the geometry with hand-computable cases (centre pixel, image edges, every
 photo, a tilted camera, the sky), the ArduPilot latitude/longitude formula, the JPEG size reader,
 the sidecar contract with video_cam's writer, every fallback, and -- as a regression test -- the
 best hiker and tent detections of three recorded simulator runs, which the old code missed by
-14-25 m and which must now land within 2 m of the ground truth.
+14-25 m and which must now land within 2 m of the ground truth. Since the Task 2 review it also
+checks that NaN / infinity in any input (GPS, height, heading, box pixels, settings) can never come
+out as an aim point, and documents how much a wrong ground height (sloped terrain) or a camera that
+is not exactly straight down moves the aim point.
 
 Needs nothing but Python (no ROS, no build):
     python3 -m pytest ros2_ws/src/main/test/test_target_geolocation.py -v
@@ -270,3 +273,103 @@ def test_recorded_runs_now_land_within_2_m(cls, name, u, v, heading, old_error):
     e_new, n_new = geo.latlon_to_offset(TRUTH[cls][0], TRUTH[cls][1], r.lat, r.lon)
     assert abs(math.hypot(e_old, n_old) - old_error) < 0.3     # the old aim point, as recorded
     assert math.hypot(e_new, n_new) < 2.0                       # the new one: within 2 m
+
+
+# ------------------------------------------------------------------ NaN / infinity (Task 2 review)
+NAN, INF = float('nan'), float('inf')
+
+
+def all_finite(result):
+    return result is None or all(math.isfinite(x) for x in result)
+
+
+@pytest.mark.parametrize('kw', [
+    {'u': NAN}, {'v': INF}, {'height_m': NAN}, {'height_m': INF}, {'hfov_deg': NAN},
+    {'camera_heading_deg': NAN}, {'camera_pitch_deg': NAN}, {'image_top_direction_deg': INF},
+    {'zoom': NAN}, {'zoom': 0.0}, {'zoom': -2.0}, {'max_range_m': NAN},
+])
+def test_projection_refuses_nonfinite_inputs(kw):
+    args = dict(u=100.0, v=100.0, image_width=W, image_height=H, hfov_deg=HFOV, height_m=30.0,
+                camera_heading_deg=0.0, camera_pitch_deg=-90.0, image_top_direction_deg=0.0,
+                zoom=1.0, max_range_m=1000.0)
+    args.update(kw)
+    # Before the fix most of these came back as (nan, nan): a waypoint at latitude NaN.
+    assert geo.pixel_to_ground_offset(**args) is None
+
+
+def test_valid_latlon():
+    assert geo.valid_latlon(36.2, -96.0)
+    for lat, lon in [(NAN, -96.0), (36.2, INF), (0.0, 0.0), (91.0, 0.5), (36.2, 181.0),
+                     (None, 1.0), ('x', 1.0), (True, 1.0)]:
+        assert not geo.valid_latlon(lat, lon), (lat, lon)
+
+
+def test_photo_position_refuses_nonfinite_and_out_of_range():
+    assert geo.photo_position(None, NAN, NAN) is None              # "nan , nan.jpg"
+    assert geo.photo_position(None, INF, -96.0) is None
+    assert geo.photo_position(None, 95.0, -96.0) is None
+    # A broken sidecar position falls back to a good file-name position.
+    assert geo.photo_position({'position': {'lat': 95.0, 'lon': 1.0}}, 9.0, 8.0) == (9.0, 8.0)
+    assert geo.photo_position({'position': {'lat': NAN, 'lon': 1.0}}, NAN, 8.0) is None
+
+
+@pytest.mark.parametrize('lat, lon, u, v', [
+    (NAN, -96.0, 100.0, 100.0), (36.0, INF, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0),
+    (36.0, -96.0, NAN, 100.0), (36.0, -96.0, 100.0, -INF),
+])
+def test_aim_refuses_nonfinite_position_or_box(lat, lon, u, v):
+    # No aim point at all: main_controller ignores such a detection (no waypoint, no drop).
+    assert geo.aim_at_box(sidecar(), lat, lon, u, v, (W, H)) is None
+
+
+@pytest.mark.parametrize('meta, kw', [
+    (sidecar(rel_alt_m=NAN), {}),
+    (sidecar(heading_deg=INF), {}),
+    (sidecar(camera={'hfov_deg': NAN, 'zoom_x': INF, 'image_top_direction_deg': NAN}), {}),
+    (sidecar(gimbal={'pitch_deg': NAN, 'yaw_deg': INF}), {}),
+    (sidecar(), {'ground_height_m': NAN}),
+    (sidecar(), {'default_hfov_deg': INF}),
+    (sidecar(), {'max_offset_m': NAN}),
+    (sidecar(), {'default_pitch_deg': NAN}),
+])
+def test_aim_never_returns_nonfinite_numbers(meta, kw):
+    r = geo.aim_at_box(meta, 36.0, -96.0, 2000.0, 300.0, (W, H), **kw)
+    assert r is not None
+    assert all(math.isfinite(x) for x in (r.lat, r.lon, r.east_m, r.north_m)), r
+    assert geo.valid_latlon(r.lat, r.lon)
+
+
+def test_aim_with_nonfinite_image_size_falls_back():
+    r = geo.aim_at_box(sidecar(), 36.0, -96.0, 100.0, 100.0, (NAN, H))
+    assert r.method == 'photo' and 'size unknown' in r.note
+
+
+# ------------------------------------------------------------------ sloped ground (Task 2 review)
+# The projection assumes ONE flat ground plane at target_ground_height_m above home. The real
+# search areas have ~9-10 m of relief. These tests pin down the size of the resulting error so the
+# numbers quoted in docs/HANDOFF.md stay true: a ground height wrong by dh moves the aim point by
+# dh * tan(angle of the ray from straight down), outwards when the ground is higher than assumed,
+# for ANY flight height.
+def ground_error(u, v, height_true, dh, pitch=-90.0):
+    """Metres between the aim (ground assumed dh lower than it is) and the true ground point."""
+    true = geo.pixel_to_ground_offset(u, v, W, H, HFOV, height_true, 0.0, pitch)
+    assumed = geo.pixel_to_ground_offset(u, v, W, H, HFOV, height_true + dh, 0.0, pitch)
+    return math.hypot(assumed[0] - true[0], assumed[1] - true[1])
+
+
+@pytest.mark.parametrize('agl', [30.0, 45.7, 121.9])
+def test_wrong_ground_height_error_is_dh_times_tan_of_the_ray_angle(agl):
+    dh = 10.0
+    assert close(ground_error(W / 2, H / 2, agl, dh), 0.0, 1e-9)            # straight below: 0
+    edge = math.tan(math.radians(HFOV / 2))                                  # 0.854
+    assert close(ground_error(W, H / 2, agl, dh), dh * edge, 1e-6)           # side edge: 8.5 m
+    corner = math.hypot(edge, edge * H / W)                                  # 0.982
+    assert close(ground_error(W, H, agl, dh), dh * corner, 1e-6)             # corner: 9.8 m
+
+
+def test_camera_not_straight_down_shifts_the_centre_by_height_times_tan():
+    # Gimbal pitch -85 instead of the assumed -90 (e.g. no attitude report): the photo centre is
+    # H * tan(5 deg) ahead = 2.6 m at 30 m, 4.0 m at 45.7 m (150 ft), 10.7 m at 121.9 m (400 ft).
+    for agl in (30.0, 45.7, 121.9):
+        e, n = geo.pixel_to_ground_offset(W / 2, H / 2, W, H, HFOV, agl, 0.0, -85.0)
+        assert close(n, agl * math.tan(math.radians(5.0)), 1e-6) and close(e, 0.0, 1e-9)

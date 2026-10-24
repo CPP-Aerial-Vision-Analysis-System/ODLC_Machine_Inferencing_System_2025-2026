@@ -61,7 +61,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 
 | Package (build type) | Executable -> ROS node | Status | Notes |
 |---|---|---|---|
-| `main` (ament_cmake, Python scripts) | `main_controller.py` -> `main_controller` | FLOWN\* | mission brain (hold, aim, divert, drop, RTL). `launch/tracker.launch.xml` = THE flight launch. `src/target_geolocation.py` (drop aiming) + `src/timed_steps.py` (non-blocking timers) are installed next to the script. `capture_detect_drop.py` = bench TOOL (stale servo defaults). `old_main_controller.py`, `msg/` = DEAD |
+| `main` (ament_cmake, Python scripts) | `main_controller.py` -> `main_controller` | FLOWN\* | mission brain (hold, aim, divert, drop, RTL). `launch/tracker.launch.xml` = THE flight launch. `src/target_geolocation.py` (drop aiming, rejects NaN/inf), `src/timed_steps.py` (non-blocking timers), `src/processing_hold.py` (when the detector hold ends) are installed next to the script. `capture_detect_drop.py` = bench TOOL (stale servo defaults). `old_main_controller.py`, `msg/` = DEAD |
 | `video_cam` (ament_python) | `siyi` -> `siyi` | FLOWN\* | team SIYI driver: `camera_interface.py` (SDK + HTTP), `pipeline_orchestrator.py`, `storage_manager.py`, `config.py`, `capture_queue.py` + `photo_metadata.py` (Oct 2026). `launch/siyi_unified_pipeline.launch.py` is NOT used by the flight launch (defaults `resolution:=4K`). `*.bak*` DEAD. Vendor PDFs in `siyi_documentations/` |
 | `detection` (ament_python) | `new_od` -> `new_od` | FLOWN | YOLO26m on 640 px tiles: `model_manager.py`, `batched_inference.py`, `detection_processor.py` (class map), `geotag.py` (lat/lon from file name), `annotation.py`, `gpu_utils.py`. `Documentation/`, `*.bak*` stale |
 | `mapping` (ament_python) | `trigger` -> `mission_camera_trigger` | FLOWN\* | `do_digi_cam_trigger.py`: DigiCamCtrl -> 1 Hz photos. `mapping` executable (`mapping.py` stitcher) DEAD: crashes at start, not launched |
@@ -104,7 +104,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 | Node | Package / executable | Job |
 |---|---|---|
 | `mavros` | `mavros` / `apm.launch` | MAVLink <-> ROS 2. `fcu_url` = `/dev/ttyUSB0:115200` (hw) or `udp://:14552@localhost:14552` (sim); env overrides `FCU_URL`, `MAVROS_LAUNCH` |
-| `waypoint_manager` | `waypoint_mavros` / `waypoint` | mirrors the FCU mission, publishes its indices as its own parameters `num_waypoints, takeoff_index, next_after_takeoff, rtl_index, last_before_rtl, buffer_wp`, serves `/addWaypoint`, re-pulls the mission on `Flight plan received`, on arming and at start-up |
+| `waypoint_manager` | `waypoint_mavros` / `waypoint` | mirrors the FCU mission, publishes its indices as its own parameters `num_waypoints, takeoff_index, next_after_takeoff, rtl_index, last_before_rtl, buffer_wp`, serves `/addWaypoint`, re-pulls the mission on `Flight plan received`, on arming and at start-up (a pull unanswered for 45 s is abandoned: last mission kept, retried) |
 | `gps_mavros_service_node` | `gps_ros2` / `gpstest` | `/mavros/set_stream_rate {stream_id 0, rate 1, on}` once (all telemetry 1 Hz) |
 | `mission_camera_trigger` | `mapping` / `trigger` | on `Mission: <n> DigiCamCtrl`: `capture_setup` once, `autofocus` every 5 s, `/camera/trigger` every 1 s; stops at `buffer_wp` |
 | `siyi` | `video_cam` / `siyi` | every trigger -> one photo via SDK + HTTP, saved with the GPS fix as its name + a JSON sidecar |
@@ -128,7 +128,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 | `/image_detection` | `interfaces/msg/ImageResult`, **RELIABLE depth 10** | new_od -> main_controller | one per photo; `class_id` "0" person, "1" tent; bbox centre in photo pixels; float32 lat/lon from the file name |
 | `/sahi_detection_results`, `/sahi_detection_info` | `Image`, `String` JSON | new_od -> nobody | |
 | `/parameter_events` | `rcl_interfaces/ParameterEvent` | waypoint_manager -> trigger (`buffer_wp`), main_controller (5 indices) | |
-| `/addWaypoint` (srv) | `interfaces/srv/AddWaypoint` | main_controller -> waypoint_manager | request `{command 16, latitude, longitude, altitude 49.0, index, channel 0, pwm 0}`; inserts NAV_WAYPOINT frame 3 (relative alt), `param1` 3 s hold, pushes the WHOLE list; always answers success |
+| `/addWaypoint` (srv) | `interfaces/srv/AddWaypoint` | main_controller -> waypoint_manager | request `{command 16, latitude, longitude, altitude 49.0, index, channel 0, pwm 0}`; inserts NAV_WAYPOINT frame 3 (relative alt), `param1` 3 s hold, pushes the WHOLE list; refuses NaN/inf/(0,0) positions (logged); always answers success |
 | `/waypoint_manager/get_parameters` (srv) | `rcl_interfaces/srv/GetParameters` | trigger, main_controller -> waypoint_manager | async reads of the index parameters |
 | `/mavros/mission/pull`, `/push` (srv) | `WaypointPull`, `WaypointPush {start_index 0}` | waypoint_manager -> MAVROS | push after every insert, result not awaited |
 | `/mavros/mission/set_current`, `/mavros/set_mode`, `/mavros/cmd/command` (srv) | `WaypointSetCurrent`, `SetMode {custom_mode}`, `CommandLong {command 183, param1 channel, param2 pwm}` | main_controller -> MAVROS | GUIDED / AUTO / RTL; 183 = MAV_CMD_DO_SET_SERVO |
@@ -183,11 +183,11 @@ R-2 last lane end (= buffer_wp: photos stop), R-1 hold point (last NAV before RT
 8. `main_controller` keeps the highest-confidence person and tent and their AIM point: the box centre
    projected to the ground with the sidecar (height, heading, field of view, zoom, gimbal pitch,
    `image_top_direction_deg`) by `target_geolocation.aim_at_box`; no sidecar -> the photo's own position;
-   no GPS in the photo -> ignored.
+   no GPS in the photo, or a NaN/inf/out-of-range GPS, box centre or score -> ignored.
 9. `/mavros/mission/reached == buffer_wp` (R-2) -> trigger stops (`Camera trigger STOPPED`).
 10. Reached the last NAV item before RTL (R-1) -> `Reached last WP. Holding ...`, mode **GUIDED**; every 2 s
     it compares the image files in `mapping_photos` with the names seen on `/image_detection`; it goes on
-    when all are processed or after 90 s.
+    when all are processed or after 90 s (monotonic clock; also when the folder is unreadable).
 11. Divert: plan = tent first, then person (only classes with confidence > 0). Nothing -> `No valid targets
     found. Returning to launch.` + RTL. Else one `/addWaypoint` per target, sent in reverse with index
     `last_before_rtl + 1` (tent lands at R, person at R+1, RTL moves to R+2); STATUSTEXT `Aim tent <lat>,<lon>`
@@ -373,6 +373,15 @@ launch args): `--sitl-version V` / `sitl_version:=V` after `bash simulation/setu
 
 ### 4.10 Docker (WIP: compose files parse, images never built or run as of 2026-10-24)
 
+- **No login or account is needed** (base image `ros:humble-ros-base-jammy` is public on Docker Hub; every
+  download is public; no secrets in the repo). Only exceptions: `docker login` with a free account if Docker
+  Hub's anonymous limit (100 pulls / 6 h per IP) is hit on a shared network (`toomanyrequests`), and a GitHub
+  token with `write:packages` if you ever publish images to ghcr.io. `pull access denied for astra-sim` (or
+  "repository does not exist or may require 'docker login'") means "image not built on this PC yet", not "log
+  in": the `astra-*` images are built locally, never pulled. Guards: `simulation/docker/require_image.sh`
+  (used by `.devcontainer/sim/devcontainer.json`) and `pull_policy: never` in `docker/compose.sim.yml`. See
+  `docs/simulation/DOCKER.md#no-login`.
+
 - Images from `docker/Dockerfile`: `astra-dev` (target `dev`: Humble ros-base, MAVROS from snapshot
   2026-08-07, mavlink-routerd, Python ML stack; = the Jetson's software), `astra-sitl` (+ SITL built from
   `Copter-4.6.3` in `/opt/ardupilot`), `astra-sim` (+ Gazebo Harmonic, ardupilot_gazebo pinned commit,
@@ -477,14 +486,14 @@ Every script in `simulation/scripts/` (and `03_build.sh`, `fetch_sitl.sh`, the u
 
 Pure-Python suites run with plain pytest from the package folder (no build needed for most; source
 `sim_env.sh` first in the Linux copy so ROS and `interfaces` import). Verified 2026-10-24 in Ubuntu-22.04:
-19 packages build; 932 functional tests pass across these suites plus Docker helper tests. Exclude the
+19 packages build; 1014 functional tests pass across these suites plus Docker helper tests. Exclude the
 template lint tests and heavy acceptance/e2e directories as shown in HANDOFF section 3.
 
 | Package | Command (from the package folder unless shown) | Result |
 |---|---|---|
-| `main` | `python3 -m pytest -q test` (also `colcon test`: `ament_add_pytest_test` in CMakeLists) | 51 pass |
-| `video_cam` | `python3 -m pytest -q test` | 24 pass |
-| `waypoint_mavros` | `python3 -m pytest -q test/test_mission_sync.py` | 15 pass |
+| `main` | `python3 -m pytest -q test` (also `colcon test`: `ament_add_pytest_test` in CMakeLists) | 113 pass (~15 s) |
+| `video_cam` | `python3 -m pytest -q test` | 32 pass |
+| `waypoint_mavros` | `python3 -m pytest -q test/test_mission_sync.py test/test_waypoint_node.py` (node test: ROS sourced) | 27 pass |
 | `wp_sender` | `python3 -m pytest -q test --ignore=test/test_flake8.py --ignore=test/test_pep257.py --ignore=test/test_copyright.py` | 17 pass |
 | `mapping` | same lint exclusions, `python3 -m pytest -q test ...` | 20 pass (real rclpy node in an isolated domain) |
 | `detection` | `python3 -m pytest -q test/test_latlon_filename.py` | 6 pass |
@@ -641,11 +650,11 @@ Test the pure module, not the node; fakes over real processes.
 - Full search demo with the team's real code and real YOLO on the runway world, re-verified 2026-10-22:
   2 of 2 targets (hiker 0.95, tent 0.85), 97 photos taken and all checked, drops 0.8 m (tent) and 1.3 m
   (hiker) from the targets (Gazebo landing points), RTL, landed, 4:59 of flight.
-- Four team-code fixes (commit 81a7950, unit-tested, measured in 3+3 headless runs): main_controller crash on
-  a timed-out parameter read (crashes 1/3 runs -> 0/3); stale mission after an upload (`mission_sync.py`);
-  drop error 14 m and 24 m -> 0.05-1.3 m (`target_geolocation.py` + sidecars); dropped photo triggers
-  (31-36 photos with ~50 triggers lost -> 92-131 photos, none lost). **Not yet flown on the real drone**; an independent review for the real drone (slow serial
-  MAVROS link, real A8 mini firmware, photo orientation, sloped ground) is still to be finished.
+- Four team-code fixes (commit 81a7950, 3+3 headless runs): controller crash on a timed-out parameter read,
+  stale mission, drop error 14-24 m -> ~1 m, dropped photo triggers. Task 2 real-drone hardening (UNCOMMITTED,
+  HANDOFF Task 2): 45 s mission-pull deadline (last mission kept), the detector hold always ends (unreadable
+  folder, monotonic clock), NaN/inf GPS/box/score/parameters never become a waypoint. Runs `20261024-104711_runway`
+  + `20261024-105800_runway` (visible): 2/2, drops 1.1/0.5 + 0.6/1.0 m, 0 triggers lost. **Not flown on the real drone.**
 - Simulator packages sim_models, sim_worlds (runway, suas_field), siyi_emulator, sim_bringup, sim_demo:
   unit tests green (5.4); Mission Planner on Windows over UDP 14550 (WSL NAT; mirrored networking untested).
 
@@ -665,10 +674,10 @@ Test the pure module, not the node; fakes over real processes.
 **Open problems**
 - Scoring now records corrected aim separately from legacy photo-GPS location error; old JSON remains compatible.
   `demo.sh` still retries the team stack once if a node dies, so inspect logs for hidden restarts.
-- Task 2 independent review identified pending fixes: mission-pull futures lack a timeout; an inaccessible photo
-  folder can defeat the processing deadline; geolocation needs nonfinite GPS/pixel rejection. No fixes claimed yet.
-- Aiming assumes one ground plane above home and near-zero stabilized roll; real sloped terrain, camera mounting,
-  image orientation and FOV need calibration. The 5 s parameter read is local ROS, not a serial mission upload.
+- Task 2 open decisions (HANDOFF D1-D6): ground height on sloped terrain (aim off by dh x tan(ray angle): up to
+  ~12 m at a photo corner with `target_ground_height_m` 0, ~4-5 m with the area mean), gimbal attitude/roll (0.8 m
+  per degree at 150 ft), photo orientation, GPS age at 1 Hz (up to 5.5 m), target upload not awaited before
+  `set_current`, Jetson detector speed vs the 90 s hold. The 5 s parameter read is local ROS, not serial MAVLink.
 - `launcher.sh` heartbeat wait accepts any `/mavros/state` message and has no per-attempt timeout.
 - Open risks from last year's code: the two `/addWaypoint` full-mission pushes are not awaited (a rejected
   push could shift target indices); one high-confidence false positive decides a drop; tents are found only as

@@ -1,3 +1,4 @@
+<!-- Purpose: explain waypoint_manager (the mission copy, its index parameters, /addWaypoint), how it keeps the mission fresh, and its tests. -->
 # waypoint_mavros: the mission copy (waypoint_manager)
 
 `waypoint_mavros/waypoint.py` runs the ROS node `waypoint_manager`. It
@@ -44,3 +45,21 @@ pure Python, tested by:
 ```bash
 python3 -m pytest ros2_ws/src/waypoint_mavros/test/test_mission_sync.py -v    # no ROS needed
 ```
+
+## Task 2 review fixes (for the real drone, October 2026)
+
+* **A re-read that never answers no longer blocks all later re-reads.** Before, if MAVROS never answered
+  one `/mavros/mission/pull` (MAVROS restarted or hung, the answer lost), the node waited for ever and
+  never re-read the mission again, not even when the drone was armed. Now a pull with no answer after
+  **45 s** is abandoned (MAVROS 2 itself gives up reading a mission after 30 s, so a slow but working
+  115200-baud serial link always answers first), the log says
+  `MAVROS did not answer the mission re-read within 45 s ... Keeping the last mission copy (12 items,
+  rtl_index=11)`, the copy and the index parameters stay as they were, and the read is retried (up to 3
+  tries; a later upload or arming always starts a fresh one).
+* **No NaN target is ever uploaded.** `/addWaypoint` refuses a NAV_WAYPOINT whose latitude, longitude or
+  altitude is NaN / infinite, outside +-90 / +-180 degrees, or (0, 0), and logs `Refusing NAV_WAYPOINT ...`.
+
+```bash
+python3 -m pytest ros2_ws/src/waypoint_mavros/test/test_waypoint_node.py -v   # needs ROS sourced
+```
+It drives the real node (own ROS domain, never spun) with a pull client that never answers.

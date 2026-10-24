@@ -1,8 +1,9 @@
 # main/CMakeLists.txt -- PURPOSE: build/install rules of the "main" package: installs the mission
 # controller (src/main_controller.py), the bench tool (src/capture_detect_drop.py), the helper
 # modules main_controller imports (src/target_geolocation.py = drop aiming, src/timed_steps.py =
-# non-blocking timed steps; installed NEXT TO main_controller.py so a plain `import` finds them),
-# the launch file (launch/tracker.launch.xml) and registers the helpers' unit tests (test/).
+# non-blocking timed steps; installed NEXT TO main_controller.py so a plain `import` finds them;
+# src/processing_hold.py = when the "wait for the detector" hold ends), the launch file
+# (launch/tracker.launch.xml) and registers the helpers' unit tests (test/).
 cmake_minimum_required(VERSION 3.8)
 project(main)
 
@@ -45,6 +46,7 @@ install(PROGRAMS
 install(FILES
   src/target_geolocation.py
   src/timed_steps.py
+  src/processing_hold.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -72,6 +74,9 @@ if(BUILD_TESTING)
     ament_add_pytest_test(test_target_geolocation test/test_target_geolocation.py)
     ament_add_pytest_test(test_timed_steps test/test_timed_steps.py)
     ament_add_pytest_test(test_number_parameters test/test_number_parameters.py)
+    ament_add_pytest_test(test_processing_hold test/test_processing_hold.py)
+    ament_add_pytest_test(test_controller_safety test/test_controller_safety.py)
+    ament_add_pytest_test(test_controller_robustness test/test_controller_robustness.py)
   endif()
 endif()
 

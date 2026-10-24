@@ -36,6 +36,15 @@ Conventions (used everywhere in this file):
   * latitude/longitude <-> metres with ArduPilot's own flat-earth formula (AP_Common
     Location::offset / get_distance_NE), so the result is exactly what the autopilot flies to.
 
+Numbers that are not numbers (fixed after the Task 2 review, October 2026): NaN ("not a number")
+and infinity slip through ordinary comparisons (every comparison with NaN is False, so a check
+like `height <= 0` lets NaN pass) and turn the whole answer into NaN, i.e. a waypoint at
+latitude NaN. Now every input is checked with math.isfinite: a non-finite or out-of-range GPS
+position means "no position" (the detection is ignored), a non-finite box centre means the box is
+unusable (ignored, never aimed at), a non-finite sidecar value (height, heading, field of view,
+zoom, gimbal angles) counts as "not recorded" (the documented fallback to the photo position), and
+every answer is checked once more before it is returned. So no NaN/inf can reach a waypoint.
+
 Pure Python (math, json, os, struct only): no ROS. Unit tests: ../test/test_target_geolocation.py
     python3 -m pytest ros2_ws/src/main/test/test_target_geolocation.py -v
 """
@@ -60,6 +69,34 @@ TRUSTED_PITCH_RANGE_DEG = (-120.0, -30.0)
 
 
 # ---------------------------------------------------------------------------- small helpers
+def is_finite_number(*values) -> bool:
+    """Return True when every value is a real, finite number (not NaN, not +-inf, not junk)."""
+    for value in values:
+        if isinstance(value, bool):
+            return False
+        try:
+            if not math.isfinite(float(value)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def valid_latlon(lat, lon) -> bool:
+    """
+    Tell whether (lat, lon) is a usable GPS position.
+
+    Finite, latitude within +-90, longitude within +-180, and not (0, 0): the flight controller
+    reports (0, 0) before it has a GPS lock ("Null Island").
+    """
+    if not is_finite_number(lat, lon):
+        return False
+    lat, lon = float(lat), float(lon)
+    if abs(lat) > 90.0 or abs(lon) > 180.0:
+        return False
+    return not (abs(lat) < 1e-9 and abs(lon) < 1e-9)
+
+
 def wrap_360(angle_deg: float) -> float:
     """Wrap an angle to [0, 360) degrees."""
     a = math.fmod(float(angle_deg), 360.0)
@@ -126,8 +163,11 @@ def pixel_to_ground_offset(u: float, v: float, image_width: int, image_height: i
     camera_pitch_deg
         -90 = straight down, -60 = tilted 30 deg forward, 0 = horizon.
     image_top_direction_deg
-        How far the SAVED photo is turned clockwise relative to the camera's natural picture:
-        0 (simulator), 90, 180 (e.g. rotate_180) or 270.
+        Where the TOP of the SAVED photo points, clockwise from the top of the camera's natural
+        picture (same meaning as video_cam's parameter of that name): 0 (simulator), 90 (the
+        saved top shows what is on the natural picture's right), 180 (e.g. rotate_180) or 270.
+        (The Task 2 review checked the code and tests against this meaning; only the wording
+        here was ambiguous.)
     zoom
         Zoom factor at the shutter (1 = widest).
     max_range_m
@@ -140,7 +180,13 @@ def pixel_to_ground_offset(u: float, v: float, image_width: int, image_height: i
         max_range_m, or an input is impossible (zero size, height <= 0, bad field of view).
 
     """
-    if image_width <= 0 or image_height <= 0 or height_m <= 0.0:
+    # Every input must be a finite number: NaN passes every "<=" test below unnoticed and would
+    # come out as a NaN offset (a waypoint at latitude NaN).
+    if not is_finite_number(u, v, image_width, image_height, hfov_deg, height_m,
+                            camera_heading_deg, camera_pitch_deg, image_top_direction_deg, zoom,
+                            max_range_m):
+        return None
+    if image_width <= 0 or image_height <= 0 or height_m <= 0.0 or zoom <= 0.0:
         return None
     if not 0.0 < hfov_deg < 180.0:
         return None
@@ -176,7 +222,7 @@ def pixel_to_ground_offset(u: float, v: float, image_width: int, image_height: i
         return None                                  # sky or horizon
     t = height_m / -ray[2]
     east, north = t * ray[0], t * ray[1]
-    if math.hypot(east, north) > max_range_m:
+    if not is_finite_number(east, north) or math.hypot(east, north) > max_range_m:
         return None
     return east, north
 
@@ -253,16 +299,15 @@ def photo_position(meta: Optional[dict], name_lat: Optional[float],
     Return the drone's position for a photo: the sidecar's exact fix, else the file name's.
 
     (0, 0) means "no GPS fix" (the FCU reports it before a lock) and is refused, like video_cam
-    does.
+    does. So are NaN, infinity and positions outside +-90 / +-180 degrees (valid_latlon): a
+    file name like "nan , nan.jpg" parses as a float but is not a position. None = no position.
     """
     lat, lon = _num(meta, 'position', 'lat'), _num(meta, 'position', 'lon')
-    if lat is None or lon is None:
-        lat, lon = name_lat, name_lon
-    if lat is None or lon is None:
-        return None
-    if abs(lat) < 1e-9 and abs(lon) < 1e-9:
-        return None
-    return float(lat), float(lon)
+    if valid_latlon(lat, lon):
+        return float(lat), float(lon)
+    if valid_latlon(name_lat, name_lon):
+        return float(name_lat), float(name_lon)
+    return None
 
 
 # ---------------------------------------------------------------------------- the whole step
@@ -293,13 +338,19 @@ class AimResult:
 def aim_at_box(meta: Optional[dict], photo_lat: float, photo_lon: float, u: float, v: float,
                image_size: Optional[Tuple[int, int]], default_pitch_deg: float = -90.0,
                default_hfov_deg: float = 81.0, ground_height_m: float = 0.0,
-               max_offset_m: float = 150.0, min_height_m: float = 3.0) -> AimResult:
+               max_offset_m: float = 150.0,
+               min_height_m: float = 3.0) -> Optional[AimResult]:
     """
     Compute the aim point for a detection box centred at pixel (u, v) of a photo.
 
     Falls back to the photo's own position (the old behaviour) when the photo cannot be
-    projected: no sidecar, no height or heading recorded, zoom changing at the shutter, unknown
-    image size, or an answer that is implausibly far away. The reason is in AimResult.note.
+    projected: no sidecar, no height or heading recorded (a NaN/inf value counts as not
+    recorded), zoom changing at the shutter, unknown image size, a setting that is not a finite
+    number, or an answer that is implausibly far away. The reason is in AimResult.note.
+
+    Returns None -- "do not aim at this detection at all" -- when the photo position is not a
+    usable GPS position or the box centre (u, v) is not a finite number: there is no safe point
+    to fly to, and a broken box must never decide a drop.
 
     Parameters
     ----------
@@ -324,16 +375,23 @@ def aim_at_box(meta: Optional[dict], photo_lat: float, photo_lon: float, u: floa
 
     Returns
     -------
-    AimResult
-        The aim point and how it was found.
+    AimResult or None
+        The aim point and how it was found; None when the detection must be ignored.
 
     """
+    if not valid_latlon(photo_lat, photo_lon) or not is_finite_number(u, v):
+        return None
+    photo_lat, photo_lon = float(photo_lat), float(photo_lon)
+
     def fallback(why: str) -> AimResult:
         return AimResult(photo_lat, photo_lon, 'photo', note=f'photo position ({why})')
 
+    if not is_finite_number(default_pitch_deg, default_hfov_deg, ground_height_m, max_offset_m,
+                            min_height_m):
+        return fallback('an aiming setting is not a finite number')
     if meta is None:
         return fallback('no sidecar for this photo')
-    if not image_size:
+    if not image_size or not is_finite_number(*image_size):
         return fallback('photo size unknown')
     rel_alt = _num(meta, 'rel_alt_m')
     heading = _num(meta, 'heading_deg')
@@ -372,6 +430,8 @@ def aim_at_box(meta: Optional[dict], photo_lat: float, photo_lon: float, u: floa
                         f'{max_offset_m:.0f} m')
     east, north = offset
     lat, lon = offset_to_latlon(photo_lat, photo_lon, east, north)
+    if not valid_latlon(lat, lon):          # last line of defence: never hand out NaN/inf
+        return fallback('the projected point is not a valid position')
     note = (f'box centre, {math.hypot(east, north):.1f} m {compass_name(east, north)} of the '
             f'photo centre (height {height:.1f} m, heading {camera_heading:.0f}, pitch '
             f'{pitch:.0f} [{attitude_note}], FOV {hfov:.0f} deg, zoom {zoom:.1f}x, '

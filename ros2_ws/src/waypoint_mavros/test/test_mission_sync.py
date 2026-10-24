@@ -5,7 +5,8 @@ test_mission_sync.py -- PURPOSE: unit tests for the rules that keep waypoint_man
 mission fresh (the "stale mission" fix of October 2026): the mission indices are derived from
 scratch for every list (same arithmetic as before), only changed indices are re-published,
 "Flight plan received" is recognised, and the re-read policy waits, merges triggers, ignores the
-echo of waypoint_manager's own upload, waits for MAVROS, and retries failed reads.
+echo of waypoint_manager's own upload, waits for MAVROS, retries failed reads, and abandons a
+read that never answers (Task 2 review fix) so later re-reads are not blocked forever.
 
 Needs nothing but Python (no ROS, no build):
     python3 -m pytest ros2_ws/src/waypoint_mavros/test/test_mission_sync.py -v
@@ -18,12 +19,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 from waypoint_mavros.mission_sync import (  # noqa: E402
     ACTION_PULL,
+    ACTION_TIMEOUT,
     NAV_RETURN_TO_LAUNCH,
     NAV_TAKEOFF,
     MissionRepullPolicy,
     changed_indices,
     derive_mission_indices,
     is_new_mission_text,
+    nav_waypoint_is_valid,
 )
 
 WP, DIGICAM, SPEED = 16, 203, 178
@@ -161,3 +164,67 @@ def test_failed_pull_is_retried_then_given_up():
         t += 2.5                                       # past the 2 s back-off
     assert outcomes == ['retry', 'retry', 'gave_up']
     assert p.next_action(t + 10, True) is None
+
+
+# ------------------------------------------------------------------ a pull that never answers
+def test_a_pull_without_answer_times_out_and_is_retried():
+    # Before the Task 2 fix a pull whose answer never came stayed "in flight" for ever.
+    p = MissionRepullPolicy(delay_s=1.0, retry_delay_s=2.0, pull_timeout_s=45.0)
+    p.on_new_mission_text(0.0)
+    assert p.next_action(1.0, True) == ACTION_PULL
+    p.pulled(1.0)
+    assert p.next_action(45.9, True) is None           # MAVROS may still be reading (30 s max)
+    assert p.next_action(46.0, True) == ACTION_TIMEOUT
+    assert p.finished(46.0, ok=False) == 'retry'
+    assert p.next_action(47.9, True) is None           # the normal back-off
+    assert p.next_action(48.0, True) == ACTION_PULL
+
+
+def test_a_trigger_waiting_behind_a_hung_pull_is_served_after_the_timeout():
+    # The arming re-read (the last chance before take-off) must not wait for ever behind a
+    # pull that never answers.
+    p = MissionRepullPolicy(delay_s=1.0, retry_delay_s=2.0, max_attempts=1, pull_timeout_s=45.0)
+    p.on_new_mission_text(0.0)
+    assert p.next_action(1.0, True) == ACTION_PULL
+    p.pulled(1.0)
+    p.on_armed(10.0)                                   # arrives while the hung pull "runs"
+    assert p.next_action(46.0, True) == ACTION_TIMEOUT
+    assert p.finished(46.0, ok=False) == 'gave_up'     # this trigger is given up ...
+    assert p.next_action(47.0, True) == ACTION_PULL    # ... the arming one is still served
+    assert 'armed' in p.reason
+
+
+def test_three_timeouts_give_up_and_a_new_upload_starts_again():
+    p = MissionRepullPolicy(delay_s=1.0, retry_delay_s=2.0, max_attempts=3, pull_timeout_s=45.0)
+    p.on_new_mission_text(0.0)
+    t, outcomes = 1.0, []
+    for _ in range(3):
+        assert p.next_action(t, True) == ACTION_PULL
+        p.pulled(t)
+        t += 45.0
+        assert p.next_action(t, True) == ACTION_TIMEOUT
+        outcomes.append(p.finished(t, ok=False))
+        t += 2.0
+    assert outcomes == ['retry', 'retry', 'gave_up']
+    assert p.next_action(t + 100.0, True) is None      # given up: no endless pulling
+    assert p.on_new_mission_text(t + 200.0) is True    # but a new trigger works again
+    assert p.next_action(t + 201.0, True) == ACTION_PULL
+
+
+def test_an_answer_in_time_never_times_out():
+    p = MissionRepullPolicy(delay_s=1.0, pull_timeout_s=45.0)
+    p.on_armed(0.0)
+    assert p.next_action(0.5, True) == ACTION_PULL
+    p.pulled(0.5)
+    assert p.finished(3.0, ok=True) == 'ok'
+    assert p.next_action(1000.0, True) is None
+
+
+# ------------------------------------------------------------------ target waypoint check
+def test_nav_waypoint_check_refuses_nan_inf_and_no_fix():
+    assert nav_waypoint_is_valid(36.215, -96.0068, 49.0)
+    nan, inf = float('nan'), float('inf')
+    for lat, lon, alt in [(nan, -96.0, 49.0), (36.2, inf, 49.0), (36.2, -96.0, nan),
+                          (0.0, 0.0, 49.0), (91.0, 1.0, 49.0), (36.2, -181.0, 49.0),
+                          (None, 1.0, 49.0), ('abc', 1.0, 49.0)]:
+        assert not nav_waypoint_is_valid(lat, lon, alt), (lat, lon, alt)

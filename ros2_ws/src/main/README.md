@@ -61,12 +61,36 @@ the real drone before trusting the drops, see `video_cam/HOW_OUR_CAMERA_WORKS.md
 Unchanged texts: `Reached last WP. Holding ...`, `All N images processed. Selecting targets.`,
 `Targets: tent@11 -> person@12. Diverting.`, `Resumed AUTO -> WP 11`, `Over tent: loiter 6s then
 drop`, `Servo 13 -> 1400`, `All targets done ...`, `RTL`, `Detected tent`.
-New: `Aim tent 36.2150261,-96.0068000` (one per target, the exact drop point).
+New: `Aim tent 36.2150261,-96.0068000` (one per target, the exact drop point). Only on faults (Task 2):
+`Processing timeout: images unreadable. Diverting.` and `Divert failed. Returning to launch.`
+
+## Made safe for the real drone (Task 2 review, October 2026)
+
+| Problem | What could happen | What it does now |
+|---|---|---|
+| **Hold that never ends** | If the photo folder was missing or unreadable, the check every 2 s raised an error before it reached the 90 s limit, so the drone hovered in GUIDED until a battery/ground-station failsafe. The hold was also timed with the wall clock, which the Jetson can step during a flight. | `src/processing_hold.py` lists the folder without ever raising; an unreadable folder means "keep waiting" until 90 s and then **always** goes on (divert to the targets found so far, or RTL). The problem is logged once, the ground station gets `Processing timeout: images unreadable. Diverting.`, and the hold uses `time.monotonic()`. If the divert itself fails, the drone is sent home (RTL) instead of hovering. |
+| **NaN / infinity** | A photo named `nan , nan.jpg`, a NaN box centre or a NaN setting passes every `<`/`>` test and becomes a waypoint at latitude NaN. | Non-finite or out-of-range GPS (file name or sidecar), box centre or score: the detection is **ignored** (warning in the log). Non-finite sidecar height/heading/FOV/zoom/gimbal: treated as "not recorded" (fallback to the photo position). Non-finite parameters (`:=.nan`): default used. Each target is checked again before `/addWaypoint`, and waypoint_manager refuses a NaN target too. |
+
+### How exact is the aim on sloped ground?
+
+The projection assumes ONE flat ground at `target_ground_height_m` above home. When the ground under the
+target is `dh` metres higher or lower than that, the aim point moves by `dh x tan(angle of the box from
+straight down)`, at any flight height: 0 m at the photo centre, about `0.85 x dh` at the side edge and
+`0.98 x dh` in a corner of an 81 deg photo (5x zoom: five times less). The real search areas have ~9-10 m
+of relief: with the default `0` a corner detection can be off by up to ~12 m (SB1), with
+`target_ground_height_m` set to the area's mean height by ~4-5 m. A camera that is NOT straight down while
+the code assumes -90 moves the photo centre by `height x tan(error)`: 0.8 m per degree at 150 ft. The full
+tables and the open choices are in `docs/HANDOFF.md` (Task 2). `test_target_geolocation.py` pins these
+formulas.
 
 ## Tests
 
 ```bash
-python3 -m pytest ros2_ws/src/main/test -v      # no ROS needed
+python3 -m pytest ros2_ws/src/main/test -v      # pure tests need no ROS; the controller tests need ROS sourced
 ```
 `test_target_geolocation.py` also replays the best hiker and tent detections of three simulator runs
 recorded before the fix: the old aim missed by 14-25 m, the new one must land within 2 m.
+`test_processing_hold.py` (pure) and `test_controller_safety.py` (the real controller methods on a
+stand-in object) cover the Task 2 fixes; `test_controller_robustness.py` runs the real node next to fake
+MAVROS services and shows it survives a mission-index read that times out or fails (old indices kept,
+retried, new ones picked up).

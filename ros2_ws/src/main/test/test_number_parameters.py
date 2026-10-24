@@ -1,4 +1,7 @@
-"""Purpose: verify controller numeric overrides with real ROS parameter type handling, without FCU I/O."""
+"""Purpose: verify controller numeric overrides with real ROS parameter type handling, without FCU I/O.
+
+Includes the Task 2 review cases: NaN / infinity overrides fall back to the default.
+"""
 
 import os
 import sys
@@ -22,6 +25,11 @@ from main_controller import MainController  # noqa: E402
     ('max_aim_offset_m', 150.0, '120', 120.0),
     ('target_ground_height_m', 0.0, 'true', 0.0),
     ('target_ground_height_m', 0.0, 'typo', 0.0),
+    # Task 2 review: NaN / infinity are not numbers either (a NaN ground height made every aim
+    # point NaN before the fix).
+    ('target_ground_height_m', 0.0, '.nan', 0.0),
+    ('max_aim_offset_m', 150.0, '.inf', 150.0),
+    ('default_camera_pitch_deg', -90.0, '-.inf', -90.0),
 ])
 def test_numeric_override_uses_ros_type_and_falls_back(name, default, value, expected):
     """Exercise the actual controller declaration on a node isolated from any flight graph."""
