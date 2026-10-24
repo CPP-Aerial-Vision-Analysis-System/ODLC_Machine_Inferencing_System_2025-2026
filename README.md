@@ -1,4 +1,11 @@
+<!-- PURPOSE: introduce the team development environment and direct simulator users to setup, architecture, model integration and operator guides. -->
 # ASTRA ODLC — Dev Environment (ROS 2 Humble, Python + C++)
+
+For the Gazebo digital twin, start with [the simulator run/edit guide](simulation/README.md).
+It links to [architecture](docs/simulation/ARCHITECTURE.md),
+[recognition model testing and plug-ins](docs/simulation/PLUGINS.md),
+[SITL connections](docs/simulation/ARDUPILOT.md), and the remaining operator guides.
+Assistants continuing development should read [AGENTS.md](AGENTS.md), then [the handoff](docs/HANDOFF.md).
 
 The dev container is built from our own `docker/Dockerfile`. It mirrors the
 Jetson (Ubuntu 22.04, Python 3.10, ROS 2 Humble, same Python package versions)
@@ -8,7 +15,7 @@ and runs natively on Mac (Apple Silicon or Intel), Windows and Linux.
 |---|---|---|
 | `dev` (default) | Everyone | ROS 2 Humble, MAVROS, C++ toolchain, ONNX Runtime, Python ML stack (CPU) |
 | `sitl` | Anyone testing mission logic | `dev` + ArduPilot SITL (headless, no Gazebo) |
-| `sim` | Dedicated sim computer (x86 only) | `sitl` + Gazebo Harmonic + ardupilot_gazebo |
+| `sim` | Simulator workstation or WSL 2 (x86 only) | `sitl` + Gazebo Harmonic + ardupilot_gazebo |
 
 All versions are `ARG`s at the top of `docker/Dockerfile` — change one and rebuild.
 
@@ -68,29 +75,32 @@ Terminal 2 — run the mission stack against it:
 ./launcher.sh sim
 ```
 
-**Gazebo (dedicated sim computer only):** `docker build -t astra-sim --target sim --platform linux/amd64 docker/`.
-Then run `gz sim -v4 -r iris_runway.sdf` and
-`sim_vehicle.py -v ArduCopter -f gazebo-iris --model JSON --no-rebuild --out=udp:127.0.0.1:14552`.
+For the complete Gazebo mission, camera emulator and scoring, use the native setup below or follow
+[the Docker guide](docs/simulation/DOCKER.md). The container integration is still being validated.
 
 ## Simulation (Gazebo)
 
 A full digital twin: our Iris + SIYI camera in Gazebo Harmonic, flown by ArduCopter SITL 4.6.3 (the
-Pixhawk's firmware), with **our unchanged flight code** (`./launcher.sh sim`) talking to it through MAVROS
+Pixhawk's firmware), with **the same team flight stack** (`./launcher.sh sim`) talking to it through MAVROS
 and to a SIYI camera emulator at the real camera address. You watch the camera's point of view while the
 drone searches for the hiker and the tent, detects them, drops the payloads and flies home; a score report
 is written at the end. Everything is in [`simulation/README.md`](simulation/README.md).
 
 ```bash
-# one time, inside the Ubuntu-22.04 WSL distro (or native Ubuntu 22.04)
-sudo bash simulation/setup/01_install_humble.sh && bash simulation/setup/02_setup_ardupilot.sh
-bash simulation/setup/03_build.sh                 # copy to ~/ODLC_Machine_Inferencing_System_2025-2026 + build
-# the full search demo
-bash ~/ODLC_Machine_Inferencing_System_2025-2026/simulation/scripts/demo.sh runway
+# one time, from the checkout inside Ubuntu 22.04
+sudo bash simulation/setup/01_install_humble.sh
+bash simulation/setup/02_setup_ardupilot.sh
+bash simulation/setup/03_build.sh --workers 4
+# Only Windows-mounted checkouts create the mirror; native Linux stays in its checkout.
+# After a Windows-mounted build: cd ~/ODLC_Machine_Inferencing_System_2025-2026
+source simulation/setup/sim_env.sh
+bash simulation/scripts/demo.sh runway
 ```
 
 The simulator lives in `simulation/` (setup and scripts) and `ros2_ws/src/simulation/` (packages
-`sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`). The only change to existing files:
-`launcher.sh` accepts `TRACKER_CMD` from the environment (default unchanged).
+`sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`, `sim_plugins`).
+`launcher.sh` accepts `TRACKER_CMD` from the environment (default unchanged). Team-code fixes and their
+remaining real-aircraft validation are described in [WHAT_CHANGED](docs/simulation/WHAT_CHANGED.md).
 
 
 # How to wipe out all the docker images (mac)

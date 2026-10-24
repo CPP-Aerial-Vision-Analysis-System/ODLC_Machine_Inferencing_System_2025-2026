@@ -1,3 +1,4 @@
+# Purpose: keep generated artifacts, model weights, and local machine notes out of the public repo.
 ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
@@ -41,7 +42,9 @@ ros2_ws/detection/detection/detection_results_steroids
 
 ros2_ws/src/video_cam/video_cam/documentations
 ros2_ws/src/video_cam/detection_results_sahi
-Docs
+# Keep portable handoff and simulator documentation visible on case-insensitive checkouts too.
+!/docs/
+!/docs/**
 ros2_ws/src/video_cam/mapping_photos
 ros2_ws/src/video_cam/Documentation
 
@@ -65,3 +68,5 @@ commonErrors.md
 
 ros2learning.md
 hexacopter_interview_prep.md
+# Machine-specific hand-over notes (owner laptop only)
+LOCAL_NOTES.md
