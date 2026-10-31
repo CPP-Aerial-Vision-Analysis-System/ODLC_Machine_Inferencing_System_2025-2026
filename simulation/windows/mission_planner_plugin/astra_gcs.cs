@@ -223,7 +223,7 @@ namespace AstraGcs
 
     public class AstraPlugin : MissionPlanner.Plugin.Plugin
     {
-        private const string PluginVersion = "1.0";
+        private const string PluginVersion = "1.1";
         private const string DefaultCameraUrl = "http://127.0.0.1:8081/pov.mjpg";
 
         // ---------------------------------------------------------------- mission state (plugin thread, under `sync`)
@@ -250,6 +250,13 @@ namespace AstraGcs
         private DateTime lastStatusWrite = DateTime.MinValue;
         private bool simulator;
         private bool mapDirty;
+        private DateTime loadedAt = DateTime.MinValue;
+        private DateTime lastSubscribeTry = DateTime.MinValue;
+        private DateTime lastTabCheck = DateTime.MinValue;
+        private double telemetryAgeS = -1;             // seconds since the last good MAVLink packet from the drone (-1 = unknown)
+        private volatile int tabIndexSeen = -2;        // where the ASTRA tab was at the last check (-1 = not in the tab list)
+        private volatile bool tabSelectedSeen;
+        private volatile int tabReinserts;              // how often Mission Planner dropped or moved the tab and we put it back
 
         // ---------------------------------------------------------------- camera (its own thread)
         private static readonly Type ImageType = typeof(Form).GetProperty("BackgroundImage").PropertyType;   // .NET's Image
@@ -298,23 +305,33 @@ namespace AstraGcs
             }
             try { AddHudMenu(); } catch (Exception ex) { lastError = "HUD menu: " + ex.Message; }
             try { AddMapOverlay(); } catch (Exception ex) { lastError = "map: " + ex.Message; }
-            try
-            {
-                // Every STATUSTEXT packet, from any system and component (0, 0 = all). Mission Planner files the texts of
-                // other components (the Jetson's MAVROS is 1:191) under that component, not under the autopilot, so
-                // listening to the packets themselves is the reliable way to read the team code's messages.
-                statustextSubscription = Host.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.STATUSTEXT, OnStatusText, 0, 0, false);
-            }
-            catch (Exception ex)
-            {
-                lastError = "status text subscription: " + ex.Message;
-            }
+            loadedAt = DateTime.Now;
+            TrySubscribe();
             AddEvent("ASTRA", "ASTRA ground station plugin " + PluginVersion + " loaded", 1);
             stopping = false;
             cameraThread = new Thread(CameraLoop) { IsBackground = true, Name = "astra-camera" };
             cameraThread.Start();
             WriteStatus();
             return true;
+        }
+
+        // Every STATUSTEXT packet, from any system and component (0, 0 = all). Mission Planner files the texts of other
+        // components (the Jetson's MAVROS is 1:191) under that component, not under the autopilot, so listening to the
+        // packets themselves is the reliable way to read the team code's messages. If it fails (for example because the
+        // connection is not set up yet), Tick tries again every 10 s; the error is kept in the status file.
+        private void TrySubscribe()
+        {
+            lastSubscribeTry = DateTime.Now;
+            try
+            {
+                int id = Host.comPort.SubscribeToPacketType(MAVLink.MAVLINK_MSG_ID.STATUSTEXT, OnStatusText, 0, 0, false);
+                statustextSubscription = id;
+                if (id < 0) lastError = "status text subscription: Mission Planner returned " + id + " (will retry)";
+            }
+            catch (Exception ex)
+            {
+                lastError = "status text subscription: " + ex.Message + " (will retry)";
+            }
         }
 
         public override bool Loop()
@@ -391,6 +408,13 @@ namespace AstraGcs
             ReadMessages(com);
             ReadCompanionTexts(com);
             simulator = DetectSimulator(com);
+            telemetryAgeS = TelemetryAge(com);
+            if (statustextSubscription < 0 && DateTime.Now - lastSubscribeTry > TimeSpan.FromSeconds(10)) TrySubscribe();
+            if (DateTime.Now - lastTabCheck > TimeSpan.FromSeconds(2))
+            {
+                lastTabCheck = DateTime.Now;
+                EnsureTabAsync();
+            }
 
             bool armed = cs.armed;
             string mode = (cs.mode ?? "").ToUpperInvariant();      // Mission Planner writes "Auto", the autopilot "AUTO"
@@ -421,6 +445,31 @@ namespace AstraGcs
 
             if (DateTime.Now - lastStatusWrite > TimeSpan.FromSeconds(2)) WriteStatus();
             UpdateUiAsync();
+        }
+
+        // Seconds since the last good MAVLink packet from the drone, or -1 if Mission Planner has not seen one. With a UDP
+        // connection Mission Planner keeps showing the last values ("Ready to Arm", "GPS: rtk Fixed") after the simulator
+        // or the radio stops, so the ASTRA tab uses this to say plainly that the numbers are old.
+        private static double TelemetryAge(MAVLinkInterface com)
+        {
+            try
+            {
+                DateTime last = com.MAV.lastvalidpacket;
+                if (last.Year < 2000) return -1;
+                DateTime now = last.Kind == DateTimeKind.Utc ? DateTime.UtcNow : DateTime.Now;
+                double age = (now - last).TotalSeconds;
+                if (age < -5 || age > 6 * 3600) return -1;     // clock confusion: do not guess
+                return Math.Max(0, age);
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        private static string FormatAge(double seconds)
+        {
+            return seconds < 120 ? ((int)seconds) + " s" : ((int)(seconds / 60)) + " min";
         }
 
         private static bool DetectSimulator(MAVLinkInterface com)
@@ -780,7 +829,7 @@ namespace AstraGcs
             if (fd == null) throw new InvalidOperationException("the DATA screen is not ready");
             var tabs = fd.tabControlactions;
 
-            page = new TabPage("ASTRA") { BackColor = Theme.Background, ForeColor = Theme.Text, Padding = new Padding(6) };
+            page = new TabPage("ASTRA") { Name = "tabASTRA", BackColor = Theme.Background, ForeColor = Theme.Text, Padding = new Padding(6) };
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, BackColor = Theme.Background };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));     // phase strip
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));     // what is happening now
@@ -851,6 +900,48 @@ namespace AstraGcs
             page.Controls.Add(root);
             tabs.TabPages.Insert(0, page);
             tabs.SelectedTab = page;
+        }
+
+        private void EnsureTabAsync()
+        {
+            var fd = FlightData.instance;
+            if (fd == null || page == null || !fd.IsHandleCreated) return;
+            try { fd.BeginInvoke((MethodInvoker)EnsureTab); } catch (Exception) { }
+        }
+
+        // Mission Planner rebuilds the DATA screen's tabs from its saved list ("tabcontrolactions" in config.xml) when the
+        // screen loads and again after "Customize", and it drops tabs it does not know, such as this one. So every 2 s
+        // this puts the ASTRA tab back in first place. It only selects the tab while Mission Planner is starting up (the
+        // first 2 minutes) and only if Mission Planner just fell back to its default first tab ("Quick"), so it never
+        // takes away a tab the pilot chose.
+        private void EnsureTab()
+        {
+            try
+            {
+                var fd = FlightData.instance;
+                if (fd == null || page == null) return;
+                var tabs = fd.tabControlactions;
+                int index = tabs.TabPages.IndexOf(page);
+                if (index != 0)
+                {
+                    var before = tabs.SelectedTab;
+                    bool fellBackToDefault = before == null || before == page || before.Name == "tabQuick";
+                    bool startingUp = DateTime.Now - loadedAt < TimeSpan.FromMinutes(2);
+                    if (index > 0) tabs.TabPages.Remove(page);
+                    tabs.TabPages.Insert(0, page);
+                    if ((startingUp && fellBackToDefault) || before == page) tabs.SelectedTab = page;
+                    else if (before != null) tabs.SelectedTab = before;     // inserting can change the selection: undo that
+                    tabReinserts++;
+                    if (tabReinserts == 1)
+                        AddEvent("ASTRA", "Mission Planner rebuilt its tabs: the ASTRA tab is back in first place", 0);
+                }
+                tabIndexSeen = tabs.TabPages.IndexOf(page);
+                tabSelectedSeen = tabs.SelectedTab == page;
+            }
+            catch (Exception ex)
+            {
+                lastError = "ASTRA tab: " + ex.Message;
+            }
         }
 
         private Control MakeTile(string caption)
@@ -925,10 +1016,17 @@ namespace AstraGcs
                     shown = phase;
                 }
                 strip.Current = (int)shown;
-                SetText(statusLine, Sentence(shown, cs));
+                double age = telemetryAgeS;
+                bool stale = age > 10;
+                SetText(statusLine, stale
+                    ? "No telemetry for " + FormatAge(age) + ": the simulator or the radio link is off. The numbers below are the last ones received."
+                    : Sentence(shown, cs));
+                if (statusLine.ForeColor != (stale ? Theme.Warn : Theme.Text)) statusLine.ForeColor = stale ? Theme.Warn : Theme.Text;
                 double sinceMessage = lastMessageAt == DateTime.MinValue ? -1 : (DateTime.Now - lastMessageAt).TotalSeconds;
-                bool linked = cs.connected || (com.BaseStream != null && com.BaseStream.IsOpen);
-                SetText(linkLine, (linked ? "Telemetry connected" : "No telemetry link")
+                string link;
+                if (age >= 0) link = age < 5 ? "Telemetry live" : "Telemetry LOST (last packet " + FormatAge(age) + " ago)";
+                else link = cs.connected || (com.BaseStream != null && com.BaseStream.IsOpen) ? "Telemetry connected" : "No telemetry link";
+                SetText(linkLine, link
                     + "   |   camera: " + cameraState + (capturing ? " (" + frames + " pictures)" : "")
                     + (sinceMessage >= 0 ? "   |   last message " + (int)sinceMessage + " s ago" : ""));
 
@@ -1203,6 +1301,10 @@ namespace AstraGcs
                     Field(sb, "written", DateTime.Now.ToString("o"), false);
                     Field(sb, "phase", PhaseStrip.Names[(int)phase], false);
                     Field(sb, "tab_built", page != null ? "true" : "false", true);
+                    Field(sb, "tab_index", tabIndexSeen.ToString(CultureInfo.InvariantCulture), true);
+                    Field(sb, "tab_selected", tabSelectedSeen ? "true" : "false", true);
+                    Field(sb, "tab_reinserts", tabReinserts.ToString(CultureInfo.InvariantCulture), true);
+                    Field(sb, "telemetry_age_s", telemetryAgeS < 0 ? "null" : telemetryAgeS.ToString("0.0", CultureInfo.InvariantCulture), true);
                     Field(sb, "camera_state", cameraState, false);
                     Field(sb, "camera_pictures", frames.ToString(CultureInfo.InvariantCulture), true);
                     Field(sb, "camera_last_picture_age_s", lastFrameAt == DateTime.MinValue ? "null" : (DateTime.Now - lastFrameAt).TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture), true);
