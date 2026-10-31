@@ -187,11 +187,17 @@ class Vehicle:
                 if mtype == 'BAD_DATA':
                     pass
                 elif msg.get_srcSystem() == getattr(self, 'ts', msg.get_srcSystem()):
-                    self.last[mtype] = msg
+                    # Since MAVROS talks to SITL SERIAL2 (like the real Jetson on TELEM2), ArduPilot forwards MAVROS's
+                    # own broadcast messages to this link too. MAVROS's HEARTBEAT (component 191/240) says "disarmed,
+                    # mode 0" (= STABILIZE), and keeping it as "the newest heartbeat" once stopped a demo 12 s into
+                    # the flight. So the drone's state is taken from the autopilot component only; status texts are
+                    # still collected from every component of the drone (the team code's texts come from MAVROS).
                     if mtype == 'STATUSTEXT':
                         self.statustexts.append(msg.text)
-                    if types and mtype in types:
-                        return msg
+                    if msg.get_srcComponent() == getattr(self, 'tc', msg.get_srcComponent()):
+                        self.last[mtype] = msg
+                        if types and mtype in types:
+                            return msg
             if time.monotonic() >= end:
                 return None
 

@@ -1,7 +1,8 @@
 """
 sim_bringup/test/test_mission_tool.py -- PURPOSE: unit tests for the mission file reader of mission_tool (no autopilot
 needed): QGC WPL 110 parsing, the checks against what the team's code expects (TAKEOFF, DO_DIGICAM_CONTROL,
-two survey waypoints after it, RETURN_TO_LAUNCH last) and the MISSION_ITEM_INT coordinate scaling.
+two survey waypoints after it, RETURN_TO_LAUNCH last) and the MISSION_ITEM_INT coordinate scaling. Also: the drone's
+state (armed, mode) is read from the autopilot component only, while status texts from every component are kept.
 """
 
 import pytest
@@ -69,3 +70,69 @@ def test_check_mission_command_line(tmp_path, capsys):
     bad = tmp_path / 'bad.waypoints'
     bad.write_text('QGC WPL 110\n0 1 0 16 0 0 0 0 1 2 3 1\n')
     assert mt.main(['check-mission', '--mission', str(bad)]) == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# The drone's state comes from the autopilot component only (regression: MAVROS's heartbeat, forwarded by ArduPilot
+# since MAVROS moved to SITL SERIAL2, made the tool read "disarmed / STABILIZE" in the middle of a flight).
+# ---------------------------------------------------------------------------------------------
+
+class _Msg:
+    """A tiny stand-in for a pymavlink message."""
+
+    def __init__(self, mtype, comp, base_mode=0, custom_mode=0, text=''):
+        self.mtype, self.comp = mtype, comp
+        self.base_mode, self.custom_mode, self.text = base_mode, custom_mode, text
+
+    def get_type(self):
+        return self.mtype
+
+    def get_srcSystem(self):
+        return 1
+
+    def get_srcComponent(self):
+        return self.comp
+
+
+class _Link:
+    """Hands out a fixed list of messages, then nothing."""
+
+    def __init__(self, msgs):
+        self.msgs = list(msgs)
+
+    def recv_match(self, blocking=True, timeout=0.2):
+        return self.msgs.pop(0) if self.msgs else None
+
+    def mode_mapping(self):
+        return {'STABILIZE': 0, 'AUTO': 3, 'GUIDED': 4}
+
+
+def _vehicle(msgs):
+    from types import SimpleNamespace
+    v = object.__new__(mt.Vehicle)          # skip __init__: no network
+    v.m, v.mavlink = _Link(msgs), SimpleNamespace(MAV_MODE_FLAG_SAFETY_ARMED=128)
+    v.statustexts, v.last, v.ts, v.tc = [], {}, 1, 1
+    return v
+
+
+def test_mavros_heartbeat_does_not_replace_the_autopilot_state():
+    armed_auto = _Msg('HEARTBEAT', comp=1, base_mode=128 | 1, custom_mode=3)
+    mavros = _Msg('HEARTBEAT', comp=191, base_mode=0, custom_mode=0)       # MAVROS: "disarmed, mode 0"
+    v = _vehicle([armed_auto, mavros])
+    v.pump(0.0)
+    v.pump(0.0)
+    assert v.armed is True
+    assert v.mode == 'AUTO'
+
+
+def test_team_status_texts_are_still_collected():
+    v = _vehicle([_Msg('STATUSTEXT', comp=191, text='Detected tent'), _Msg('STATUSTEXT', comp=1, text='Mission: 3 DigiCamCtrl')])
+    v.pump(0.0)
+    v.pump(0.0)
+    assert v.statustexts == ['Detected tent', 'Mission: 3 DigiCamCtrl']
+
+
+def test_pump_returns_only_messages_from_the_autopilot():
+    v = _vehicle([_Msg('HEARTBEAT', comp=191), _Msg('HEARTBEAT', comp=1, custom_mode=4)])
+    assert v.pump(0.0, types=['HEARTBEAT']) is None
+    assert v.pump(0.0, types=['HEARTBEAT']).custom_mode == 4
