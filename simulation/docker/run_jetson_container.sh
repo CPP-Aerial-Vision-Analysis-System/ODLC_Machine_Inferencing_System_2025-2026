@@ -54,6 +54,7 @@ case "$DETECTOR" in real|truth) ;; *) die "--detector must be real or truth" ;; 
 
 astra_need_docker --no-compose
 astra_require_images "astra-dev:latest dev"
+astra_check_image_fresh astra-dev:latest
 if [ "$ASTRA_DRY" = 0 ]; then
   docker ps -q --filter "name=^$NAME\$" | grep -q . && die "a container named $NAME is already running (stop it: docker stop $NAME)"
   # Same build volumes and the same address as the compose "jetson" container: only one of them at a time.
@@ -81,6 +82,7 @@ REPO_HOST="$(astra_pick_repo "$REPO_ARG")" || exit 1
 [ -f "$REPO_HOST/simulation/docker/_container_common.sh" ] \
   || die "$REPO_HOST has no simulation/docker/_container_common.sh (an old copy): refresh it with  bash $ASTRA_DOCKER_SCRIPTS/compose_up.sh --sync-only"
 astra_prepare_data
+astra_prepare_repo_mounts "$REPO_HOST"
 
 DISPLAY_MODE="$(astra_display_mode)"
 astra_gui_run_args "$DISPLAY_MODE"

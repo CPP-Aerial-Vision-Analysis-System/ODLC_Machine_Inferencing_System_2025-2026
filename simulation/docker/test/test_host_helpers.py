@@ -1,18 +1,22 @@
 """
 simulation/docker/test/test_host_helpers.py -- PURPOSE: verify GPU choices in host Docker helpers and both
 single-container launchers. Commands run in dry mode or with a stub runtime; no Docker daemon or GPU is used.
-Run inside Linux: python3 -m pytest -q simulation/docker/test.
+Run inside Linux: python3 -m pytest -q simulation/docker/test.  (Skipped elsewhere: on Windows "bash" is Git Bash
+or WSL's launcher, which cannot run these Linux scripts with Windows paths.)
 """
 
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 import pytest
 
 
 DOCKER = Path(__file__).resolve().parents[1]
 REPO = DOCKER.parents[1]
+
+pytestmark = pytest.mark.skipif(not sys.platform.startswith('linux'), reason='the Docker scripts run in Linux')
 
 
 @pytest.mark.parametrize('script', ['run_sim_container.sh', 'run_jetson_container.sh'])

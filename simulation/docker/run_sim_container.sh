@@ -49,6 +49,7 @@ done
 
 astra_need_docker --no-compose
 astra_require_images "astra-sim:latest sim"
+astra_check_image_fresh astra-sim:latest
 if [ "$ASTRA_DRY" = 0 ]; then
   docker ps -q --filter "name=^$NAME\$" | grep -q . && die "a container named $NAME is already running (stop it: docker stop $NAME)"
   # Same build volumes as the compose "sim" container: never build into them twice at the same time.
@@ -58,6 +59,7 @@ REPO_HOST="$(astra_pick_repo "$REPO_ARG")" || exit 1
 [ -f "$REPO_HOST/simulation/docker/container_solo.sh" ] \
   || die "$REPO_HOST has no simulation/docker/container_solo.sh (an old copy): refresh it with  bash $ASTRA_DOCKER_SCRIPTS/compose_up.sh --sync-only"
 astra_prepare_data
+astra_prepare_repo_mounts "$REPO_HOST"
 astra_use_host_fuel
 
 DISPLAY_MODE="$(astra_display_mode)"

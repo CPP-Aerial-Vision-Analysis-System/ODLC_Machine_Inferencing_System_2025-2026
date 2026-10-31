@@ -62,8 +62,12 @@
   ],
   // 1) stop with a clear message when the image is not built yet (Docker's own message would be the misleading
   //    "pull access denied ... may require 'docker login'": no login is needed, the image is built locally);
-  // 2) the data folder must exist before Docker mounts it (otherwise Docker creates it owned by root).
-  "initializeCommand": "bash simulation/docker/require_image.sh astra-sim:latest sim && mkdir -p \"${localEnv:HOME}/.astra_docker\"",
+  // 2) the data folder must exist before Docker mounts it (otherwise Docker creates it owned by root);
+  // 3) so must ros2_ws/build, install and log, where the build volumes are mounted: Docker would otherwise create
+  //    them in your checkout owned by root, and a later native colcon build there fails with "Permission denied".
+  // Problems before this point (Docker not running, wrong "docker", Windows line endings ...): run
+  //    bash simulation/docker/check_host.sh        in the Ubuntu terminal (docs/simulation/DOCKER.md).
+  "initializeCommand": "bash simulation/docker/require_image.sh astra-sim:latest sim && mkdir -p \"${localEnv:HOME}/.astra_docker\" ros2_ws/build ros2_ws/install ros2_ws/log",
   "workspaceMount": "source=${localWorkspaceFolder},target=/ODLC_Machine_Inferencing_System_2025-2026,type=bind",
   "workspaceFolder": "/ODLC_Machine_Inferencing_System_2025-2026",
   "remoteUser": "ubuntu",

@@ -180,8 +180,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends iputils-ping ip
 
 # --- User ---------------------------------------------------------------------
 # dialout = serial access to the Pixhawk (/dev/ttyUSB0) on Linux hosts.
+# useradd -l (--no-log-init): with a very large user id (university / company Linux accounts such as 1234567890)
+# useradd would otherwise write a sparse /var/log/lastlog of that many bytes into the layer: a multi-GB image.
 RUN groupadd --gid ${USER_GID} ${USERNAME} \
-    && useradd -s /bin/bash --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
+    && useradd -l -s /bin/bash --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} \
     && usermod -aG video,dialout ${USERNAME} \
     && echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} \
     && chmod 0440 /etc/sudoers.d/${USERNAME}
@@ -209,6 +211,11 @@ FROM dev AS sitl
 # Match the ArduCopter version flashed on the Pixhawk (4.6.3 as of 2026-09-15).
 ARG ARDUPILOT_REF=Copter-4.6.3
 ARG BUILD_JOBS
+# Repeated on purpose (same value as in "dev"). BuildKit passes a stage's ARGs on to the stages built FROM it, but
+# Docker's OLD builder (what `docker build` falls back to when the buildx plugin is missing) does not: there
+# "USER ${USERNAME}" below became "USER " and this image ran as root (HOME=/root, so the runs, logs and hand-over
+# files never reached the mounted ~/.astra_sim). Checked 2026-10-31 with a small busybox copy of this pattern.
+ARG USERNAME=ubuntu
 
 USER root
 # empy / pexpect / future (apt) and MAVProxy (pip) are already in dev.
@@ -265,6 +272,8 @@ ARG ARDUPILOT_GAZEBO_REF=main
 # ARDUPILOT_GAZEBO_REF. Pinned so a rebuild next month gets the same plugin, not whatever main is then.
 ARG ARDUPILOT_GAZEBO_COMMIT=082a0fe231f6e63bc8d1598f1cba461d9e2ea7f5
 ARG BUILD_JOBS
+# Repeated on purpose, see the "sitl" stage: without it the old builder makes this image run as root.
+ARG USERNAME=ubuntu
 
 USER root
 RUN if [ "$(dpkg --print-architecture)" != "amd64" ]; then \

@@ -1,9 +1,55 @@
-# Purpose: preserve platform line endings and the existing development-container merge behavior.
+# Purpose: keep Linux (LF) line endings in every text file on every computer, Windows (CRLF) line endings in the
+# Windows-only launchers, never touch binary files, and preserve the existing development-container merge behavior.
+#
+# Why it matters: Git for Windows is installed with core.autocrlf=true, which turns every LF line ending into CRLF
+# when a teammate clones on Windows. Bash and the Linux kernel then see an invisible "\r" at the end of each line:
+#   bash script.sh            ->  $'\r': command not found
+#   #!/usr/bin/env python3\r  ->  /usr/bin/env: 'python3\r': No such file or directory
+# (main_controller.py and the sim_worlds tools are started through that first line, in Docker and natively).
+# The rules below beat core.autocrlf, so a Windows clone gets LF files too.
+# "text=auto" = Git decides what is text; a file that was committed WITH CRLF is left exactly as it is (no surprise
+# "modified" files); every file committed with LF is checked out with LF everywhere.
+# An older Windows clone keeps its CRLF files until they are rewritten: bash simulation/docker/check_host.sh finds
+# them and  bash simulation/docker/check_host.sh --fix-line-endings  repairs them (your edits are kept).
 .devcontainer/** merge=ours
 #then run this git update-index --skip-worktree .devcontainer/**
 
+# Default for every file: LF.
+* text=auto eol=lf
+
 # Shell scripts must keep LF endings (bash in WSL/Linux fails on CRLF); Windows launchers keep CRLF.
 *.sh text eol=lf
+*.bash text eol=lf
 *.bat text eol=crlf
-*.md text eol=lf
-.gitignore text eol=lf
+*.cmd text eol=crlf
+*.ps1 text=auto eol=crlf
+# text=auto (not "text") for these two: about 20 older .md files (and one .gitignore) were committed with CRLF; with
+# plain "text" a fresh clone shows them as "modified" although nobody touched them.
+*.md text=auto eol=lf
+.gitignore text=auto eol=lf
+
+# Binary files: never converted, never diffed as text (Git usually guesses right; this makes it certain).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.bmp binary
+*.tif binary
+*.tiff binary
+*.pdf binary
+*.stl binary
+*.glb binary
+*.pt binary
+*.onnx binary
+*.engine binary
+*.trt binary
+*.db3 binary
+*.pyc binary
+*.so binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.xz binary
+*.bin binary
+*.tlog binary

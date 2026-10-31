@@ -16,10 +16,19 @@
 #      windows (WSLg on Windows, X11 on Linux, none) and get the graphics card (DirectX through /dev/dxg,
 #      /dev/dri, NVIDIA CUDA), for `docker compose` (which add-on files) and for `docker run` (which options);
 #    * astra_check_image_user: the images have one user id built in; warn when it is not yours;
+#    * astra_docker_inputs_hash / astra_check_image_fresh: a fingerprint of docker/Dockerfile + the requirements
+#      files, stored in each image by build_images.sh, so an image older than those files is reported ("stale");
+#    * astra_prepare_repo_mounts: create ros2_ws/build, install, log in the repo before Docker mounts the build
+#      volumes there (Docker would create them owned by root, and a later native build could not write into them);
+#    * astra_copy_differences: how many files of the Windows folder are newer than the Linux-side copy (tool
+#      caches not counted; ASTRA_NO_COPY_CHECK=1 skips this 3-second look);
 #    * astra_free_camera_ip: the native simulator gives this computer the camera address 192.168.144.25 on its
 #      loopback; while that is there, the "sim" container (which IS 192.168.144.25 on the Docker network) gets
 #      no internet and the host answers in its place, so it is taken away (the native scripts put it back);
-#    * astra_subnet_conflict: is 192.168.144.0/24 already used here (another network, the real drone's)?
+#    * astra_subnet_conflict: is 192.168.144.0/24 already used here (another network, the real drone's)? Any
+#      overlap counts, also a Docker network that covers it (192.168.144.0/20); astra_subnet_wider_route finds a
+#      wider route (a VPN's 192.168.0.0/16) that does not block the containers but is worth knowing about;
+#    * astra_build_uid: the user id build_images.sh builds into the images for you;
 #    * astra_run: run a command, or only print it with --dry-run.
 #  Nothing here knows about one particular computer: every path is found at run time.
 # =============================================================================
@@ -60,6 +69,13 @@ astra_is_wsl() { grep -qi microsoft /proc/version 2>/dev/null; }
 # astra_need_docker [--no-compose] : stop with a clear message when Docker Engine cannot be used.
 astra_need_docker() {
   local where
+  if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ]; then
+    # The usual reason: Docker said "permission denied" and sudo seemed to help. It hides the real fix and moves
+    # $HOME to /root, so the data folder and the Linux-side repo copy are looked for in the wrong place.
+    warn "You started this with sudo. Run it as yourself (no sudo): with sudo the home folder is /root, so the data"
+    warn "  folder and the Linux-side repo copy are looked for in the wrong place. Docker's \"permission denied\" is"
+    warn "  fixed by the docker group instead:  sudo usermod -aG docker $SUDO_USER   then open a new login (see DOCKER.md)."
+  fi
   where="$(command -v docker 2>/dev/null || true)"
   if [ -z "$where" ]; then
     die "Docker is not installed in this Ubuntu. Install Docker Engine once (admin rights):
@@ -116,10 +132,19 @@ astra_require_images() {
 }
 
 # astra_image_uid IMAGE : the user id built into IMAGE (label org.astra.uid, set by build_images.sh), or "".
-astra_image_uid() { docker image inspect "$1" --format '{{index .Config.Labels "org.astra.uid"}}' 2>/dev/null; }
+astra_image_uid() { astra_image_label "$1" org.astra.uid; }
+
+# astra_build_uid : the user id build_images.sh builds into the images for THIS user (the same rule as there):
+# your own id when your user AND group id are 1000 or more (normal accounts), otherwise 1000, the Dockerfile's
+# default (small ids such as 20 or 500 belong to system groups inside the Ubuntu image and would clash).
+astra_build_uid() {
+  if [ "$(id -u)" -ge 1000 ] && [ "$(id -g)" -ge 1000 ]; then id -u; else echo 1000; fi
+}
 
 # astra_check_image_user IMAGE... : warn when an image's built-in user id is not this user's. Then files the
 # containers write into the mounted repo belong to someone else, and an X11 desktop refuses their windows.
+# Only says "rebuild" when a rebuild here would change it: for a user id below 1000 build_images.sh always uses
+# 1000 (see astra_build_uid), so that case gets a plain explanation instead of advice that cannot help.
 astra_check_image_user() {
   local img uid
   [ "$ASTRA_DRY" = 1 ] && return 0
@@ -127,11 +152,58 @@ astra_check_image_user() {
     uid="$(astra_image_uid "$img")"
     [ -z "$uid" ] && uid="$(docker run --rm --entrypoint id "$img" -u 2>/dev/null)"
     if [ -n "$uid" ] && [ "$uid" != "$(id -u)" ]; then
-      warn "$img was built for user id $uid, you are $(id -u) (images copied from another PC?)."
-      warn "  It still runs; files it writes into the repo then belong to user id $uid. For a clean setup rebuild"
-      warn "  with your id:  bash $ASTRA_DOCKER_SCRIPTS/build_images.sh   (docs/simulation/DOCKER.md, troubleshooting)"
+      if [ "$uid" != "$(astra_build_uid)" ]; then
+        warn "$img was built for user id $uid, you are $(id -u) (images copied from another PC?)."
+        warn "  It still runs; files it writes into the repo then belong to user id $uid. For a clean setup rebuild"
+        warn "  with your id:  bash $ASTRA_DOCKER_SCRIPTS/build_images.sh   (docs/simulation/DOCKER.md, troubleshooting)"
+      else
+        info "$img uses user id $uid; yours is $(id -u), below 1000, so the images always use 1000 (nothing to"
+        info "  rebuild). Files the containers write into the repo belong to user id $uid."
+      fi
       ASTRA_UID_MISMATCH="$uid"
     fi
+  done
+}
+
+# astra_docker_inputs_hash : a short fingerprint (16 hex digits) of everything an image build reads from the repo:
+# docker/Dockerfile and docker/requirements-*.txt. Line endings are ignored, so a Windows (CRLF) checkout gives the
+# same value. build_images.sh stores it in every image (label org.astra.inputs).
+astra_docker_inputs_hash() {
+  local d="$ASTRA_REPO_HERE/docker"
+  cat "$d/Dockerfile" "$d/requirements-dev.txt" "$d/requirements-ml.txt" 2>/dev/null | tr -d '\r' | sha256sum | cut -c1-16
+}
+
+# astra_image_label IMAGE LABEL : the value of one label of IMAGE ("" when the image or the label is missing).
+astra_image_label() {
+  local v
+  v="$(docker image inspect "$1" --format "{{index .Config.Labels \"$2\"}}" 2>/dev/null)"
+  [ "$v" = "<no value>" ] && v=""
+  printf '%s\n' "$v"
+}
+
+# astra_check_image_fresh IMAGE... : warn when an image was built from OLDER docker/ files than this repo has now
+# (somebody changed the Dockerfile or a requirements file since). The code itself is mounted, never baked in, so
+# only these files make an image stale. Images built without build_images.sh carry no fingerprint: not judged.
+astra_check_image_fresh() {
+  local img want have
+  [ "$ASTRA_DRY" = 1 ] && return 0
+  want="$(astra_docker_inputs_hash)"
+  for img in "$@"; do
+    have="$(astra_image_label "$img" org.astra.inputs)"
+    if [ -n "$have" ] && [ "$have" != "$want" ]; then
+      warn "$img is older than docker/Dockerfile or docker/requirements-*.txt of this repo (they changed after it was built)."
+      warn "  It can lack a package the code now needs. Rebuild it (unchanged steps are reused):  bash $ASTRA_DOCKER_SCRIPTS/build_images.sh"
+    fi
+  done
+}
+
+# astra_prepare_repo_mounts REPO : create ros2_ws/build, install and log in REPO before a container mounts its own
+# build volumes there. If they are missing, Docker creates them itself, owned by root, and a later NATIVE colcon
+# build in the same checkout fails with "Permission denied". Existing folders are never touched.
+astra_prepare_repo_mounts() {
+  local d
+  for d in build install log; do
+    [ -e "$1/ros2_ws/$d" ] || astra_run mkdir -p "$1/ros2_ws/$d"
   done
 }
 
@@ -148,6 +220,14 @@ astra_pick_repo() {
   case "$ASTRA_REPO_HERE" in
     /mnt/*)
       if [ -d "$ASTRA_LINUX_COPY/ros2_ws/src" ]; then
+        # The copy only changes when somebody syncs it: say so when the Windows folder has newer files, otherwise
+        # the containers silently run yesterday's code.
+        local behind
+        behind="$(astra_copy_differences)"
+        if [ "${behind:-0}" -gt 0 ] 2>/dev/null; then
+          warn "The Linux-side copy ($ASTRA_LINUX_COPY) is OLDER than this Windows folder: $behind file(s) changed here."
+          warn "  The containers run the copy, so your latest edits would be missing. Add --sync (or run: bash $ASTRA_DOCKER_SCRIPTS/compose_up.sh --sync-only)."
+        fi
         printf '%s\n' "$ASTRA_LINUX_COPY"
       else
         warn "No Linux-side copy ($ASTRA_LINUX_COPY) yet: mounting the Windows folder (works, but slower)."
@@ -157,6 +237,16 @@ astra_pick_repo() {
     *) printf '%s\n' "$ASTRA_REPO_HERE" ;;
   esac
 }
+
+# What the Linux-side copy never takes from the Windows folder (the same list as 03_build.sh's step 1): git data,
+# caches, build results, flight logs, photos and detector output.
+ASTRA_SYNC_EXCLUDES=(
+  --exclude '.git/' --exclude '__pycache__/' --exclude '*.pyc'
+  --exclude 'ros2_ws/build/' --exclude 'ros2_ws/install/' --exclude 'ros2_ws/log/'
+  --exclude 'ros2_ws/logs/' --exclude 'ros2_ws/terrain/' --exclude 'ros2_ws/*.tlog' --exclude 'ros2_ws/*.bin'
+  --exclude 'ros2_ws/src/video_cam/mapping_photos/' --exclude 'ros2_ws/src/video_cam/detection_results_sahi/'
+  --exclude 'ros2_ws/src/video_cam/camera_feed/' --exclude 'camera_feed/'
+)
 
 # astra_sync_copy : refresh the Linux-side copy from the Windows folder (the same rsync as 03_build.sh's step 1,
 # without its native colcon build). Build results, photos and logs in the copy are kept.
@@ -168,14 +258,31 @@ astra_sync_copy() {
   command -v rsync >/dev/null 2>&1 || die "rsync is missing:  sudo apt-get install rsync"
   say "Copying the repo to the Linux disk: $ASTRA_REPO_HERE -> $ASTRA_LINUX_COPY"
   astra_run mkdir -p "$ASTRA_LINUX_COPY"
-  astra_run rsync -a --delete \
-    --exclude '.git/' --exclude '__pycache__/' --exclude '*.pyc' \
-    --exclude 'ros2_ws/build/' --exclude 'ros2_ws/install/' --exclude 'ros2_ws/log/' \
-    --exclude 'ros2_ws/logs/' --exclude 'ros2_ws/terrain/' --exclude 'ros2_ws/*.tlog' --exclude 'ros2_ws/*.bin' \
-    --exclude 'ros2_ws/src/video_cam/mapping_photos/' --exclude 'ros2_ws/src/video_cam/detection_results_sahi/' \
-    --exclude 'ros2_ws/src/video_cam/camera_feed/' --exclude 'camera_feed/' \
-    "$ASTRA_REPO_HERE/" "$ASTRA_LINUX_COPY/"
+  astra_run rsync -a --delete "${ASTRA_SYNC_EXCLUDES[@]}" "$ASTRA_REPO_HERE/" "$ASTRA_LINUX_COPY/"
   [ "$ASTRA_DRY" = 1 ] || ok "copied ($(du -sh "$ASTRA_LINUX_COPY" 2>/dev/null | cut -f1))"
+}
+
+# astra_copy_differences : how many files astra_sync_copy would copy right now (new or changed in the Windows
+# folder), "0" when the Linux-side copy is up to date or there is nothing to compare. Only looks (rsync --dry-run).
+# Reading every file's date through the Windows drive costs about 3 s per start; ASTRA_NO_COPY_CHECK=1 skips it.
+astra_copy_differences() {
+  case "$ASTRA_REPO_HERE" in /mnt/*) ;; *) echo 0; return 0 ;; esac
+  [ "${ASTRA_NO_COPY_CHECK:-0}" = 1 ] && { echo 0; return 0; }
+  [ -d "$ASTRA_LINUX_COPY/ros2_ws/src" ] && command -v rsync >/dev/null 2>&1 || { echo 0; return 0; }
+  rsync -a -n --itemize-changes "${ASTRA_SYNC_EXCLUDES[@]}" "$ASTRA_REPO_HERE/" "$ASTRA_LINUX_COPY/" 2>/dev/null \
+    | astra_count_copy_changes
+}
+
+# astra_count_copy_changes : read rsync's --itemize-changes list on stdin and print how many FILES would be copied
+# ("0" for none), not counting tool caches (.ruff_cache, .pytest_cache, .mypy_cache ...) and editor/agent folders
+# (.vscode, .claude): they change all the time but never change what the containers run, so they must not make the
+# "the Linux-side copy is OLDER" warning cry wolf. An rsync line looks like ">f+++++++++ path/to/file".
+astra_count_copy_changes() {
+  awk 'substr($0, 1, 2) == ">f" {
+         p = $0; sub(/^[^ ]+ /, "", p)
+         if (p !~ /(^|\/)(\.[^\/]*_cache|\.hypothesis|\.vscode|\.claude)\//) n++
+       }
+       END { print n + 0 }'
 }
 
 # astra_prepare_data : create the host data folder; reuse the native simulator's detector weights.
@@ -343,20 +450,68 @@ astra_free_camera_ip() {
   ok "removed"
 }
 
+# astra_ip_to_int A.B.C.D : the IPv4 address as one number, for the subnet arithmetic below.
+astra_ip_to_int() {
+  local IFS=. a b c d
+  read -r a b c d <<< "$1"
+  echo $(( (${a:-0} << 24) + (${b:-0} << 16) + (${c:-0} << 8) + ${d:-0} ))
+}
+
+# astra_cidr_overlap NET : true when NET (A.B.C.D/N, or a bare address = /32) shares at least one address with
+# the drone network ASTRA_SUBNET (192.168.144.0/24), in either direction: 192.168.144.25/32 (inside it) and
+# 192.168.128.0/17 or 192.168.144.0/20 (around it) both overlap; 192.168.145.0/24 or IPv6 addresses do not.
+astra_cidr_overlap() {
+  local net="${1%/*}" len="${1#*/}" mine="${ASTRA_SUBNET%/*}" mylen="${ASTRA_SUBNET#*/}" short mask
+  [ "$len" = "$1" ] && len=32
+  case "$len" in ''|*[!0-9]*) return 1 ;; esac
+  case "$net" in *[!0-9.]*|*..*|.*) return 1 ;; esac
+  case "$net" in *.*.*.*) ;; *) return 1 ;; esac
+  short=$(( len < mylen ? len : mylen ))
+  mask=$(( short == 0 ? 0 : (0xFFFFFFFF << (32 - short)) & 0xFFFFFFFF ))
+  [ $(( $(astra_ip_to_int "$net") & mask )) -eq $(( $(astra_ip_to_int "$mine") & mask )) ]
+}
+
 # astra_subnet_conflict : print a description of what else uses 192.168.144.0/24 on this computer ("" = free).
-# Docker cannot create astra_net when another network (a real network card on the drone's network, a VPN, another
-# Docker network) already has addresses there; the team's code needs exactly these addresses.
+# Docker cannot create astra_net when another Docker network overlaps it ("Pool overlaps with other one on this
+# address space"; Docker's own address pool hands out 192.168.144.0/20 once its 172.x networks are used up), and a
+# network card on that range (the real drone's network, a VPN) would answer in the containers' place; the team's
+# code needs exactly these addresses. A wider route that merely COVERS the range (a 192.168.0.0/16 VPN route) does
+# not block the containers: astra_subnet_wider_route reports that one separately.
 astra_subnet_conflict() {
-  local routes nets n sub
-  routes="$(ip -4 route show 2>/dev/null | awk '$1 ~ /^192\.168\.144\./ && $0 !~ / dev br-/ {print}')"
-  [ -n "$routes" ] && printf 'a network card of this computer: %s\n' "$(printf '%s' "$routes" | head -1)"
+  local dst rest len nets n sub s
+  while read -r dst rest; do
+    [ -n "$dst" ] || continue
+    len="${dst#*/}"; [ "$len" = "$dst" ] && len=32
+    case "$len" in ''|*[!0-9]*) continue ;; esac
+    if [ "$len" -ge "${ASTRA_SUBNET#*/}" ] && astra_cidr_overlap "$dst"; then
+      printf 'a network card of this computer: %s %s\n' "$dst" "$rest"; break
+    fi
+  done < <(ip -4 route show 2>/dev/null | awk '$1 != "default" && $0 !~ / dev br-/')
   command -v docker >/dev/null 2>&1 || return 0
   nets="$(docker network ls --format '{{.Name}}' 2>/dev/null)"
   for n in $nets; do
     [ "$n" = "$ASTRA_NET" ] && continue
     sub="$(docker network inspect "$n" --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null)"
-    case " $sub " in *" 192.168.144."*) printf 'the Docker network "%s" (%s)\n' "$n" "${sub% }" ;; esac
+    for s in $sub; do
+      if astra_cidr_overlap "$s"; then printf 'the Docker network "%s" (%s)\n' "$n" "${sub% }"; break; fi
+    done
   done
+}
+
+# astra_subnet_wider_route : print a route of this computer that is WIDER than the drone network and covers it
+# (for example "192.168.0.0/16 dev tun0", a VPN), "" when there is none. The containers still start (the Docker
+# network's own /24 route is more exact and wins), but while they run this computer cannot reach the
+# 192.168.144.x part of that wider network. Docker's own bridges (br-...) and the default route are ignored.
+astra_subnet_wider_route() {
+  local dst rest len
+  while read -r dst rest; do
+    [ -n "$dst" ] || continue
+    len="${dst#*/}"; [ "$len" = "$dst" ] && continue
+    case "$len" in ''|*[!0-9]*) continue ;; esac
+    if [ "$len" -lt "${ASTRA_SUBNET#*/}" ] && [ "$len" -gt 0 ] && astra_cidr_overlap "$dst"; then
+      printf '%s %s\n' "$dst" "$rest"; return 0
+    fi
+  done < <(ip -4 route show 2>/dev/null | awk '$1 != "default" && $0 !~ / dev br-/')
 }
 
 # astra_native_sim_running : true when a NATIVE (not containerised) Gazebo or SITL is running on this computer.

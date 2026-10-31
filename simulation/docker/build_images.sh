@@ -11,6 +11,14 @@
 #      CPU build, which stays the default for `docker build` and the VS Code dev container);
 #    * your user id built in (USER_UID / USER_GID), so files the containers write into the mounted repo
 #      belong to you;
+#    * Docker's current builder (BuildKit, the "buildx" plugin) required: the old builder, which `docker build`
+#      quietly falls back to without buildx, would make the sitl and sim images run as root;
+#    * labels in every image: user id (org.astra.uid), PyTorch flavour, repo commit and a fingerprint of
+#      docker/Dockerfile + docker/requirements-*.txt (org.astra.inputs), so compose_up.sh and check_host.sh can
+#      tell when an image is older than those files;
+#    * your proxy settings (http_proxy, https_proxy, no_proxy ...) passed on to the build when they are set;
+#    * a fresh ROS base image (--pull) when the one on this PC is from before June 2025: those old copies carry the
+#      ROS package-signing key that expired then, and apt-get stops at the very first step (EXPKEYSIG);
 #    * one log per image in ~/.astra_docker/logs/ and a quick test of every image at the end.
 #  The images:  astra-dev:latest   the Jetson's software (Ubuntu 22.04, ROS 2 Humble, MAVROS, Python ML stack)
 #                                  = the "jetson" container of docker/compose.sim.yml
@@ -65,6 +73,16 @@ done
 DOCKER_DIR="$ASTRA_REPO_HERE/docker"
 [ -f "$DOCKER_DIR/Dockerfile" ] || die "docker/Dockerfile not found next to this script ($DOCKER_DIR)"
 astra_need_docker --no-compose
+# BuildKit only. With DOCKER_BUILDKIT=1 a missing buildx plugin is an error instead of a silent switch to the old
+# builder (see the header); the check below says how to install it.
+export DOCKER_BUILDKIT=1
+if [ "$ASTRA_DRY" = 0 ] && [ "$CHECK_ONLY" = 0 ] && ! docker buildx version >/dev/null 2>&1; then
+  die "Docker's build tool \"buildx\" (BuildKit) is missing. Without it Docker uses its old builder, which builds the
+    sitl and sim images wrongly (they would run as root). Install it, then run this again:
+      Docker's own packages:   sudo apt-get install docker-buildx-plugin     (or: sudo bash $ASTRA_DOCKER_SCRIPTS/install_docker_engine.sh)
+      Ubuntu's docker.io:      sudo apt-get install docker-buildx
+      Docker Desktop:          update Docker Desktop (buildx is part of it)"
+fi
 
 # ---- check-only mode -------------------------------------------------------------------------------
 # check_image TARGET : start the image once and test the pieces the simulator / launcher.sh need.
@@ -140,14 +158,33 @@ for t in "${TARGETS[@]}"; do
   fi
 done
 # The image's user gets your user and group id (only normal ids; system ids like 20 would clash in the image).
-UID_ARGS=()
+UID_ARGS=(); BUILT_UID=1000                                  # 1000 = the Dockerfile's own USER_UID default
 if [ "$(id -u)" -ge 1000 ] && [ "$(id -g)" -ge 1000 ]; then
   UID_ARGS=(--build-arg "USER_UID=$(id -u)" --build-arg "USER_GID=$(id -g)")
+  BUILT_UID="$(id -u)"
 fi
 COMMIT="$(git -C "$ASTRA_REPO_HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+INPUTS="$(astra_docker_inputs_hash)"
+# Proxy settings of this terminal go into the build (bare --build-arg NAME = "take the value from my environment").
+# Docker keeps these few names out of the image history and the build cache.
+PROXY_ARGS=(); PROXY_TEXT=""
+for v in http_proxy https_proxy no_proxy all_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ALL_PROXY; do
+  if [ -n "${!v:-}" ]; then PROXY_ARGS+=(--build-arg "$v"); PROXY_TEXT="$PROXY_TEXT $v"; fi
+done
+# A ROS base image saved on this PC before June 2025 still trusts the ROS signing key that expired then: the first
+# apt-get update of the build fails ("EXPKEYSIG ... Open Robotics"). Fetch the current one instead.
+BASE_IMAGE=ros:humble-ros-base-jammy
+if [ "$ASTRA_DRY" = 0 ] && [ "$PULL" = 0 ]; then
+  BASE_DATE="$(docker image inspect "$BASE_IMAGE" --format '{{.Created}}' 2>/dev/null | cut -c1-10)"
+  if [ -n "$BASE_DATE" ] && [[ "$BASE_DATE" < 2025-06-01 ]]; then
+    info "the ROS base image on this PC is from $BASE_DATE (before the ROS signing-key change of June 2025): fetching a fresh one (--pull)"
+    PULL=1
+  fi
+fi
 
-say "Building ${TARGETS[*]} (compile jobs $JOBS, PyTorch $TORCH, user id $(id -u))"
-info "Dockerfile: $DOCKER_DIR/Dockerfile"
+say "Building ${TARGETS[*]} (compile jobs $JOBS, PyTorch $TORCH, user id $BUILT_UID)"
+info "Dockerfile: $DOCKER_DIR/Dockerfile   (fingerprint of the Docker files: $INPUTS)"
+[ -n "$PROXY_TEXT" ] && info "passing your proxy settings to the build:$PROXY_TEXT"
 if [ "$ASTRA_DRY" = 0 ]; then
   ROOT_DIR="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)"
   FREE_GB="$(df -BG --output=avail "${ROOT_DIR:-/var/lib/docker}" 2>/dev/null | tail -1 | tr -dc '0-9')"
@@ -163,8 +200,9 @@ for t in "${TARGETS[@]}"; do
   img="astra-$t:latest"
   log="$ASTRA_DOCKER_DATA/logs/build_${t}_$(date +%Y%m%d-%H%M%S).log"
   cmd=(docker build -f "$DOCKER_DIR/Dockerfile" --target "$t" -t "$img" --progress=plain
-       --build-arg "BUILD_JOBS=$JOBS" --build-arg "TORCH_INDEX_URL=$TORCH_URL" "${UID_ARGS[@]}"
-       --label "org.astra.torch=$TORCH" --label "org.astra.target=$t" --label "org.astra.repo-commit=$COMMIT")
+       --build-arg "BUILD_JOBS=$JOBS" --build-arg "TORCH_INDEX_URL=$TORCH_URL" "${UID_ARGS[@]}" "${PROXY_ARGS[@]}"
+       --label "org.astra.torch=$TORCH" --label "org.astra.target=$t" --label "org.astra.repo-commit=$COMMIT"
+       --label "org.astra.uid=$BUILT_UID" --label "org.astra.inputs=$INPUTS")
   [ "$t" = sim ] && cmd+=(--platform linux/amd64)
   # --no-cache / --pull only for the FIRST image: the later ones reuse its fresh steps (sitl and sim contain
   # dev), instead of building everything a second and third time.

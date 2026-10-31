@@ -92,9 +92,11 @@ astra_need_docker
 if [ "$ONLY" = sim ]; then
   astra_require_images "astra-sim:latest sim"
   astra_check_image_user astra-sim:latest
+  astra_check_image_fresh astra-sim:latest
 else
   astra_require_images "astra-sim:latest sim" "astra-dev:latest dev"
   astra_check_image_user astra-sim:latest astra-dev:latest
+  astra_check_image_fresh astra-sim:latest astra-dev:latest
 fi
 
 # ---- 2. repo folder + data folder --------------------------------------------------------------------
@@ -104,6 +106,7 @@ export ASTRA_REPO_HOST="$REPO_HOST"
 [ -f "$REPO_HOST/simulation/docker/container_sim.sh" ] \
   || die "$REPO_HOST has no simulation/docker/container_sim.sh: the copy is older than these scripts. Run with --sync."
 astra_prepare_data
+astra_prepare_repo_mounts "$REPO_HOST"
 astra_use_host_fuel
 
 # The world: a name (runway, suas_field, ...) or a file INSIDE the mounted repo (the container only sees the repo).
