@@ -236,7 +236,10 @@ SIM_ARGS+=("${PLUGIN_SIM_ARGS[@]}")
 SIM_ARGS+=("${LAUNCH_EXTRA[@]}")
 GCS_URL="udpin:127.0.0.1:$GCS_PORT"
 TRACKER="ros2 launch sim_bringup team_stack.launch.py detector:=$DETECTOR$(words "${PLUGIN_TEAM_ARGS[@]}")"
-TEAM_FCU_URL="${FCU_URL_OVERRIDE:-udp://:$MAVROS_PORT@localhost:$MAVROS_PORT}"
+# MAVROS talks to SITL's SERIAL2 directly (TCP 5763 + 10 x instance), wired like the real Jetson on the Pixhawk's
+# TELEM2: then ArduPilot passes the team code's status texts on to Mission Planner and the Lattice bridge, exactly like
+# on the real drone (behind MAVProxy they never reached them). A profile can still set network.fcu_url.
+TEAM_FCU_URL="${FCU_URL_OVERRIDE:-tcp://127.0.0.1:$((5763 + 10 * INSTANCE))}"
 NEED=()
 [ "$NEED_DETECTOR" != 1 ] || NEED=(--need-detector)
 info "world      $WORLD ($WORLD_FILE)"

@@ -103,7 +103,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 
 | Node | Package / executable | Job |
 |---|---|---|
-| `mavros` | `mavros` / `apm.launch` | MAVLink <-> ROS 2. `fcu_url` = `/dev/ttyUSB0:115200` (hw) or `udp://:14552@localhost:14552` (sim); env overrides `FCU_URL`, `MAVROS_LAUNCH` |
+| `mavros` | `mavros` / `apm.launch` | MAVLink <-> ROS 2. `fcu_url` = `/dev/ttyUSB0:115200` (hw) or `udp://:14552@localhost:14552` (sim fallback); the simulator's scripts pass `FCU_URL=tcp://127.0.0.1:5763+10I` (SITL SERIAL2, wired like the Jetson on TELEM2); env overrides `FCU_URL`, `MAVROS_LAUNCH` |
 | `waypoint_manager` | `waypoint_mavros` / `waypoint` | mirrors the FCU mission, publishes its indices as its own parameters `num_waypoints, takeoff_index, next_after_takeoff, rtl_index, last_before_rtl, buffer_wp`, serves `/addWaypoint`, re-pulls the mission on `Flight plan received`, on arming and at start-up (a pull unanswered for 45 s is abandoned: last mission kept, retried) |
 | `gps_mavros_service_node` | `gps_ros2` / `gpstest` | `/mavros/set_stream_rate {stream_id 0, rate 1, on}` once (all telemetry 1 Hz) |
 | `mission_camera_trigger` | `mapping` / `trigger` | on `Mission: <n> DigiCamCtrl`: `capture_setup` once, `autofocus` every 5 s, `/camera/trigger` every 1 s; stops at `buffer_wp` |
@@ -229,16 +229,16 @@ The team code touches the world only through **MAVLink** (MAVROS) and the **SIYI
   gz sim -s -r <world>.sdf (+ window gz sim -g)     drone entity "iris" = sim_models iris_a8mini (xacro)
    ArduPilotPlugin <==UDP 9002+10I, JSON, lock-step==> arducopter --model JSON -I<I> --home <config home>
                                                         --defaults copter.parm,gazebo-iris.parm,astra_sitl.parm
-                                                         | TCP 5760+10I (serial0; 5762/5763+10I spare)
+                                                         | TCP 5760+10I (serial0; 5762+10I spare; 5763+10I = MAVROS)
                                                        mavproxy.py --daemon  --out udp:127.0.0.1:14550 (scripts/GCS)
-                                                         --out :14552 (MAVROS)  --out :14553 (demo panel)
+                                                         --out :14552 (old MAVROS door)  --out :14553 (demo panel)
                                                          [--out <Windows host>:14550, only inside WSL]
    gz /sim/gimbal/*/cmd_pos, /sim/camera/photo/trigger <-- siyi_emulator on 192.168.144.25 (UDP 37260, TCP 82)
    gz /sim/camera/photo/image --> siyi_emulator --> SD card ~/.astra_sim/sd_card_I<I>/101SIYI_IMG/IMG_NNNN.jpg
    gz /sim/payload/servo11|13 --> payload_release --> gz /sim/payload/person|tent/detach (the payload falls)
    ros_gz_bridge, odom_tf, sim_demo (demo_panel, demo_markers, score_run [, truth_detector]), rviz2, gz_follow
  ./launcher.sh sim  with TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py detector:=real" --------
-   MAVROS fcu_url udp://:14552@localhost:14552 + the team's tracker.launch.xml UNCHANGED
+   MAVROS fcu_url tcp://127.0.0.1:5763+10I (SITL SERIAL2) + the team's tracker.launch.xml UNCHANGED
    video_cam talks SDK + HTTP to 192.168.144.25 (a loopback alias on this PC) = the emulator
 ```
 
@@ -254,17 +254,18 @@ always empty (`~/.astra_sim/truth_mode_empty_feed`). Arguments: `detector real|t
 | What | Where | Used by |
 |---|---|---|
 | SITL MAVLink | TCP `5760+10I` (serial0) | MAVProxy (SITL waits for it) |
-| SITL spare MAVLink | TCP `5762+10I`, `5763+10I` | second ground station, e.g. Mission Planner by TCP 5762 (keeps a scored run's rates clean) |
+| SITL spare MAVLink | TCP `5762+10I` (serial1) | second ground station, e.g. Mission Planner by TCP 5762 (keeps a scored run's rates clean) |
+| SITL serial2 | TCP `5763+10I` | MAVROS (`./launcher.sh sim` with `FCU_URL=tcp://127.0.0.1:5763`, as `demo.sh` passes it): wired like the real Jetson on the Pixhawk's TELEM2, so ArduPilot forwards the team code's status texts to every ground station |
 | Physics link | UDP `9002+10I` (JSON, lock-step) | ArduPilotPlugin <-> SITL |
 | Ground station / scripts | UDP `127.0.0.1:14550` | `mission_tool` (`--url udpin:127.0.0.1:14550`), or one GCS inside Ubuntu |
-| MAVROS | UDP `127.0.0.1:14552` | `./launcher.sh sim` |
+| Old MAVROS door | UDP `127.0.0.1:14552` (MAVProxy output) | MAVROS only for an external autopilot, or with `FCU_URL=udp://:14552@localhost:14552` (then the team's texts never reach Mission Planner) |
 | Demo panel buttons | UDP `127.0.0.1:14553` | `demo_panel` |
 | Windows GCS (WSL only) | UDP `<default gateway>:14550` (NAT) or `127.0.0.1:14551` (mirrored networking) | Mission Planner / QGC on Windows; off: `windows_gcs:=false` / `--no-windows-gcs`; elsewhere: `windows_gcs_addr:=HOST:PORT` |
 | SIYI camera | `192.168.144.25` UDP 37260 + TCP 82 | video_cam -> siyi_emulator (browse `http://192.168.144.25:82/`) |
 | Gazebo transport | `GZ_PARTITION=astra_sim`, `GZ_IP=127.0.0.1` (set by `sim_env.sh`) | keeps other Gazebos out |
 
 Two simulators at once: `start_sim.sh runway sitl_instance:=1 gcs_port:=14560 mavros_port:=14562
-panel_port:=14563` with `GZ_PARTITION=other`, then `FCU_URL=udp://:14562@localhost:14562 ./launcher.sh sim`.
+panel_port:=14563` with `GZ_PARTITION=other`, then `FCU_URL=tcp://127.0.0.1:5773 ./launcher.sh sim` (SERIAL2 of instance 1).
 
 ### 4.3 Simulator-only topics (`/sim/...`)
 

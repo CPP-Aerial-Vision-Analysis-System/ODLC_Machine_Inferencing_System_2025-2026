@@ -71,7 +71,8 @@ network:
   windows_gcs_addr: ""         # "" = automatic; or HOST / HOST:PORT
   camera_ip: "192.168.144.25"  # the address the camera answers on (the real SIYI's address)
   camera_bind: ""              # "" = camera_ip if this PC has it; 0.0.0.0 = every address (containers)
-  fcu_url: ""                  # "" = udp://:<mavros_port>@localhost:<mavros_port> (MAVROS's connection)
+  fcu_url: ""                  # "" = tcp://127.0.0.1:<5763 + 10 x instance> (SITL SERIAL2, like the Jetson on TELEM2);
+                               # an external autopilot: udp://:<mavros_port>@localhost:<mavros_port> (MAVROS's connection)
 
 run:
   headless: false              # true = no windows

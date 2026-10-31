@@ -30,27 +30,59 @@ position, mode and messages. PLAN → Read downloads the mission, including newl
 Writing a mission, changing mode or arming/disarming takes control of the simulated vehicle, so reserve
 those actions for the manual flow or deliberate intervention.
 
+## The ASTRA tab and the drone camera (the ASTRA plugin)
+
+Mission Planner is the ground station. A small **plugin** makes it show everything the old ASTRA panel showed. A plugin
+is one file that Mission Planner reads when it starts:
+[`simulation/windows/mission_planner_plugin/astra_gcs.cs`](../../simulation/windows/mission_planner_plugin/astra_gcs.cs).
+
+**Install it** (once, and again after it changes):
+
+* the easy way: open Mission Planner with `bash simulation/scripts/mission_planner.sh start` (or the simulator scripts
+  that open it). That copies the plugin into Mission Planner's `plugins` folder first;
+* by hand, in Windows PowerShell: `powershell -ExecutionPolicy Bypass -File simulation\windows\install_mp_plugin.ps1`,
+  then close and reopen Mission Planner. Uninstall: the same with `-Remove`.
+
+**What you see** on the **DATA** screen:
+
+1. **The drone camera in the HUD.** As soon as the simulator runs, the blue-and-brown horizon background becomes the
+   live gimbal camera picture. Nothing to click. When the simulator closes, the normal horizon comes back. Right-click
+   the HUD, then **ASTRA camera**, to switch it off or change the address.
+2. **The ASTRA tab** (bottom left, chosen automatically):
+   * the **phase strip**: Waiting, Take-off, Search, Process, Targets, Drop, Return, Landed (the current one is blue,
+     finished ones are ticked);
+   * one **sentence** saying what the drone does right now ("Searching: waypoint 7, 30 m, 6.0 m/s ...");
+   * big **readouts**: flight mode, height, speed, battery, GPS, distance home, time in the air, waypoint;
+   * a **HIKER** card and a **TENT** card: how often it was detected, the target position the flight code chose, and
+     when the payload was released (green = done);
+   * the **event log**: the autopilot's and the team code's messages, newest first, warnings in amber;
+   * buttons: **ARM + START MISSION** and **RETURN HOME (RTL)** (both ask "are you sure?" first). In the simulator also
+     **TAKE PHOTO**, **CAMERA DOWN**, **CAMERA FORWARD** and **START OVER** (they run `simulation/scripts/mp_actions.sh`
+     through WSL, the same ROS buttons the old panel pressed).
+3. **Map markers** for the chosen targets (red = hiker, orange = tent) and green dots where the payloads were released.
+
+Where the information comes from: only what Mission Planner already receives over MAVLink (the autopilot, and the team
+code's status texts such as "Detected tent", "Aim tent 36.2149350,-96.0069430" and "Servo 13 -> 1400"). So it works
+the same with the real drone over the telemetry radio. Only the camera picture and the simulator buttons use the
+simulator.
+
+Check it from outside: the plugin writes `Documents\Mission Planner\astra_plugin_status.json` every 2 s (phase, camera
+pictures shown, detections, last error). No ASTRA tab at all? Run
+`powershell -ExecutionPolicy Bypass -File simulation\windows\check_mp_plugin.ps1`: it compiles the plugin against your
+Mission Planner and prints the error with a line number.
+
 ## The old ASTRA demo panel is off by default
 
-Mission Planner is the ground station, so `demo.sh` no longer opens the Qt "ASTRA Simulation" window. Bring it back
-with `bash simulation/scripts/demo.sh runway --panel` (it still works and is unchanged). What the panel did and where it
-lives now: flight mode, height, speed, heading, the mission map, mission upload, arm, AUTO and RTL are native in Mission
-Planner; the live camera picture is the stream below; the mission phase, detections and drops still need to be sent to
-Mission Planner over MAVLink (not built yet, see docs/HANDOFF.md).
+`demo.sh` no longer opens the Qt "ASTRA Simulation" window: the ASTRA tab above does its job. Bring the old window back
+with `bash simulation/scripts/demo.sh runway --panel` (it still works and is unchanged).
 
-## Camera picture (POV) inside Mission Planner
+## The camera stream behind the picture
 
 The simulator starts a small program, `pov_server`, next to the other windows. It turns the gimbal camera's live
-picture (the ROS topic `/sim/camera/image`) into an **MJPEG web stream** that Mission Planner can show. No extra
-software is needed on Windows (Mission Planner's GStreamer option would need GStreamer installed; MJPEG does not).
-
-1. Start the simulator as usual (`demo.sh runway`, or `--manual`). The launch log prints a line like
-   `camera feed for Mission Planner: http://127.0.0.1:8081/pov.mjpg`.
-2. Check it first in any browser on Windows: open <http://127.0.0.1:8081/>. You should see the live picture and these
-   same instructions. (A grey "waiting for the camera" picture means Gazebo has not produced a frame yet.)
-3. In Mission Planner, on the **DATA** screen: **right-click the HUD** (the blue-and-brown horizon) -> **Video** ->
-   **Set MJPEG Source** -> paste `http://127.0.0.1:8081/pov.mjpg` -> OK. The camera picture replaces the HUD
-   background. To switch it off or on again: right-click the HUD -> **Video** -> **Start/Stop**.
+picture (the ROS topic `/sim/camera/image`) into an **MJPEG web stream** at `http://127.0.0.1:8081/pov.mjpg`, which the
+ASTRA plugin shows in the HUD. Open <http://127.0.0.1:8081/> in any browser on Windows to see it on its own (a grey
+"waiting for the camera" picture means Gazebo has not produced a frame yet). Without the plugin, Mission Planner can
+still show it by hand: right-click the HUD, **Video**, **Set MJPEG Source**, paste the address, OK.
 
 Good to know:
 

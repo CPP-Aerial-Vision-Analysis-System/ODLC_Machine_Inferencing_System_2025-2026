@@ -1581,7 +1581,8 @@ class Resetter:
         detector = self.opts.detector or st.detector or 'real'
         env = dict(self.environ)
         env.update({'TRACKER_CMD': f'ros2 launch sim_bringup team_stack.launch.py detector:={detector}',
-                    'FCU_URL': f'udp://:{st.mavros_port}@localhost:{st.mavros_port}'})
+                    # demo.sh's default: MAVROS on SITL SERIAL2, wired like the real Jetson on TELEM2
+                    'FCU_URL': f'tcp://127.0.0.1:{5763 + 10 * st.sitl_instance}'})
         for key in ('TRACKER_CMD', 'FCU_URL'):
             value = self.launcher_env.get(key) or self.team_record.get(key)
             if value and not (key == 'TRACKER_CMD' and self.opts.detector):

@@ -84,7 +84,7 @@ def test_default_start_sim_vars_add_nothing(sim_home):
     assert sv.scalars['WORLD'] == 'runway' and sv.arrays['PLUGIN_SIM_ARGS'] == []
     # = simulation/README.md "OR BY HAND" and start_sim.sh --dry-run without a profile (byte for byte)
     assert sv.scalars['PLUGIN_TEAM_HINT'] == \
-        'TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim'
+        'FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim'
     start_sim = (REPO / 'simulation' / 'scripts' / 'start_sim.sh').read_text(encoding='utf-8')
     assert '&& ' + sv.scalars['PLUGIN_TEAM_HINT'].replace('"', '\\"') + '"' in start_sim
 
@@ -179,14 +179,24 @@ def test_start_sim_typed_arguments_win(sim_home):
     assert 'camera_max_zoom:=2.5' in sv.arrays['PLUGIN_SIM_ARGS']
 
 
-def test_team_stack_hint_with_other_mavros_port(sim_home):
-    hint = plan.team_stack_hint(resolve('default', 'network.mavros_port=14562'))
-    assert hint.startswith('FCU_URL=udp://:14562@localhost:14562 TRACKER_CMD=')
+def test_team_stack_hint_wires_mavros_like_the_real_jetson(sim_home):
+    # local SITL: MAVROS on SITL SERIAL2 (TCP 5763 + 10 x instance); MAVProxy's MAVROS port no longer matters
+    assert plan.team_stack_hint(resolve('default')).startswith('FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD=')
+    assert plan.team_stack_hint(resolve('default', 'network.mavros_port=14562')).startswith('FCU_URL=tcp://127.0.0.1:5763 ')
+    assert plan.team_stack_hint(resolve('default', 'autopilot.instance=1')).startswith('FCU_URL=tcp://127.0.0.1:5773 ')
+    assert plan.team_stack_hint(resolve('default', 'network.fcu_url=udp://:14552@localhost:14552')).startswith(
+        'FCU_URL=udp://:14552@localhost:14552 ')
+
+
+def test_default_fcu_url_keeps_mavproxy_for_an_external_autopilot():
+    assert plan.default_fcu_url(14552) == 'tcp://127.0.0.1:5763'
+    assert plan.default_fcu_url(14552, 'sitl_binary', 2) == 'tcp://127.0.0.1:5783'
+    assert plan.default_fcu_url(14562, 'external', 0) == 'udp://:14562@localhost:14562'
 
 
 def test_team_stack_hint_adds_only_what_differs(sim_home):
     assert plan.team_stack_hint(resolve('truth_detector')) == \
-        'TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py detector:=truth" ./launcher.sh sim'
+        'FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py detector:=truth" ./launcher.sh sim'
     hint = plan.team_stack_hint(resolve('example_detector'), '/gen/p.yaml')
     assert 'detector:=custom profile:=/gen/p.yaml' in hint
 

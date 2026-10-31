@@ -157,8 +157,10 @@ SCHEMA: Dict[str, Any] = {
         'camera_ip': Field('192.168.144.25', 'ip', help='the address the camera emulator pretends to be'),
         'camera_bind': Field('', 'ip', help='"" = camera_ip if this computer has it, else 127.0.0.1; '
                                             '0.0.0.0 = listen on every address (containers)'),
-        'fcu_url': Field('', 'str', help='"" = udp://:<mavros_port>@localhost:<mavros_port>; MAVROS\'s '
-                                         'fcu_url for ./launcher.sh sim (demo.sh)'),
+        'fcu_url': Field('', 'str', help='"" = local SITL: tcp://127.0.0.1:<5763 + 10 x instance> (SITL SERIAL2, '
+                                         'wired like the real Jetson on TELEM2); external autopilot: '
+                                         'udp://:<mavros_port>@localhost:<mavros_port>; MAVROS\'s fcu_url for '
+                                         './launcher.sh sim (demo.sh)'),
     },
     'run': {
         'headless': Field(False, 'bool', help='true = no windows (Gazebo, RViz, demo panel)'),

@@ -87,7 +87,7 @@ Source `simulation/setup/sim_env.sh` in each Ubuntu terminal.
 # Terminal 1
 bash simulation/scripts/start_sim.sh runway
 # Terminal 2, from the Linux checkout root
-TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim
+FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim
 # Terminal 3: wait until the model is ready, then upload, arm and fly
 bash simulation/scripts/fly_mission.sh runway --watch
 # Stop the manually started launcher with Ctrl+C in terminal 2, then:

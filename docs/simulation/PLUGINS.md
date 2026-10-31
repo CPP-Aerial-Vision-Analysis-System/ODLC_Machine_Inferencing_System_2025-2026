@@ -233,7 +233,7 @@ A profile only needs the keys it changes. The dotted name (for example `camera.m
 | `network.windows_gcs_addr` | `""` | `HOST` or `HOST:PORT` | "" = automatic; HOST or HOST:PORT = send it there |
 | `network.camera_ip` | `192.168.144.25` | an IPv4 address (`0.0.0.0` = every address of this computer) | the address the camera emulator pretends to be |
 | `network.camera_bind` | `""` | an IPv4 address (`0.0.0.0` = every address of this computer) | "" = camera_ip if this computer has it, else 127.0.0.1; 0.0.0.0 = listen on every address (containers) |
-| `network.fcu_url` | `""` | text | "" = udp://:<mavros_port>@localhost:<mavros_port>; MAVROS's fcu_url for ./launcher.sh sim (demo.sh) |
+| `network.fcu_url` | `""` | text | "" = local SITL: tcp://127.0.0.1:<5763 + 10 x instance> (SITL SERIAL2, wired like the real Jetson on TELEM2); external autopilot: udp://:<mavros_port>@localhost:<mavros_port>; MAVROS's fcu_url for ./launcher.sh sim (demo.sh) |
 
 #### `run`
 
@@ -465,7 +465,7 @@ Where MAVLink goes and where the camera listens. The defaults are today's values
 |---|---|---|
 | `MAVProxy --master tcp:127.0.0.1:5760+10*I` | talks to | launch argument mavlink_master |
 | `MAVProxy --out udp:127.0.0.1:14550` | talks to | gcs_port / gcs_out: our scripts (mission_tool) |
-| `MAVProxy --out udp:127.0.0.1:14552` | talks to | mavros_port / mavros_out: MAVROS (launcher.sh sim fcu_url udp://:14552@localhost:14552) |
+| `MAVProxy --out udp:127.0.0.1:14552` | talks to | mavros_port / mavros_out: MAVROS only when it goes through MAVProxy (external autopilot, or network.fcu_url set to it); by default MAVROS talks to SITL SERIAL2, TCP 5763 |
 | `MAVProxy --out udp:127.0.0.1:14553` | talks to | panel_port: demo panel buttons (the panel listens on 127.0.0.1) |
 | `MAVProxy --out udp:<Windows host>:14550` | talks to | windows_gcs / windows_gcs_addr |
 | `siyi_emulator UDP 37260 + TCP 82 on 192.168.144.25` | listens | camera_ip / camera_bind |

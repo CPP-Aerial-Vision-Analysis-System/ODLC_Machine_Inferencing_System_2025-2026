@@ -309,7 +309,8 @@ NETWORK = SlotContract(
         PortRule('MAVProxy --master tcp:127.0.0.1:5760+10*I', 'talks to', 'launch argument mavlink_master'),
         PortRule('MAVProxy --out udp:127.0.0.1:14550', 'talks to', 'gcs_port / gcs_out: our scripts (mission_tool)'),
         PortRule('MAVProxy --out udp:127.0.0.1:14552', 'talks to',
-                 'mavros_port / mavros_out: MAVROS (launcher.sh sim fcu_url udp://:14552@localhost:14552)'),
+                 'mavros_port / mavros_out: MAVROS only when it goes through MAVProxy (external autopilot, or network.fcu_url '
+                 'set to it); by default MAVROS talks to SITL SERIAL2, TCP 5763'),
         PortRule('MAVProxy --out udp:127.0.0.1:14553', 'talks to', 'panel_port: demo panel buttons (the panel listens on 127.0.0.1)'),
         PortRule('MAVProxy --out udp:<Windows host>:14550', 'talks to', 'windows_gcs / windows_gcs_addr'),
         PortRule('siyi_emulator UDP 37260 + TCP 82 on 192.168.144.25', 'listens', 'camera_ip / camera_bind'),

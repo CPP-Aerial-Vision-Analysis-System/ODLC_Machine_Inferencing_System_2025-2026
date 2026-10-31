@@ -94,10 +94,11 @@ including empty results. Do not run competing detectors or mission brains in one
 | Endpoint | Default purpose |
 |---|---|
 | TCP `5760 + 10*I` | SITL serial0 → MAVProxy |
-| TCP `5762 + 10*I`, `5763 + 10*I` | Spare SITL MAVLink links |
+| TCP `5762 + 10*I` | Spare SITL MAVLink link (second ground station) |
+| TCP `5763 + 10*I` | SITL serial2 → MAVROS (`tcp://127.0.0.1:5763`), wired like the Jetson on TELEM2 |
 | UDP `9002 + 10*I` | Gazebo plugin ↔ SITL JSON physics |
 | UDP `127.0.0.1:14550` | Ground tools inside Linux; one listener |
-| UDP `127.0.0.1:14552` | MAVROS; `udp://:14552@localhost:14552` |
+| UDP `127.0.0.1:14552` | MAVProxy's MAVROS output: used only for an external autopilot or an explicit `udp://:14552@localhost:14552` |
 | UDP `127.0.0.1:14553` | Panel mission commands |
 | UDP Windows host `14550` | Mission Planner under WSL NAT |
 

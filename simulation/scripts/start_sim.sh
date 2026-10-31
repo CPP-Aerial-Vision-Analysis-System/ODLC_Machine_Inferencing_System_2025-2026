@@ -120,7 +120,7 @@ if [ "$DRY" = 1 ]; then
   if [ -n "$PLUGIN_TEAM_HINT" ]; then
     echo "    2. (second terminal) cd $ASTRA_REPO && $PLUGIN_TEAM_HINT"
   else
-    echo "    2. (second terminal) cd $ASTRA_REPO && TRACKER_CMD=\"ros2 launch sim_bringup team_stack.launch.py\" ./launcher.sh sim"
+    echo "    2. (second terminal) cd $ASTRA_REPO && FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD=\"ros2 launch sim_bringup team_stack.launch.py\" ./launcher.sh sim"
   fi
   exit 0
 fi

@@ -191,8 +191,19 @@ def team_launch_args(rp: ResolvedProfile, resolved_file: str = '') -> List[str]:
     return out
 
 
-def default_fcu_url(mavros_port: int) -> str:
-    """MAVROS's fcu_url that matches MAVProxy's MAVROS output (launcher.sh sim's default for 14552)."""
+def default_fcu_url(mavros_port: int, autopilot_kind: str = 'sitl', instance: int = 0) -> str:
+    """MAVROS's fcu_url when the profile does not set network.fcu_url.
+
+    With a local SITL the team's MAVROS talks to SITL's SERIAL2 DIRECTLY (TCP 5763 + 10 x instance), the way the real
+    Jetson is wired to the Pixhawk's TELEM2 port. Then ArduPilot passes the team code's status texts ("Detected tent",
+    "Aim ...", "Servo 13 -> 1400", the Jetson reporter's TGT lines) on to the ground-station side exactly like on the
+    real drone. Behind MAVProxy (the old default) ArduPilot received them on the very port MAVProxy listens on and never
+    sent them back, and MAVProxy does not copy one client's messages to another, so Mission Planner and the Lattice
+    bridge never saw them (found with the ASTRA plugin, 2026-10-31). With an external autopilot there is no local SITL
+    port, so MAVROS keeps MAVProxy's MAVROS output (udp <mavros_port>).
+    """
+    if autopilot_kind != 'external':
+        return f'tcp://127.0.0.1:{5763 + 10 * int(instance)}'
     return f'udp://:{mavros_port}@localhost:{mavros_port}'
 
 
@@ -234,7 +245,10 @@ def demo_vars(rp: ResolvedProfile, resolved_file: str = '', summary: str = '') -
     sc['WINDOWS_GCS_ADDR'] = net['windows_gcs_addr']
     sc['MISSION_OVERRIDE'] = d['world']['mission']
     sc['MODEL_OVERRIDE'] = d['detector']['model_path'] if d['detector']['kind'] == 'team' else ''
-    sc['FCU_URL_OVERRIDE'] = net['fcu_url']
+    # "" = demo.sh's own default (local SITL: SITL SERIAL2). An external autopilot has no local SITL port, so it gets
+    # MAVProxy's MAVROS output spelled out.
+    sc['FCU_URL_OVERRIDE'] = net['fcu_url'] or (default_fcu_url(net['mavros_port'], 'external')
+                                                if d['autopilot']['kind'] == 'external' else '')
     sc['TEAM_STACK_WHERE'] = d['run']['team_stack']
     sc['NEED_DETECTOR'] = '1' if need_detector(rp) else '0'
     sc['CAMERA_KIND'] = d['camera']['kind']
@@ -286,16 +300,17 @@ TEAM_STACK_LAUNCH = 'ros2 launch sim_bringup team_stack.launch.py'
 def team_stack_hint(rp: ResolvedProfile, resolved_file: str = '') -> str:
     """The command for terminal 2 (the team stack) that matches this profile.
 
-    Only what differs from the defaults is added: the default profile gives exactly the README's command
-    TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim (detector:=real is
-    team_stack.launch.py's own default, and launcher.sh sim's own FCU_URL matches MAVProxy's 14552 output).
+    Only what differs from the defaults is added to TRACKER_CMD (detector:=real is team_stack.launch.py's own
+    default), so the default profile gives the README's command
+    FCU_URL=tcp://127.0.0.1:5763 TRACKER_CMD="ros2 launch sim_bringup team_stack.launch.py" ./launcher.sh sim .
+    FCU_URL is always written: launcher.sh sim's own default is still MAVProxy's udp 14552 output (the Docker Jetson
+    container relies on it), while the simulator now wires MAVROS like the real Jetson (see default_fcu_url).
     """
     kind = rp.get('detector.kind')
     args = ([] if kind == 'team' else [f'detector:={DETECTOR_LAUNCH_VALUE[kind]}']) + team_launch_args(rp, resolved_file)
-    fcu = rp.get('network.fcu_url') or (default_fcu_url(rp.get('network.mavros_port'))
-                                        if rp.get('network.mavros_port') != 14552 else '')
-    env = f'FCU_URL={fcu} ' if fcu else ''
-    return f'{env}TRACKER_CMD="{" ".join([TEAM_STACK_LAUNCH] + args)}" ./launcher.sh sim'
+    fcu = rp.get('network.fcu_url') or default_fcu_url(rp.get('network.mavros_port'), rp.get('autopilot.kind'),
+                                                       rp.get('autopilot.instance'))
+    return f'FCU_URL={fcu} TRACKER_CMD="{" ".join([TEAM_STACK_LAUNCH] + args)}" ./launcher.sh sim'
 
 
 # ---------------------------------------------------------------------------------------------
@@ -385,7 +400,7 @@ def summary_lines(rp: ResolvedProfile, env: Optional[Dict] = None) -> List[Tuple
         outs.append(f'Windows ground station {net["windows_gcs_addr"] or "(automatic inside WSL)"}')
     lines.append(('network', f'MAVProxy <- {master}; -> {", ".join(outs)}; camera emulator on '
                              f'{net["camera_ip"]}{" (listens on " + net["camera_bind"] + ")" if net["camera_bind"] else ""}'))
-    fcu = net['fcu_url'] or default_fcu_url(net['mavros_port'])
+    fcu = net['fcu_url'] or default_fcu_url(net['mavros_port'], d['autopilot']['kind'], inst)
     where = d['run']['team_stack']
     lines.append(('team stack', f'{"local: ./launcher.sh sim" if where == "local" else "external (started elsewhere; demo.sh only waits for it)"}'
                                 f', MAVROS fcu_url {fcu}'))
