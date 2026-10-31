@@ -248,6 +248,56 @@ def is_running() -> Result:
     return Result(True, 'Mission Planner is not running.', False, 'not running')
 
 
+#: Where the ASTRA Mission Planner plugin lives inside the repository (it adds the ASTRA tab and the camera in the HUD).
+PLUGIN_RELATIVE = os.path.join('simulation', 'windows', 'mission_planner_plugin', 'astra_gcs.cs')
+PLUGIN_NAME = 'astra_gcs.cs'
+
+
+def find_plugin_source(start: str = __file__) -> str | None:
+    """The ASTRA Mission Planner plugin of this repository copy (searched upward from `start`), or None."""
+    here = os.path.dirname(os.path.abspath(start))
+    while True:
+        candidate = os.path.join(here, PLUGIN_RELATIVE)
+        if os.path.isfile(candidate):
+            return candidate
+        parent = os.path.dirname(here)
+        if parent == here:
+            return None
+        here = parent
+
+
+def install_plugin(exe: str, source: str | None = None) -> str:
+    """Copy the ASTRA plugin into Mission Planner's "plugins" folder when it is missing or different.
+
+    Mission Planner compiles every .cs file in that folder when it starts, so this must happen BEFORE it opens.
+    Returns one sentence for people and never raises: a plugin that cannot be installed must not stop Mission
+    Planner from opening (it then simply has no ASTRA tab).
+    """
+    source = source or find_plugin_source()
+    if not source:
+        return 'The ASTRA plugin was not found in this repository copy (Mission Planner opens without the ASTRA tab).'
+    target_dir = os.path.join(os.path.dirname(exe), 'plugins')
+    target = os.path.join(target_dir, PLUGIN_NAME)
+    try:
+        with open(source, 'rb') as handle:
+            new = handle.read()
+        try:
+            with open(target, 'rb') as handle:
+                old = handle.read()
+        except OSError:
+            old = None
+        if old == new:
+            return 'ASTRA plugin up to date.'
+        os.makedirs(target_dir, exist_ok=True)
+        with open(target, 'wb') as handle:
+            handle.write(new)
+        return ('ASTRA plugin installed: the ASTRA tab is on the DATA screen.' if old is None
+                else 'ASTRA plugin updated.')
+    except OSError as exc:
+        return (f'Could not install the ASTRA plugin into {target_dir} ({exc.strerror or exc}); '
+                'run simulation/windows/install_mp_plugin.ps1 once from an administrator PowerShell.')
+
+
 def _reap_later(proc) -> None:
     """WSL keeps a small Linux helper process for every Windows program it started; it lives exactly as
     long as Mission Planner. Collect its exit status in a daemon thread when Mission Planner closes, so it
@@ -278,6 +328,7 @@ def start(exe_override: str = '', confirm_s: float = START_CONFIRM_S) -> Result:
     exe = find_exe(exe_override)
     if exe is None:         # it was there a moment ago (uninstalled meanwhile?)
         return Result(False, not_installed_message(exe_override), None, 'not installed')
+    plugin_note = install_plugin(exe)      # before it opens: Mission Planner compiles its plugins at start
     env = {k: v for k, v in os.environ.items() if k != SESSION_VAR}
     try:
         proc = _popen([exe], cwd=os.path.dirname(exe), env=env, stdin=subprocess.DEVNULL,
@@ -289,7 +340,7 @@ def start(exe_override: str = '', confirm_s: float = START_CONFIRM_S) -> Result:
     while True:
         if is_running().running:
             _reap_later(proc)
-            return Result(True, f'Mission Planner is opening (its window takes 10-30 s). {CONNECT_HINT}.',
+            return Result(True, f'Mission Planner is opening (its window takes 10-30 s). {CONNECT_HINT}. {plugin_note}',
                           True, 'running')
         code = proc.poll()
         if code is not None:      # the helper ended: Mission Planner closed again (or never started)

@@ -405,3 +405,41 @@ def test_command_line(win, capsys):
     assert mpl.main(['status']) == 1                  # 1 = cannot tell
     with pytest.raises(SystemExit):
         mpl.main(['explode'])
+
+
+# ------------------------------------------------------------------ the ASTRA plugin (installed before Mission Planner opens)
+def test_the_plugin_source_is_found_in_this_repository():
+    source = mpl.find_plugin_source()
+    assert source is not None
+    assert source.replace(os.sep, '/').endswith('simulation/windows/mission_planner_plugin/astra_gcs.cs')
+
+
+def test_install_plugin_copies_then_updates_then_leaves_it_alone(tmp_path, exe):
+    source = tmp_path / 'astra_gcs.cs'
+    source.write_text('// version 1')
+    target = os.path.join(os.path.dirname(exe), 'plugins', 'astra_gcs.cs')
+    assert 'installed' in mpl.install_plugin(exe, str(source))
+    with open(target) as handle:
+        assert handle.read() == '// version 1'
+    assert mpl.install_plugin(exe, str(source)) == 'ASTRA plugin up to date.'
+    source.write_text('// version 2')
+    assert mpl.install_plugin(exe, str(source)) == 'ASTRA plugin updated.'
+    with open(target) as handle:
+        assert handle.read() == '// version 2'
+
+
+def test_install_plugin_never_raises(tmp_path, exe, monkeypatch):
+    monkeypatch.setattr(mpl, 'find_plugin_source', lambda start=None: None)
+    assert 'not found' in mpl.install_plugin(exe)
+    blocked = tmp_path / 'blocked' / 'MissionPlanner.exe'
+    blocked.parent.mkdir()
+    (blocked.parent / 'plugins').write_text('a file where the folder should be')
+    source = tmp_path / 'astra_gcs.cs'
+    source.write_text('x')
+    assert 'Could not install' in mpl.install_plugin(str(blocked), str(source))
+
+
+def test_start_installs_the_plugin_before_opening(win, exe):
+    res = mpl.start()
+    assert res.ok and os.path.isfile(os.path.join(os.path.dirname(exe), 'plugins', 'astra_gcs.cs'))
+    assert 'ASTRA plugin' in res.message
