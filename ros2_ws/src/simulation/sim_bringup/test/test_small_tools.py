@@ -59,3 +59,11 @@ def test_launch_file_has_the_windows_ground_station_switch():
     # on by default (Mission Planner on Windows can watch), automatic address, and a way to switch it off
     names = {name: default for name, default, _ in load_sim_launch().ARGUMENTS}
     assert names.get('windows_gcs') == 'true' and names.get('windows_gcs_addr') == ''
+
+
+def test_launch_file_has_the_gazebo_window_environment_switch_off_by_default():
+    # gui_env gives the Gazebo window extra environment (troubleshooting); "" = the window starts as before
+    names = {name: default for name, default, _ in load_sim_launch().ARGUMENTS}
+    assert names.get('gui_env') == ''
+    # gui_camera: where Gazebo shows the live camera; "panel" = inside the main window, exactly as before
+    assert names.get('gui_camera') == 'panel'

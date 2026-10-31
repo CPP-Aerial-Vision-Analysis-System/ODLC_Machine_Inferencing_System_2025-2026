@@ -4,19 +4,27 @@ pictures in every supported encoding become correct JPEGs (right colours, padded
 corrupt ones refused), the web server answers the page, a single picture, the status line and a real multipart stream
 with the right framing, a quiet camera does not kill the connection, too many viewers are turned away politely, a
 taken port gives a message that says what to do, and the stream ends when the server stops.
+It also proves the GIMBAL-ANGLE overlay: the angles are computed the way the SIYI camera reports them (checked against
+hand-worked cases and against the SIYI emulator's own formulas), the text says plainly when data is missing or old,
+the box is drawn where asked (top or bottom) without touching the rest of the picture, and with no overlay the
+picture is exactly what it was before the overlay existed.
 """
 
 import http.client
 import io
+import math
+import random
 import sys
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 
-from sim_demo.pov_server import BOUNDARY, FrameStore, PovServer, encode_frame, placeholder_jpeg
+from sim_demo.pov_server import (BOUNDARY, GIMBAL_STALE_S, FrameStore, GimbalReadout, PovServer, draw_overlay,
+                                 encode_frame, placeholder_jpeg, siyi_angles)
 
 
 def pixels(jpeg):
@@ -92,6 +100,195 @@ def test_a_corrupt_picture_is_refused_with_a_value_error(args):
 def test_the_waiting_picture_is_a_real_jpeg():
     image = Image.open(io.BytesIO(placeholder_jpeg('waiting')))
     assert image.size == (640, 360) and image.format == 'JPEG'
+
+
+# ------------------------------------------------------------------------------------------ gimbal angles
+def quat_about(axis, angle_deg):
+    """(x, y, z, w) quaternion of a turn by angle_deg about the world axis 'x', 'y' or 'z' (right-hand rule)."""
+    half = math.radians(angle_deg) / 2.0
+    s = math.sin(half)
+    vector = {'x': (s, 0.0, 0.0), 'y': (0.0, s, 0.0), 'z': (0.0, 0.0, s)}[axis]
+    return (*vector, math.cos(half))
+
+
+def test_the_camera_straight_down_on_a_level_drone_reads_pitch_minus_90():
+    yaw, pitch, roll = siyi_angles(0.0, 0.0, math.radians(-90))
+    assert abs(pitch + 90) < 1e-6 and abs(yaw) < 1e-9 and abs(roll) < 1e-6
+
+
+def test_the_stabiliser_keeps_the_camera_pointing_down_when_the_drone_tips_nose_down():
+    # A turn about the drone's LEFT axis (+Y) by +10 deg puts the nose 10 deg down. The pitch motor then sits at
+    # -80 deg and the camera still looks straight down: the reported pitch is -90, the joint says -80.
+    _, pitch, _ = siyi_angles(0.0, 0.0, math.radians(-80), quat_about('y', 10))
+    assert abs(pitch + 90) < 1e-6
+    assert abs(siyi_angles(0.0, 0.0, math.radians(-80))[1] + 80) < 1e-6      # same joint, level drone: 80 deg down
+
+
+def test_yaw_is_reported_against_the_nose_and_pitch_against_the_horizon():
+    # drone facing north (ENU yaw 90), camera turned 30 deg LEFT and 45 deg down
+    yaw, pitch, roll = siyi_angles(math.radians(30), 0.0, math.radians(-45), quat_about('z', 90))
+    assert abs(yaw - 30) < 1e-9 and abs(pitch + 45) < 1e-6 and abs(roll) < 1e-6
+
+
+def test_a_rolled_drone_shows_as_camera_roll_unless_the_roll_motor_cancels_it():
+    _, pitch, roll = siyi_angles(0.0, 0.0, 0.0, quat_about('x', 12))           # right side 12 deg down, camera forward
+    assert abs(roll - 12) < 1e-6 and abs(pitch) < 1e-6
+    assert abs(siyi_angles(0.0, math.radians(-12), 0.0, quat_about('x', 12))[2]) < 1e-6
+
+
+def test_the_numbers_stay_steady_when_the_camera_is_a_hair_past_straight_down():
+    # the old Z-Y-X formula turned 0.4 deg past straight down into "pitch -89.6, roll 180" (and random rolls nearby)
+    yaw, pitch, roll = siyi_angles(0.0, 0.0, math.radians(-90.4))
+    assert abs(pitch + 90.4) < 1e-6 and abs(roll) < 1e-6
+    rng = random.Random(5)
+    for _ in range(200):                       # stabilised camera on a tilting drone, joints a little off
+        tilt_roll, tilt_pitch = rng.uniform(-15, 15), rng.uniform(-15, 15)
+        quat = _mul_quat(quat_about('y', tilt_pitch), quat_about('x', tilt_roll))
+        _, pitch, roll = siyi_angles(0.0, math.radians(-tilt_roll + rng.uniform(-0.3, 0.3)),
+                                     math.radians(-90 + tilt_pitch + rng.uniform(-0.3, 0.3)), quat)
+        assert abs(pitch + 90) < 0.8 and abs(roll) < 0.8
+
+
+def _mul_quat(a, b):
+    """Quaternion product a * b, (x, y, z, w) order (turn b first, then a, both about world axes)."""
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz)
+
+
+def test_the_angles_are_the_ones_the_siyi_emulator_reports():
+    """Same numbers as siyi_emulator's GimbalModel.reported_attitude (what video_cam reads over SDK 0x0D) in the
+    emulator's default, stabilising mode (GimbalModel() = stabilize True; with stabilize False it reports raw joints)."""
+    emulator_src = Path(__file__).resolve().parents[2] / 'siyi_emulator'
+    if str(emulator_src) not in sys.path:
+        sys.path.insert(0, str(emulator_src))
+    gimbal_control = pytest.importorskip('siyi_emulator.gimbal_control')
+    rng = random.Random(7)
+    for _ in range(300):
+        joints = (math.radians(rng.uniform(-150, 150)), math.radians(rng.uniform(-30, 30)),
+                  math.radians(rng.uniform(-130, 40)))
+        quat = tuple(rng.uniform(-1, 1) for _ in range(4))
+        model = gimbal_control.GimbalModel()
+        model.set_drone_attitude(*quat)
+        expected = model.reported_attitude(joints)
+        got = siyi_angles(*joints, quat)
+        assert max(abs(a - b) for a, b in zip(expected, got)) < 1e-6
+
+
+class FakeClock:
+    """A clock the test moves by hand."""
+
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_the_readout_says_plainly_when_there_is_no_data_yet_or_it_is_old():
+    clock = FakeClock()
+    readout = GimbalReadout(clock=clock)
+    assert readout.lines() == ['gimbal: no angle data yet']
+    assert readout.set_joints(['gimbal_yaw', 'gimbal_roll', 'gimbal_pitch'], [0.0, 0.0, -math.pi / 2])
+    readout.set_attitude(0.0, 0.0, 0.0, 1.0)
+    assert len(readout.lines()) == 2
+    clock.now += GIMBAL_STALE_S + 1.0
+    assert readout.lines() == [f'gimbal: no angle data for {GIMBAL_STALE_S + 1.0:.0f} s']
+
+
+def test_the_readout_text_for_a_camera_looking_straight_down():
+    clock = FakeClock()
+    readout = GimbalReadout(clock=clock)
+    # scoped joint names (model::joint) and an extra joint are fine; positions in radians
+    readout.set_joints(['iris::rotor_0_joint', 'iris::gimbal_pitch', 'iris::gimbal_yaw', 'iris::gimbal_roll'],
+                       [12.0, -math.pi / 2, -1e-9, 0.0])
+    readout.set_attitude(0.0, 0.0, 0.0, 1.0)
+    first, second = readout.lines()
+    assert first == 'gimbal pitch -90.0 deg, yaw 0.0 deg, roll 0.0 deg'           # never "-0.0"
+    assert second == 'joints (vs drone): pitch -90.0, yaw 0.0, roll 0.0 deg'
+
+
+def test_the_readout_shows_the_stabiliser_at_work_on_a_tilted_drone():
+    readout = GimbalReadout(clock=FakeClock())
+    readout.set_joints(['gimbal_yaw', 'gimbal_roll', 'gimbal_pitch'], [0.0, 0.0, math.radians(-80)])
+    readout.set_attitude(*quat_about('y', 10))                                     # nose 10 deg down
+    first, second = readout.lines()
+    assert first.startswith('gimbal pitch -90.0 deg') and 'pitch -80.0' in second
+
+
+def test_without_the_drone_attitude_the_readout_assumes_a_level_drone_and_says_so():
+    clock = FakeClock()
+    readout = GimbalReadout(clock=clock)
+    readout.set_joints(['gimbal_yaw', 'gimbal_roll', 'gimbal_pitch'], [0.0, 0.0, math.radians(-80)])
+    first, _ = readout.lines()
+    assert first.startswith('gimbal pitch -80.0 deg') and 'level drone assumed' in first
+    readout.set_attitude(0.0, 0.0, 0.0, 1.0)
+    clock.now += GIMBAL_STALE_S + 0.5                                              # attitude old, joints renewed
+    readout.set_joints(['gimbal_yaw', 'gimbal_roll', 'gimbal_pitch'], [0.0, 0.0, math.radians(-80)])
+    assert 'level drone assumed' in readout.lines()[0]
+
+
+def test_incomplete_or_broken_angle_messages_are_ignored():
+    readout = GimbalReadout(clock=FakeClock())
+    assert not readout.set_joints(['gimbal_yaw', 'gimbal_pitch'], [0.0, 0.0])                   # roll missing
+    assert not readout.set_joints(['gimbal_yaw', 'gimbal_roll', 'gimbal_pitch'], [0.0, float('nan'), 0.0])
+    assert not readout.set_attitude(0.0, 0.0, 0.0, 0.0) and not readout.set_attitude(float('inf'), 0, 0, 1)
+    assert readout.lines() == ['gimbal: no angle data yet']
+
+
+# ------------------------------------------------------------------------------------------ the overlay box
+def test_the_overlay_box_darkens_the_top_left_corner_and_leaves_the_rest_alone():
+    plain = pixels(encode_frame(*solid(960, 540, (200, 200, 200)), quality=95))
+    drawn = pixels(encode_frame(*solid(960, 540, (200, 200, 200)), quality=95,
+                                overlay_lines=['gimbal pitch -90.0 deg, yaw 0.0 deg, roll 0.0 deg', 'joints ...']))
+    assert drawn.shape == plain.shape == (540, 960, 3)
+    corner = drawn[8:40, 8:60].astype(int)
+    assert corner.min() < 120                     # the dark box (black at ~60 % over light grey) is there
+    assert corner.max() > 200                     # ... with light text in it
+    assert np.abs(drawn[450:, 600:].astype(int) - plain[450:, 600:].astype(int)).max() < 6     # rest unchanged
+
+
+def test_the_overlay_can_go_to_the_bottom_left_corner():
+    drawn = pixels(encode_frame(*solid(960, 540, (200, 200, 200)), quality=95, overlay_lines=['bottom text'],
+                                overlay_position='bottom_left'))
+    assert drawn[520:532, 8:40].astype(int).min() < 120 and drawn[8:30, 8:40].astype(int).min() > 180
+
+
+def test_the_overlay_works_on_a_grey_picture_and_text_size_follows_the_picture():
+    drawn = pixels(encode_frame(*solid(320, 180, (230, 0, 0), 'mono8'), quality=95, overlay_lines=['grey picture']))
+    assert drawn[4:12, 4:30].astype(int).min() < 140
+    small = draw_overlay(Image.new('RGB', (320, 180), (230, 230, 230)), ['abc'])
+    big = draw_overlay(Image.new('RGB', (1920, 1080), (230, 230, 230)), ['abc'])
+    dark_rows = [int((np.asarray(im)[:, :, 0] < 150).any(axis=1).sum()) for im in (small, big)]
+    assert dark_rows[1] > 2 * dark_rows[0]        # the box (and text) is taller on a bigger picture
+
+
+def test_text_is_measured_even_where_old_pillow_refuses_to_measure_the_builtin_font(monkeypatch):
+    # Ubuntu 22.04's Pillow 9.0 raises "Only supported for TrueType fonts" in textbbox for its built-in font;
+    # the overlay and the "waiting" picture must still work there (and on a PC without the DejaVu font).
+    from PIL import ImageDraw, ImageFont
+
+    import sim_demo.pov_server as pov
+
+    def refuse(self, *args, **kwargs):
+        raise ValueError('Only supported for TrueType fonts')
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, 'textbbox', refuse)
+    font = ImageFont.load_default()
+    if not hasattr(font, 'getsize'):
+        pytest.skip('this Pillow has no getsize() (Pillow >= 10 measures every font with textbbox)')
+    monkeypatch.setattr(pov, '_font', lambda size: font)
+    drawn = np.asarray(draw_overlay(Image.new('RGB', (320, 180), (230, 230, 230)), ['gimbal pitch -90.0 deg']))
+    assert drawn[6:12, 6:30].min() < 150                       # the box is there
+    assert Image.open(io.BytesIO(placeholder_jpeg('waiting'))).size == (640, 360)
+
+
+def test_without_an_overlay_the_picture_is_exactly_what_it_was_before():
+    rng = np.random.default_rng(3)
+    data = rng.integers(0, 255, (90, 160, 3), dtype=np.uint8).tobytes()
+    assert encode_frame(160, 90, 'rgb8', 480, data) == encode_frame(160, 90, 'rgb8', 480, data, overlay_lines=None)
+    assert encode_frame(160, 90, 'rgb8', 480, data) == encode_frame(160, 90, 'rgb8', 480, data, overlay_lines=[])
 
 
 # ------------------------------------------------------------------------------------------ the store

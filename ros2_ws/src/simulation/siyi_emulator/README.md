@@ -113,8 +113,31 @@ Replies echo the request SEQ and use CTRL = 0x02. All numbers little-endian. Ang
 | 0x48 | format SD card | - | none; deletes every photo | - |
 
 Signs: yaw + = camera turns LEFT, pitch + = up, pitch -90 = straight down. Reported yaw is relative to
-the drone (encoder); reported pitch/roll are relative to the horizon (camera IMU). Unknown or broken
-frames are ignored with a one-time warning; nothing can crash the emulator.
+the drone (encoder); reported pitch/roll are relative to the horizon (camera IMU). Pitch and roll are
+split in the gimbal's own motor order, yaw -> roll -> pitch (`gimbal_control.gimbal_earth_angles`), so a
+camera held straight down reads pitch -90 / roll 0 steadily and a little past straight down reads e.g.
+-90.4. (Before 2026-10-31 a Z-Y-X split was used; it breaks down exactly at pitch -90, and the team's photo
+sidecars showed random gimbal rolls between -177.7 and +176.4 deg. The team's aiming ignores roll, so the
+drops were not affected.) Unknown or broken frames are ignored with a one-time warning; nothing can crash
+the emulator.
+
+**This angle order is our assumption, not a SIYI fact.** No SIYI document and no log of a real A8 mini
+says how the real camera splits pitch and roll near straight down. We chose the motor order because it is
+steady there. What changed for the team's code: pitch can now read a little below -90 (e.g. -90.9). That is
+still inside the trusted pitch range of the team's aiming code (-120 to -30 deg, `TRUSTED_PITCH_RANGE_DEG` in
+`ros2_ws/src/main/src/target_geolocation.py`). To settle it, log the 0x0D reply of
+the real camera while it looks straight down and the drone tilts a little; if its roll jumps or its pitch
+never goes below -90, change `gimbal_earth_angles` (and `sim_demo/pov_server.siyi_angles`, which a test
+keeps equal to it) back to the Z-Y-X split.
+
+**Two different pitch numbers in the photo sidecar** (`<photo>.json` next to each emulator photo):
+
+| Field | What it is | Camera 0.4 deg past straight down |
+|---|---|---|
+| `gimbal.pitch_deg`, `gimbal.roll_deg` | the same split as the 0x0D reply (motor order, see above) | pitch `-90.4`, roll `0.0` |
+| `camera_world.pitch_deg` | how far the camera's look direction points below the horizon (never below -90) | `-89.6` |
+
+Both describe the same camera direction; use `camera_world` (with `look_direction_enu`) for geometry.
 
 ### Media HTTP, TCP `camera_ip:82`
 

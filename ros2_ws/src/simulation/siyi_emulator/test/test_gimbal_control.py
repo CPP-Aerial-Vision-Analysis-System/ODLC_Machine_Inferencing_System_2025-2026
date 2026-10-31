@@ -286,6 +286,37 @@ def test_reported_attitude_earth_frame_vs_joint():
     assert model.reported_attitude(j, earth_frame=False)[1] != pytest.approx(-20.0, abs=1e-3)
 
 
+def test_reported_attitude_is_steady_while_the_camera_holds_straight_down():
+    """Regression 2026-10-31: the old Z-Y-X split reported a RANDOM roll near pitch -90 (photo sidecars showed
+    -177.7 .. +176.4 deg). Now a camera held straight down reads pitch ~-90 / roll ~0 whatever the drone does,
+    even when the measured joints lag the command by a few tenths of a degree (as they do in flight)."""
+    rng = random.Random(11)
+    model = gm.GimbalModel(initial_pitch_deg=-90.0)
+    for _ in range(300):
+        drone(model, roll_deg=rng.uniform(-15, 15), pitch_deg=rng.uniform(-15, 15), yaw_deg=rng.uniform(-180, 180))
+        joints = model.step(0.02)
+        lagging = gm.Joints(joints.yaw, joints.roll + math.radians(rng.uniform(-0.3, 0.3)),
+                            joints.pitch + math.radians(rng.uniform(-0.3, 0.3)))
+        _, pitch, roll = model.reported_attitude(lagging)
+        assert abs(pitch + 90.0) < 0.7 and abs(roll) < 0.7
+
+
+def test_reported_pitch_goes_smoothly_past_straight_down():
+    model = gm.GimbalModel()
+    drone(model)
+    yaw, pitch, roll = model.reported_attitude(gm.Joints(0.0, 0.0, math.radians(-90.4)))
+    assert (yaw, pitch, roll) == pytest.approx((0.0, -90.4, 0.0), abs=1e-6)        # was -89.6 with roll +-180
+    assert model.reported_attitude(gm.Joints(0.0, 0.0, math.radians(-89.6)))[1] == pytest.approx(-89.6, abs=1e-6)
+
+
+def test_reported_roll_is_the_tilt_of_the_roll_stage_against_the_horizon():
+    model = gm.GimbalModel()
+    drone(model, roll_deg=12.0)                                  # right side 12 deg down, roll motor at 0
+    _, pitch, roll = model.reported_attitude(gm.Joints(0.0, 0.0, math.radians(-45.0)))
+    assert (pitch, roll) == pytest.approx((-45.0, 12.0), abs=1e-6)
+    assert gm.gimbal_earth_angles(np.eye(3)) == pytest.approx((0.0, 0.0, 0.0))
+
+
 def test_camera_world_pose_level_drone():
     model = gm.GimbalModel()
     pose = model.camera_pose([10.0, 20.0, 30.0], gm.Joints(0.0, 0.0, 0.0))

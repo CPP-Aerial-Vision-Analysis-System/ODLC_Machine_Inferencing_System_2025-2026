@@ -343,3 +343,13 @@ def test_cli_answers(capsys, tmp_path, monkeypatch):
     assert sp._cli(['model-path']) == 0
     assert capsys.readouterr().out.strip().endswith('yolo26m.pt')
     assert sp._cli(['nonsense']) == 2
+
+
+def test_gui_env_text_becomes_environment_for_the_gazebo_window():
+    # the gui_env launch argument: "NAME=value,NAME2=value"; empty = nothing (today's behaviour)
+    assert sp.parse_env_assignments('') == ({}, [])
+    assert sp.parse_env_assignments('QSG_RENDER_LOOP=basic') == ({'QSG_RENDER_LOOP': 'basic'}, [])
+    found, problems = sp.parse_env_assignments(' QSG_RENDER_LOOP = basic , QT_X=a=b,,  ')
+    assert found == {'QSG_RENDER_LOOP': 'basic', 'QT_X': 'a=b'} and problems == []
+    found, problems = sp.parse_env_assignments('novalue, 9BAD=1, OK_1=')
+    assert found == {'OK_1': ''} and problems == ['novalue', '9BAD=1']

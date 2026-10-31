@@ -9,7 +9,10 @@ sim_bringup/launch/sim.launch.py -- PURPOSE: start the whole ASTRA simulator wit
 What it starts, in this order (every part can be switched off with its argument):
   1. Gazebo server (gz sim -s -r) with the world, and the Gazebo window (gz sim -g) with the world's own
      layout (its <gui> section) or ours (config/gazebo_gui.config): big 3D view + a live camera POV panel.
-     The window is a separate program: closing it does NOT stop the simulation.
+     The window is a separate program: closing it does NOT stop the simulation. gui_camera:=window moves the
+     camera picture into its own small Gazebo window (config/gazebo_camera_window.config) and opens the main
+     window with the same layout minus its camera panel (config/gazebo_gui_no_camera.config for our layout, a
+     generated copy for the world's own <gui> or a gui_config file); gui_camera:=off leaves the camera out.
   2. The drone: sim_models' model.sdf.xacro is run through xacro (photo size from camera_model, SITL
      port from sitl_instance) and spawned as entity "iris" at the world's spawn pose.
   3. ArduCopter SITL (the Pixhawk's firmware on the PC), started only when the drone's ArduPilotPlugin
@@ -103,6 +106,12 @@ ARGUMENTS = [
     ('gui_config', '', 'Gazebo window layout: "" = the world\'s own <gui> if it has one, else ours '
                        '(config/gazebo_gui.config: 3D view + camera POV); "astra" = ours; "default" = Gazebo\'s; '
                        'or a file'),
+    ('gui_camera', 'panel', 'where Gazebo shows the live camera: panel = inside the main window (as before) | window = '
+                            'in its own small Gazebo window (the main window has no camera panel; avoids the '
+                            '"flashes between outside and camera POV" fault, docs/simulation/TROUBLESHOOTING.md) | '
+                            'off = not in Gazebo (RViz and Mission Planner still show it)'),
+    ('gui_env', '', 'extra environment for the Gazebo window(s) ONLY, "NAME=value,NAME2=value" (troubleshooting, '
+                    'e.g. QSG_RENDER_LOOP=basic; docs/simulation/TROUBLESHOOTING.md); "" = none'),
     ('gz_verbosity', '1', 'Gazebo console verbosity 0-4'),
     ('model', '', 'override the drone model file (.sdf or .sdf.xacro); default = sim_models iris_a8mini'),
     ('x', '', 'spawn x [m] override (default: the world config)'),
@@ -364,17 +373,58 @@ def _launch_setup(context):
         layout = cfg['gui_config'].strip()
         world_has_gui = re.search(r'<gui[\s>]', Path(world_cfg.world_file).read_text(encoding='utf-8',
                                                                                     errors='replace')) is not None
-        if layout in ('', 'world') and world_has_gui:
+        # gui_camera: panel (as before) | window (own small window) | off. See ARGUMENTS and TROUBLESHOOTING.md.
+        gui_camera = cfg['gui_camera'].strip().lower() or 'panel'
+        if gui_camera not in ('panel', 'window', 'off'):
+            say(f'gui_camera "{cfg["gui_camera"]}" is unknown (use panel, window or off); using panel')
+            gui_camera = 'panel'
+
+        def bringup_config(name):
+            """Path of one of our layout files, patched for the stand-in drone's camera topic when needed."""
+            path = os.path.join(shares['sim_bringup'] or '', 'config', name)
+            if os.path.isfile(path) and standin_model:
+                # The stand-in drone's camera publishes on a different topic: use a patched copy.
+                text = Path(path).read_text(encoding='utf-8').replace(
+                    '/sim/camera/video/image', sp.bridge_entries(True, world_name)[0]['gz_topic_name'])
+                path = str(gen_dir / name.replace('.config', '_standin.config'))
+                Path(path).write_text(text, encoding='utf-8')
+            return path if os.path.isfile(path) else ''
+
+        # gui_camera:=window / off: the main window gets the layout it would have with the panel, MINUS the camera
+        # panel. Our own layout has a ready-made copy (config/gazebo_gui_no_camera.config); the world's own <gui>
+        # section, Gazebo's stock layout or your own file are copied without their camera panels into
+        # ~/.astra_sim/generated/ (sp.layout_without_camera_panels). If that copy cannot be made, the window opens
+        # with the layout unchanged and the log says so.
+        uses_world_layout = layout in ('', 'world') and world_has_gui
+        if gui_camera != 'panel' and layout in ('', 'world', 'astra') and not uses_world_layout:
+            main_layout = bringup_config('gazebo_gui_no_camera.config')
+            if main_layout:
+                gui_cmd += ['--gui-config', main_layout]
+                say(f'Gazebo window: our layout without the camera panel (gui_camera:={gui_camera})')
+        elif gui_camera != 'panel':
+            if uses_world_layout:
+                source, from_world, what = world_cfg.world_file, True, 'the world\'s own layout (its <gui> section)'
+            elif layout == 'default':
+                source, from_world, what = '/usr/share/gz/gz-sim8/gui/gui.config', False, 'Gazebo\'s own layout'
+            else:
+                source, from_world, what = sp.expand(layout), False, f'the layout {sp.expand(layout)}'
+            text = Path(source).read_text(encoding='utf-8', errors='replace') if os.path.isfile(source) else None
+            stripped, removed = sp.layout_without_camera_panels(text, from_world=from_world)
+            if stripped is not None:
+                main_layout = str(gen_dir / 'gazebo_gui_without_camera.config')
+                Path(main_layout).write_text(stripped, encoding='utf-8')
+                gui_cmd += ['--gui-config', main_layout]
+                say(f'Gazebo window: {what} without its camera panel ({removed} removed; gui_camera:={gui_camera})')
+            else:
+                if not from_world and os.path.isfile(source):
+                    gui_cmd += ['--gui-config', source]
+                say(f'gui_camera:={gui_camera}: could not read {source} as a layout, so its camera panel (if any) '
+                    'stays in the main window')
+        elif uses_world_layout:
             say('Gazebo window: the world\'s own layout (its <gui> section)')
         elif layout in ('', 'world', 'astra'):
-            ours = os.path.join(shares['sim_bringup'] or '', 'config', 'gazebo_gui.config')
-            if os.path.isfile(ours) and standin_model:
-                # The stand-in drone's camera publishes on a different topic: use a patched copy.
-                text = Path(ours).read_text(encoding='utf-8').replace(
-                    '/sim/camera/video/image', sp.bridge_entries(True, world_name)[0]['gz_topic_name'])
-                ours = str(gen_dir / 'gazebo_gui_standin.config')
-                Path(ours).write_text(text, encoding='utf-8')
-            if os.path.isfile(ours):
+            ours = bringup_config('gazebo_gui.config')
+            if ours:
                 gui_cmd += ['--gui-config', ours]
         elif layout == 'default':
             stock = '/usr/share/gz/gz-sim8/gui/gui.config'      # Gazebo's own layout (ignores the world's)
@@ -382,11 +432,31 @@ def _launch_setup(context):
                 gui_cmd += ['--gui-config', stock]
         else:
             gui_cmd += ['--gui-config', sp.expand(layout)]
-        window = ExecuteProcess(cmd=gui_cmd, name='gz_gui', output='screen', additional_env=_gui_env())
+        # gui_env: extra environment for this window only (e.g. QSG_RENDER_LOOP=basic); "" changes nothing.
+        window_env = _gui_env()
+        extra_env, bad_env = sp.parse_env_assignments(cfg['gui_env'])
+        window_env.update(extra_env)
+        if extra_env:
+            say('Gazebo window extra environment (gui_env): ' + ', '.join(f'{k}={v}' for k, v in extra_env.items()))
+        if bad_env:
+            say(f'gui_env: ignored {", ".join(bad_env)} (write NAME=value, items separated by commas)')
+        window = ExecuteProcess(cmd=gui_cmd, name='gz_gui', output='screen', additional_env=window_env)
         actions.append(window)
         actions.append(RegisterEventHandler(OnProcessExit(target_action=window, on_exit=[
             LogInfo(msg='[sim] the Gazebo window was closed; the simulation keeps running '
                         '(stop everything with Ctrl+C or simulation/scripts/stop_sim.sh)')])))
+        if gui_camera == 'window':
+            # The live camera in its OWN Gazebo program, with no 3D view in it. In a same-seconds measurement
+            # (2026-10-31, docs/simulation/TROUBLESHOOTING.md) such a window kept showing the camera while the main
+            # window's panel showed old 3D-view pictures. Closing it changes nothing else.
+            camera_layout = bringup_config('gazebo_camera_window.config')
+            if camera_layout:
+                actions.append(ExecuteProcess(cmd=['gz', 'sim', '-g', '-v', cfg['gz_verbosity'], '--gui-config',
+                                                   camera_layout], name='gz_camera_window', output='screen',
+                                              additional_env=window_env))
+                say('Gazebo camera window: the live gimbal camera in its own small window (gui_camera:=window)')
+            else:
+                say('gui_camera:=window but config/gazebo_camera_window.config is missing (rebuild sim_bringup)')
 
     # ---- 5. spawn the drone ---------------------------------------------------------------------
     if model_file:

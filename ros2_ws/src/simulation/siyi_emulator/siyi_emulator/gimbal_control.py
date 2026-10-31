@@ -193,6 +193,21 @@ def camera_heading_pitch_roll(R_world_cam: np.ndarray) -> Tuple[float, float, fl
     return yaw, -pitch_zyx, roll
 
 
+def gimbal_earth_angles(R_world_cam: np.ndarray) -> Tuple[float, float, float]:
+    """(heading, roll, pitch) radians of the camera against the HORIZON, split in the gimbal's own axis order.
+
+    The A8 mini's motors are chained yaw -> roll -> pitch, so its attitude is written the same way:
+    R_world_cam = Rz(heading) @ Rx(roll) @ Ry(-pitch) (the inverse of :func:`body_to_camera`, applied to the
+    world instead of the airframe). pitch + = up, -90 = straight down, and it carries on smoothly past -90
+    (the mechanical range reaches -135); roll + = right side down.
+    Why not :func:`camera_heading_pitch_roll` (Z-Y-X): that split breaks down exactly at pitch -90, the survey
+    pose, where a camera a few tenths of a degree off straight down reported a RANDOM roll (photo sidecars of
+    2026-10-31 showed roll from -177.7 to +176.4 deg with pitch stuck between -90.0 and -89.5). This split only
+    breaks down at roll +-90 deg, far outside the gimbal's +-30 deg roll range.
+    """
+    return tuple(solve_joints(R_world_cam))
+
+
 def camera_position_body(joints: Sequence[float], mount_xyz: Sequence[float] = DEFAULT_MOUNT_XYZ) -> np.ndarray:
     """Position of the camera in the drone body frame (metres) for the given joints."""
     yaw, roll, pitch = joints
@@ -472,13 +487,16 @@ class GimbalModel:
         """What the real camera reports in 0x0D / 0x0E: (yaw_deg, pitch_deg, roll_deg).
 
         yaw = the measured yaw joint, relative to the airframe (the A8 uses a magnetic encoder);
-        pitch / roll = relative to the horizon (camera IMU) when stabilising, else the raw joints.
+        pitch / roll = relative to the horizon (camera IMU) when stabilising, else the raw joints. They are split
+        in the gimbal's own yaw -> roll -> pitch order (:func:`gimbal_earth_angles`), so a camera held straight
+        down reads pitch -90 / roll 0 steadily, and a little past straight down reads e.g. -90.4 (not -89.6 with a
+        random roll, as the Z-Y-X split did before 2026-10-31).
         """
         yaw_j, roll_j, pitch_j = joints_meas
         yaw_deg = math.degrees(yaw_j)
         if earth_frame and self.stabilize:
             R_cam = self._R_world_body @ body_to_camera(joints_meas)
-            _, pitch, roll = camera_heading_pitch_roll(R_cam)
+            _, roll, pitch = gimbal_earth_angles(R_cam)
             return yaw_deg, math.degrees(pitch), math.degrees(roll)
         return yaw_deg, math.degrees(pitch_j), math.degrees(roll_j)
 

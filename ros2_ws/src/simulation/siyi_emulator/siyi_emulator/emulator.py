@@ -46,7 +46,7 @@ from . import sdk_protocol as sp
 from .camera_state import CameraState, get_profile
 from .command_handler import CommandHandler, HandlerHooks
 from .gimbal_control import (MODE_NAMES, GimbalLimits, GimbalModel, Joints, body_to_camera,
-                             camera_heading_pitch_roll, camera_world_pose, rot_from_quat)
+                             camera_world_pose, gimbal_earth_angles, rot_from_quat)
 from .gz_link import (CameraInfoSample, GzLink, GzTopics, JointSample, NullGzLink, OdomSample,
                       RawImage)
 from .media_server import MediaServer
@@ -705,7 +705,10 @@ class SiyiEmulator:
         R_wb = rot_from_quat(*odom.orientation) if odom is not None else rot_from_quat(0, 0, 0, 1)
         position = odom.position if odom is not None else (0.0, 0.0, 0.0)
         pose = camera_world_pose(position, R_wb, joints, self.gimbal.mount_xyz)
-        _, cam_pitch, cam_roll = camera_heading_pitch_roll(R_wb @ body_to_camera(joints))
+        # the gimbal's own yaw -> roll -> pitch split, like reported_attitude (steady at straight down). NOTE: the
+        # sidecar's "gimbal.pitch_deg" therefore can read e.g. -90.4 while "camera_world.pitch_deg" (elevation of
+        # the look direction, never below -90) reads -89.6 for the same camera; README.md explains both.
+        _, cam_roll, cam_pitch = gimbal_earth_angles(R_wb @ body_to_camera(joints))
         lens_hfov = self.cfg.hfov_rad
         info = self._camera_info
         if info is not None and not self.optical_zoom_enabled:
