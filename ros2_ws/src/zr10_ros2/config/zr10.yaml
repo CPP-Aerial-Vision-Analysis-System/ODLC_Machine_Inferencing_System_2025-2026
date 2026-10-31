@@ -1,0 +1,11 @@
+zr10_camera:
+  ros__parameters:
+    dry_run: true
+    camera_ip: "192.168.144.25"
+    camera_port: 37260
+    motion_timeout_sec: 0.5
+    sync_photos: false
+    media_base: "http://192.168.144.25:82/cgi-bin/media.cgi"
+    photo_directory: "photos"
+    sync_interval_sec: 2.0
+    media_timeout_sec: 15

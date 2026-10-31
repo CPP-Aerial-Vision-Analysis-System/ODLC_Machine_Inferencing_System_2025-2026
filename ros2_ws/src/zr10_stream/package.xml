@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>zr10_stream</name><version>0.1.0</version>
+  <description>Live ZR10 image stream and snapshots for detection.</description>
+  <maintainer email="maintainer@example.com">ASTRA</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>rclpy</exec_depend><exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend><exec_depend>ffmpeg</exec_depend>
+  <exec_depend>launch_ros</exec_depend><exec_depend>launch</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

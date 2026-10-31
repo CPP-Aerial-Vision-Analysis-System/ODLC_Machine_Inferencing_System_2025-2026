@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/CPP-Aerial-Vision-Analysis-System/ODLC_Machine_Inferencing_System_2025-2026",
+  "commit": "3703e1d2fb132d7e3706264e9d15ac02fee8d4c5",
+  "source_directory": "ros2_ws/src/detection/detection",
+  "original_sha256": {
+    "gpu_utils.py": "23fc094cb3acb2843ba10a96545cd4fb3a103f99c285f6421e471b74d36ec9d1",
+    "model_manager.py": "d6a6096e8f7579c9cb3657bbe8aeecd3d9ce0d8b45f6b771adcf66e36e1fdef2",
+    "detection_processor.py": "aad47aef9f834a3bbee04d3445c5a2f34222213091f5b9422e9f437755b10fb7",
+    "annotation.py": "06798dcba2683feec1566e4eddf799fd0ff4231349cc243cdd2982f54a7a082a"
+  },
+  "changes": "Internal import prefix changed from detection to astra_live_detection; trailing whitespace and final blank lines cleaned in model_manager.py. Inference algorithms unchanged."
+}
