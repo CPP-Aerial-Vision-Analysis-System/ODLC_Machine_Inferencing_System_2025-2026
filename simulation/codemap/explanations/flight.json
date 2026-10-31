@@ -1,0 +1,1082 @@
+{
+ "area": "Team flight code",
+ "entries": {
+  "pkg:ros2_ws/src/main": {
+   "explain": "The 'main' ROS 2 package holds the mission brain of the drone: src/main_controller.py (ROS node main_controller) and the three small helper files it imports (target_geolocation.py = drop-aiming math, processing_hold.py = when the 'wait for the detector' hover ends, timed_steps.py = waits that never freeze the node). It also holds THE flight launch file launch/tracker.launch.xml, which starts all six team nodes, and a bench tool (capture_detect_drop.py). It is an ament_cmake package; CMakeLists.txt installs the Python scripts.",
+   "how_it_fits": "It is the last link of the chain camera -> detector -> brain -> autopilot. ArduPilot flies the survey on its own; main_controller listens to the detector on /image_detection, follows the mission through MAVROS (/mavros/mission/waypoints, /mavros/mission/reached), reads the mission landmarks from waypoint_manager's parameters, and at the end takes over: GUIDED hover, new target waypoints through /addWaypoint, AUTO, MAV_CMD_DO_SET_SERVO drops on servo outputs 13 (tent) and 11 (person) through /mavros/cmd/command, then RTL. Every step is told to the ground station as STATUSTEXT on /mavros/statustext/send, and the Gazebo simulator reads those same texts to show the mission phase and to score the aim. ./launcher.sh starts it on the Jetson and, unchanged, in the simulator."
+  },
+  "pkg:ros2_ws/src/waypoint_mavros": {
+   "explain": "This package runs the ROS node waypoint_manager (waypoint_mavros/waypoint.py, command 'waypoint'). It keeps a copy of the autopilot's mission, publishes the mission's landmark positions as ROS parameters, and serves /addWaypoint so main_controller can add target waypoints. Its rules for keeping the copy fresh are in mission_sync.py (pure Python, unit-tested). It also contains killnode.py, a dead and dangerous shutdown node that must never be run.",
+   "how_it_fits": "It is the team's 'mission librarian'. MAVROS hands it the mission (/mavros/mission/waypoints) and it asks MAVROS to read it again (/mavros/mission/pull) after ArduPilot's 'Flight plan received', at arming and at start-up. Other nodes read its parameters num_waypoints, takeoff_index, next_after_takeoff, rtl_index, last_before_rtl and buffer_wp: the photo trigger (mapping package) stops taking photos at buffer_wp, and main_controller holds at the last waypoint before RTL and inserts targets after last_before_rtl. When main_controller calls /addWaypoint it inserts the waypoint into its copy and uploads the WHOLE mission to the autopilot with /mavros/mission/push."
+  },
+  "pkg:ros2_ws/src/wp_sender": {
+   "explain": "A small helper package. Its important part is a library, wp_sender/parameter.py: AsyncParameterReader reads another node's ROS parameters without ever blocking (main_controller uses it for waypoint_manager's mission indices); the pure bookkeeping behind it is in param_tracking.py. It also has two command-line test clients, 'send_wp' (waypoint_sender.py) and 'test_param' (parameter.py), which are not launched in flight.",
+   "how_it_fits": "It holds the fix for the main_controller crash found in the simulator in October 2026: the old blocking parameter read spun the executor inside a callback, timed out after 10 s, returned None and killed the node (2 of 4 runs). Now main_controller asks /waypoint_manager/get_parameters with call_async and keeps its old values when a read fails. main_controller imports it at run time (main's package.xml does not list it, so it simply has to be built in the same workspace). On disk on 2026-10-31 the work-in-progress lattice_bridge reporter also reuses AsyncParameterReader to read main_controller's parameters."
+  },
+  "pkg:ros2_ws/src/payload": {
+   "explain": "An old ament_python package with one node, servo_controller (payload/payload.py, command 'payload'). It opens servo outputs 9 and 10 to 1900 microseconds once through MAVROS and then exits. It is DEAD: the drops are now done by main_controller on outputs 11 and 13 at 1400 / 500 microseconds, and tracker.launch.xml does not start it.",
+   "how_it_fits": "Kept only as history of the first payload release test. Its only links to the rest of the system are the MAVROS service /mavros/cmd/command (MAV_CMD_DO_SET_SERVO, command 183) and STATUSTEXT on /mavros/statustext/send. It has only the standard ament lint tests, no functional test."
+  },
+  "pkg:ros2_ws/src/comms": {
+   "explain": "A folder of unfinished ground-to-Jetson command scripts. It is not a ROS package (no package.xml), so colcon never builds it. mavlink_router.py would share the Pixhawk's serial link with mavlink-routerd, command_listener.py waits for MAVLink COMMAND_LONG 31004 (reboot) / 31005 (shutdown) on UDP port 14601 and writes the request into mission_state.json, system_controller.py reads that file and powers the computer off, and ground_sender.py is the typing console on the ground side. Two .cpp files are half-written C++ copies that do not compile.",
+   "how_it_fits": "DEAD: nothing launches these scripts, and launcher.sh connects MAVROS straight to the serial port, so the router set-up they expect is not used. system_controller.py runs 'sudo shutdown -h now' with a password written in the source: never run it (or the listener chain) on a development machine."
+  },
+  "pkg:ros2_ws/src/gps_ros2": {
+   "explain": "This package runs the ROS node gps_mavros_service_node (gps_ros2/gps.py, command 'gpstest'). At start-up it asks MAVROS once to send ALL autopilot telemetry streams at 1 Hz (/mavros/set_stream_rate with stream_id 0, rate 1). It also remembers the latest GPS fix and compass heading and serves them on /get_drone_data, which nothing calls.",
+   "how_it_fits": "Small but it sets the pace: after its one call, MAVROS topics such as /mavros/global_position/global (the GPS that video_cam writes into each photo's name) arrive about once per second, so a photo's position can be up to about 1 s old. It is started by tracker.launch.xml with the other team nodes; it is a port of the team's ROS 1 node."
+  },
+  "pkg:ros2_ws/src/interfaces": {
+   "explain": "The team's message package: with rosidl it generates the ROS 2 types of 2 messages (ImageResult, YoloResult) and 5 services (AddWaypoint, DelWaypoint, UpdateMission, GetGPSData, CameraCommand). All team message definitions live here (the old copies in main/msg are dead).",
+   "how_it_fits": "It is the shared 'language' between the nodes. interfaces/msg/ImageResult carries each photo's detections from new_od to main_controller on /image_detection (the simulator's truth_detector, demo panel, markers, phase monitor and scorer use it too), and interfaces/srv/AddWaypoint is how main_controller asks waypoint_manager to insert a target waypoint. GetGPSData (/get_drone_data), DelWaypoint (/delWaypoint) and UpdateMission (/updateMission) are served but not used in flight; YoloResult and CameraCommand are not used at all."
+  },
+  "mod:launcher.sh": {
+   "explain": "THE start button of the team software on the Jetson: './launcher.sh' (real drone) or './launcher.sh sim' (simulator). It sources ROS 2 Humble and the workspace (ros2_ws/install), pings the camera at CAMERA_IP (192.168.144.25; only a warning if it does not answer), starts MAVROS ('ros2 launch mavros apm.launch' with fcu_url /dev/ttyUSB0:115200, or udp://:14552@localhost:14552 in sim mode), makes up to 30 tries (1 s apart) to see a message on /mavros/state, then starts the mission stack $TRACKER_CMD (default 'ros2 launch main tracker.launch.xml'). When either part exits, or on Ctrl-C, it stops both.",
+   "how_it_fits": "Everything the team runs in flight hangs below this script: MAVROS (the bridge to ArduPilot) and the six nodes of tracker.launch.xml. Its output goes through scripts/humanize.sh (readable times) unless ASTRA_RAW_TIME=1. The simulator runs it UNCHANGED and only sets its documented environment overrides: TRACKER_CMD (the only simulator hook in team code; demo.sh sets 'ros2 launch sim_bringup team_stack.launch.py detector:=...', which includes the same tracker.launch.xml) and FCU_URL (demo.sh on disk on 2026-10-31: tcp://127.0.0.1:5763, SITL's SERIAL2, wired like the Jetson on the Pixhawk's TELEM2); it is started by demo.sh, START OVER (sim_demo's run_reset.py) and the Docker 'jetson' container (container_jetson.sh). Other overrides: MAVROS_LAUNCH, CAMERA_IP, ASTRA_MODE. Known weak spots (AGENTS.md): any /mavros/state message counts as the 'heartbeat', even one saying connected: false, one try has no time limit of its own, and nothing restarts a crashed child."
+  },
+  "fn:launcher.sh::shutdown": {
+   "explain": "Stops the mission stack and MAVROS together: prints 'Shutting down...', kills the two background processes it started (TRACKER_PID, then MAVROS_PID), waits for them to end and prints 'Stopped.'.",
+   "called_when": "On Ctrl-C or a TERM signal (trap shutdown INT TERM), and after 'wait -n' sees that MAVROS or the mission stack has exited.",
+   "effects": "Ends every team node and MAVROS; nothing restarts them."
+  },
+  "mod:ros2_ws/src/comms/commandListener.cpp": {
+   "explain": "An unfinished C++ copy of command_listener.py: it only prints the listen address, the command numbers and whether the state file exists. It has no MAVLink code and does not compile (it includes a missionStateUtils.hpp that does not exist and misspells CMD_SHUTDOWN).",
+   "how_it_fits": "Learning exercise; nothing builds or runs it."
+  },
+  "mod:ros2_ws/src/comms/command_listener.py": {
+   "explain": "DEAD MAVLink listener script (pymavlink, not ROS). It listens on UDP 0.0.0.0:14601 as MAVLink system 200, component 191, sends a heartbeat every second, and when a COMMAND_LONG addressed to 200/191 carries command 31004 (reboot) or 31005 (shutdown) it writes pending_action, the sender's ids and the time into comms/mission_state.json and answers COMMAND_ACK 'accepted'.",
+   "how_it_fits": "Middle link of the unused shutdown chain: ground_sender.py -> radio -> mavlink_router.py (UDP 14601) -> this listener -> mission_state.json -> system_controller.py (which actually shuts down). Never launched."
+  },
+  "fn:ros2_ws/src/comms/command_listener.py::main": {
+   "explain": "Prints what it listens for, creates comms/mission_state.json if it is missing, opens a pymavlink connection on udpin:0.0.0.0:14601 as system 200 / component 191, announces itself with a heartbeat, waits up to 30 s for the other side's heartbeat, then loops for ever: a heartbeat every second, and for each COMMAND_LONG to 200/191 with command 31004 or 31005 it writes pending_action 'reboot' or 'shutdown' (with the sender's ids and the time) into the state file and sends COMMAND_ACK result 0 (accepted)."
+  },
+  "mod:ros2_ws/src/comms/ground_sender.py": {
+   "explain": "DEAD ground-side console script (pymavlink). When it starts it looks for the radio's serial port (RFD_PORT, else the first /dev/serial/by-id, /dev/ttyUSB* or /dev/ttyACM* device; 57600 baud unless RFD_BAUD), waits up to 30 s for a heartbeat, then lets you type 'reboot' or 'shutdown', which sends COMMAND_LONG 31004 / 31005 to system 200, component 191 and waits up to 3 s for the COMMAND_ACK.",
+   "how_it_fits": "The sending end of the unused comms shutdown chain. It raises an error as soon as it is imported if no serial port exists."
+  },
+  "fn:ros2_ws/src/comms/ground_sender.py::autodetect_serial_port": {
+   "explain": "Picks the radio's serial port: RFD_PORT if set, else the first /dev/serial/by-id entry, else the first /dev/ttyUSB*, else /dev/ttyACM*; raises an error if none exists.",
+   "called_when": "At import (the module sets RFD_PORT with it)."
+  },
+  "fn:ros2_ws/src/comms/ground_sender.py::send_command_long": {
+   "explain": "Sends a MAVLink COMMAND_LONG with the given command id to system 200, component 191 (the Jetson listener), with param1 = 1."
+  },
+  "fn:ros2_ws/src/comms/ground_sender.py::wait_for_ack": {
+   "explain": "Waits up to 3 s for a COMMAND_ACK for that command and prints its result name (ACCEPTED, DENIED, ...) and sender, or says that no ACK came."
+  },
+  "fn:ros2_ws/src/comms/ground_sender.py::main": {
+   "explain": "Connects to the radio, waits up to 30 s for a heartbeat and 5 s for SYS_STATUS telemetry, then reads typed commands: 'reboot' or 'shutdown' sends COMMAND_LONG 31004 / 31005 and waits for the ACK, 'help' lists them, 'exit' quits."
+  },
+  "mod:ros2_ws/src/comms/mavlink_router.py": {
+   "explain": "DEAD helper that starts mavlink-routerd on the Pixhawk's serial port (PIXHAWK_SERIAL, else the first by-id, ttyUSB, ttyACM, ttyAMA0 or ttyS0 device; PIXHAWK_BAUD 115200) and fans it out to UDP 127.0.0.1:14550 (meant for MAVROS), 14601 (command_listener.py) and the spare ports 14602-14606.",
+   "how_it_fits": "Not used: launcher.sh connects MAVROS directly to /dev/ttyUSB0:115200, and two programs cannot both own that serial port."
+  },
+  "fn:ros2_ws/src/comms/mavlink_router.py::find_pixhawk_serial": {
+   "explain": "Picks the Pixhawk's serial device: PIXHAWK_SERIAL if set, else the first /dev/serial/by-id, /dev/ttyUSB* or /dev/ttyACM* entry, else /dev/ttyAMA0 or /dev/ttyS0; None if nothing is found."
+  },
+  "fn:ros2_ws/src/comms/mavlink_router.py::main": {
+   "explain": "Checks that mavlink-routerd is installed and a serial device exists, prints the plan, then runs mavlink-routerd in the foreground with UDP endpoints 127.0.0.1:14550 (MAVROS), 14601 (command listener) and 14602-14606 (spare) and the serial device at PIXHAWK_BAUD (115200). Ctrl-C stops it."
+  },
+  "mod:ros2_ws/src/comms/missionStateUtils.cpp": {
+   "explain": "An unfinished C++ copy of mission_state_utils.py (load_state and merge_dicts with the nlohmann JSON library). It has several syntax errors (for example a 'catch' without brackets and the misspelled DEFAULS), so it does not compile.",
+   "how_it_fits": "Learning exercise; nothing builds or runs it."
+  },
+  "mod:ros2_ws/src/comms/mission_state_utils.py": {
+   "explain": "DEAD tiny helper that keeps a small JSON 'state file', comms/mission_state.json, next to itself. load_state reads it (filling in the default keys last_command, timestamp, last_sender_sysid, last_sender_compid, pending_action) and update_state changes one key and rewrites the file.",
+   "how_it_fits": "The shared mailbox between command_listener.py (writes the request) and system_controller.py (acts on it). Unused in flight."
+  },
+  "fn:ros2_ws/src/comms/mission_state_utils.py::load_state": {
+   "explain": "Reads comms/mission_state.json and returns its contents laid over the default keys; if the file is missing or broken it returns a fresh copy of the defaults."
+  },
+  "fn:ros2_ws/src/comms/mission_state_utils.py::update_state": {
+   "explain": "Sets one key in the state and rewrites the whole JSON file."
+  },
+  "fn:ros2_ws/src/comms/mission_state_utils.py::_merge_dicts": {
+   "explain": "Returns a copy of the defaults with the file's values laid on top, merging nested dicts key by key."
+  },
+  "mod:ros2_ws/src/comms/system_controller.py": {
+   "explain": "DEAD and DANGEROUS script: twice a second it reads comms/mission_state.json and, when pending_action is 'shutdown', clears it, waits 0.5 s and runs 'sudo shutdown -h now' with a password written in the source, powering the computer off. The reboot branch is commented out.",
+   "how_it_fits": "Last link of the unused comms shutdown chain. AGENTS.md: never run it on a development machine."
+  },
+  "fn:ros2_ws/src/comms/system_controller.py::main": {
+   "explain": "An endless async loop, twice a second: read the state file; if pending_action is 'shutdown', clear it, record last_command 'shutdown', wait 0.5 s and run 'sudo shutdown -h now' with the password from the source.",
+   "effects": "Powers the computer off. Never run it on a development machine."
+  },
+  "mod:ros2_ws/src/gps_ros2/gps_ros2/__init__.py": {
+   "explain": "An empty file that makes the folder a Python package, so 'import gps_ros2.<module>' works.",
+   "how_it_fits": "Plumbing only."
+  },
+  "mod:ros2_ws/src/gps_ros2/gps_ros2/gps.py": {
+   "explain": "The gps_mavros_service_node (command 'gpstest'), a ROS 2 port of the team's ROS 1 node. At start-up it waits for /mavros/set_stream_rate and calls it once with stream_id 0, rate 1, on: every telemetry stream from the autopilot is set to 1 Hz. It then keeps the latest /mavros/state, GPS fix (/mavros/global_position/global) and heading (/mavros/global_position/compass_hdg), logs when the Pixhawk connects or disconnects, and answers /get_drone_data with them.",
+   "how_it_fits": "Started by tracker.launch.xml. Its one stream-rate call sets the pace of the MAVROS topics every other team node uses (about 1 Hz GPS for the photo names). /get_drone_data has no client in the current code."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode": {
+   "explain": "The node class 'gps_mavros_service_node': sets the telemetry rate and keeps the latest GPS fix and heading."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.__init__": {
+   "explain": "Subscribes to /mavros/state, /mavros/global_position/global and /mavros/global_position/compass_hdg, offers /get_drone_data, waits (1 s per try, until ROS shuts down) for /mavros/set_stream_rate, starts a 1 s heartbeat timer and calls set_stream_rate(stream_id=0, message_rate=1, on_off=True) once.",
+   "effects": "All autopilot telemetry to MAVROS is set to 1 Hz."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.state_cb": {
+   "explain": "Stores whether MAVROS is connected to the autopilot (from /mavros/state)."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.gps_cb": {
+   "explain": "Stores the latest GPS fix (sensor_msgs/NavSatFix from /mavros/global_position/global)."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.pose_callback": {
+   "explain": "Stores the latest compass heading in degrees (from /mavros/global_position/compass_hdg)."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.heartbeat_tick": {
+   "explain": "Once a second, logs 'Heartbeat: Connected to Pixhawk' or 'Heartbeat: Disconnected from Pixhawk', but only when the connection state has changed."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.set_stream_rate": {
+   "explain": "Calls /mavros/set_stream_rate (stream_id, message_rate, on_off), waits for the answer, then logs 'Stream rate set: ID=0, Rate=1Hz' or the error. Skipped with a warning if the service is not ready.",
+   "called_when": "Once from __init__ (before the node spins, so the wait is safe there).",
+   "effects": "MAVROS asks ArduPilot to change its data stream rates; stream 0 means all streams."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::GPSMavrosServiceNode.handle_drone_data_request": {
+   "explain": "The /get_drone_data service: answers the latest latitude, longitude, altitude and heading, or zeros with a warning if no GPS fix or heading has arrived yet."
+  },
+  "fn:ros2_ws/src/gps_ros2/gps_ros2/gps.py::main": {
+   "explain": "The 'gpstest' command: starts ROS, creates the node, spins until stopped, then cleans up."
+  },
+  "mod:ros2_ws/src/gps_ros2/package.xml": {
+   "explain": "Package manifest of gps_ros2 (format 2, ament_python). Besides the real run-time needs (rclpy, std_msgs, sensor_msgs, mavros_msgs, mavros) it still lists ROS 1 leftovers (gps_mavros, message_generation, message_runtime) that do not exist in ROS 2.",
+   "how_it_fits": "colcon only orders packages it finds in the workspace, so the leftovers probably do no harm to the build (rosdep would complain about them)."
+  },
+  "mod:ros2_ws/src/gps_ros2/resource/gps_ros2": {
+   "explain": "An empty marker file. ROS 2 installs it into share/ament_index so 'ros2 run' and 'ros2 launch' can find the package 'gps_ros2' by name.",
+   "how_it_fits": "Standard ament_python plumbing; nothing to edit."
+  },
+  "mod:ros2_ws/src/gps_ros2/setup.cfg": {
+   "explain": "Tells setuptools to put this package's runnable commands ('gpstest') into lib/gps_ros2, the folder 'ros2 run gps_ros2 <command>' looks in.",
+   "how_it_fits": "Standard ament_python plumbing."
+  },
+  "mod:ros2_ws/src/gps_ros2/setup.py": {
+   "explain": "Python install script of gps_ros2: installs the gps_ros2 Python package and makes the command 'gpstest' (runs gps_ros2.gps:main).",
+   "how_it_fits": "tracker.launch.xml starts <node pkg=\"gps_ros2\" exec=\"gpstest\">."
+  },
+  "mod:ros2_ws/src/interfaces/CMakeLists.txt": {
+   "explain": "Build rules of the interfaces package: rosidl_generate_interfaces turns msg/ImageResult.msg, msg/YoloResult.msg and srv/AddWaypoint, DelWaypoint, UpdateMission, GetGPSData and CameraCommand into Python and C++ types that depend on std_msgs, sensor_msgs and vision_msgs.",
+   "how_it_fits": "This is what makes 'from interfaces.msg import ImageResult' and 'from interfaces.srv import AddWaypoint' work in every team node."
+  },
+  "mod:ros2_ws/src/interfaces/msg/ImageResult.msg": {
+   "explain": "The detector's answer for ONE photo. Fields: header; detections (vision_msgs/Detection2DArray: per box the class id and score in results[0].hypothesis and the box centre and size in pixels in bbox); masks; image_name (the photo's file name, '<lat> , <lon>.jpg'); timestamp; num_detections; saved_to; method; slice_size; overlap; waypoint_index; longitude and latitude (float32, read from the file name); and the optional summary lists classes, confidences, areas, descriptions.",
+   "how_it_fits": "new_od publishes one on /image_detection for every photo, also when nothing is found (RELIABLE, depth 10). main_controller uses image_name (to know which photos are done and to find the sidecar), class_id ('0' person, '1' tent), score, the box centre and latitude / longitude. The simulator's truth_detector and example detector publish the same message; the demo panel, markers, phase monitor and scorer read it."
+  },
+  "mod:ros2_ws/src/interfaces/msg/YoloResult.msg": {
+   "explain": "A message with a header, a Detection2DArray of boxes and a list of mask images: the result format of the ultralytics_ros tracker. It is generated, but no team node uses it.",
+   "how_it_fits": "Unused."
+  },
+  "mod:ros2_ws/src/interfaces/package.xml": {
+   "explain": "Package manifest of interfaces: ament_cmake, rosidl_default_generators to build, rosidl_default_runtime to run, member of rosidl_interface_packages (the group of message packages), depends on std_msgs, sensor_msgs and vision_msgs.",
+   "how_it_fits": "colcon builds it before every package that uses its types."
+  },
+  "mod:ros2_ws/src/interfaces/srv/AddWaypoint.srv": {
+   "explain": "Service type that inserts ONE mission item. Request: command (16 = NAV_WAYPOINT, 183 = DO_SET_SERVO), latitude, longitude, altitude (float64; metres above home for a waypoint), index (where to insert it in the mission list), channel and pwm (servo items only; 0 for a waypoint). Response: success.",
+   "how_it_fits": "Used on /addWaypoint: main_controller is the client (command 16, altitude 49, index last_before_rtl + 1), waypoint_manager the server. Note that waypoint_manager answers success = true even when it refuses an invalid position (it only logs the refusal). The channel comment '9=AUX1, 10=AUX2' is from the old wiring."
+  },
+  "mod:ros2_ws/src/interfaces/srv/CameraCommand.srv": {
+   "explain": "Service type for one camera command (command such as capture, autofocus, gimbal_set_angles or sd_format, plus a text parameter; answer: success and a JSON message). Generated but unused: its own first comment says 'we probably dont need this'.",
+   "how_it_fits": "The team sends camera commands as plain std_msgs/String on the /camera/command topic instead."
+  },
+  "mod:ros2_ws/src/interfaces/srv/DelWaypoint.srv": {
+   "explain": "Service type that deletes one mission item: request index, response success.",
+   "how_it_fits": "waypoint_manager serves it on /delWaypoint; only the send_wp test client calls it. Not used in flight."
+  },
+  "mod:ros2_ws/src/interfaces/srv/GetGPSData.srv": {
+   "explain": "Service type with an empty request that answers the drone's latitude, longitude, altitude and yaw (all float64).",
+   "how_it_fits": "gps_mavros_service_node serves it on /get_drone_data; no node calls it."
+  },
+  "mod:ros2_ws/src/interfaces/srv/UpdateMission.srv": {
+   "explain": "Service type with an empty request and a success answer.",
+   "how_it_fits": "waypoint_manager serves it on /updateMission as a placeholder that does nothing; nobody calls it."
+  },
+  "mod:ros2_ws/src/main/CMakeLists.txt": {
+   "explain": "Build and install rules of the 'main' package. It installs main_controller.py and capture_detect_drop.py as runnable programs in lib/main, copies the helper modules target_geolocation.py, timed_steps.py and processing_hold.py into the SAME folder (so a plain 'import' finds them), installs launch/ and msg/ into share/main, and registers the six test files with ament_add_pytest_test when ament_cmake_pytest is installed.",
+   "how_it_fits": "This is why 'ros2 run main main_controller.py' and 'ros2 launch main tracker.launch.xml' work after colcon build. old_main_controller.py is not installed, and msg/ is only copied, never turned into message types (that happens in the interfaces package)."
+  },
+  "mod:ros2_ws/src/main/README.md": {
+   "explain": "The human guide to the mission controller: what main_controller does at the end of the search, the October 2026 fixes (drop aim, crash, frozen node, no GPS), a worked 5-step example of the drop aiming, the 5 parameters, the STATUSTEXT texts, the Task 2 real-drone fixes, how far the aim can be off on sloped ground, and how to run the tests.",
+   "how_it_fits": "Documentation only; it explains main_controller.py, target_geolocation.py and processing_hold.py to teammates."
+  },
+  "mod:ros2_ws/src/main/launch/tracker.launch.xml": {
+   "explain": "THE flight launch file. It starts the six team nodes, each printing to the screen: waypoint_mavros/waypoint (waypoint_manager), gps_ros2/gpstest (gps_mavros_service_node), detection/new_od, video_cam/siyi, mapping/trigger (mission_camera_trigger) and main/main_controller.py. It sets use_sim_time (default false) for all of them and starts image_view only when debug:=true. The other arguments (yolo_model, conf_thres, ...) belong to a commented-out ultralytics tracker and change nothing.",
+   "how_it_fits": "launcher.sh runs it once MAVROS is up ('ros2 launch main tracker.launch.xml'). In the simulator, sim_bringup's team_stack.launch.py includes this same file unchanged and only adds parameters that new_od reads, so the simulator tests exactly the flight launch. The six nodes it starts are the ones the simulator's stack_check waits for (the node names themselves are set in each node's code). Commented-out lines: wp_sender test clients, object_detection_sahi, killnode, the mapping stitcher."
+  },
+  "mod:ros2_ws/src/main/msg/ImageResult.msg": {
+   "explain": "An old, DEAD copy of the detection message. It lacks the latitude/longitude fields the live version has, and main's CMakeLists.txt only copies it (no message type is generated from it).",
+   "how_it_fits": "Not used. The real definition is ros2_ws/src/interfaces/msg/ImageResult.msg (AGENTS.md rule: message definitions live in interfaces only)."
+  },
+  "mod:ros2_ws/src/main/msg/YoloResult.msg": {
+   "explain": "An old, DEAD copy of a YOLO result message (header, a Detection2DArray of boxes, mask images). Nothing generates or uses it.",
+   "how_it_fits": "Not used; interfaces/msg/YoloResult.msg is the generated copy (also unused)."
+  },
+  "mod:ros2_ws/src/main/package.xml": {
+   "explain": "The package manifest of 'main': name, maintainer, license (AGPL-3.0), build type ament_cmake and its dependencies (rclpy, rclcpp, interfaces, sensor_msgs, std_msgs, vision_msgs, video_cam and others; image_view only for the optional debug viewer).",
+   "how_it_fits": "colcon reads it to build packages in the right order (interfaces and video_cam before main). The rosidl lines are left over from when main defined its own messages; wp_sender, which main_controller imports, is not listed."
+  },
+  "mod:ros2_ws/src/main/src/capture_detect_drop.py": {
+   "explain": "A bench test tool (ROS node capture_detect_drop), not part of the flight launch. It triggers the camera once per second on /camera/trigger for capture_seconds (30 s by default), keeps the best person and tent seen on /image_detection, waits until its photos are processed, waits post_capture_wait (10 s), then releases the payloads in drop_order (tent, then person) with DO_SET_SERVO. It never moves the drone: no waypoints, no mode changes.",
+   "how_it_fits": "Lets the team test camera -> detector -> release on the ground with the real siyi and new_od nodes running. Careful: its default servo channels are stale (person 9 and 11, tent 13 and 14; flight uses 11 and 13 only), so pass -p person_servos:=\"[11]\" -p tent_servos:=\"[13]\", or dry_run:=true to send nothing. It writes a JSON run log (capture_detect_drop_<date>_<time>.json) in video_cam's source folder, next to mapping_photos. Run: ros2 run main capture_detect_drop.py."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::Target": {
+   "explain": "Record of the best-so-far detection of one class for the bench test: name, confidence, lat / lon (the photo position from the message), image name, when it was logged, new_od's image timestamp, and how many times the class was seen (hits)."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::Target.__init__": {
+   "explain": "Sets up an empty record for one class name: confidence 0.0 at 0.0, 0.0, no image, 0 hits."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::Target.found": {
+   "explain": "Read-only property: True once the class has been seen with a confidence above 0."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::Target.as_dict": {
+   "explain": "Returns the record as a dict (type, found, confidence rounded to 4 digits, latitude, longitude, image name, times, total sightings) for the JSON run log."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop": {
+   "explain": "The bench-test node class 'capture_detect_drop': capture, detect, then release, run as one sequence on its own thread."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop.__init__": {
+   "explain": "Declares the 19 parameters (capture_seconds 30, capture_period 1, stop_when_both_found false, post_capture_wait 10, processing_timeout 90, servo_open_seconds 3, close_after_release true, inter_drop_wait 0, drop_order [tent, person], person_servos [9, 11], tent_servos [13, 14], open_pwm 1400, close_pwm 500, drop_if_not_detected true, autofocus true, autofocus_period 5, camera_feed_path, log_path, dry_run false), creates the /camera/trigger, /camera/command and /mavros/statustext/send publishers, the /image_detection subscription (RELIABLE depth 10) and the /mavros/cmd/command client, then starts _run_sequence on a background thread.",
+   "effects": "Raises ValueError if drop_order holds anything but 'tent' and 'person'; warns if a target has no servo channels."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._run_sequence": {
+   "explain": "The whole bench test in order: wait for MAVROS, capture, wait for the detector, report, wait post_capture_wait seconds ('Waiting 10s before release'), release each target in drop_order, 'Sequence complete'. Whatever happens it then writes the JSON log, waits 1 s and shuts ROS down, which ends the program.",
+   "called_when": "On its own thread, started at the end of __init__."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._wait_for_command_service": {
+   "explain": "Waits up to 10 s for /mavros/cmd/command. If it does not appear (no Pixhawk connected) it warns and carries on, so the capture-and-detect half still runs. Skipped in dry run."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._capture_phase": {
+   "explain": "Remembers the photos already in the folder (they are ignored), sends 'capture_setup' on /camera/command (zoom and focus), announces 'Capture STARTED @ 1.0Hz (30s)', starts the 1 s trigger timer and the 5 s autofocus timer, waits until capture_seconds have passed (or both targets are found, if asked), then stops the timers and announces 'Capture STOPPED after N triggers'."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._wait_for_processing": {
+   "explain": "Checks once a second until every photo taken in this run has come back on /image_detection, or until processing_timeout (90 s), like main_controller's hold. Then it announces 'All N images processed', 'WARNING: no images captured' or 'Processing timeout; continuing'."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._report_targets": {
+   "explain": "Logs a summary and sends one STATUSTEXT per class, such as 'Best person: 0.87 @ <lat>,<lon>', or 'No tent detected'."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._release": {
+   "explain": "Releases one target's payload: announces 'Releasing payload: <name> (<where>)', sends open_pwm (1400) to each of its servo channels, waits servo_open_seconds (3 s), closes them (500) if close_after_release, and announces 'done: <name> payload released'. A class that was never seen is still released unless drop_if_not_detected is false."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop.image_result_cb": {
+   "explain": "Handles one detector answer: notes the photo as processed and, for every person ('0') or tent ('1') box, counts the sighting, adds it to the run log and keeps it if its confidence is the best so far (with the photo's GPS from the message, not the ground point under the box). A new best gives STATUSTEXT 'Detected <class> <confidence>'; a (0, 0) position gives a warning.",
+   "called_when": "On every /image_detection message."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._trigger_camera": {
+   "explain": "Publishes True on /camera/trigger (one photo request to the siyi node), counts it and logs 'Triggering camera... (#N)'.",
+   "called_when": "Every capture_period seconds (1 s) during the capture phase."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._request_autofocus": {
+   "explain": "Publishes 'autofocus' on /camera/command.",
+   "called_when": "Every autofocus_period seconds (5 s) during the capture phase, if autofocus is on."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop.move_servo": {
+   "explain": "Sends MAV_CMD_DO_SET_SERVO (183) with the channel and PWM through /mavros/cmd/command without waiting; in dry run it only logs '[DRY RUN] servo C -> P us'."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._on_servo_result": {
+   "explain": "Logs the answer to a servo command; on failure it also sends STATUSTEXT 'Servo C move FAILED'."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop.send_ack": {
+   "explain": "Publishes a StatusText (severity 6, INFO) on /mavros/statustext/send for the ground station and logs it."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._both_found": {
+   "explain": "True when both the person and the tent have been found."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._list_images": {
+   "explain": "Returns the set of photo file names (.jpg, .jpeg, .png, .bmp) in the photo folder; if the folder cannot be read it warns and returns an empty set."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._stop_timers": {
+   "explain": "Cancels and destroys the capture and autofocus timers if they exist."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._resolve_camera_feed_path": {
+   "explain": "Finds the photo folder the same way main_controller does (climb to the folder that holds install/ and src/, then src/video_cam/mapping_photos); falls back to ~/astra/ros2_ws."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::CaptureDetectDrop._write_log": {
+   "explain": "Writes the run log as JSON to log_path: start and end time, triggers sent, photos processed, dry_run, drop order, the best person and tent, and every sighting."
+  },
+  "fn:ros2_ws/src/main/src/capture_detect_drop.py::main": {
+   "explain": "Starts ROS, creates the node and spins it on a MultiThreadedExecutor (the sequence thread sleeps while the trigger timer and the /image_detection callbacks keep running). Ctrl-C stops the capture timers; then the node is destroyed and ROS shut down.",
+   "called_when": "When the tool is run (ros2 run main capture_detect_drop.py)."
+  },
+  "mod:ros2_ws/src/main/src/main_controller.py": {
+   "explain": "The mission brain (ROS node main_controller). During the survey it remembers the best person and the best tent the detector reports and works out where on the ground each one is. At the last waypoint before RTL it hovers in GUIDED until every photo has a detector answer (at most 90 s), then inserts one waypoint over each target (tent first, then person) before RTL, flies there in AUTO, hovers 6 s over each, opens that target's release servo for 3 s, and finally sends the drone home (RTL).",
+   "how_it_fits": "Inputs: /image_detection (interfaces/ImageResult from new_od, RELIABLE depth 10), /mavros/mission/waypoints and /mavros/mission/reached from MAVROS, and waypoint_manager's mission indices (read from /waypoint_manager/get_parameters whenever /parameter_events says they changed). Outputs: /addWaypoint (waypoint_manager), /mavros/mission/set_current, /mavros/set_mode (GUIDED / AUTO / RTL), /mavros/cmd/command (MAV_CMD_DO_SET_SERVO 183: channel 13 tent, 11 person, 1400 us open, 500 us closed) and STATUSTEXT on /mavros/statustext/send. To aim it reads each photo's .json sidecar (written by video_cam) in <ws>/src/video_cam/mapping_photos. The simulator's phase monitor and scorer parse its STATUSTEXT texts, so their wording must not change. Target waypoints fly at ALT = 49 m above home (about 160 ft; the code comment '~55ft' is out of date)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::Detection_Object": {
+   "explain": "A small record for the best detection of one target class so far: type ('person' or 'tent'), confidence (0 = nothing found yet), lat / long (the AIM point the drone will fly to and drop on), image_name (the photo it was seen in) and aim_note (how the aim point was worked out, for the log)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::Detection_Object.__init__": {
+   "explain": "Fills a new record with the given type, confidence, latitude and longitude, and sets image_name and aim_note to empty text.",
+   "called_when": "Twice in MainController.__init__: one record for 'person' and one for 'tent', both with confidence 0 at 0.0, 0.0."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController": {
+   "explain": "The ROS 2 node class 'main_controller', the mission brain. It moves through four phases kept in mission_phase: survey -> processing (GUIDED hover until the photos are checked) -> visiting (fly to and drop on each target) -> done."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.__init__": {
+   "explain": "Builds the node: declares the 5 aiming parameters (aim_at_detection_box true, default_camera_pitch_deg -90, default_camera_hfov_deg 81, target_ground_height_m 0, max_aim_offset_m 150), subscribes to /image_detection (RELIABLE depth 10), /mavros/mission/waypoints, /mavros/mission/reached and /parameter_events, creates the /mavros/statustext/send publisher and the service clients, finds the photo folder, and starts the non-blocking read of waypoint_manager's mission indices.",
+   "called_when": "Once, when the script starts (bottom of the file: rclpy.init, MainController(), rclpy.spin).",
+   "effects": "Waits (1 s per try, a log line each time, no time limit) until /mavros/set_mode, /addWaypoint and /mavros/cmd/command exist, so the node only starts working once MAVROS and waypoint_manager are up. Sends a GetParameters request to /waypoint_manager/get_parameters as soon as that service is ready."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._number_parameter": {
+   "explain": "Declares one decimal ROS parameter that also accepts a whole number (dynamic typing) and returns it as a float. If the value is not a real, finite number (true, a typo, .nan, .inf) it logs 'Parameter <name>=<value> is not a number: using the default <default>' and returns the default.",
+   "called_when": "In __init__, for default_camera_pitch_deg, default_camera_hfov_deg, target_ground_height_m and max_aim_offset_m.",
+   "inputs": "name and default (for example 'target_ground_height_m', 0.0); the value comes from '--ros-args -p name:=value'.",
+   "outputs": "A float."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.fetch_mission_indices": {
+   "explain": "Asks the AsyncParameterReader for a fresh read of the mission indices (reason 'mission indices may have changed'). It returns at once; the answer arrives later in _on_mission_indices.",
+   "called_when": "From parameter_event_cb, when waypoint_manager says one of the index parameters changed."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._on_mission_indices": {
+   "explain": "Stores the five mission indices waypoint_manager publishes (num_waypoints, takeoff_index, rtl_index, next_after_takeoff, last_before_rtl) as whole numbers, logs 'Mission indices: takeoff=..., rtl=..., last_before_rtl=... (N items)' when they changed, and recomputes the hold waypoint.",
+   "called_when": "By AsyncParameterReader, on this node's executor, after every successful read (start-up and after each parameter event).",
+   "inputs": "values: a dict {parameter name: value}."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.parameter_event_cb": {
+   "explain": "Watches the ROS-wide /parameter_events topic. When an event comes from /waypoint_manager and one of its changed parameters is num_waypoints, takeoff_index, rtl_index, next_after_takeoff or last_before_rtl, it asks for a fresh read (once per event).",
+   "called_when": "On every /parameter_events message (any node's parameter changes).",
+   "inputs": "msg: rcl_interfaces/ParameterEvent."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.update_waypoint_reached": {
+   "explain": "Reacts to 'reached mission item N' from the autopilot. In the survey phase, reaching the last NAV waypoint before RTL (the hold point; runway example: item 10) starts the processing hold: STATUSTEXT 'Reached last WP. Holding to finish image processing before RTL', GUIDED mode, and a 2 s check timer. In the visiting phase, reaching the current target's waypoint starts the loiter-and-drop sequence, unless a timed sequence is still running.",
+   "called_when": "On every /mavros/mission/reached message (wp_seq = mission index; DO_ items never produce one).",
+   "inputs": "msg: mavros_msgs/WaypointReached.",
+   "effects": "Mode change to GUIDED through /mavros/set_mode; STATUSTEXT (this one is longer than MAVLink's 50 characters, so the ground station sees it cut short)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._divert_to_targets": {
+   "explain": "Runs once when the hold ends and plans the visits: the best tent first, then the best person (only classes found with confidence above 0 and a valid aim point). With nothing found it sends 'No valid targets found. Returning to launch.' and RTL. Otherwise it gives the targets mission indices last_before_rtl + 1, + 2 (runway: tent@11, person@12), asks waypoint_manager to insert them (in reverse order, each at last_before_rtl + 1, so they end up in visit order), sends 'Aim <type> <lat>,<lon>' per target and 'Targets: tent@11 -> person@12. Diverting.', and starts the 'resume AUTO' sequence toward the first target.",
+   "called_when": "From _end_processing_hold (all photos answered, or 90 s passed).",
+   "effects": "/addWaypoint calls (altitude ALT = 49 m above home), STATUSTEXT, mission_phase becomes 'visiting' (or 'done' plus RTL)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._loiter_and_drop": {
+   "explain": "Runs the drop over one target without blocking: STATUSTEXT 'Over <type>: loiter 6s then drop' and GUIDED (hover), then a timed sequence: after 6 s open the target's release servo (1400 us), after 3 s close it (500 us), then fly on in AUTO to the next target. After the last target it says 'All targets done. Waiting 6s then RTL.', waits 6 s more and commands RTL.",
+   "called_when": "From update_waypoint_reached when the drone reaches the waypoint of visit_plan[visit_idx].",
+   "inputs": "target: one visit_plan entry with type, lat, lon, alt, servos ([13] tent, [11] person) and wp.",
+   "effects": "Mode changes (GUIDED, AUTO, RTL) and MAV_CMD_DO_SET_SERVO commands through MAVROS; STATUSTEXT messages."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._loiter_and_drop.after_close": {
+   "explain": "Step that runs right after the servo has closed: it counts this target as done (visit_idx + 1), then switches to AUTO so the drone flies to the next target, or, after the last one, sends 'All targets done. Waiting 6s then RTL.'.",
+   "called_when": "By the StepRunner, right after the close step (3 s after the servo opened)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._loiter_and_drop.go_home": {
+   "explain": "Final step after the last drop: sets mission_phase to 'done', commands RTL and sends the STATUSTEXT 'RTL'.",
+   "called_when": "By the StepRunner, 6 s after the last target's servo closed.",
+   "effects": "ArduPilot flies home and lands."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.valid_detection": {
+   "explain": "Says whether a target class ('person' or 'tent') has been found at all: True when its best confidence is above 0."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.waypoints_cb": {
+   "explain": "Keeps the newest copy of the mission that MAVROS publishes and recomputes the hold waypoint from it.",
+   "called_when": "On every /mavros/mission/waypoints message (after a pull or an upload)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._update_last_nav_before_rtl": {
+   "explain": "Walks the mission backwards from the RTL item and finds the last real flying waypoint (a NAV command, numbers 16-22) before it, because DO_ items such as DigiCamCtrl never send 'reached'. That index (last_nav_before_rtl; runway: 10) is where the processing hold starts; the NAV item before it is kept as buffer_wp (runway: 9). It never looks past the end of the received list and logs only when the answer changes.",
+   "called_when": "After a new mission list (waypoints_cb) and after new indices (_on_mission_indices)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._resolve_camera_feed_path": {
+   "explain": "Finds the photo folder: it climbs up from this script's folder (at most 10 levels) to the first folder that holds both install/ and src/ (the ROS workspace, ros2_ws) and returns <ws>/src/video_cam/mapping_photos; if none is found it uses /astra/ros2_ws/src/video_cam/mapping_photos.",
+   "called_when": "Once, in __init__.",
+   "outputs": "The folder where video_cam saves the photos and their .json sidecars."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._check_all_images_processed": {
+   "explain": "The 2 s check during the GUIDED processing hold. It lists the photos in the photo folder (processing_hold.list_photo_names), compares them with the photo names already answered on /image_detection, and lets processing_hold.decide choose (90 s limit, monotonic clock): keep waiting, or go on with 'All N images processed. Selecting targets.' or a 'Processing timeout ...' text and end the hold.",
+   "called_when": "Every 2 s by the timer that update_waypoint_reached creates; outside the processing phase it cancels its own timer.",
+   "effects": "Logs 'Processing check: x/y images done, z remaining'; warns once (not every 2 s) if the folder cannot be read; STATUSTEXT when the hold ends."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._end_processing_hold": {
+   "explain": "Ends the processing hold for good (cancels the 2 s timer) and runs _divert_to_targets. If the divert itself crashes, it logs the error, sends 'Divert failed. Returning to launch.' and commands RTL, so the drone never keeps hovering.",
+   "called_when": "From _check_all_images_processed when the decision is ALL_DONE or TIMED_OUT."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.get_waypoint": {
+   "explain": "Returns (latitude, longitude, altitude) of mission item N from the stored mission copy, or logs 'Waypoint index N out of range' and returns None. Nothing in the current code calls it."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.locate_detection": {
+   "explain": "Works out where to drop for one detection box. It opens the photo's sidecar, takes the photo's GPS position (the sidecar's fix first, then the 6-decimal file name, last the float32 copy in the message), reads the box centre (bbox.center.position x and y, in pixels) and asks target_geolocation.aim_at_box for the ground point under it. If aim_at_detection_box is false it simply uses the photo's position.",
+   "called_when": "From image_result_cb, only for a box that beats the best confidence of its class.",
+   "inputs": "msg (the ImageResult) and detection (one box).",
+   "outputs": "(AimResult, '') or (None, a reason such as 'the photo has no usable GPS position' or 'the box centre (...) is not a finite number')."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._latlon_from_name": {
+   "explain": "Reads the GPS position out of a photo name like '36.215153 , -96.006786.jpg' (split at ' , ', the same rule as detection/geotag.py) and returns (lat, lon) as numbers, or (None, None) if the name does not have that form."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.image_result_cb": {
+   "explain": "Handles the detector's answer for one photo. It records the photo name as processed (for the hold check). For each box with class '0' (person) or '1' (tent) and a finite score higher than the best so far, it works out the aim point with locate_detection and, if it is usable, stores the new best confidence, aim point, photo name and note and sends STATUSTEXT 'Detected <class>'. A photo with no boxes gives the STATUSTEXT 'No objects detected.'.",
+   "called_when": "On every /image_detection message (one per photo, about one per second during the survey).",
+   "inputs": "msg: interfaces/ImageResult.",
+   "effects": "STATUSTEXT messages; a box without a usable position is ignored with a warning (the old code would have sent the drone to 0,0)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.change_mode": {
+   "explain": "Asks the autopilot to switch flight mode ('GUIDED', 'AUTO' or 'RTL') by calling /mavros/set_mode with custom_mode. It does not wait for the answer (call_async); _on_mode_result logs it later.",
+   "effects": "MAVROS sends the mode change to ArduPilot over MAVLink."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._on_mode_result": {
+   "explain": "Logs the answer to a mode change: 'Mode changed to X' when MAVROS reports mode_sent, otherwise 'Failed to change mode to X'.",
+   "called_when": "When /mavros/set_mode answers (done-callback set by change_mode)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.send_waypoint_data": {
+   "explain": "Sends one /addWaypoint request per target: command 16 (NAV_WAYPOINT), latitude, longitude, altitude and the insert index, channel 0, pwm 0. It does not wait for the answers.",
+   "called_when": "From _divert_to_targets.",
+   "effects": "waypoint_manager inserts each waypoint and uploads the whole mission to the autopilot."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.set_current_wp": {
+   "explain": "Tells the autopilot which mission item to fly to next (/mavros/mission/set_current with wp_seq), without waiting for the answer, and sends STATUSTEXT 'Set current WP -> N'.",
+   "called_when": "By the 'resume AUTO' sequence, 4 s after the targets were sent."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.divert_and_resume": {
+   "explain": "Starts the timed 'resume AUTO' sequence: after 4 s (time for the mission upload to reach the autopilot) point the mission at the first target with set_current_wp, and 1 s later switch to AUTO. Does nothing for a missing or negative index.",
+   "called_when": "From _divert_to_targets, with the first target's mission index."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.divert_and_resume.resume": {
+   "explain": "Last step of the 'resume AUTO' sequence: switches to AUTO and sends STATUSTEXT 'Resumed AUTO -> WP N', so the drone flies to the first target.",
+   "called_when": "By the StepRunner, 1 s after set_current_wp."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.open_servos": {
+   "explain": "Opens the given release servo channels together (PWM 1400 us) with move_servo, logging 'Opening servos [..] for 3s'.",
+   "called_when": "By the drop sequence, 6 s after arriving over a target."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.close_servos": {
+   "explain": "Closes the given release servo channels together (PWM 500 us) with move_servo.",
+   "called_when": "By the drop sequence, 3 s after opening."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.actuate_servos": {
+   "explain": "Opens the given servos and closes them 3 s later with a one-shot timer (call_later), never blocking. Only the commented-out start-up servo self-test refers to it, so it is not called in flight."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.move_servo": {
+   "explain": "Sends MAV_CMD_DO_SET_SERVO (command 183) through /mavros/cmd/command: param1 = servo output channel, param2 = PWM in microseconds, the other params 0. Fire-and-forget: the answer is handled by _on_servo_result.",
+   "inputs": "channel (11 person, 13 tent) and pwm (1400 open, 500 closed).",
+   "effects": "The Pixhawk moves that output (in the simulator, payload_release lets the payload fall when the output reaches 1400 us)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController._on_servo_result": {
+   "explain": "Handles the autopilot's answer to a servo command: on success it logs and sends STATUSTEXT 'Servo C -> PWM' (the simulator counts 'Servo 13 -> 1400' as a drop), otherwise 'Servo C move FAILED'.",
+   "called_when": "When /mavros/cmd/command answers (done-callback set by move_servo)."
+  },
+  "fn:ros2_ws/src/main/src/main_controller.py::MainController.send_ack": {
+   "explain": "Sends a text to the ground station: publishes a mavros_msgs/StatusText with severity 6 (INFO) on /mavros/statustext/send and writes 'Status: <text>' to the log.",
+   "effects": "MAVROS forwards it as a MAVLink STATUSTEXT (cut at 50 characters) to Mission Planner; the simulator's phase monitor and scorer read these texts."
+  },
+  "mod:ros2_ws/src/main/src/old_main_controller.py": {
+   "explain": "The previous, DEAD version of the mission brain, kept for reference. It flew to the drone's own position at the photo (no aiming), read the mission indices with a blocking call, had no hover-and-drop sequence (that code is commented out) and imports ImageResult from ultralytics_ros, a package that is not built.",
+   "how_it_fits": "Not installed by CMakeLists.txt and not launched. It shows the bugs the October 2026 fixes removed (a blocking parameter read that crashed, blocking waits inside callbacks such as its move_servo, targets at 0,0). Do not build on it; main_controller.py replaced it."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::Detection_Object": {
+   "explain": "Old record of the best detection of one class: type, confidence, lat and long (the photo's own position)."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::Detection_Object.__init__": {
+   "explain": "Stores the given type, confidence, latitude and longitude."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController": {
+   "explain": "The old main_controller node class (same node name). DEAD: replaced by main_controller.py."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.__init__": {
+   "explain": "Creates the same subscriptions and publisher as the new controller, waits for /mavros/set_mode and /addWaypoint, then builds a blocking ParameterManager (a second node) and reads the mission indices straight away."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.fetch_mission_indices": {
+   "explain": "Reads the five mission indices with the BLOCKING ParameterManager.get_param and unpacks the answer. When that read timed out it got None and this line crashed the node: the bug fixed in October 2026."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.parameter_event_cb": {
+   "explain": "Like the new version: re-reads the indices when /waypoint_manager reports a changed index parameter, but here the re-read blocks inside the callback."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.update_waypoint_reached": {
+   "explain": "At the last NAV waypoint before RTL it sent the targets found so far straight to /addWaypoint (both: 'Both person and tent detected!' and 'Going to tent FIRST, then human'; or only the one found). There was no wait for the detector and no drop: the hover-and-servo code is commented out."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.valid_detection": {
+   "explain": "True when that class's best confidence is above 0."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.waypoints_cb": {
+   "explain": "Stores the newest mission list and recomputes the hold waypoint."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController._update_last_nav_before_rtl": {
+   "explain": "The same backwards search for the last NAV waypoint before RTL as the new version, but without the guard for an rtl_index larger than the received list (it could read past the end)."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController._resolve_camera_feed_path": {
+   "explain": "The same photo-folder search as the new version (<ws>/src/video_cam/mapping_photos, fallback /astra/ros2_ws/src/video_cam/mapping_photos)."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController._check_all_images_processed": {
+   "explain": "Old 2 s check that switched to AUTO once every photo had an answer. With an unreadable folder it only logged the error and could never end; in this file nothing starts its timer anyway (that code is commented out)."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.get_waypoint": {
+   "explain": "Returns (lat, lon, alt) of mission item N (only for N above 0) or None; not called."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.image_result_cb": {
+   "explain": "Old detection handler: keeps the highest-confidence person and tent with the photo's own GPS from the message (no aiming, no NaN or (0, 0) checks)."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.change_mode": {
+   "explain": "Sends the mode change with call_async, then reads the answer at once (before it can have arrived) and looks for a field 'mode' that does not exist, so it always logs an error even though the mode request itself was sent."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.send_waypoint_data": {
+   "explain": "Tried to send all targets in one /addWaypoint request by putting LISTS into the fields; with today's AddWaypoint.srv (one waypoint per call) that raises and only an error is logged."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.move_servo": {
+   "explain": "Sends DO_SET_SERVO and then BLOCKS with spin_until_future_complete (unsafe inside a callback); afterwards it calls a send_status method that does not exist in this class."
+  },
+  "fn:ros2_ws/src/main/src/old_main_controller.py::MainController.send_ack": {
+   "explain": "Publishes a StatusText (severity 6) on /mavros/statustext/send and logs it."
+  },
+  "mod:ros2_ws/src/main/src/processing_hold.py": {
+   "explain": "Pure-Python rules (no ROS) for main_controller's 'wait for the detector' hover. list_photo_names lists the photo files in the photo folder without ever crashing, and decide compares them with the photo names the detector has already answered and says WAIT, ALL_DONE or TIMED_OUT.",
+   "how_it_fits": "main_controller._check_all_images_processed calls both every 2 s while the drone hovers in GUIDED at the last survey waypoint. It was split out after the Task 2 review: before, a missing or unreadable folder raised an error on every check, the 90 s limit was never reached and the drone hovered until a failsafe; now the hold always ends. Tested by test/test_processing_hold.py."
+  },
+  "fn:ros2_ws/src/main/src/processing_hold.py::list_photo_names": {
+   "explain": "Lists the photo files (.jpg, .jpeg, .png, .bmp, any letter case) in a folder and never raises: it returns (set of names, '') or, when the folder is missing, unreadable or not a folder, (None, a short reason such as 'FileNotFoundError: No such file or directory')."
+  },
+  "fn:ros2_ws/src/main/src/processing_hold.py::HoldDecision": {
+   "explain": "The answer of decide(): action (WAIT, ALL_DONE or TIMED_OUT) plus the counts for the log (processed, total, remaining) and whether the folder could be read."
+  },
+  "fn:ros2_ws/src/main/src/processing_hold.py::decide": {
+   "explain": "Decides whether the hover goes on. Unreadable folder: WAIT until the deadline, then TIMED_OUT. Readable folder: ALL_DONE when every photo in it has a detector answer (an empty folder counts as done), TIMED_OUT when time is up, otherwise WAIT. A broken elapsed time (NaN) counts as timed out, so the hold can never last for ever.",
+   "inputs": "photo_names (or None), answered_names, elapsed_s (monotonic seconds since the hold began), timeout_s (90).",
+   "outputs": "A HoldDecision."
+  },
+  "mod:ros2_ws/src/main/src/target_geolocation.py": {
+   "explain": "The drop-aiming math, in pure Python (no ROS). It turns the pixel position of a detection box in a photo into a latitude / longitude on the ground: using the photo's sidecar (height above home, heading, field of view, zoom, gimbal angles, how the photo is turned) it shoots an imaginary ray from the camera through that pixel, finds where the ray hits flat ground, and moves the photo's GPS point by that many metres east / north with ArduPilot's own formula. Anything that is NaN, infinite or out of range is refused, so it can never become a waypoint.",
+   "how_it_fits": "main_controller.locate_detection calls read_photo_sidecar, photo_position, jpeg_size and aim_at_box for every new best detection. Before October 2026 the drone dropped where it was when the photo was taken (14-25 m misses in the simulator); with this file the simulator drops land within a few metres of the targets (0.05-2.5 m in the runs recorded in docs/HANDOFF.md, docs/simulation/WHAT_CHANGED.md and docs/lattice/BRIDGE.md). The sidecar format 'astra.photo_metadata.v1' comes from video_cam/photo_metadata.py. On disk on 2026-10-31 the work-in-progress lattice_bridge package also loads this file to place targets. Tested by test/test_target_geolocation.py."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::is_finite_number": {
+   "explain": "Returns True only if every value given is a real, finite number. NaN ('not a number'), plus or minus infinity, True / False and anything that cannot be turned into a number make it False.",
+   "called_when": "Before the calculations in this file and in main_controller (box centre, score, settings)."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::valid_latlon": {
+   "explain": "Says whether (lat, lon) is a usable GPS position: both finite, latitude within +-90, longitude within +-180, and not (0, 0) ('Null Island', which the autopilot reports before it has a GPS lock)."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::wrap_360": {
+   "explain": "Turns any angle into the range 0 up to (not including) 360 degrees; for example -90 becomes 270."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::focal_length_px": {
+   "explain": "Computes the camera's focal length in pixels: (picture width / 2) divided by (tan(field of view / 2) / zoom). Example: a 2560-pixel-wide photo with an 81 degree view at zoom 1 gives about 1499 px, so from 30 m up one pixel near the centre covers about 2 cm of ground.",
+   "inputs": "width_px, hfov_deg, zoom (1 = widest; zoom narrows the view)."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::offset_to_latlon": {
+   "explain": "Moves a GPS point by some metres east and north and returns the new latitude / longitude, with ArduPilot's own flat-earth formula (about 111,318.8 m per degree of latitude; longitude scaled by the cosine of the latitude), so the result is exactly the point the autopilot will fly to."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::latlon_to_offset": {
+   "explain": "The opposite of offset_to_latlon: returns how many metres east and north the point (lat, lon) is from (lat0, lon0). main_controller does not use it; the tests do."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::compass_name": {
+   "explain": "Names the direction of a ground offset with one of 8 words ('north', 'north-east', 'east', ... 'north-west') for the log messages."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::pixel_to_ground_offset": {
+   "explain": "The core geometry: finds where pixel (u, v) of a photo lands on flat ground, as metres east and north of the point straight below the camera. It undoes the photo's turn (image_top_direction_deg), builds the camera's forward / right / down directions from its compass heading and pitch, shoots a ray through the pixel and finds where it meets the ground height_m below. It returns None for the sky or the horizon, for anything farther than max_range_m, and for impossible inputs (NaN, zero size, height of 0 or less, field of view outside 0-180 degrees).",
+   "inputs": "u, v, image_width, image_height, hfov_deg, height_m, camera_heading_deg, camera_pitch_deg (-90 = straight down), image_top_direction_deg, zoom, max_range_m.",
+   "outputs": "(east_m, north_m) or None."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::jpeg_size": {
+   "explain": "Reads a JPEG file's width and height from its header markers (the frame header) without decoding the picture. Returns (width, height), or None if the file is missing or not a JPEG."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::sidecar_path_for": {
+   "explain": "Returns the sidecar file of a photo: same folder and name, with .json instead of .jpg (for example '36.215153 , -96.006786.json')."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::read_photo_sidecar": {
+   "explain": "Opens a photo's .json sidecar and returns it as a dict only if its 'format' is 'astra.photo_metadata.v1' (what video_cam writes); returns None if the file is missing, broken or in another format."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::_num": {
+   "explain": "Safely digs a number out of nested dicts (for example meta['camera']['zoom_x']) and returns it as a float, or None if a key is missing or the value is not a finite number."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::photo_position": {
+   "explain": "Picks the drone's GPS position for a photo: the sidecar's exact position.lat / lon if it is valid, otherwise the position from the file name, otherwise None (NaN, infinity, out-of-range values and (0, 0) are all refused)."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::AimResult": {
+   "explain": "The answer for one detection: lat and lon of the aim point, method ('box' = projected from the box centre, 'photo' = the photo's own position), east_m and north_m (how far the aim point is from the photo position) and a one-line note for the log."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::AimResult.offset_m": {
+   "explain": "Read-only property: the straight-line distance in metres between the aim point and the photo position (from east_m and north_m)."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::aim_at_box": {
+   "explain": "Computes the aim point of one detection box. From the sidecar it takes the height (rel_alt_m minus target_ground_height_m), heading, field of view, zoom, photo turn and gimbal angles (the gimbal pitch is trusted only between -120 and -30 degrees, otherwise default_pitch_deg is used, -90 = straight down), projects the box centre with pixel_to_ground_offset and turns the offset into lat / lon. If a piece is missing or odd (no sidecar, no height or heading, lower than 3 m, zoom moving at the shutter, size unknown, farther than 150 m) it falls back to the photo position and says why in the note.",
+   "inputs": "meta (sidecar dict or None), photo_lat, photo_lon, u, v (box centre in pixels), image_size, default_pitch_deg -90, default_hfov_deg 81, ground_height_m 0, max_offset_m 150, min_height_m 3.",
+   "outputs": "AimResult (method 'box' or 'photo'), or None when the photo position or the box centre is unusable: that detection must then be ignored."
+  },
+  "fn:ros2_ws/src/main/src/target_geolocation.py::aim_at_box.fallback": {
+   "explain": "Makes the 'fall back to the old behaviour' answer: an AimResult at the photo's own position, method 'photo', with the note 'photo position (<reason>)'."
+  },
+  "mod:ros2_ws/src/main/src/timed_steps.py": {
+   "explain": "A tiny helper that runs a list of 'wait X seconds, then do Y' steps on a ROS node without ever blocking it: each wait is a one-shot ROS timer instead of time.sleep. StepRunner runs one sequence at a time; call_later runs one function once after a delay. It has no ROS imports, so it is tested with a fake clock.",
+   "how_it_fits": "main_controller uses it for its two timed sequences: 'resume AUTO' (4 s, set current waypoint, 1 s, AUTO) and 'drop on the <target>' (6 s hover, open servo, 3 s, close, and after the last target 6 s then RTL). Before October 2026 these were time.sleep calls that froze the whole node for up to 15 s. Tested by test/test_timed_steps.py."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner": {
+   "explain": "Runs a list of (delay in seconds, label, function) steps one after another on a ROS node, each after its delay, with one-shot timers instead of sleeping; only one sequence at a time."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner.__init__": {
+   "explain": "Makes an idle runner bound to one node (it uses that node's create_timer, destroy_timer and get_logger): no steps, no timer, empty name."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner.busy": {
+   "explain": "Read-only property: True while a sequence is running (a timer is waiting or steps are left).",
+   "called_when": "main_controller checks it so that a repeated 'reached' message cannot start a second drop."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner.start": {
+   "explain": "Starts a named sequence and returns True; if another sequence is still running it changes nothing, logs 'Sequence ... not started: ... is still running' and returns False.",
+   "inputs": "name (for example 'drop on the tent') and steps: a list of (delay_s, label, function)."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner.cancel": {
+   "explain": "Stops the running sequence: removes its timer and forgets the remaining steps. main_controller does not call it."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner._drop_timer": {
+   "explain": "Cancels and destroys the current timer, if there is one, and forgets it."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner._schedule_next": {
+   "explain": "Runs every step that is due right now (delay 0) and, for the next step with a delay, arms one timer for that many seconds; when no steps are left it marks the runner idle."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner._on_timer": {
+   "explain": "Timer callback: removes the timer first (ROS timers repeat), runs the waiting step, then schedules the next one.",
+   "called_when": "When the one-shot timer of the current step fires."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::StepRunner._run": {
+   "explain": "Runs one step's function and remembers its label. If the function raises, it logs the error with the full traceback and carries on, so one failing step (for example a servo command) cannot stop later steps such as RTL."
+  },
+  "fn:ros2_ws/src/main/src/timed_steps.py::call_later": {
+   "explain": "Calls a function once, delay_s seconds from now, on the node's own executor, by starting a one-step StepRunner named 'call later'; returns that runner so it can be cancelled.",
+   "called_when": "By MainController.actuate_servos (which is not used in flight)."
+  },
+  "mod:ros2_ws/src/main/test/test_controller_robustness.py": {
+   "explain": "Test file (needs ROS sourced, about 20 s). It runs the REAL main_controller node in its own isolated ROS domain next to fake MAVROS services and a fake waypoint_manager, makes one mission-index read time out (answer after 6.5 s, the reader gives up after 5 s) and one read come back incomplete, and checks that the node keeps running, keeps the old indices, retries by itself and then picks up the new ones.",
+   "how_it_fits": "Guards the October 2026 crash fix (AsyncParameterReader) at node level; registered in CMakeLists.txt for colcon test."
+  },
+  "mod:ros2_ws/src/main/test/test_controller_safety.py": {
+   "explain": "Test file (needs ROS sourced for the import). It runs the real MainController methods on a small stand-in object, with no node and nothing sent to an autopilot, and checks that the processing hold ends at 90 s even with a missing or unreadable photo folder (logged once, not every 2 s), that a wall-clock jump cannot stretch it, that a failing divert sends the drone home, and that a NaN / infinite GPS, box centre or score never becomes a target.",
+   "how_it_fits": "Guards the Task 2 real-drone fixes inside main_controller.py."
+  },
+  "mod:ros2_ws/src/main/test/test_number_parameters.py": {
+   "explain": "Test file (needs ROS sourced). For the aiming parameters it starts a throw-away node in an isolated ROS domain with a command-line override (for example target_ground_height_m:=3, 3.5, true, typo, .nan, .inf) and checks that MainController._number_parameter returns a float, accepts whole numbers and falls back to the default for anything that is not a finite number.",
+   "how_it_fits": "Guards that a mistyped parameter can never stop main_controller from starting or turn every aim point into NaN."
+  },
+  "mod:ros2_ws/src/main/test/test_processing_hold.py": {
+   "explain": "Pure test file (plain Python, no ROS) for processing_hold.py: listing a missing folder, a file instead of a folder, or a folder without permission never raises; only photo files are counted; an unreadable folder means 'keep waiting' until the deadline and then always 'timed out'; and a NaN elapsed time ends the hold.",
+   "how_it_fits": "Proves the GUIDED hover before the divert can never last for ever."
+  },
+  "mod:ros2_ws/src/main/test/test_target_geolocation.py": {
+   "explain": "Pure test file (plain Python, no ROS) for the drop-aiming math: hand-checkable geometry (centre pixel straight below, image edges, every heading, a turned photo, a tilted camera, the sky), the ArduPilot lat/lon formula, the JPEG size reader, the sidecar contract with video_cam's writer, every fallback, NaN / infinity refusal, and how big the error gets on sloped ground. It also replays the best hiker and tent detections of three recorded simulator runs: the old code missed by 14-25 m, the new aim must land within 2 m.",
+   "how_it_fits": "Pins target_geolocation.py so a change cannot quietly move the drops."
+  },
+  "mod:ros2_ws/src/main/test/test_timed_steps.py": {
+   "explain": "Pure test file (plain Python, no ROS). A fake node with a clock moved by hand checks that StepRunner runs steps in order at the right times, never early and each only once, refuses a second sequence while one runs, survives a failing step, cancels cleanly, plus call_later and main_controller's real drop timing (6 s hover, open, 3 s, close, 6 s, RTL).",
+   "how_it_fits": "Guards the replacement of main_controller's time.sleep calls."
+  },
+  "mod:ros2_ws/src/payload/package.xml": {
+   "explain": "Package manifest of payload: ament_python, needs rclpy, std_msgs and mavros_msgs, plus the ament lint tools and pytest for its tests.",
+   "how_it_fits": "Lets colcon build the (dead) payload package."
+  },
+  "mod:ros2_ws/src/payload/payload/__init__.py": {
+   "explain": "An empty file that makes the folder a Python package, so 'import payload.<module>' works.",
+   "how_it_fits": "Plumbing only."
+  },
+  "mod:ros2_ws/src/payload/payload/payload.py": {
+   "explain": "DEAD node servo_controller (command 'payload'). It waits for /mavros/cmd/command and /mavros/set_mode, sends MAV_CMD_DO_SET_SERVO to open servo 9 (bottle) and servo 10 (beacon) to 1900 microseconds, and exits. The closing step and all the Jetson GPIO limit-switch / hall-sensor code are commented out.",
+   "how_it_fits": "Superseded: main_controller now drops on channels 11 (person) and 13 (tent) at 1400 us open / 500 us closed, and the simulator's astra_sitl.parm and payload_release follow main_controller, not this file. Not in tracker.launch.xml."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController": {
+   "explain": "Old payload node class 'servo_controller' (DEAD)."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController.__init__": {
+   "explain": "Creates clients for /mavros/cmd/command and /mavros/set_mode, waits for both, and creates the /mavros/statustext/send publisher (status texts limited to one per 5 s when throttled)."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController.wait_for_services": {
+   "explain": "Waits, 1 s per try with no limit, until /mavros/cmd/command and /mavros/set_mode exist."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController.move_servo": {
+   "explain": "Sends MAV_CMD_DO_SET_SERVO (183) with the channel and PWM, blocks until the autopilot answers, and reports 'Servo C -> P' or 'Servo C move FAILED' as STATUSTEXT."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController.send_status": {
+   "explain": "Publishes a StatusText (severity 6) on /mavros/statustext/send; with throttle=True at most one every 5 s."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::ServoController.run_sequence": {
+   "explain": "Opens servo 9 (bottle) and servo 10 (beacon) to 1900 us. The 3 s wait and the close commands are commented out."
+  },
+  "fn:ros2_ws/src/payload/payload/payload.py::main": {
+   "explain": "The 'payload' command: starts ROS, creates the node, runs run_sequence once, then shuts down."
+  },
+  "mod:ros2_ws/src/payload/resource/payload": {
+   "explain": "An empty marker file. ROS 2 installs it into share/ament_index so 'ros2 run' and 'ros2 launch' can find the package 'payload' by name.",
+   "how_it_fits": "Standard ament_python plumbing; nothing to edit."
+  },
+  "mod:ros2_ws/src/payload/setup.cfg": {
+   "explain": "Tells setuptools to put this package's runnable commands ('payload') into lib/payload, the folder 'ros2 run payload <command>' looks in.",
+   "how_it_fits": "Standard ament_python plumbing."
+  },
+  "mod:ros2_ws/src/payload/setup.py": {
+   "explain": "Python install script of payload: installs the payload Python package and makes the command 'payload' (runs payload.payload:main).",
+   "how_it_fits": "The command is not used by tracker.launch.xml."
+  },
+  "mod:ros2_ws/src/payload/test/test_copyright.py": {
+   "explain": "Standard ament template test that would check copyright headers; it is marked skip, so it never runs.",
+   "how_it_fits": "Lint only, not a functional test."
+  },
+  "mod:ros2_ws/src/payload/test/test_flake8.py": {
+   "explain": "Standard ament template test that runs the flake8 style checker over the package. AGENTS.md lists these template lint tests as pre-existing failures, so the functional test runs leave them out.",
+   "how_it_fits": "Lint only; the CI gate that can fail is 'ruff check ros2_ws/src' instead."
+  },
+  "mod:ros2_ws/src/payload/test/test_pep257.py": {
+   "explain": "Standard ament template test that runs the pep257 docstring style checker over the package; like test_flake8 it is a pre-existing failure (AGENTS.md) and is left out of the functional test runs.",
+   "how_it_fits": "Lint only."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/README.md": {
+   "explain": "Human guide to waypoint_manager: the six index parameters with the runway example values (num_waypoints 12, takeoff_index 1, next_after_takeoff 2, rtl_index 11, last_before_rtl 10, buffer_wp 9; -1 / -2 mean 'not known yet'), the October 2026 'stale mission' fix (when it re-reads the mission), the Task 2 fixes (45 s pull deadline, NaN targets refused) and how to run the tests.",
+   "how_it_fits": "Documentation only."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/package.xml": {
+   "explain": "Package manifest of waypoint_mavros: an ament_python package that needs rclpy, mavros_msgs, interfaces, std_msgs and rcl_interfaces at run time.",
+   "how_it_fits": "Tells colcon to build interfaces first. The maintainer and license fields are still the ROS template placeholders."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/resource/waypoint_mavros": {
+   "explain": "An empty marker file. ROS 2 installs it into share/ament_index so 'ros2 run' and 'ros2 launch' can find the package 'waypoint_mavros' by name.",
+   "how_it_fits": "Standard ament_python plumbing; nothing to edit."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/setup.cfg": {
+   "explain": "Tells setuptools to put this package's runnable commands ('waypoint', 'killnode') into lib/waypoint_mavros, the folder 'ros2 run waypoint_mavros <command>' looks in.",
+   "how_it_fits": "Standard ament_python plumbing."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/setup.py": {
+   "explain": "The Python install script of waypoint_mavros. It installs the waypoint_mavros Python package and makes two commands: 'waypoint' (runs waypoint.main, the waypoint_manager node used in flight) and 'killnode' (runs killnode.main: dead and dangerous, never run it).",
+   "how_it_fits": "tracker.launch.xml starts <node pkg=\"waypoint_mavros\" exec=\"waypoint\">, which is the command defined here."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/test/test_copyright.py": {
+   "explain": "Standard ament template test that would check copyright headers; it is marked skip, so it never runs.",
+   "how_it_fits": "Lint only, not a functional test."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/test/test_flake8.py": {
+   "explain": "Standard ament template test that runs the flake8 style checker over the package. AGENTS.md lists these template lint tests as pre-existing failures, so the functional test runs leave them out.",
+   "how_it_fits": "Lint only; the CI gate that can fail is 'ruff check ros2_ws/src' instead."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/test/test_mission_sync.py": {
+   "explain": "Pure test file (plain Python, no ROS) for mission_sync.py: runway mission indices, the 'not known' values of an empty mission, no left-over values from the previous mission, inserted targets moving RTL down, the 'Flight plan received' text, every rule of the re-read policy (delay, merging, one more pull after a busy one, ignoring our own upload's echo, waiting for MAVROS, retry then give up, the 45 s timeout and recovery), and the NaN / (0, 0) target check.",
+   "how_it_fits": "Guards the 'stale mission' fix."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/test/test_pep257.py": {
+   "explain": "Standard ament template test that runs the pep257 docstring style checker over the package; like test_flake8 it is a pre-existing failure (AGENTS.md) and is left out of the functional test runs.",
+   "how_it_fits": "Lint only."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/test/test_waypoint_node.py": {
+   "explain": "Node test file (needs ROS sourced). It builds the REAL WaypointManager in an isolated ROS domain (never spun, so it cannot touch a simulator or a drone) with a /mavros/mission/pull client that never answers and a clock moved by hand, and checks that a hung pull is abandoned after the deadline while the last mission and its parameters stay the same, that a late answer is ignored, that arming still gets a fresh read, and that a NaN / infinite / (0, 0) target waypoint is never inserted while a good one is.",
+   "how_it_fits": "Guards the Task 2 fixes in waypoint.py."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/__init__.py": {
+   "explain": "An empty file that makes the folder a Python package, so 'import waypoint_mavros.<module>' works.",
+   "how_it_fits": "Plumbing only."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/add_features.py": {
+   "explain": "A DEAD 4-line leftover script: it copies a file named waypoint2.py in the current folder to waypoint2.py.bak2 and prints 'Backup'. Nothing imports or runs it (there is no waypoint2.py here).",
+   "how_it_fits": "Not part of the system; safe to ignore."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py": {
+   "explain": "A DEAD and DANGEROUS node (Kill_node, command 'killnode'). It was meant to wait for a ground-station text containing 'systemid', move the photos from mapping_photos to camera_feed, and power the Jetson off with 'sudo shutdown -h now' using a password written in the source. As written it never subscribes to anything and crashes at start-up (it calls a method param_pull that does not exist).",
+   "how_it_fits": "Commented out in tracker.launch.xml and never launched. AGENTS.md: never run it on a development machine (once fixed it would shut the computer down)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode": {
+   "explain": "Node class 'Kill_node' (DEAD, dangerous): meant to move the photos and power the Jetson off on a ground-station command."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode.__init__": {
+   "explain": "Creates a /mavros/statustext/send publisher, sets the photo folders (/home/astra-dev/astra/ros2_ws/src/video_cam/mapping_photos -> camera_feed), sends 'Killnode is here', waits for /mavros/param/get_parameters, then calls self.param_pull(), which does not exist, so the node crashes here."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode.listener_callback": {
+   "explain": "If a text contains 'systemid' it would send feedback, move all photos and shut the Jetson down. No subscription uses it, so it is never called."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode.send_back": {
+   "explain": "Publishes a StatusText (severity 6) with the given text for the ground station's Messages tab."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode.transfer_photos": {
+   "explain": "Creates the destination folder and moves every .png / .jpg / .jpeg file from mapping_photos to camera_feed.",
+   "effects": "Moves files on disk (the detector and main_controller would no longer see them)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::KillNode.shutdown_jetson": {
+   "explain": "Runs 'sudo -S shutdown -h now' with a password stored in the source code: the computer powers off at once.",
+   "effects": "Powers the machine off. Never run it on a development machine."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/killnode.py::main": {
+   "explain": "Entry point of the 'killnode' command: starts ROS, creates KillNode (which, as written, crashes in its constructor), spins, then cleans up."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py": {
+   "explain": "The pure-Python rules (no ROS) that keep waypoint_manager's copy of the mission fresh: derive_mission_indices works out the six landmark indices from the list of mission commands, changed_indices finds which ones changed, is_new_mission_text spots ArduPilot's 'Flight plan received', nav_waypoint_is_valid refuses NaN / infinite / (0, 0) target positions, and MissionRepullPolicy decides WHEN to ask MAVROS to read the mission again (2 s after a trigger, triggers merged, never during our own upload, retried, abandoned after 45 s).",
+   "how_it_fits": "waypoint.py calls these from its callbacks and its 0.5 s timer. They fix the October 2026 'stale mission' bug: MAVROS never re-reads a mission after a ground station uploads one, so a mission uploaded after ./launcher.sh used to stay invisible to the team code (buffer_wp -2, photos never stopped, no hold). Tested by test/test_mission_sync.py."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::derive_mission_indices": {
+   "explain": "Works out the mission landmarks from the list of MAVLink command numbers, starting from -1 every time: takeoff_index = the NAV_TAKEOFF (22) item, next_after_takeoff = the item after it, rtl_index = the NAV_RETURN_TO_LAUNCH (20) item, last_before_rtl = the item before RTL, buffer_wp = last_before_rtl - 1, num_waypoints = the number of items (home included). Runway mission: 1, 2, 11, 10, 9 and 12.",
+   "inputs": "commands: the command number of every mission item, item 0 (home) first.",
+   "outputs": "A dict with the six INDEX_NAMES."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::changed_indices": {
+   "explain": "Returns only the entries of the new index dict whose value differs from the old one (a missing old value counts as changed)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::is_new_mission_text": {
+   "explain": "True when an autopilot text contains 'flight plan received' (any letter case): what ArduPilot sends when a ground station finishes uploading a mission."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::nav_waypoint_is_valid": {
+   "explain": "Says whether a NAV_WAYPOINT may be uploaded: latitude, longitude and altitude must be finite numbers, the position within +-90 / +-180 degrees, and not (0, 0). It is the last safety check before the autopilot."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy": {
+   "explain": "A small decision maker (no ROS) for WHEN waypoint_manager asks MAVROS to read the mission again: it waits a moment after a trigger, merges triggers, ignores the echo of our own upload, waits for the service, retries, and abandons a read that never gets an answer."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.__init__": {
+   "explain": "Sets the timings (delay_s 2 s after a trigger, own_push_quiet_s 15 s, retry_delay_s 2 s, max_attempts 3, pull_timeout_s 45 s, which is longer than MAVROS's own 30 s limit for reading a mission) and starts with nothing to do."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.request": {
+   "explain": "Asks for a pull delay_s from now. If a pull is already running, the reason is kept for one more pull afterwards; if one is already planned, the reasons are merged instead of planning a second."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.on_new_mission_text": {
+   "explain": "Handles 'Flight plan received': ignored (returns False) when it comes within 15 s of our own upload, otherwise it plans a pull and returns True."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.on_armed": {
+   "explain": "Handles arming: plans a pull 0.5 s from now, one last read before take-off."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.on_own_push": {
+   "explain": "Remembers the time of waypoint_manager's own mission upload (the target waypoints), which starts the 15 s quiet window."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.next_action": {
+   "explain": "Says what to do now: ACTION_TIMEOUT if the pull in flight has waited 45 s, ACTION_PULL if a pull is due and allowed, otherwise None. A due pull is put off to the end of the 15 s window after our own upload (MAVROS refuses a pull during a push), or by 2 s when the service is not ready.",
+   "inputs": "now (monotonic seconds) and service_ready."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.pulled": {
+   "explain": "Records that the pull request was just sent: in flight, sent at 'now', nothing else planned."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/mission_sync.py::MissionRepullPolicy.finished": {
+   "explain": "Records how the pull ended and returns 'ok', 'retry' (another try in 2 s) or 'gave_up' (after 3 failures in a row). A trigger that arrived while the pull was running is then planned."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py": {
+   "explain": "The waypoint_manager node. It mirrors the autopilot's mission from /mavros/mission/waypoints, publishes num_waypoints, takeoff_index, next_after_takeoff, rtl_index, last_before_rtl and buffer_wp as its own ROS parameters (only the changed ones, in one update), and serves /addWaypoint: insert a NAV_WAYPOINT (or DO_SET_SERVO) into the copy and upload the WHOLE mission with /mavros/mission/push. It asks MAVROS to re-read the mission after 'Flight plan received', when the drone is armed, and at start-up, without ever blocking.",
+   "how_it_fits": "Started by tracker.launch.xml (package waypoint_mavros, command waypoint). Its parameters are read by the photo trigger (buffer_wp: stop the photos) and by main_controller (where to hold and where to insert targets); main_controller is its only /addWaypoint client in flight. It also serves /delWaypoint and /updateMission (not used in flight) and sends the STATUSTEXT texts 'Heartbeat established', 'Mission re-read (N items)' and 'Object waypoint reached. Holding for 3 seconds.' (over a target waypoint, whose hold time is 3 s)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager": {
+   "explain": "The node class 'waypoint_manager': mission copy, index parameters and the /addWaypoint service."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.__init__": {
+   "explain": "Builds the node: subscribes to /mavros/state, /mavros/mission/reached, /mavros/mission/waypoints and /mavros/statustext/recv, creates the /mavros/statustext/send publisher and clients for /mavros/mission/pull, /mavros/mission/push, /mavros/mission/clear and /mavros/set_mode, offers the services /addWaypoint, /delWaypoint and /updateMission, declares the six index parameters (num_waypoints 0, the others -1), and starts the MissionRepullPolicy with a 0.5 s timer.",
+   "called_when": "Once at start-up (from the module's main())."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.state_callback": {
+   "explain": "Stores MAVROS's connected and armed flags. At the moment the drone becomes armed (not counting the very first message) it asks for a mission re-read: the last chance to pick up a mission that was uploaded without notice.",
+   "called_when": "On every /mavros/state message."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.waypoints_list": {
+   "explain": "Stores the mission MAVROS publishes, works out the six indices from scratch (derive_mission_indices; runway: takeoff 1, next 2, rtl 11, last_before_rtl 10, buffer_wp 9, 12 items), logs them, and publishes only the changed ones as parameters in ONE atomic update.",
+   "called_when": "On every /mavros/mission/waypoints message (after a pull, an upload or MAVROS start-up).",
+   "effects": "One /parameter_events message, which makes main_controller and the photo trigger re-read their indices."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.reset_indices": {
+   "explain": "Would set every index back to 'not known' (num_waypoints 0, the rest -1) with six separate parameter updates. Nothing calls it."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.push_waypoints": {
+   "explain": "Uploads the WHOLE mission copy to the autopilot (/mavros/mission/push, start_index 0) without waiting for the result (_on_push_done logs it), after telling the re-read policy that this upload is our own. It first waits, 1 s per try, until the push service exists.",
+   "called_when": "After insert_new_waypoint (each /addWaypoint) and delete_waypoint.",
+   "effects": "MAVLink mission upload to ArduPilot. ArduPilot answers 'Flight plan received', which the policy then ignores."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager._on_push_done": {
+   "explain": "Logs how the mission upload ended ('Mission upload done: N items (M transferred)' or 'FAILED') and restarts the 15 s 'this was our own upload' quiet window from now.",
+   "called_when": "When /mavros/mission/push answers."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.pull_waypoints": {
+   "explain": "Old BLOCKING mission read: calls /mavros/mission/pull and spins until MAVROS answers. Only delete_waypoint uses it; the normal re-reads use the non-blocking request_mission_pull."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.pull_request": {
+   "explain": "Done-callback of the blocking pull: logs 'Successfully pulled N from drone.' when MAVROS reports success."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.request_mission_pull": {
+   "explain": "Asks for a mission re-read 'soon' without blocking: it hands the reason to the policy (arming uses a 0.5 s delay, other triggers 2 s) and logs 'Will re-read the mission from the autopilot (<reason>)'. The pull itself is sent by _repull_tick.",
+   "called_when": "At start-up once connected, and when the drone is armed."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.fcu_text_cb": {
+   "explain": "Watches the autopilot's texts. On 'Flight plan received' (a mission upload finished) it plans a re-read in 2 s, unless the text is the echo of our own target upload within the last 15 s, which it ignores.",
+   "called_when": "On every /mavros/statustext/recv message."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager._repull_tick": {
+   "explain": "Timer step that asks the policy what to do: send the mission pull now (call_async to /mavros/mission/pull, answer handled by _on_pull_done), abandon a pull that has had no answer for 45 s, or nothing.",
+   "called_when": "Every 0.5 s."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager._abandon_pull": {
+   "explain": "Gives up on a pull MAVROS never answered: forgets and cancels the waiting request, counts it as failed, and warns that the last mission copy (N items, rtl_index R) is kept and that it will try again in 2 s (or that it gave up until the next upload or arming). The mission copy and the parameters are not touched.",
+   "called_when": "From _repull_tick when the policy says ACTION_TIMEOUT."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager._on_pull_done": {
+   "explain": "Handles MAVROS's answer to a pull (a late answer to an abandoned pull is ignored). On success it logs 'Re-read the mission from the autopilot: N items (because ...)' and sends STATUSTEXT 'Mission re-read (N items)'; on failure it retries in 2 s, up to 3 tries, then logs an error with the manual command 'ros2 service call /mavros/mission/pull mavros_msgs/srv/WaypointPull {}'."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.clear_waypoints": {
+   "explain": "Meant to erase the autopilot's mission (/mavros/mission/clear), but it uses a client name that does not exist, so it only logs 'Service call failed'. Nothing calls it."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.insert_new_waypoint": {
+   "explain": "Inserts mission items into the copy and uploads the whole mission. A NAV_WAYPOINT becomes command 16, frame 3 (altitude relative to home), hold time param1 = 3 s, at the given lat / lon / alt; a DO_SET_SERVO becomes command 183 with param1 = channel and param2 = PWM. An index past the end of the list, or a NaN / infinite / (0, 0) position, puts the original list back and returns False.",
+   "inputs": "wp_list: a list of dicts with command, index and lat / lon / alt (waypoint) or channel / pwm (servo).",
+   "outputs": "True once the upload was sent, False if refused.",
+   "effects": "/mavros/mission/push upload of the whole mission."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.delete_waypoint": {
+   "explain": "Re-reads the mission (blocking), deletes the item at the given index if it exists, and uploads the whole mission again.",
+   "called_when": "From the /delWaypoint service (not used in flight)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.waypoint_reached_cb": {
+   "explain": "Logs 'Waypoint N reached.' and, if that item has a hold time (param1 above 0), reacts by its command: a NAV_WAYPOINT (16) sends STATUSTEXT 'Object waypoint reached. Holding for N seconds.' with N = param1 (3 for the target waypoints main_controller inserts), any other command only logs 'Loiter finished. Continuing to next waypoint.'.",
+   "called_when": "On every /mavros/mission/reached message."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.change_mode": {
+   "explain": "Broken leftover: it calls the set_mode client the wrong way (call_async(custom_mode=...)), which would raise an error. Nothing calls it; main_controller changes modes itself."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.send_ack": {
+   "explain": "Publishes a StatusText (severity 6, INFO) on /mavros/statustext/send for the ground station and logs it."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.handle_wp_req": {
+   "explain": "The /addWaypoint service: turns the request into one NAV_WAYPOINT (command 16; 0 is treated as 16) or DO_SET_SERVO (183) item and calls insert_new_waypoint. It answers success = true even when the insert was refused (the refusal is only logged), and false only if something raised.",
+   "called_when": "When main_controller calls /addWaypoint (once per target)."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.handle_wp_del_req": {
+   "explain": "The /delWaypoint service: deletes the item at request.index through delete_waypoint and answers success."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.handle_update_mission": {
+   "explain": "The /updateMission service: a placeholder that does nothing and always answers success."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::WaypointManager.main": {
+   "explain": "Runs the node: spins until MAVROS reports connected, sends 'Heartbeat established' to the ground station, asks for the first mission read (non-blocking), then spins for ever; if spinning ever crashes it logs 'waypoint_manager crashed: <traceback>' and re-raises."
+  },
+  "fn:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py::main": {
+   "explain": "Entry point of the 'waypoint' command: starts ROS, creates WaypointManager and runs its main() method.",
+   "called_when": "When tracker.launch.xml starts waypoint_mavros/waypoint."
+  },
+  "mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py.bak": {
+   "explain": "A DEAD backup of waypoint.py from before the October 2026 fixes. It read the mission only once, with a blocking call, at start-up; kept old index values when a new mission had no TAKEOFF or RTL item; set the six parameters one by one; and handed its /mavros/mission/reached subscription the number 0 instead of the callback (an attribute and the method are both called waypoint_reached), which probably crashed the node at the first 'reached' message.",
+   "how_it_fits": "Not installed (it is not a .py file) and not used; only useful to compare old and new behaviour."
+  },
+  "mod:ros2_ws/src/wp_sender/package.xml": {
+   "explain": "Package manifest of wp_sender: ament_python, needs rclpy, interfaces and rcl_interfaces at run time.",
+   "how_it_fits": "main_controller imports wp_sender.parameter at run time, but main's package.xml does not list wp_sender, so both simply have to be built in the same workspace."
+  },
+  "mod:ros2_ws/src/wp_sender/resource/wp_sender": {
+   "explain": "An empty marker file. ROS 2 installs it into share/ament_index so 'ros2 run' and 'ros2 launch' can find the package 'wp_sender' by name.",
+   "how_it_fits": "Standard ament_python plumbing; nothing to edit."
+  },
+  "mod:ros2_ws/src/wp_sender/setup.cfg": {
+   "explain": "Tells setuptools to put this package's runnable commands ('send_wp', 'test_param') into lib/wp_sender, the folder 'ros2 run wp_sender <command>' looks in.",
+   "how_it_fits": "Standard ament_python plumbing."
+  },
+  "mod:ros2_ws/src/wp_sender/setup.py": {
+   "explain": "Python install script of wp_sender: installs the wp_sender library (parameter.py, param_tracking.py, waypoint_sender.py) and two test commands, 'send_wp' (waypoint_sender.main) and 'test_param' (parameter.main).",
+   "how_it_fits": "Both commands are commented out in tracker.launch.xml; the library part is what main_controller uses."
+  },
+  "mod:ros2_ws/src/wp_sender/test/test_async_reader.py": {
+   "explain": "Test file (needs rclpy / rcl_interfaces; nothing spins). It drives AsyncParameterReader with a fake node, a fake client, fake futures and a clock moved by hand, and checks that a good read is delivered, that a read with no answer is given up after timeout_s without calling the handler (old values kept, nothing raises), that it retries and ignores a late answer, and that failing calls, incomplete answers and a raising handler are reported, not raised.",
+   "how_it_fits": "End-to-end guard of the main_controller crash fix."
+  },
+  "mod:ros2_ws/src/wp_sender/test/test_copyright.py": {
+   "explain": "Standard ament template test that would check copyright headers; it is marked skip, so it never runs.",
+   "how_it_fits": "Lint only, not a functional test."
+  },
+  "mod:ros2_ws/src/wp_sender/test/test_flake8.py": {
+   "explain": "Standard ament template test that runs the flake8 style checker over the package. AGENTS.md lists these template lint tests as pre-existing failures, so the functional test runs leave them out.",
+   "how_it_fits": "Lint only; the CI gate that can fail is 'ruff check ros2_ws/src' instead."
+  },
+  "mod:ros2_ws/src/wp_sender/test/test_parameter_reader.py": {
+   "explain": "Pure test file (no ROS) for param_tracking.py: values decode to the right Python types, NOT_SET becomes None, missing answers are marked, nothing is sent before a request or while the service is missing, many requests during one read give one follow-up read, a read with no answer times out, and failures are retried after the back-off until one succeeds.",
+   "how_it_fits": "Guards the rules of the non-blocking reader."
+  },
+  "mod:ros2_ws/src/wp_sender/test/test_pep257.py": {
+   "explain": "Standard ament template test that runs the pep257 docstring style checker over the package; like test_flake8 it is a pre-existing failure (AGENTS.md) and is left out of the functional test runs.",
+   "how_it_fits": "Lint only."
+  },
+  "mod:ros2_ws/src/wp_sender/wp_sender/__init__.py": {
+   "explain": "An empty file that makes the folder a Python package, so 'import wp_sender.<module>' works.",
+   "how_it_fits": "Plumbing only."
+  },
+  "mod:ros2_ws/src/wp_sender/wp_sender/param_tracking.py": {
+   "explain": "The pure-Python bookkeeping (no ROS) behind AsyncParameterReader: parameter_value_to_python turns one ROS ParameterValue into a normal Python value, decode_parameter_values pairs names with answers, and ParameterReadTracker is a tiny state machine that says when to send a read, when to give one up (5 s) and when to try again (2 s later).",
+   "how_it_fits": "Used by wp_sender/parameter.py (AsyncParameterReader, and the decoding in ParameterManager); unit-tested without ROS by test/test_parameter_reader.py."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::parameter_value_to_python": {
+   "explain": "Turns one ROS ParameterValue into a plain Python value by its type number: 1 bool, 2 int, 3 float, 4 str, 5 bytes, 6-9 lists; 0 (not set) or an unknown type gives None."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::decode_parameter_values": {
+   "explain": "Pairs the requested parameter names with the answer's values in the same order and returns {name: value}; a missing or unset value becomes None."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker": {
+   "explain": "A tiny state machine (no ROS) for one remote parameter read: is a read wanted, is one in flight, when was it sent, when may we try again, how many failures in a row."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker.__init__": {
+   "explain": "Starts idle, with timeout_s (default 5 s) and retry_delay_s (default 2 s)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker.request": {
+   "explain": "Marks that a fresh read is wanted; several requests before it is sent count as one."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker.next_action": {
+   "explain": "Says ACTION_TIMEOUT if the read in flight has had no answer for timeout_s, ACTION_SEND if a read is wanted, the service is ready and the back-off time has passed, otherwise None."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker.sent": {
+   "explain": "Records that a request was just sent."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/param_tracking.py::ParameterReadTracker.finished": {
+   "explain": "Records the end of the read: a success resets the failure count; a failure (an error, an incomplete answer or a timeout) adds one and automatically wants another read after retry_delay_s, so it keeps trying until one succeeds."
+  },
+  "mod:ros2_ws/src/wp_sender/wp_sender/parameter.py": {
+   "explain": "Tools to read waypoint_manager's mission-index parameters from another node. AsyncParameterReader (for use inside a running node) sends /<node>/get_parameters with call_async, handles the answer on the caller's own executor, gives up after 5 s, keeps the caller's old values and retries every 2 s. ParameterManager is the old blocking reader, now only for command-line tools such as 'ros2 run wp_sender test_param'.",
+   "how_it_fits": "main_controller creates AsyncParameterReader(self, 'waypoint_manager', <5 index names>, ...) at start-up and asks again after every waypoint_manager parameter event. Calling the blocking ParameterManager.get_param inside a callback is exactly what crashed main_controller in 2 of 4 simulator runs (October 2026)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader": {
+   "explain": "Reads a list of parameters of another node without ever blocking: the client and a small timer live on the caller's own node, so the answers are handled by the caller's executor (no second node, no nested spinning)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader.__init__": {
+   "explain": "Creates a GetParameters client for '/<remote_node>/get_parameters' (for main_controller: /waypoint_manager/get_parameters) and a timer every tick_s (0.5 s) on the caller's node, with a ParameterReadTracker using timeout_s 5 s and retry_delay_s 2 s.",
+   "inputs": "node, remote_node, names (parameter names read together), on_values (a function called with a dict after each complete read)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader.failures": {
+   "explain": "Read-only property: how many reads have failed in a row (0 after a success)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader.request": {
+   "explain": "Asks for a fresh read (remembering why, for the log) and checks right away whether it can be sent; many calls during one read give one extra read."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._now": {
+   "explain": "Returns the monotonic clock in seconds (it never jumps when the wall clock is changed)."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._log": {
+   "explain": "Returns the owning node's logger."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._tick": {
+   "explain": "Does what the tracker says: send the request; or abandon one that took too long (cancel it, count a failure, log); or log once that it is waiting for the service to appear.",
+   "called_when": "Every 0.5 s (timer) and right after request()."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._send": {
+   "explain": "Sends the GetParameters request with call_async and attaches _on_done; if sending itself fails it counts a failure and logs it."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._on_done": {
+   "explain": "Handles the answer on the caller's executor: ignores late answers to abandoned requests and cancellations, decodes the values, counts a failure if any name has no value, otherwise logs a recovery note ('... again after N failed attempt(s)') if needed and calls on_values(values). An error inside the caller's handler is logged, never raised."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::AsyncParameterReader._log_failure": {
+   "explain": "Warns 'Could not read ... Keeping the previous values; trying again in 2 s (failure N in a row).' for the first 3 failures and then only every 10th, so a missing waypoint_manager cannot flood the log."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::ParameterManager": {
+   "explain": "The old BLOCKING parameter reader, a separate node: for command-line tools only, never inside a callback."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::ParameterManager.__init__": {
+   "explain": "Creates the node with a unique name (parameter_manager_<process id>, so two copies never clash) and a client for waypoint_manager/get_parameters, then waits for it."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::ParameterManager._wait_for_services": {
+   "explain": "Waits for waypoint_manager/get_parameters, 1 s per try, at most 30 s; returns False if it gave up."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::ParameterManager.get_param": {
+   "explain": "Reads the named parameters and BLOCKS (spins) up to 10 s for the answer; returns {name: value}, or None on a timeout or an error."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/parameter.py::main": {
+   "explain": "The 'test_param' command: reads waypoint_manager's five mission indices once with ParameterManager and prints them."
+  },
+  "mod:ros2_ws/src/wp_sender/wp_sender/parameter.py.prefix_bak": {
+   "explain": "A DEAD backup of the original parameter.py: one blocking ParameterManager node with the fixed name 'parameter_manager', a wait for the service with no limit, and spin_until_future_complete with no timeout.",
+   "how_it_fits": "Not used; it shows the version that could hang or crash a node (see AsyncParameterReader for the fix)."
+  },
+  "mod:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py": {
+   "explain": "A command-line test client (command 'send_wp', node waypoint_client) for waypoint_manager's services. Its main() inserts a test NAV_WAYPOINT at latitude 10.5, longitude 30.2, altitude 4.2 m at index 0 through /addWaypoint, then deletes index 0 through /delWaypoint, and prints both answers.",
+   "how_it_fits": "Not launched (commented out in tracker.launch.xml). waypoint_manager uploads the whole mission after each change, so running it next to a real drone or a running simulator would rewrite the live mission twice: use it only on a bench."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient": {
+   "explain": "Test client node 'waypoint_client' for waypoint_manager's /addWaypoint and /delWaypoint services."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient.__init__": {
+   "explain": "Creates the /addWaypoint and /delWaypoint clients and waits until both services exist."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient._wait_for_services": {
+   "explain": "Waits, 1 s per try with no limit, until /addWaypoint and /delWaypoint are available."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient.send_AddWP_request": {
+   "explain": "Inserts a NAV_WAYPOINT (command 16) at the given lat, lon, alt and index through /addWaypoint, blocks until the answer arrives, and returns it."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient.send_ServoWP_request": {
+   "explain": "Inserts a DO_SET_SERVO mission item (command 183, channel, pwm) at the given index through /addWaypoint and returns the answer. main() does not use it."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::WaypointClient.send_DelWP_request": {
+   "explain": "Deletes the mission item at the given index through /delWaypoint, blocks until the answer arrives, and returns it."
+  },
+  "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::main": {
+   "explain": "The 'send_wp' command: inserts a test waypoint (lat 10.5, lon 30.2, alt 4.2, index 0), prints the answer, deletes index 0, prints that answer, and exits.",
+   "effects": "Each call makes waypoint_manager upload the whole mission to the autopilot."
+  }
+ }
+}

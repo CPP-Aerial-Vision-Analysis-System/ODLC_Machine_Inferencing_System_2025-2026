@@ -1,0 +1,1025 @@
+{
+  "area": "Scripts, setup, Docker, Windows",
+  "entries": {
+    "pkg:simulation": {
+      "explain": "The human side of the simulator: everything a person types or double-clicks to install, build, start, watch and stop the Gazebo digital twin. It holds setup/ (install and build), scripts/ (demo, start, stop, mission, photo, status), profiles/ (plug-in profiles), docker/ (container helpers), windows/ (double-click .bat launchers and the Mission Planner plugin) and a README.md guide.",
+      "how_it_fits": "The simulator's ROS 2 packages live elsewhere (ros2_ws/src/simulation: sim_bringup, sim_models, sim_worlds, siyi_emulator, sim_demo, sim_plugins). This folder only starts and drives them, and it starts the team's flight code exactly as on the drone (./launcher.sh sim). Nothing here is copied to the real drone."
+    },
+    "pkg:simulation/scripts": {
+      "explain": "The simulator's command buttons for the terminal: one small bash script per job. demo.sh runs the whole search demo and demo_traced.sh runs the same demo with the live code map switched on; start_sim.sh starts only the simulator; fly_mission.sh, upload_mission.sh and take_photo.sh do one ground-crew step each; status.sh looks, stop_sim.sh stops, start_over.sh resets a run; mission_planner.sh and mp_actions.sh connect to Mission Planner on Windows. Every script prints its own header with --help and loads the shared helpers in _common.sh.",
+      "how_it_fits": "This is where people (and the Windows .bat files, the Docker containers and the Mission Planner plugin) enter the digital twin. The scripts do not fly anything themselves: they start 'ros2 launch sim_bringup sim.launch.py' (Gazebo, ArduCopter SITL, MAVProxy, the SIYI camera emulator), start the team's unchanged ./launcher.sh sim, and drive sim_bringup's tools (mission_tool speaks MAVLink to SITL through MAVProxy's UDP port 14550; stack_check and phase_monitor watch ROS 2; photo_trigger publishes /camera/trigger). Every process they start carries an ASTRA_SIM_SESSION tag so stop_sim.sh can stop exactly those. State goes to ~/.astra_sim/state, results to ~/.astra_sim/runs/<time>_<world>/."
+    },
+    "mod:simulation/scripts/_common.sh": {
+      "explain": "A box of small helpers that every script in simulation/scripts loads with 'source' (it is never run by itself). It has the coloured messages (say, info, ok, warn, die), loading setup/sim_env.sh, the 'is it built?' and memory checks, adding the camera address 192.168.144.25, the session tags that let stop_sim.sh find our processes, the MAVROS mission re-read, the photo archive and a wait-until helper.",
+      "how_it_fits": "Written once so all scripts behave the same way. setup/03_build.sh also sources it for its camera-address step. It reads ~/.astra_sim/state/current_launch.yaml (written by sim.launch.py) to learn which ports the running simulator chose, and writes ~/.astra_sim/state/session. With ASTRA_TRACE=1 (and only then) it also loads the live code map's bash tracer, simulation/codemap/trace/astra_trace.sh, which reports which script functions run to the code-map server over UDP 8091; without it nothing changes."
+    },
+    "fn:simulation/scripts/_common.sh::astra_usage": {
+      "explain": "Prints a script's built-in help: the comment block at the top of the file, from line 2 down to the first line that is not a comment, with the leading '# ' taken off.",
+      "called_when": "a script is run with -h or --help (mission_planner.sh also when no command is given)",
+      "inputs": "the path of the script file ($0)",
+      "outputs": "the help text on the screen"
+    },
+    "fn:simulation/scripts/_common.sh::say": {
+      "explain": "Prints a bright cyan headline that starts with '==>', meaning 'a new step starts now'."
+    },
+    "fn:simulation/scripts/_common.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces: a detail that belongs under the last headline."
+    },
+    "fn:simulation/scripts/_common.sh::ok": {
+      "explain": "Prints a green line that starts with 'OK': something worked."
+    },
+    "fn:simulation/scripts/_common.sh::warn": {
+      "explain": "Prints a yellow line that starts with '!!' on the error stream: a problem, but the script keeps going."
+    },
+    "fn:simulation/scripts/_common.sh::die": {
+      "explain": "Prints a red line that starts with 'XX' on the error stream and stops the whole script with exit code 1."
+    },
+    "fn:simulation/scripts/_common.sh::astra_load_env": {
+      "explain": "Loads setup/sim_env.sh (ROS 2 Humble, the built workspace, the Gazebo and ArduPilot paths, the WSL graphics settings) into this shell, sets ASTRA_STATE_DIR to ~/.astra_sim/state and makes sure that folder and ~/.astra_sim/logs exist.",
+      "called_when": "at the start of almost every script, before anything that needs ROS",
+      "effects": "sets environment variables in this shell (ROS, ASTRA_REPO, ASTRA_SIM_HOME, ASTRA_WS_BUILT ...); creates the state and logs folders"
+    },
+    "fn:simulation/scripts/_common.sh::astra_state_value": {
+      "explain": "Looks up one value that the running simulator wrote into ~/.astra_sim/state/current_launch.yaml (for example gcs_port, sitl_instance, windows_gcs or session) and prints it; when the file or the key is missing it prints the default you gave instead.",
+      "inputs": "KEY and DEFAULT, e.g. 'gcs_port 14550'",
+      "outputs": "the value as text, with quotes removed",
+      "called_when": "fly_mission.sh and upload_mission.sh (which port to use), status.sh, demo.sh (where the Windows ground-station copy goes), start_over.sh (the session)"
+    },
+    "fn:simulation/scripts/_common.sh::astra_require_built": {
+      "explain": "Stops the script with a clear message when the simulator is not built yet: sim_env.sh must have found ros2_ws/install (ASTRA_WS_BUILT=yes) and 'ros2 pkg prefix sim_bringup' must find the sim_bringup package. The message says to run setup/03_build.sh once."
+    },
+    "fn:simulation/scripts/_common.sh::astra_mem_check": {
+      "explain": "Reads the 'available' memory column of 'free -m' and prints a warning when less than 3000 MB is free, because the simulator then gets slow or is killed. It only warns; it never stops the script."
+    },
+    "fn:simulation/scripts/_common.sh::astra_camera_ip_ok": {
+      "explain": "Answers yes or no: does this PC's loopback device 'lo' already have the camera address 192.168.144.25 (or the address you pass)? It runs 'ip -4 addr show dev lo' and looks for it.",
+      "outputs": "exit status 0 (yes) or 1 (no)"
+    },
+    "fn:simulation/scripts/_common.sh::astra_ensure_camera_ip": {
+      "explain": "Makes sure this PC answers on the SIYI camera's address 192.168.144.25, so the team's video_cam can reach the camera emulator there. When the address is missing it tries, in this order: sudo without a password, WSL's own root door (wsl.exe -d <distro> -u root ip addr add ...), and a normal sudo when a person is at the keyboard. If all fail it prints the commands to run once (setup/camera_ip_alias.sh) and returns 1.",
+      "effects": "may add 192.168.144.25/32 to the 'lo' device",
+      "called_when": "demo.sh and start_sim.sh before the simulator starts; 03_build.sh at the end of a build"
+    },
+    "fn:simulation/scripts/_common.sh::astra_new_session": {
+      "explain": "Makes a new session id such as 'demo-20261031-093512-4242' (kind, date and time, process id), exports it as ASTRA_SIM_SESSION so every program started after this inherits it, and writes it into ~/.astra_sim/state/session.",
+      "called_when": "demo.sh (kind 'demo') and start_sim.sh (kind 'sim') just before they start the simulator",
+      "effects": "writes state/session; all child processes carry the tag in their environment, which is how stop_sim.sh finds them later"
+    },
+    "fn:simulation/scripts/_common.sh::astra_ancestors": {
+      "explain": "Prints the process id of this script and of every parent above it (read from the 'PPid' line of /proc/<pid>/status), stopping at process 1. It is used so that stopping the simulator never stops the script that asked for it."
+    },
+    "fn:simulation/scripts/_common.sh::astra_session_pids": {
+      "explain": "Lists the process ids of YOUR programs whose environment contains ASTRA_SIM_SESSION=<id> (or any session tag when the id is '*'). It reads /proc/<pid>/environ of every process 'pgrep -u <you>' finds, and skips this script and its parents, processes that just ended, and the shared ros2 command-line daemon.",
+      "inputs": "a session id, or '*' for every session",
+      "outputs": "one process id per line",
+      "how_it_fits": "stop_sim.sh, status.sh, demo.sh, start_sim.sh and start_over.sh use it to find exactly the simulator's processes and nothing else (never other users' or other distros' simulations)."
+    },
+    "fn:simulation/scripts/_common.sh::astra_mavros_repull": {
+      "explain": "After a mission upload, asks a running MAVROS to read the mission from the autopilot again by calling the ROS service /mavros/mission/pull (mavros_msgs/srv/WaypointPull), waiting at most 15 seconds. MAVROS re-reads by itself only when a ground station DOWNLOADS the mission, so without this the team's waypoint_manager would keep the old mission (buffer_wp stays -1 or -2, the photos never stop). It reports success, 'MAVROS is not running' (harmless: it reads the mission when ./launcher.sh sim starts) or a failure with the command to try by hand.",
+      "effects": "one ROS 2 service call to /mavros/mission/pull",
+      "called_when": "upload_mission.sh and fly_mission.sh right after their upload"
+    },
+    "fn:simulation/scripts/_common.sh::astra_archive_photos": {
+      "explain": "Moves the photos of an earlier run out of the team's photo folder (ros2_ws/src/video_cam/mapping_photos) and new_od's result images out of the detection_results_sahi folder next to it, into ~/.astra_sim/photo_archive/<time>/. Old photos would be processed again by new_od and could send the drone to an OLD target. Only the files move, never the folders, so a new_od that already watches the folder keeps working.",
+      "inputs": "the photo folder and an optional time stamp (default: now)",
+      "effects": "moves files; prints where they went; does nothing when both folders are empty",
+      "called_when": "demo.sh and start_sim.sh before a new run (start_sim.sh not with --keep-photos)"
+    },
+    "fn:simulation/scripts/_common.sh::astra_cmd_of": {
+      "explain": "Prints the first 110 characters of a process's command line (from /proc/<pid>/cmdline), for messages like 'stopping <command>'."
+    },
+    "fn:simulation/scripts/_common.sh::astra_wait_until": {
+      "explain": "Runs a command once every second until it succeeds (then returns 0) or until the given number of seconds has passed (then returns 1).",
+      "inputs": "SECONDS, then the command and its arguments"
+    },
+    "mod:simulation/scripts/demo.sh": {
+      "explain": "THE full search demo in one command. It checks that everything is built, starts the simulator with its windows, waits until ArduCopter SITL is ready, uploads the world's survey mission, starts the team's real flight stack (./launcher.sh sim), arms and starts the mission (AUTO), prints every mission phase as it happens, and at the end makes sure the score report is written, copies the photos into the run folder and stops everything.",
+      "how_it_fits": "The conductor of the whole twin. Step 1 starts sim.launch.py (Gazebo, SITL, MAVProxy, camera emulator, score_run); steps 2 and 5 use mission_tool over MAVLink on udpin:127.0.0.1:14550; step 3 starts launcher.sh with TRACKER_CMD='ros2 launch sim_bringup team_stack.launch.py detector:=...' and, on disk on 2026-10-31, FCU_URL tcp://127.0.0.1:5763 (+10 per SITL instance), i.e. MAVROS on SITL's spare port SERIAL2 like the real Jetson on the Pixhawk's TELEM2 (before that it went through MAVProxy's UDP 14552); stack_check and phase_monitor watch over ROS 2. Each run gets ~/.astra_sim/runs/<time>_<world>/ (demo.env, sim.log, team_stack.log, phases.jsonl, photos/, score_report.md). --profile/--set ask sim_plugins.profile_tool for the plan; --manual leaves upload, arm and start to Mission Planner. START OVER (start_over.sh / run_reset.py) can take over a running demo. Start Search Demo.bat and Start for Mission Planner.bat call it."
+    },
+    "fn:simulation/scripts/demo.sh::usage": {
+      "explain": "Prints demo.sh's built-in help (its long header comment) by calling astra_usage."
+    },
+    "fn:simulation/scripts/demo.sh::words": {
+      "explain": "Turns a list into text with a space in front of every item (' a b c'), or nothing at all when the list is empty. It is used to print command lines neatly (for example the stack_check options)."
+    },
+    "fn:simulation/scripts/demo.sh::problem": {
+      "explain": "Prints a warning and adds 1 to the PROBLEMS counter. demo.sh runs ALL its checks first and stops only afterwards (when the counter is above 0), so you see every problem at once instead of one per try."
+    },
+    "fn:simulation/scripts/demo.sh::port_busy": {
+      "explain": "Answers whether a UDP port is already taken, by searching the list of listening UDP sockets that 'ss -lunH' printed once before the checks. demo.sh uses it to refuse to start when the ground-station port (14550) or the MAVROS port (14552) is busy, for example because a ground station or an old MAVROS still runs.",
+      "inputs": "a port number",
+      "outputs": "exit status 0 = in use, 1 = free"
+    },
+    "fn:simulation/scripts/demo.sh::stop_group": {
+      "explain": "Stops a whole process group (the simulator launch, or the team stack) politely: first Ctrl+C (SIGINT) to the group, then it waits up to 20 seconds, then SIGTERM, 3 more seconds, then SIGKILL.",
+      "inputs": "the process group id and a name for the message",
+      "called_when": "finish (normal end), and before the second try of the team stack"
+    },
+    "fn:simulation/scripts/demo.sh::finish": {
+      "explain": "Ends the demo, only once. If START OVER has taken this simulator over it only says so and leaves everything running. Otherwise it stops the phase monitor, asks score_run to write the report now when it is still missing (ROS service /sim/demo/write_score, std_srvs/srv/Trigger), copies the photos and detection images into the run folder, prints the first 40 lines of score_report.md, and then either keeps everything running (--keep, --manual, or when START OVER took over meanwhile) or stops the team stack, the simulator and any leftovers (stop_sim.sh --session); with windows and a terminal it first waits up to 2 minutes for Enter so people can look around.",
+      "called_when": "after the landing, after a failed step, or on Ctrl+C (through on_interrupt)",
+      "effects": "one ROS service call; files copied to <run>/photos and <run>/detections; may stop the simulator's processes"
+    },
+    "fn:simulation/scripts/demo.sh::on_interrupt": {
+      "explain": "What Ctrl+C (or SIGTERM) does in demo.sh: it marks the run as interrupted, says that the score report is still written, runs finish and exits with code 130."
+    },
+    "fn:simulation/scripts/demo.sh::taken_over": {
+      "explain": "True when START OVER owns this simulator now: the file ~/.astra_sim/state/keep_open holds this demo's session id (sim_demo's run_reset.py writes it when a reset begins)."
+    },
+    "fn:simulation/scripts/demo.sh::handed_over": {
+      "explain": "Ends demo.sh politely after START OVER has taken over: it says that everything keeps running, marks the demo finished, switches off the Ctrl+C trap and exits with code 0, so the script does not retry, report an error or close anything that the reset now owns."
+    },
+    "mod:simulation/scripts/demo_traced.sh": {
+      "explain": "Runs the normal visible search demo (demo.sh, with the same options) with the live code map switched on, so a browser at http://127.0.0.1:8090/ shows which file and function is working at every moment. It starts the code map server (simulation/codemap/server.py: tracer events on UDP 127.0.0.1:8091, the page on port 8090, a recording file), runs demo.sh with ASTRA_TRACE=1, ASTRA_TRACE_ADDR and simulation/codemap/trace at the front of PYTHONPATH, and at the end stops the server and copies the recording into the new run folder as codemap_trace.jsonl. --map-only starts only the server and prints the export line that switches tracing on in your own terminals; --map-port, --trace-port, --no-record and --record-dir change the ports and the recording.",
+      "effects": "starts python3 simulation/codemap/server.py in the background (log ~/.astra_sim/logs/codemap_server_<time>.log) and bash simulation/scripts/demo.sh; writes <recording folder>/<time>.jsonl and copies it to ~/.astra_sim/runs/<time>_<world>/codemap_trace.jsonl",
+      "how_it_fits": "The door between the simulator and the live code map. From the Windows checkout (/mnt/...) it runs the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 (made by setup/03_build.sh) and stops with a message when that copy has no simulation/codemap yet; it only warns when codemap.json (made by extract.py) is missing. Recordings go to simulation/codemap/recordings of the git checkout it was started from, or to ~/.astra_sim/codemap/recordings when started from a copy without .git. The server runs without ASTRA_TRACE and without the simulator's session tag, so it is never traced itself and stop_sim.sh never stops it; a server that already answers on the port is reused and left running. New on 2026-10-31 (described as it was on disk then)."
+    },
+    "fn:simulation/scripts/demo_traced.sh::usage": {
+      "explain": "Prints demo_traced.sh's built-in help (its header comment) by calling astra_usage.",
+      "called_when": "the script is run with -h or --help"
+    },
+    "fn:simulation/scripts/demo_traced.sh::map_healthy": {
+      "explain": "Answers whether a code map server runs on the page port: a tiny Python snippet asks http://127.0.0.1:<map port>/health with a 1 s time limit, and the function succeeds only when the server answers.",
+      "called_when": "once before starting the server (an existing server is reused), then up to 40 times, 0.25 s apart, while the new server comes up",
+      "outputs": "exit status 0 = a server answers, 1 = none"
+    },
+    "fn:simulation/scripts/demo_traced.sh::cleanup": {
+      "explain": "Runs once when the script ends (trap EXIT). It stops the code map server this script started (TERM, up to 5 s, then KILL) and, when a recording was written, copies it into the run folder the demo just made as codemap_trace.jsonl (and the server's last /health answer as codemap_health.json), then prints where the recording is, how many events it holds, the command that replays it later (server.py --recordings <folder>, then the Replay tab) and the build_artifact.py command for the shareable page.",
+      "called_when": "at exit: after the landing, after Ctrl+C (demo.sh finishes first), after an error, or after Enter with --keep / --manual / --map-only",
+      "effects": "stops the server process; copies up to two files into ~/.astra_sim/runs/<time>_<world>/"
+    },
+    "mod:simulation/scripts/fly_mission.sh": {
+      "explain": "Does what the ground crew does at the field, in one command: uploads the world's survey mission (or a .waypoints file you name) and asks a running MAVROS to re-read it, then arms and starts the mission (AUTO) with 'mission_tool fly'. --watch keeps printing the autopilot's messages until it has landed; --no-upload flies what is already on the autopilot; --url picks another MAVLink connection.",
+      "how_it_fits": "A by-hand step for when the simulator (start_sim.sh) and the team stack (./launcher.sh sim) already run; demo.sh does the same plus everything else. It speaks MAVLink through MAVProxy's ground-station output (default udpin:127.0.0.1:<gcs_port from current_launch.yaml, 14550>) using sim_bringup's mission_tool. After AUTO, the team's main_controller takes over (target waypoints, drops, RTL)."
+    },
+    "mod:simulation/scripts/mission_planner.sh": {
+      "explain": "Opens, closes or checks Mission Planner (the Windows ground-station program the team flies the real drone with) from the Ubuntu terminal: 'start', 'stop' or 'status'. It runs the same Python helper the old demo panel used, sim_demo/mission_planner.py, straight from the source folder, so no build is needed. Exit code 0 = done or running, 3 = not running, 1 = cannot tell (for example outside WSL).",
+      "how_it_fits": "Uses WSL 'interop' (Ubuntu can start and stop Windows programs). The helper asks tasklist.exe, closes politely with taskkill.exe (forced only after 5 s), and before opening it copies the ASTRA plugin astra_gcs.cs into Mission Planner's plugins folder when it is missing or changed. It never starts or stops anything of the simulator. MISSION_PLANNER_EXE picks another install folder."
+    },
+    "mod:simulation/scripts/mp_actions.sh": {
+      "explain": "The four SIMULATOR buttons of the ASTRA tab in Mission Planner, as one script. take_photo publishes true on /camera/trigger; look_down and look_forward publish 'gimbal_set_angles 0,-90' or 'gimbal_set_angles 0,0' on /camera/command; start_over runs start_over.sh. It prints one short last line that the plugin shows in its event log. Exit code 0 = done, 1 = ROS could not be loaded or nobody listened, 2 = unknown action.",
+      "how_it_fits": "The bridge from Windows to ROS 2: the plugin (simulation/windows/mission_planner_plugin/astra_gcs.cs, method RunSimAction) runs wsl.exe -d Ubuntu-22.04 -- bash -lc 'bash ~/ODLC_Machine_Inferencing_System_2025-2026/simulation/scripts/mp_actions.sh ACTION'. The messages go to the team's own camera node video_cam, which talks SIYI SDK to the camera emulator. Nothing here touches the autopilot: arming, AUTO and RTL stay with Mission Planner."
+    },
+    "fn:simulation/scripts/mp_actions.sh::publish": {
+      "explain": "Publishes one ROS 2 message with 'ros2 topic pub -w 1 --once' (wait until at least one node listens, then send it once), limited to 25 seconds by 'timeout'. On success it prints the sentence it was given; otherwise it prints 'nobody listened on <topic> ... (is the team stack running?)' and returns 1.",
+      "inputs": "topic, message type, the message in YAML, and the sentence to print",
+      "effects": "one message on /camera/trigger (std_msgs/msg/Bool) or /camera/command (std_msgs/msg/String)"
+    },
+    "mod:simulation/scripts/start_over.sh": {
+      "explain": "START OVER: puts a running simulator back to the start without closing any window, so the search can be flown again. A flying drone lands first (LAND, or RTL with --land rtl), the team stack stops, old photos move into the OLD run folder, a fresh drone with both payloads is spawned, SITL and MAVProxy restart with the same settings, a new run folder is made, the mission is uploaded and the team stack starts again. --fly also arms and starts the mission; --follow shows the phases until the landing.",
+      "how_it_fits": "A thin shell around sim_demo's run_reset.py ('python3 -m sim_demo.run_reset reset ...'), which does the real work (about 2-3 minutes). If no simulator runs it starts a fresh demo instead (demo.sh --keep with --fly, demo.sh --manual without), unless --no-fresh. Callers: the demo panel's START OVER button, Start Over.bat, and mp_actions.sh start_over (the Mission Planner plugin). Log: ~/.astra_sim/logs/start_over_<time>.log; the new run folder is read from ~/.astra_sim/state/current_run.json."
+    },
+    "fn:simulation/scripts/start_over.sh::start_fresh": {
+      "explain": "Used when there is no simulator to start over. With --no-fresh it stops with a message. Otherwise it replaces itself (exec) with a fresh demo for the same world (default runway): 'demo.sh <world> --keep' when --fly was given, else 'demo.sh <world> --manual'.",
+      "called_when": "the recorded session has no running processes, or run_reset.py ends with exit code 3 (no simulator running)"
+    },
+    "mod:simulation/scripts/start_sim.sh": {
+      "explain": "The everyday way to start ONLY the simulator (no team code). It loads the settings, stops a simulator still running from before, moves old team photos away, adds the camera address 192.168.144.25, makes a new session and runs 'ros2 launch sim_bringup sim.launch.py world:=<world>' with your name:=value settings (camera_max_zoom:=1 unless you give one, so photos keep the 81 degree view the missions are planned for). It runs in the foreground (Ctrl+C stops it) or with --background; --headless, --no-windows-gcs, --keep-photos and --dry-run change what it does.",
+      "how_it_fits": "Terminal 1 of the by-hand setup (terminal 2: ./launcher.sh sim, terminal 3: the ground-crew scripts); its dry run prints the matching team-stack command (on disk on 2026-10-31 with FCU_URL=tcp://127.0.0.1:5763). It writes ~/.astra_sim/state/start_sim.env (session, world, log, command, and PGID in background mode), which the Docker 'sim' container (container_sim.sh) reads. With --profile/--set it gets launch arguments from sim_plugins.profile_tool. Log: ~/.astra_sim/logs/sim_<time>.log."
+    },
+    "fn:simulation/scripts/start_sim.sh::usage": {
+      "explain": "Prints start_sim.sh's built-in help (its header comment) by calling astra_usage."
+    },
+    "mod:simulation/scripts/status.sh": {
+      "explain": "One screen that answers 'is the simulator running, and is every piece talking?': (1) the recorded session and what the running launch resolved, (2) the simulator's processes with that session tag, (3) the ports (SITL TCP 5760+10I, physics UDP 9002+10I, MAVProxy UDP 14550/14552/14553, camera UDP 37260 and TCP 82), (4) whether 192.168.144.25 exists and the camera emulator's media server answers, (5) one autopilot status line over MAVLink, (6) the ROS 2 nodes. It only looks, it never starts or stops anything.",
+      "how_it_fits": "A read-only health check for people. It uses 'mission_tool status' on udpin:127.0.0.1:<gcs_port> (skipped when a ground station already holds that port; --no-mavlink skips it) and curl to http://192.168.144.25:82/cgi-bin/media.cgi/api/v1/getdirectories?media_type=0, the same media API the team's video_cam uses. Its port list predates the 2026-10-31 wiring change: MAVROS now normally connects to SITL on TCP 5763, so the line 'UDP 14552 (MAVROS)' usually shows 'free', and TCP 5762/5763 are not listed."
+    },
+    "fn:simulation/scripts/status.sh::port_state": {
+      "explain": "Says 'in use' or 'free' for a port number, by searching a saved socket list (from 'ss -lunH' for UDP or 'ss -ltnH' for TCP) for ':<port>'.",
+      "inputs": "the port number and the socket list text"
+    },
+    "mod:simulation/scripts/stop_sim.sh": {
+      "explain": "Stops ONLY the simulator's own processes: Gazebo (server and window), ArduCopter SITL, MAVProxy, the camera emulator, payload release, the bridge, RViz, the demo panel, markers and truth detector, and the team stack when demo.sh started it. It finds them by YOUR user's ASTRA_SIM_SESSION tag: the last session (state/session, or the session line of current_launch.yaml), one --session ID, or every tagged process with --all. Order: Ctrl+C to the launch files and launcher.sh, Ctrl+C to the rest, then TERM, then KILL. Exit code 0 = nothing left, 1 = something survived (it prints what).",
+      "how_it_fits": "The clean off-switch for everything the scripts start; other simulations, other users and other WSL distros are never touched. Called by demo.sh, start_sim.sh, container_sim.sh (Docker) and Stop Simulation.bat. It deletes state/session once its session is fully stopped."
+    },
+    "fn:simulation/scripts/stop_sim.sh::log": {
+      "explain": "Prints a headline (say) unless --quiet was given."
+    },
+    "fn:simulation/scripts/stop_sim.sh::note": {
+      "explain": "Prints a detail line (info) unless --quiet was given."
+    },
+    "fn:simulation/scripts/stop_sim.sh::alive": {
+      "explain": "True while the process with this id still exists. It uses 'kill -0', which only checks and sends nothing."
+    },
+    "fn:simulation/scripts/stop_sim.sh::count_alive": {
+      "explain": "Counts how many of the given process ids are still alive and prints that number; the stop steps wait until it reaches 0."
+    },
+    "mod:simulation/scripts/take_photo.sh": {
+      "explain": "The simulator's photo button for the terminal: it runs 'ros2 run sim_bringup photo_trigger' with your options. Normally that publishes true on the team's /camera/trigger topic, so the team's video_cam asks the camera emulator for a photo and saves it as '<lat> , <lon>.jpg' in the team photo folder (needs ./launcher.sh sim running). With --direct, or when nobody listens, it sends the SIYI 'take photo' command straight to the emulator and downloads the picture into ~/.astra_sim/photos. It prints where the new photo is.",
+      "how_it_fits": "A test aid for the whole photo chain: team stack -> SIYI SDK on UDP 37260 -> siyi_emulator -> Gazebo photo camera -> HTTP download on port 82. Options passed on: --timeout, --camera-ip, --photo-dir."
+    },
+    "mod:simulation/scripts/upload_mission.sh": {
+      "explain": "Does what Mission Planner's 'Write WPs' button does: finds the world's survey mission (sim_worlds/missions/<world>_survey.waypoints, looked up with 'python3 -m sim_bringup.sim_paths world <world> mission') or takes a .waypoints file you name, uploads it to ArduCopter SITL with 'ros2 run sim_bringup mission_tool upload', then asks MAVROS to re-read it (astra_mavros_repull).",
+      "how_it_fits": "A by-hand step used with start_sim.sh. The upload goes through MAVProxy's ground-station output (UDP 14550 by default, or --url); only one program can listen on that port, so close QGroundControl or Mission Planner first or give them another port."
+    },
+    "pkg:simulation/setup": {
+      "explain": "The install, build and settings scripts of the simulator. Three numbered steps are run once, in order: 01_install_humble.sh (system software, with sudo), 02_setup_ardupilot.sh (the simulated autopilot, without sudo) and 03_build.sh (copy to Linux and build; run again after every change). Helpers: sim_env.sh (settings for a terminal), camera_ip_alias.sh (the camera address), fetch_sitl.sh (other ArduCopter versions) and check_ros.sh (is ROS ready in this terminal?).",
+      "how_it_fits": "Everything the rest of the simulator needs before it can run comes from here: ROS 2 Humble + Gazebo Harmonic + MAVROS (from the ROS snapshot 2026-08-07), ~/sitl/arducopter 4.6.3, ~/ardupilot_gazebo, ~/sitl/venv (MAVProxy 1.8.74, pymavlink 2.4.49), the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 with ros2_ws built, the Fuel 3D models and yolo26m.pt in ~/.astra_sim/models, and 192.168.144.25 on the loopback. The scripts in simulation/scripts and the Docker containers then source sim_env.sh."
+    },
+    "mod:simulation/setup/01_install_humble.sh": {
+      "explain": "STEP 1 (run once, with sudo): turns a fresh Ubuntu 22.04 into an ASTRA machine. It installs ROS 2 Humble, Gazebo Harmonic with its ROS bridge, MAVROS, and the libraries and Python packages the simulator and the team's code need, and it sets up the WSL graphics, port 82 and the camera address. Safe to run again: it skips what is already there.",
+      "effects": "8 steps: (1) language settings and basic tools; (2) the official ROS 2 and Gazebo apt sources; (3) an Ubuntu update; (4) ROS 2 Humble Desktop and build tools; (5) gz-harmonic and ros-humble-ros-gzharmonic; (6) MAVROS from the frozen ROS snapshot 2026-08-07 (pinned in /etc/apt/preferences.d/ros-snapshot-mavros so only MAVROS comes from there) plus the GPS geoid files; (7) extra ROS, GStreamer and Python packages, plus the team's pip packages (torch 2.8.0 and torchvision 0.23.0 from the CUDA 12.6 index, numpy below 2); (8) /etc/profile.d/astra_wsl_gpu.sh, /etc/sysctl.d/60-astra-sim.conf (ip_unprivileged_port_start=80), camera_ip_alias.sh and rosdep init.",
+      "how_it_fits": "Same versions as the Jetson (JetPack 6.2 = Ubuntu 22.04 + ROS 2 Humble + Python 3.10), so code written here runs on the drone unchanged. It refuses to run without root or on anything but Ubuntu 'jammy'. The WSL graphics file sets GALLIUM_DRIVER=d3d12 and MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA (also loaded from /etc/bash.bashrc), so Gazebo draws on the NVIDIA card. The pip pins come from docker/requirements-dev.txt and docker/requirements-ml.txt, the same files the Docker images use. Next step: 02_setup_ardupilot.sh."
+    },
+    "fn:simulation/setup/01_install_humble.sh::apt-get": {
+      "explain": "Replaces the normal apt-get inside this script with one that waits up to 600 seconds (10 minutes) for another apt to finish (option DPkg::Lock::Timeout=600), instead of failing with 'Unable to acquire the dpkg frontend lock' while Ubuntu updates itself in the background.",
+      "called_when": "every apt-get line of the script"
+    },
+    "fn:simulation/setup/01_install_humble.sh::say": {
+      "explain": "Prints an empty line and then a cyan '==>' headline, one for each of the 8 install steps."
+    },
+    "mod:simulation/setup/02_setup_ardupilot.sh": {
+      "explain": "STEP 2 (run once, without sudo): installs the simulated Pixhawk: the ArduCopter 4.6.3 SITL program, the ArduPilot Gazebo plugin that lets SITL fly a drone inside Gazebo, ArduPilot's parameter files for an Iris quadcopter, and MAVProxy with pymavlink in their own Python environment. Safe to run again: it skips what is already there.",
+      "effects": "(1) ~/sitl/arducopter downloaded from firmware.ardupilot.org (stable-4.6.3, 'stable' as a fallback), version printed; (2) ~/ardupilot_gazebo cloned and built for Gazebo Harmonic, checked to link against libgz-sim8; (3) ~/sitl/copter.parm and gazebo-iris.parm from the Copter-4.6.3 tag (master as a fallback); (4) ~/sitl/venv with MAVProxy 1.8.74, pymavlink 2.4.49, numpy below 2 and future 1.0.0.",
+      "how_it_fits": "SITL ('software in the loop') is the same ArduPilot firmware as on the real Pixhawk, built to run on a PC, so MAVROS and the team's code talk MAVLink to it exactly as to the drone. sim_env.sh later finds ~/sitl/arducopter (ARDUPILOT_SITL_BIN), ~/sitl/venv/bin/mavproxy.py (ASTRA_MAVPROXY) and ~/ardupilot_gazebo (ARDUPILOT_GAZEBO_DIR) for sim.launch.py."
+    },
+    "fn:simulation/setup/02_setup_ardupilot.sh::say": {
+      "explain": "Prints an empty line and then a cyan '==>' headline, one for each of the 4 steps."
+    },
+    "mod:simulation/setup/03_build.sh": {
+      "explain": "STEP 3 (run again after every code change, without sudo): copies the repo to the Linux disk when it lives on the Windows disk, builds ros2_ws with colcon, downloads the 3D models and the detector weights, and makes sure the camera address 192.168.144.25 exists on this PC.",
+      "effects": "(1) from /mnt/... it mirrors the repo with 'rsync -a --delete' to ~/ODLC_Machine_Inferencing_System_2025-2026, skipping .git, build results, photo folders and logs; (2) 'colcon build --symlink-install --parallel-workers N --packages-ignore ultralytics_ros' in ros2_ws (N = --workers, default 4; --packages uses --packages-up-to); (3) Gazebo Fuel models via sim_worlds/scripts/fetch_models.sh (up to 30 minutes) and yolo26m.pt (about 40 MB) into ~/.astra_sim/models; (4) astra_ensure_camera_ip from simulation/scripts/_common.sh.",
+      "how_it_fits": "Gazebo and colcon misbehave on slow /mnt paths with spaces, so the simulator always runs from the Linux-side copy; edits made inside that copy are overwritten by the next run. It refuses a build folder whose path has a space and stops only if sim_bringup was not built (other failed packages are reported). Options: --dest, --no-sync, --no-models, --clean, --packages, --workers, --add-to-bashrc. Log: ~/.astra_sim/logs/build_<time>.log. Rebuild.bat runs it from Windows."
+    },
+    "fn:simulation/setup/03_build.sh::say": {
+      "explain": "Prints an empty line and then a cyan '==>' headline, one for each of the 4 build steps."
+    },
+    "fn:simulation/setup/03_build.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces (a detail of the current step)."
+    },
+    "fn:simulation/setup/03_build.sh::warn": {
+      "explain": "Prints a yellow '!!' line on the error stream; the build goes on (for example when some colcon packages or Fuel models failed)."
+    },
+    "fn:simulation/setup/03_build.sh::die": {
+      "explain": "Prints a red 'XX' line on the error stream and stops the script with exit code 1 (for example when run with sudo, when ROS 2 Humble is missing, or when sim_bringup was not built)."
+    },
+    "mod:simulation/setup/camera_ip_alias.sh": {
+      "explain": "Gives this PC the SIYI camera's address 192.168.144.25 (needs root; run once). It adds the address to the loopback device 'lo' right now, lets normal users open port 82 (net.ipv4.ip_unprivileged_port_start=80 in /etc/sysctl.d/60-astra-sim.conf), and, when systemd runs, installs astra-camera-ip.service so the address comes back at every start. --remove undoes it; --no-boot skips the service.",
+      "how_it_fits": "The team's video_cam always talks to 192.168.144.25 (SIYI SDK on UDP 37260, media web server on port 82); in the simulator siyi_emulator answers on that address. A loopback address never leaves the PC; in WSL all distros share it. 01_install_humble.sh calls this script; the run scripts' astra_ensure_camera_ip adds the address on the fly when it is missing; Docker's compose_up.sh removes it again because the 'sim' container IS 192.168.144.25 there."
+    },
+    "fn:simulation/setup/camera_ip_alias.sh::say": {
+      "explain": "Prints a cyan '==>' headline for each step."
+    },
+    "mod:simulation/setup/check_ros.sh": {
+      "explain": "Answers 'is ROS 2 ready in THIS terminal?' in plain words, and changes nothing. It checks: is this Linux (not macOS or Windows) and Ubuntu 22.04, are we in Docker or WSL, is ROS 2 Humble installed in /opt/ros/humble, is it loaded here (ROS_DISTRO=humble), can ament_cmake be found once ROS is loaded, is colcon installed, and is the folder path free of spaces and not on a Windows drive. Every problem gets one 'do this' line. Exit code 0 = ready, 1 = something to fix.",
+      "how_it_fits": "Explains the most common first-day build error ('Could not find a package configuration file provided by ament_cmake'). The root README points people here; the normal build (03_build.sh) loads ROS by itself."
+    },
+    "fn:simulation/setup/check_ros.sh::ok": {
+      "explain": "Prints a '[ OK ]' line: this check passed."
+    },
+    "fn:simulation/setup/check_ros.sh::bad": {
+      "explain": "Prints a '[FAIL]' line and adds 1 to the fails counter, which decides the exit code at the end."
+    },
+    "fn:simulation/setup/check_ros.sh::tip": {
+      "explain": "Prints an indented '-> ...' line with the fix for the problem just above."
+    },
+    "fn:simulation/setup/check_ros.sh::note": {
+      "explain": "Prints a '[ .. ]' line: a fact worth knowing that is not a failure (for example 'running inside WSL2' or 'this path has a space')."
+    },
+    "mod:simulation/setup/fetch_sitl.sh": {
+      "explain": "Downloads ANOTHER ArduCopter version for the simulator, next to the default ~/sitl/arducopter (which it never touches). It fetches the ready-made SITL program from ArduPilot's firmware server, checks it really is a Linux program and reads the version inside, adds the two parameter files of the same version, and installs it all in ~/sitl/versions/<V>/. Exit code 0 = installed, 1 = download or check failed, 2 = bad usage.",
+      "inputs": "a version (e.g. 4.7.1, stable, beta or latest) and options --list, --dry-run, --force, --url URL, --from-file FILE, --params-ref REF, --dest DIR",
+      "outputs": "~/sitl/versions/<V>/ with arducopter, copter.parm, gazebo-iris.parm and SOURCE.txt (where it came from and a sha256 checksum)",
+      "effects": "downloads from firmware.ardupilot.org/Copter (stable-<V>, then beta-<V>) and raw.githubusercontent.com (tag Copter-<V>, else master; the 4.6.3 copies as a last resort); x86_64 only; ELF header check 7f 45 4c 46",
+      "how_it_fits": "Feeds the 'pluggable ArduPilot' option: demo.sh --sitl-version V, start_sim.sh sitl_version:=V, or a profile's autopilot.version (simulation/profiles/ardupilot_version.yaml uses 4.7.1). It downloads into a temporary folder first, so a failed download never leaves half a version behind. ASTRA_SITL_VERSIONS changes the versions folder (the Docker 'sim' container uses its data folder)."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::say": {
+      "explain": "Prints a cyan '==>' headline."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::ok": {
+      "explain": "Prints a green 'OK' line (for example the version found inside the program, or 'installed')."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::warn": {
+      "explain": "Prints a yellow '!!' line on the error stream; the script continues (for example when a parameter file could not be downloaded and the 4.6.3 copy is used)."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::fail": {
+      "explain": "Prints a red 'XX' line on the error stream and stops with exit code 1 (a download or a check failed)."
+    },
+    "fn:simulation/setup/fetch_sitl.sh::usage_error": {
+      "explain": "Prints a red 'XX' line plus '(see: bash fetch_sitl.sh --help)' and stops with exit code 2: the options or the version name were wrong."
+    },
+    "mod:simulation/setup/sim_env.sh": {
+      "explain": "The simulator's settings for THIS terminal (source it, never run it). It decides which repo copy runs, turns on ROS 2 Humble and the built workspace, tells Gazebo where the ArduPilot plugin is, points to SITL and MAVProxy, makes WSL draw 3D on the NVIDIA card, and keeps this simulation's Gazebo messages in their own 'partition'.",
+      "effects": "exports ASTRA_REPO (the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 when sourced from /mnt/..., else this repo), ASTRA_SIM_HOME (~/.astra_sim), ASTRA_WS_BUILT (yes/no after sourcing ros2_ws/install/setup.bash), ARDUPILOT_GAZEBO_DIR with GZ_SIM_SYSTEM_PLUGIN_PATH and GZ_SIM_RESOURCE_PATH, GZ_VERSION=harmonic, ARDUPILOT_SITL_BIN, ASTRA_MAVPROXY (the MAVProxy venv goes at the END of PATH), inside WSL GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA and QT_QPA_PLATFORM=xcb, plus GZ_PARTITION=astra_sim, GZ_IP=127.0.0.1, YOLO_CONFIG_DIR and PYTHONUNBUFFERED=1",
+      "how_it_fits": "Loaded by _common.sh (astra_load_env), mp_actions.sh and the Docker containers, and by people typing 'source .../sim_env.sh'. It never changes ROS_DOMAIN_ID (the team stack and the simulator must use the same one; the drone uses 0). Any setting can be overridden by exporting it before sourcing. GZ_PARTITION keeps other Gazebos on the PC out of this simulation."
+    },
+    "fn:simulation/setup/sim_env.sh::_astra_prepend": {
+      "explain": "Puts a folder at the FRONT of a colon-separated list variable (such as GZ_SIM_RESOURCE_PATH) and exports it, unless the folder is already in the list.",
+      "inputs": "the variable's name and the folder"
+    },
+    "pkg:simulation/docker": {
+      "explain": "Helper scripts that run the simulator in Docker containers instead of directly on the PC. Host side (run in Ubuntu/WSL): install_docker_engine.sh, check_host.sh (the 'doctor'; check_host.ps1 is its Windows half, run in PowerShell), build_images.sh, compose_up.sh, compose_down.sh, run_sim_container.sh, run_jetson_container.sh, require_image.sh and their shared _host_common.sh. Container side (run inside the containers): container_sim.sh, container_jetson.sh, container_solo.sh and their shared _container_common.sh. AGENTS.md (2026-10-24) marks the Docker setup as work in progress: the compose files parse, a full container run was not yet accepted.",
+      "how_it_fits": "They wrap docker/Dockerfile and docker/compose*.yml. In the two-container setup, wired like the real drone, the 'sim' container at 192.168.144.25 (the camera's address) runs Gazebo, SITL, MAVProxy and the camera emulator and sends MAVLink to the 'jetson' container at 192.168.144.100:14552, where the team's ./launcher.sh sim runs unchanged; both mount the same repo and the host folder ~/.astra_docker (seen inside as ~/.astra_sim) and talk ROS 2 across the network astra_net. Inside, the containers reuse the native scripts (sim_env.sh, start_sim.sh, demo.sh, stop_sim.sh)."
+    },
+    "mod:simulation/docker/_container_common.sh": {
+      "explain": "A box of helpers for the scripts that run INSIDE the containers (sourced, never run by itself): the same coloured messages as the native scripts; fix_ownership (make mounted folders writable for the container user 'ubuntu'); build_workspace (colcon build of ros2_ws into the container's own volumes, only when needed); build_world_assets and fetch_fuel_models (3D models); display_available and prepare_runtime_dir (desktop checks); my_ip; and two token helpers for hand-over files. Settings: ASTRA_REPO (default /ODLC_Machine_Inferencing_System_2025-2026), ASTRA_BUILD (auto, always, never or clean) and ASTRA_BUILD_JOBS (default 4).",
+      "how_it_fits": "Sourced by container_sim.sh, container_jetson.sh and container_solo.sh, and by the 'PREP' step of run_sim_container.sh / run_jetson_container.sh. Its header also describes hand-over files in ~/.astra_sim/state (docker_mission_ready, docker_team_restart.request/.done, team_stack.env, start_over_progress.jsonl); on disk on 2026-10-31 no container script reads or writes the docker_* ones yet (only sim_demo's run_reset.py writes start_over_progress.jsonl), so that part is probably planned work."
+    },
+    "fn:simulation/docker/_container_common.sh::say": {
+      "explain": "Prints a cyan '==>' headline in the container's log (the same style as the native scripts)."
+    },
+    "fn:simulation/docker/_container_common.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces."
+    },
+    "fn:simulation/docker/_container_common.sh::ok": {
+      "explain": "Prints a green 'OK' line."
+    },
+    "fn:simulation/docker/_container_common.sh::warn": {
+      "explain": "Prints a yellow '!!' line on the error stream; the script continues."
+    },
+    "fn:simulation/docker/_container_common.sh::die": {
+      "explain": "Prints a red 'XX' line on the error stream and stops the container script with exit code 1 (which also ends that container)."
+    },
+    "fn:simulation/docker/_container_common.sh::my_ip": {
+      "explain": "Prints this container's first IPv4 address (from 'hostname -I'), for example 192.168.144.25 in the 'sim' container or 192.168.144.100 in the 'jetson' container, or '?' when there is none. Used in the first log line of each container."
+    },
+    "fn:simulation/docker/_container_common.sh::fix_ownership": {
+      "explain": "For every folder it is given: creates it when missing (with password-free sudo if needed) and, when the current user cannot write into it, makes that user its owner with 'sudo -n chown'. Docker creates brand-new volumes and missing host folders owned by root, so without this the colcon build, the logs and the runs would fail.",
+      "inputs": "one or more folders (e.g. ros2_ws/build, install, log, ~/.astra_sim, ~/.gz/fuel)",
+      "effects": "may create folders and change their owner"
+    },
+    "fn:simulation/docker/_container_common.sh::display_available": {
+      "explain": "True when the container has a desktop to draw windows on: the X11 socket /tmp/.X11-unix/X<n> that belongs to $DISPLAY (':0' means X0), or a Wayland socket in $XDG_RUNTIME_DIR. On disk on 2026-10-31 no script calls it (container_sim.sh does the same check by itself)."
+    },
+    "fn:simulation/docker/_container_common.sh::prepare_runtime_dir": {
+      "explain": "When XDG_RUNTIME_DIR points into /tmp (the Linux-desktop add-on sets /tmp/runtime-ubuntu), creates that folder with permission 700, because Qt programs want a private runtime folder. On disk on 2026-10-31 no script calls it."
+    },
+    "fn:simulation/docker/_container_common.sh::workspace_needs_build": {
+      "explain": "Says whether ros2_ws must be built: yes when it was never built in this container (no install/setup.bash), when the stamp file is missing, or when any source file under ros2_ws/src is newer than the stamp. Photos, detector output, camera feeds and Python caches are ignored, because they change on every flight.",
+      "inputs": "the stamp file (install/.astra_docker_build_stamp)",
+      "outputs": "exit status 0 = build needed, 1 = up to date"
+    },
+    "fn:simulation/docker/_container_common.sh::build_workspace": {
+      "explain": "Builds the repo's ros2_ws inside this container, into the container's own Docker volumes, the same way as setup/03_build.sh: 'colcon build --symlink-install --parallel-workers <ASTRA_BUILD_JOBS> --packages-ignore ultralytics_ros' at low priority (nice 10). ASTRA_BUILD decides when: auto = only when workspace_needs_build says so, always, never (use the old build; stop if there is none) or clean (empty build/, install/ and log/ first; the folders themselves are mount points and stay). After a good build it touches install/.astra_docker_build_stamp, and in the 'sim' and 'solo' containers it runs build_world_assets.",
+      "inputs": "the container name: sim, jetson or solo",
+      "outputs": "0 = built or already up to date; 1 = colcon reported failures but something usable exists (it stops the script when nothing was built)",
+      "effects": "writes ros2_ws/build, install, log; log file ~/.astra_sim/logs/docker_build_<name>_<time>.log"
+    },
+    "fn:simulation/docker/_container_common.sh::build_world_assets": {
+      "explain": "Makes the Gazebo models of the real-terrain world (suas_field_real) from the site pack in the repo, by running 'python3 scripts/build_real_field.py assets --install --if-needed' in sim_worlds (at most 30 minutes, low priority). It only runs when that generator and its data exist in the repo; a failure is only a warning, because the other worlds do not need these models.",
+      "effects": "log file ~/.astra_sim/logs/docker_world_assets_<time>.log"
+    },
+    "fn:simulation/docker/_container_common.sh::fetch_fuel_models": {
+      "explain": "Downloads the 3D models the worlds take from Gazebo Fuel (the internet model library; about 110 MB, only the first time) with sim_worlds/scripts/fetch_models.sh into ~/.gz/fuel, unless 'fetch_models.sh --check' says they are already there. A failed download is only a warning: the world then loads with fewer details.",
+      "called_when": "container_sim.sh and container_solo.sh, after the build"
+    },
+    "fn:simulation/docker/_container_common.sh::new_token": {
+      "explain": "Prints a value that is different every time it is called (nanoseconds since 1970, a dash, and the process id), meant for the hand-over files between the two containers. On disk on 2026-10-31 no script calls it."
+    },
+    "fn:simulation/docker/_container_common.sh::file_token": {
+      "explain": "Prints the TOKEN=... value written in a hand-over file, or nothing when there is none. On disk on 2026-10-31 no script calls it.",
+      "inputs": "the hand-over file"
+    },
+    "mod:simulation/docker/_host_common.sh": {
+      "explain": "A box of helpers for the Docker scripts that run on the HOST (sourced, never run by itself). It answers the questions every host script has: is a usable Docker Engine there, are the images built (for my user id, from the current docker/ files), which repo folder to mount and how to copy it, where the data folder is, how containers show windows and use the graphics card, where Mission Planner on Windows listens, and whether the camera address or the drone subnet are in the way.",
+      "how_it_fits": "Shared by build_images.sh, compose_up.sh, compose_down.sh, run_sim_container.sh, run_jetson_container.sh and check_host.sh (its header also names export/import_images.sh, which are not on disk on 2026-10-31). Fixed facts live at its top: container repo /ODLC_Machine_Inferencing_System_2025-2026, user home /home/ubuntu, camera 192.168.144.25, Jetson 192.168.144.100, subnet 192.168.144.0/24, network astra_net, images astra-dev, astra-sitl, astra-sim. Every path is found at run time."
+    },
+    "fn:simulation/docker/_host_common.sh::say": {
+      "explain": "Prints a cyan '==>' headline."
+    },
+    "fn:simulation/docker/_host_common.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces."
+    },
+    "fn:simulation/docker/_host_common.sh::ok": {
+      "explain": "Prints a green 'OK' line."
+    },
+    "fn:simulation/docker/_host_common.sh::warn": {
+      "explain": "Prints a yellow '!!' line on the error stream; the script continues."
+    },
+    "fn:simulation/docker/_host_common.sh::die": {
+      "explain": "Prints a red 'XX' line on the error stream and stops the script with exit code 1."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_usage": {
+      "explain": "Prints a script's built-in help: the comment block at the top of the file (line 2 down to the first non-comment line), without the leading '# '."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_run": {
+      "explain": "Runs a command, or, when ASTRA_DRY=1 (the scripts' --dry-run option), only prints it with a '+' in front, quoted so it can be copied and pasted.",
+      "inputs": "the command and its arguments"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_is_wsl": {
+      "explain": "True when this Linux runs inside WSL on Windows (the word 'microsoft' appears in /proc/version)."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_need_docker": {
+      "explain": "Stops with a clear message when Docker cannot be used. It warns when the script was started with sudo (the home folder then becomes /root); stops when 'docker' is missing or is Docker Desktop's Windows program (a path under /mnt); unless in dry-run mode, stops when 'docker info' fails (user not in the 'docker' group, or Docker not running); and, unless given --no-compose, stops when Docker Compose is missing or older than 2.20.",
+      "inputs": "optional --no-compose",
+      "called_when": "at the start of every host-side Docker script"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_image_exists": {
+      "explain": "True when a Docker image with this name is on this computer ('docker image inspect')."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_require_images": {
+      "explain": "Stops when one of the needed images is not on this computer, and says how to get each one ('bash simulation/docker/build_images.sh <target>', or load a teammate's saved images). It stresses that no Docker login is needed, because these images are built locally and are not on Docker Hub. Skipped in dry-run mode.",
+      "inputs": "pairs 'IMAGE TARGET', e.g. 'astra-sim:latest sim'"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_image_uid": {
+      "explain": "Prints the user id built into an image (its label org.astra.uid, which build_images.sh sets), or nothing."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_check_image_user": {
+      "explain": "Warns when an image's built-in user id is not yours (for example images copied from another PC): files the containers write into the mounted repo would then belong to that other id, and a Linux X11 desktop could refuse their windows. It reads the org.astra.uid label, or runs 'id -u' in the image when there is no label, and remembers a mismatch in ASTRA_UID_MISMATCH for astra_x11_allow.",
+      "inputs": "one or more image names"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_docker_inputs_hash": {
+      "explain": "Makes a short fingerprint (16 hex digits of a sha256) of everything an image build reads from the repo: docker/Dockerfile, docker/requirements-dev.txt and docker/requirements-ml.txt, with Windows line endings removed so a CRLF checkout gives the same value. build_images.sh stores it in every image as the label org.astra.inputs."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_image_label": {
+      "explain": "Prints the value of one label of an image, or nothing when the image or the label is missing (Docker's '<no value>' is turned into nothing).",
+      "inputs": "IMAGE and LABEL"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_check_image_fresh": {
+      "explain": "Warns when an image was built from OLDER docker/ files than the repo has now: its org.astra.inputs label differs from astra_docker_inputs_hash. Such an image can lack a package the code now needs, so it suggests rebuilding (unchanged steps are reused). The code itself is mounted, never baked in, so only these files make an image stale; images without the label are not judged, and nothing is checked in dry-run mode.",
+      "called_when": "compose_up.sh, run_sim_container.sh and run_jetson_container.sh, right after the images are found"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_prepare_repo_mounts": {
+      "explain": "Creates ros2_ws/build, ros2_ws/install and ros2_ws/log in the repo folder before a container mounts its own build volumes there. If they were missing, Docker would create them owned by root, and a later NATIVE colcon build in the same checkout would fail with 'Permission denied'. Existing folders are never touched.",
+      "inputs": "the repo folder that will be mounted"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_pick_repo": {
+      "explain": "Prints the repo folder to mount into the containers. A folder given with --repo must contain ros2_ws/src. When these scripts run from a Windows drive (/mnt/...), it picks the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 that 03_build.sh keeps, and warns when that copy is older than the Windows folder (astra_copy_differences) so you add --sync; without a copy it mounts the Windows folder (works, but slower). A repo cloned inside Linux is used as it is.",
+      "inputs": "an optional folder (the --repo option)",
+      "outputs": "the folder path"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_sync_copy": {
+      "explain": "Refreshes the Linux-side copy from the Windows folder with 'rsync -a --delete' and the same exclusions as 03_build.sh's step 1 (the ASTRA_SYNC_EXCLUDES list: .git, caches, build results, flight logs, photos and detector output), but without a native colcon build. It does nothing when the repo already lives on the Linux disk.",
+      "called_when": "compose_up.sh --sync or --sync-only"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_copy_differences": {
+      "explain": "Counts how many files astra_sync_copy would copy right now (new or changed in the Windows folder) with a dry 'rsync -n --itemize-changes'; prints 0 when the copy is up to date, when the repo is not on a Windows drive, or when there is nothing to compare. It only looks.",
+      "outputs": "a number"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_prepare_data": {
+      "explain": "Creates the host data folder ~/.astra_docker with logs/, models/, runs/ and state/, and copies the native simulator's detector weights (~/.astra_sim/models/yolo26m.pt) into it when they are there and the Docker copy is missing, so the containers need no second download."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_use_host_fuel": {
+      "explain": "When the native Gazebo already has its 3D model cache (~/.gz/fuel) and ASTRA_FUEL_DIR is not set, exports ASTRA_FUEL_DIR to it, so the 'sim' container shares those models instead of downloading 110 MB again into the Docker volume astra_gz_fuel."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_display_mode": {
+      "explain": "Decides how containers can show windows here and prints one word: 'wslg' (inside WSL with /mnt/wslg and /tmp/.X11-unix), 'x11' (a Linux desktop with $DISPLAY), or 'none'."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_has_nvidia_runtime": {
+      "explain": "True when Docker can give containers the NVIDIA card: 'docker info' lists a runtime called 'nvidia' (installed by the NVIDIA Container Toolkit)."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_render_gid": {
+      "explain": "Prints the group id that owns /dev/dri/renderD128 (or /dev/dri/card0), the Linux graphics devices, or nothing when there are none. The containers' user must be in that group to draw 3D on the graphics chip."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_compose_files": {
+      "explain": "Chooses which compose files to combine and fills COMPOSE_FILES (the -f options) and COMPOSE_TEXT (a description). It always starts with docker/compose.sim.yml; inside WSL it adds compose.wslg.yml when /mnt/wslg and /dev/dxg exist (also when headless, so Gazebo's camera still draws on the graphics card); on Linux it adds compose.linux.yml for an X11 desktop and compose.dri.yml when /dev/dri exists (setting ASTRA_RENDER_GID); and it adds compose.gpu.yml when the NVIDIA runtime exists (stops if --gpu was asked for without it).",
+      "inputs": "display MODE (wslg, x11 or none) and GPU (auto, yes or no)",
+      "called_when": "compose_up.sh"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_gui_run_args": {
+      "explain": "Fills the list GUI_ARGS with 'docker run' options for windows and 3D drawing, matching the compose add-on files: inside WSL the WSLg sockets, /dev/dxg, /usr/lib/wsl and GALLIUM_DRIVER=d3d12 (like compose.wslg.yml); on a Linux X11 desktop $DISPLAY and the X11 socket (like compose.linux.yml); on Linux with /dev/dri that device plus its group (like compose.dri.yml).",
+      "inputs": "the display mode",
+      "called_when": "run_sim_container.sh and run_jetson_container.sh"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_gpu_run_args": {
+      "explain": "Fills GPU_ARGS with '--gpus all -e NVIDIA_DRIVER_CAPABILITIES=all' (CUDA + OpenGL) when the choice is yes or auto and Docker has the NVIDIA runtime (or in dry-run mode). 'no' always leaves it empty, and an explicit 'yes' without the runtime stops with a message instead of silently running on the processor (simulation/docker/test/test_host_helpers.py checks this).",
+      "inputs": "auto, yes or no"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_x11_allow": {
+      "explain": "Lets containers open windows on a Linux X11 desktop with xhost: normally only programs of your own user ('xhost +SI:localuser:<you>'); when an image was built for another user id, every local user's programs ('xhost +local:'). It only warns when xhost is missing or fails.",
+      "called_when": "compose_up.sh and the run_*_container.sh scripts when the display mode is x11"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_windows_gcs": {
+      "explain": "Prints the address where Mission Planner or QGroundControl on WINDOWS can receive MAVLink from a container: inside WSL in its normal 'nat' networking mode that is this Ubuntu's default gateway (the Windows host) with port 14550, e.g. 172.x.x.1:14550. Outside WSL it prints nothing; in other WSL networking modes it warns and prints nothing.",
+      "called_when": "compose_up.sh (when --windows-gcs was not given) and run_sim_container.sh --demo"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_camera_ip_on_host": {
+      "explain": "True when this computer itself has the camera address 192.168.144.25 on its loopback device 'lo' (put there by the native simulator)."
+    },
+    "fn:simulation/docker/_host_common.sh::astra_free_camera_ip": {
+      "explain": "Takes the native simulator's camera address 192.168.144.25 off this computer's loopback, because on the Docker network the 'sim' container IS 192.168.144.25: while the host also has it, the host answers in the container's place and the container gets no internet. It tries sudo without a password, then WSL's root door (wsl.exe -u root), then an interactive sudo, stops with the manual command if all fail, and writes ~/.astra_docker/state/native_camera_ip_removed. The native start_sim.sh / demo.sh add the address back later.",
+      "called_when": "compose_up.sh before starting the containers",
+      "effects": "removes 192.168.144.25/32 from 'lo'"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_subnet_conflict": {
+      "explain": "Prints what else already uses 192.168.144.0/24 on this computer, or nothing when it is free: a route of a real network card (other than Docker bridges) and any other Docker network with that subnet. Docker cannot create astra_net then, and the team's code needs exactly these addresses.",
+      "called_when": "compose_up.sh (it stops with advice when something is printed)"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_native_sim_running": {
+      "explain": "True when a NATIVE (not containerised) Gazebo or ArduCopter SITL runs on this computer: a process matching 'arducopter' or 'gz sim' whose /proc/<pid>/cgroup does not mention docker or containerd.",
+      "called_when": "compose_up.sh, which refuses to start a second simulator unless --force"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_mem_check": {
+      "explain": "Warns when less memory is free than the number of megabytes given (default 4000), suggesting to close programs or stop the native simulator. It only warns.",
+      "inputs": "megabytes (build_images.sh asks for 3000, compose_up.sh and run_sim_container.sh for 4000)"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_free_gb": {
+      "explain": "Prints the free space, in whole gigabytes, of the disk that holds a folder (or its nearest existing parent folder, when the folder does not exist yet).",
+      "inputs": "a folder",
+      "outputs": "a number of GB",
+      "called_when": "check_host.sh: free space where Docker keeps images (about 40 GB needed for a first build) and in the data folder ~/.astra_docker"
+    },
+    "mod:simulation/docker/build_images.sh": {
+      "explain": "Builds the three ASTRA Docker images from docker/Dockerfile, one after the other, without freezing a laptop: astra-dev:latest (the Jetson's software), astra-sitl:latest (dev + ArduCopter SITL 4.6.3) and astra-sim:latest (sitl + Gazebo Harmonic + ardupilot_gazebo). At the end it tests every image. --check only tests the images that exist; --dry-run only prints the docker commands.",
+      "inputs": "targets dev, sitl, sim or all (default all) and options --jobs N, --torch auto|cpu|cuda, --no-cache, --pull, --check, --no-check, --dry-run",
+      "effects": "docker build per target with BUILD_JOBS (default 4), TORCH_INDEX_URL (CUDA 12.6 wheels when an NVIDIA card is visible), your USER_UID/USER_GID, your proxy variables, BuildKit required (DOCKER_BUILDKIT=1, stops without buildx), --pull added when the local ROS base image is from before June 2025 (expired signing key), labels org.astra.uid, org.astra.torch, org.astra.target, org.astra.repo-commit and org.astra.inputs; one log per image in ~/.astra_docker/logs/",
+      "how_it_fits": "The one-time (about 1 hour, about 25 GB) step before compose_up.sh, run_sim_container.sh or the VS Code dev container. The labels let _host_common.sh warn about images built for another user id or from older docker/ files. Without buildx Docker's old builder would make the sitl and sim images run as root (the Dockerfile notes why)."
+    },
+    "fn:simulation/docker/build_images.sh::check_image": {
+      "explain": "Tests one image by starting it once and running a list of PASS/FAIL checks inside (each through a small shell function t, defined only inside the text sent into the container, that prints '    PASS  <name>' or '    FAIL  <name>   (<command>)'): ROS 2 Humble + MAVROS, cv_bridge and vision_msgs, mavlink-routerd, MAVProxy + pymavlink, ping + ip, numpy below 2, and ultralytics + sahi when torch is installed; for sitl and sim also the SITL program and its parameter files; for sim also Gazebo Harmonic 8, ros_gz, the ArduPilot Gazebo plugin, xacro + rviz2, the Gazebo Python bindings, PyQt5 + Pillow, the Mesa d3d12 driver, GStreamer and the ARDUPILOT_* settings. For a CUDA image on a PC with the NVIDIA runtime it also checks that PyTorch sees the graphics card.",
+      "inputs": "the target: dev, sitl or sim",
+      "outputs": "0 = passed, 1 = missing image or a failed test",
+      "called_when": "after a build (unless --no-check) and with --check"
+    },
+    "mod:simulation/docker/compose_down.sh": {
+      "explain": "The clean off switch for compose_up.sh: 'docker compose -p astra ... down --timeout 45 --remove-orphans' gives the 'sim' container up to 45 seconds to write the score report, copy the photos and stop the simulator in order, then removes both containers and the astra_net network. --solo also stops the one-container scripts' containers (astra-sim-solo, astra-jetson-solo); --wipe-builds deletes the six colcon build volumes; --wipe-fuel deletes the 3D model volume astra_gz_fuel; --restore-camera-ip gives this computer 192.168.144.25 back for the native simulator; --quiet and --dry-run as usual.",
+      "how_it_fits": "Never deletes your runs and logs (~/.astra_docker) or the images. It warns when astra_net still exists afterwards (a run_jetson_container.sh container may still use it)."
+    },
+    "mod:simulation/docker/compose_up.sh": {
+      "explain": "THE full search demo in Docker, one command: starts docker/compose.sim.yml the right way for this computer with two containers, 'sim' (192.168.144.25: Gazebo, SITL, MAVProxy, camera emulator, RViz, demo panel, score recorder) and 'jetson' (192.168.144.100: the team's ./launcher.sh sim, unchanged). First it checks that nothing on this computer is in the way; afterwards it saves both containers' logs into the run folder and removes the containers (the builds are kept).",
+      "effects": "before starting: checks Docker and the images (user id, freshness), picks the repo folder (--sync copies it first), prepares ~/.astra_docker and the ros2_ws build folders, stops old containers, refuses when a native simulator runs (unless --force), removes the host's camera address 192.168.144.25, checks the 192.168.144.0/24 subnet is free, and picks the add-on compose files (WSLg, Linux X11, /dev/dri, NVIDIA GPU)",
+      "how_it_fits": "The Docker twin of demo.sh. Its options (--detector, --camera, --headless, --manual, --keep, --timeout, --no-gpu, --windows-gcs, --only sim, --repo, --sync/--sync-only, --rebuild, --build-jobs, --detach, --dry-run) become environment variables (ASTRA_SIM_WORLD, ASTRA_DETECTOR, ASTRA_DEMO, ASTRA_WINDOWS_GCS, ASTRA_BUILD ...) that compose.sim.yml hands to container_sim.sh and container_jetson.sh. Results: ~/.astra_docker/runs/<time>_<world>/ (found through state/docker_run_dir). Stop with Ctrl+C or compose_down.sh."
+    },
+    "mod:simulation/docker/container_jetson.sh": {
+      "explain": "Runs INSIDE the 'jetson' container (the Jetson stand-in at 192.168.144.100, image astra-dev). It makes the mounted folders writable, builds ros2_ws when needed, makes sure the detector weights yolo26m.pt exist when detector=real (downloads about 40 MB once if missing), waits (up to ASTRA_WAIT_FOR_SIM, default 1800 s) until the simulator's MAVLink HEARTBEAT arrives on UDP 14552 using a short embedded pymavlink program, and then starts the team's code exactly as on the drone: 'cd <repo> && ./launcher.sh sim' with TRACKER_CMD='ros2 launch sim_bringup team_stack.launch.py detector:=<real|truth>'.",
+      "how_it_fits": "The container-side half of compose_up.sh's two-container setup, and what run_jetson_container.sh --launcher runs. Waiting for the heartbeat first means MAVROS (launcher.sh's fcu_url udp://:14552@localhost:14552) gets the autopilot at once instead of running into launcher.sh's 30 s wait. ASTRA_TRACKER_CMD can replace the mission-stack command; launcher.sh itself is not changed."
+    },
+    "mod:simulation/docker/container_sim.sh": {
+      "explain": "Runs INSIDE the 'sim' container (192.168.144.25, image astra-sim). It prepares the container (folders, ros2_ws build, settings, 3D models), sends the autopilot's MAVLink to the Jetson stand-in, and starts the simulator with 'start_sim.sh <world> --no-camera-ip --background'. With ASTRA_DEMO=1 (default) it then conducts the demo flight and stops everything after ASTRA_LINGER_S seconds; with ASTRA_DEMO=0 it shows the simulator log and waits for you to fly.",
+      "effects": "goes headless when there is no desktop socket; MAVProxy's MAVROS output -> udp:192.168.144.100:14552 (launch argument mavros_out, or 'output add' in ~/.mavinit.scr for launch files without it); windows_gcs_addr:=<ASTRA_WINDOWS_GCS> or windows_gcs:=false; score:=true and demo_run_dir:=~/.astra_sim/runs/<time>_<world> (its path also in state/docker_run_dir)",
+      "how_it_fits": "The container-side half of compose_up.sh's two-container setup: it does demo.sh's steps that are not the Jetson's job (the team stack runs in the 'jetson' container and is checked across the network with stack_check). It writes the run folder path to ~/.astra_sim/state/docker_run_dir (compose_up.sh reads it on the host) and reads start_sim.env for the launch's process group and log."
+    },
+    "fn:simulation/docker/container_sim.sh::has_launch_arg": {
+      "explain": "True when sim.launch.py has a launch argument with this name, by searching the text of 'ros2 launch sim_bringup sim.launch.py --show-args' captured once before. Used to choose between the mavros_out argument and the ~/.mavinit.scr fallback.",
+      "inputs": "an argument name, e.g. mavros_out"
+    },
+    "fn:simulation/docker/container_sim.sh::sim_alive": {
+      "explain": "True while the simulator's launch is still running: some process of its process group (PGID read from state/start_sim.env) still exists."
+    },
+    "fn:simulation/docker/container_sim.sh::stop_simulator": {
+      "explain": "Stops the simulator: Ctrl+C (SIGINT) to the whole launch process group, up to 25 seconds of waiting, then SIGTERM and SIGKILL if needed, and finally 'stop_sim.sh --quiet' to sweep up anything left over."
+    },
+    "fn:simulation/docker/container_sim.sh::run_wait": {
+      "explain": "Runs a command in the background and waits for it with 'wait'. That way a stop request (docker stop or Ctrl+C) is handled at once: bash runs a trap only after a FOREGROUND command ends, but 'wait' returns immediately.",
+      "inputs": "the command and its arguments"
+    },
+    "fn:simulation/docker/container_sim.sh::finish": {
+      "explain": "Wraps up a run, only once: stops the phase monitor, asks score_run for the report when it is missing and the simulator still runs (ROS service /sim/demo/write_score), copies the photos and detection images into the run folder, copies the simulator log as sim.log, and prints the first 40 lines of score_report.md.",
+      "effects": "one ROS service call; files copied into the run folder"
+    },
+    "fn:simulation/docker/container_sim.sh::on_stop": {
+      "explain": "What a stop request (Ctrl+C, docker stop, compose_down.sh) does: it says it is finishing cleanly, runs finish when the demo mode is on, stops the simulator and exits with code 130."
+    },
+    "fn:simulation/docker/container_sim.sh::conduct_demo": {
+      "explain": "Runs demo.sh's steps 2 to 6 inside the 'sim' container: looks up the world's survey mission, waits for the autopilot (mission_tool wait-ready, up to 360 s), uploads the mission, waits for the team's code in the 'jetson' container (stack_check --settle 20, plus --need-detector for the real detector, up to ASTRA_STACK_WAIT seconds), points the camera down ('gimbal_set_angles 0,-90' on /camera/command), starts phase_monitor, arms and starts the mission (mission_tool fly), and waits until the monitor ends.",
+      "outputs": "0 = landed, 3 = timed out, other = a step failed (2 = the world has no mission)"
+    },
+    "mod:simulation/docker/container_solo.sh": {
+      "explain": "Runs INSIDE the one-container setup (image astra-sim, which holds the simulator AND the team's software): makes the mounted folders writable, builds ros2_ws when needed (the same volumes as the compose 'sim' container), loads sim_env.sh, downloads the Fuel models, and then replaces itself with the normal simulation/scripts/demo.sh and your options.",
+      "how_it_fits": "What 'run_sim_container.sh --demo ...' runs. demo.sh then adds 192.168.144.25 to the CONTAINER's own loopback (password-free sudo plus the NET_ADMIN right) and runs everything exactly like the native setup; results go to ~/.astra_sim/runs (= ~/.astra_docker/runs on the host). Not meant to be run by hand."
+    },
+    "mod:simulation/docker/install_docker_engine.sh": {
+      "explain": "ONE-TIME installer (needs root) of the free Docker ENGINE inside this Ubuntu, not Docker Desktop: adds Docker's apt source and installs docker-ce, the CLI, containerd, buildx, the compose plugin and pigz; when an NVIDIA card is visible adds the NVIDIA Container Toolkit and registers it; writes /etc/docker/daemon.json with the compact 'local' log driver; inside WSL starts Docker on first use (systemd socket activation) instead of at every boot; adds your user to the 'docker' group; and starts Docker and runs the hello-world test. Options: --user, --no-nvidia / --nvidia, --start-at-boot, --dry-run.",
+      "how_it_fits": "On Windows this keeps every image inside the Ubuntu-22.04 distro's own virtual disk (on the team laptop D:\\WSL\\Ubuntu-22.04\\ext4.vhdx) instead of Docker Desktop's disk on C:. It refuses to run when systemd is off or when Docker Desktop's WSL integration is switched on for this distro (two Dockers would fight over the 'docker' command). _host_common.sh's astra_need_docker points here when Docker is missing."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::say": {
+      "explain": "Prints an empty line and a cyan '==>' headline for each of the 6 steps."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::info": {
+      "explain": "Prints a plain line indented by 4 spaces."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::ok": {
+      "explain": "Prints a green 'OK' line."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::warn": {
+      "explain": "Prints a yellow '!!' line on the error stream; the installer continues."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::die": {
+      "explain": "Prints a red 'XX' line on the error stream and stops the installer with exit code 1."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::run": {
+      "explain": "Runs a command, or with --dry-run only prints it with '    + ' in front, so you can see every change before it happens."
+    },
+    "fn:simulation/docker/install_docker_engine.sh::apt_get": {
+      "explain": "Runs apt-get the careful way (through run, so --dry-run only prints it): it waits up to 10 minutes for another apt to finish (DPkg::Lock::Timeout=600), never asks questions (DEBIAN_FRONTEND=noninteractive), never restarts running services by itself (needrestart settings) and runs at low priority (nice 10)."
+    },
+    "mod:simulation/docker/require_image.sh": {
+      "explain": "Stops with a CLEAR message when a local ASTRA image (astra-dev, astra-sitl or astra-sim) is not built yet. Without it Docker would look on Docker Hub and say 'pull access denied ... may require docker login', which sends people looking for a login that is not needed. It also says when Docker is missing or not running. Exit code 0 = the image exists, 1 = it does not (the message says how to build it).",
+      "how_it_fits": "Run first by VS Code's 'Reopen in Container' for the simulator dev container (.devcontainer/sim/devcontainer.json 'initializeCommand'). Usage: bash simulation/docker/require_image.sh IMAGE TARGET, e.g. astra-sim:latest sim. Needs only the docker command and changes nothing."
+    },
+    "mod:simulation/docker/run_jetson_container.sh": {
+      "explain": "Starts the Jetson stand-in on its own: a container of the image astra-dev (exactly the Jetson's software) with the repo mounted. --net astra joins the Docker drone network astra_net at 192.168.144.100 next to a simulator started with 'compose_up.sh --only sim'; --net host uses this computer's network to reach the NATIVE simulator (MAVROS on UDP 14552, camera on the loopback 192.168.144.25); --net bridge is Docker's normal network for building and testing only. Default: a terminal inside; --launcher runs container_jetson.sh; '-- CMD' runs one command.",
+      "how_it_fits": "For debugging the team stack by hand in the Jetson's exact software. It shares the build volumes and the address of the compose 'jetson' container, so it refuses to run while that one runs. Uses _host_common.sh for the image checks, repo choice, data folder, build-folder preparation, windows and GPU options; a small PREP step makes the build volumes writable before the shell or command starts."
+    },
+    "mod:simulation/docker/run_sim_container.sh": {
+      "explain": "The simplest Docker way: the WHOLE simulator plus the team's code in ONE container (image astra-sim) on Docker's default network. By default it opens a terminal inside, where everything of simulation/README.md works (first 03_build.sh, then demo.sh); --demo <world> [options] builds if needed and runs the full demo through container_solo.sh; '-- CMD' runs one command. Windows appear on the desktop (WSLg or X11) and the graphics card is used (/dev/dxg or /dev/dri, plus CUDA with the NVIDIA toolkit).",
+      "how_it_fits": "The camera address 192.168.144.25 is added INSIDE the container (it gets the NET_ADMIN right), so nothing changes on the host. For --demo it adds --windows-gcs <Windows host>:14550 (or --no-windows-gcs) because, inside a container, demo.sh's automatic choice would point at this Ubuntu, not Windows. It uses the same build volumes as the compose 'sim' container and refuses to run while that one runs. Results: ~/.astra_docker/runs."
+    },
+    "pkg:simulation/docker/test": {
+      "explain": "Tests of the Docker host scripts that need no Docker daemon and no GPU (pytest, run inside Linux: python3 -m pytest -q -p no:cacheprovider simulation/docker/test; test_line_endings.py also runs on Windows).",
+      "how_it_fits": "test_host_helpers.py guards the GPU choices of _host_common.sh and the two one-container launchers (AGENTS.md lists 6 passing tests, 2026-10-24). test_check_host.py (the doctor check_host.sh, plus build_images.sh and compose_up.sh dry runs) and test_line_endings.py (the .gitattributes line-ending rules) were added on 2026-10-31."
+    },
+    "mod:simulation/docker/test/test_host_helpers.py": {
+      "explain": "Pytest file that checks the GPU choices of the Docker host scripts without Docker: run_sim_container.sh and run_jetson_container.sh with --dry-run --no-gpu (and a fake 'docker' program) must print a docker run command without '--gpus' or NVIDIA_DRIVER_CAPABILITIES; astra_gpu_run_args must follow the NVIDIA runtime in 'auto' mode and drop the GPU for 'no'; and an explicit 'yes' without the runtime must fail with 'no NVIDIA runtime'.",
+      "how_it_fits": "Test code for _host_common.sh, run_sim_container.sh and run_jetson_container.sh; it runs bash with a stub runtime, so no daemon or graphics card is used."
+    },
+    "fn:simulation/docker/test/test_host_helpers.py::test_single_container_no_gpu_reaches_docker_command": {
+      "explain": "Runs each one-container script (run_sim_container.sh, run_jetson_container.sh) with --dry-run --no-gpu, a fake 'docker' that always succeeds and a temporary home folder, and checks the printed 'docker run' line asks for no GPU."
+    },
+    "fn:simulation/docker/test/test_host_helpers.py::test_gpu_helper_auto_and_opt_out": {
+      "explain": "Sources _host_common.sh with a pretend astra_has_nvidia_runtime and checks astra_gpu_run_args: 'auto' adds --gpus only when the runtime exists, 'no' never does."
+    },
+    "fn:simulation/docker/test/test_host_helpers.py::test_explicit_gpu_without_runtime_explains_failure": {
+      "explain": "Checks that astra_gpu_run_args yes, on a computer without the NVIDIA runtime, stops with an error that says 'no NVIDIA runtime' instead of quietly running on the processor."
+    },
+    "mod:simulation/docker/test/test_check_host.py": {
+      "explain": "Pytest file for the Docker doctor check_host.sh, run without Docker: stand-in 'docker' and 'ip' scripts on PATH, a throwaway git repository in a temporary folder and the internet checks switched off (skipped outside Linux). It checks --help and a wrong option, that a healthy stand-in engine passes, that Windows line endings (CRLF) are found and repaired by --fix-line-endings without leaving git-modified files (and found in a folder without git too), that each blocking problem (missing buildx, Compose 2.12.2, an image running as root, a foreign astra_net network, a stray astra-sim container, a taken 192.168.144.0/24 route, 'permission denied', a missing credential helper) is a [FAIL] line followed by its fix, and that a stale or foreign image only warns. It also checks that build_images.sh --dry-run passes the org.astra.inputs and org.astra.uid labels and the proxy, and that compose_up.sh --dry-run creates ros2_ws/build, install and log first.",
+      "how_it_fits": "Test code for check_host.sh, build_images.sh and compose_up.sh; run inside Linux with python3 -m pytest -q -p no:cacheprovider simulation/docker/test. New on 2026-10-31."
+    },
+    "mod:simulation/docker/test/test_line_endings.py": {
+      "explain": "Pytest file that guards the repository's line-ending rules (.gitattributes) by asking git itself (git check-attr, git ls-files --eol, git grep --cached); it needs no Docker, runs on Linux or Windows, and skips when git or the checkout is missing. It checks that files used in Linux (main_controller.py, sim_worlds' make_mission.py, docker/Dockerfile, launcher.sh, check_host.sh) check out with LF, that the .bat launchers keep CRLF, that pictures, PDFs and model weights are never converted, that no shell script is committed with CRLF, and that every committed '#!' script stored with LF also gets LF on checkout.",
+      "how_it_fits": "Protects Windows clones: with CRLF line ends a shell script or a '#!/usr/bin/env python3' line fails in Linux, because the hidden carriage return becomes part of the command. check_host.sh --fix-line-endings and check_host.ps1 report and repair the same problem on a teammate's PC. New on 2026-10-31."
+    },
+    "pkg:docker": {
+      "explain": "The recipe for the team's Docker images (Dockerfile with three targets: dev, sitl, sim), the compose files that run the simulator as two containers wired like the real drone (compose.sim.yml plus add-ons for WSLg, a Linux desktop, /dev/dri graphics and NVIDIA GPUs), and the pip pin lists the images (and the native setup) install.",
+      "how_it_fits": "The 'dev' image mirrors the Jetson's software (Ubuntu 22.04, ROS 2 Humble, MAVROS, the Python ML stack) and is the VS Code dev container everyone uses; 'sitl' adds ArduCopter SITL; 'sim' adds Gazebo Harmonic and everything the simulator needs. simulation/docker/build_images.sh builds them; compose_up.sh / compose_down.sh run and stop compose.sim.yml. AGENTS.md (2026-10-24): 'dev' is used; the compose files and the 'sim' additions are work in progress. setup/01_install_humble.sh reads the same requirements files."
+    },
+    "mod:docker/Dockerfile": {
+      "explain": "One Dockerfile, three images (Docker builds only the target you ask for). 'dev' (from ros:humble-ros-base-jammy): build tools, ROS packages the workspace uses, MAVROS 2.14.0 from the frozen ROS snapshot 2026-08-07, mavlink-routerd built from commit 2362c620f483, ONNX Runtime 1.22.0 for C++, the pip packages (CPU PyTorch 2.8.0 by default), ping and ip, and a user 'ubuntu' with password-free sudo. 'sitl' adds ArduCopter SITL built from tag Copter-4.6.3 in /opt/ardupilot. 'sim' (amd64 only) adds Gazebo Harmonic + ros_gz, the ArduPilot Gazebo plugin at a pinned commit in /opt/ardupilot_gazebo, xacro, RViz, PyQt5, the Gazebo Python bindings, Mesa (with the d3d12 driver for WSLg) and GStreamer, and sets ARDUPILOT_SITL_BIN, ARDUPILOT_GAZEBO_DIR and the GZ_SIM_* paths.",
+      "how_it_fits": "Every version is an ARG at the top (BUILD_JOBS limits parallel compiles, default 4). The repo is never copied in: it is mounted at run time and ros2_ws is built inside the container, so code changes need no image rebuild. sim_bringup's sim_paths.py looks in /opt/ardupilot and /opt/ardupilot_gazebo as its fallback places. Two 2026-10-31 notes in the file: 'useradd -l' avoids a huge lastlog file with very large user ids, and USERNAME is repeated in the sitl and sim stages so Docker's old builder does not make those images run as root."
+    },
+    "mod:docker/compose.sim.yml": {
+      "explain": "Runs the whole digital twin in Docker as TWO containers on a copy of the drone's network 'astra_net' (192.168.144.0/24, gateway .1): 'sim' (image astra-sim, address 192.168.144.25 = the real SIYI camera) runs simulation/docker/container_sim.sh, and 'jetson' (image astra-dev, address 192.168.144.100 = the real Jetson's eth0) runs container_jetson.sh. Both mount the same repo and the host data folder (~/.astra_docker as /home/ubuntu/.astra_sim), use 'ipc: host', ROS_DOMAIN_ID 0 and ROS_LOCALHOST_ONLY 0, and keep their own colcon builds in fixed-name volumes (astra_sim_ws_*, astra_jetson_ws_*) plus astra_gz_fuel for 3D models.",
+      "how_it_fits": "This file alone is headless (no windows, no graphics card); compose_up.sh adds compose.wslg.yml, compose.linux.yml, compose.dri.yml and compose.gpu.yml as needed and fills its ${ASTRA_*} settings from its options. 'pull_policy: never' keeps Docker from asking Docker Hub for images that are only built locally. MAVProxy in 'sim' sends MAVLink to 192.168.144.100:14552, where launcher.sh's MAVROS listens; the SIYI SDK and HTTP media traffic flows the other way to .25. Stop grace periods: 45 s for 'sim' (score report), 30 s for 'jetson'. Needs Docker Compose 2.20 or newer."
+    },
+    "mod:docker/compose.wslg.yml": {
+      "explain": "Add-on for compose.sim.yml on WINDOWS (Docker inside WSL2): hands WSLg's X11 and Wayland sockets (/tmp/.X11-unix, /mnt/wslg) to both containers, so their windows appear on the Windows desktop, and gives them WSL2's door to the Windows graphics driver (/dev/dxg) plus the DirectX/CUDA libraries in /usr/lib/wsl/lib, so Mesa's d3d12 driver draws Gazebo and RViz on the real graphics card (GALLIUM_DRIVER=d3d12, MESA_D3D12_DEFAULT_ADAPTER_NAME default NVIDIA).",
+      "how_it_fits": "compose_up.sh adds it by itself inside WSL whenever /mnt/wslg and /dev/dxg exist (also when headless, so Gazebo's camera still renders on the card). Only for WSL2; a normal Linux PC uses compose.linux.yml instead."
+    },
+    "mod:docker/compose.linux.yml": {
+      "explain": "Add-on for compose.sim.yml on a LINUX DESKTOP: hands the desktop's X11 socket folder /tmp/.X11-unix and $DISPLAY to both containers (plus a private Qt runtime folder /tmp/runtime-ubuntu and QT_X11_NO_MITSHM=1), so Gazebo, RViz and the demo panel open on your screen; it also works on Ubuntu's Wayland desktop through XWayland.",
+      "how_it_fits": "compose_up.sh adds it on Linux when the display mode is x11 and runs 'xhost +SI:localuser:<you>' (astra_x11_allow), which only works when the images were built with your user id. For 3D on the graphics hardware add compose.dri.yml or compose.gpu.yml; without either Mesa draws on the processor (slower)."
+    },
+    "mod:docker/compose.dri.yml": {
+      "explain": "Add-on for compose.sim.yml on a Linux PC: gives both containers /dev/dri (the 'render nodes' of Intel, AMD and some NVIDIA graphics) and adds their user to the group that owns /dev/dri/renderD128 (ASTRA_RENDER_GID, default 'video'), so Gazebo and RViz draw on the graphics hardware through Mesa instead of the processor.",
+      "how_it_fits": "A separate file because Docker refuses to start a container whose device is missing (WSL2 and virtual machines have no /dev/dri). compose_up.sh adds it when /dev/dri exists outside WSL and reads the group id for ASTRA_RENDER_GID."
+    },
+    "mod:docker/compose.gpu.yml": {
+      "explain": "Add-on for compose.sim.yml: asks Docker for all NVIDIA cards for both containers (a 'deploy' device reservation, the same as --gpus all) with NVIDIA_DRIVER_CAPABILITIES=all (CUDA, nvidia-smi, OpenGL/Vulkan, video), so the team's detector (new_od: YOLO + SAHI on PyTorch, about 10x faster on the card) uses CUDA and, on Linux, Gazebo and RViz draw on the card.",
+      "how_it_fits": "Separate because Docker refuses to start a container that asks for a GPU on a PC without an NVIDIA card or without the NVIDIA Container Toolkit; compose_up.sh adds it only when 'docker info' lists the 'nvidia' runtime (never with --no-gpu). PyTorch uses CUDA only when build_images.sh built CUDA PyTorch (--torch cuda, its default on a PC with an NVIDIA card)."
+    },
+    "mod:docker/requirements-dev.txt": {
+      "explain": "Pip packages every dev image gets, pinned to what the Jetson had in its pip --user folder on 2026-10-10: pymavlink 2.4.49, MAVProxy 1.8.74, pynmeagps 1.1.5, py-spy 0.4.2 and numpy 1.26.4 (kept below 2 so MAVProxy cannot pull numpy 2, which breaks cv_bridge), plus ruff for development only.",
+      "how_it_fits": "Installed by docker/Dockerfile ('dev' stage) and by setup/01_install_humble.sh for the native simulator. Part of the fingerprint that build_images.sh stores in each image (org.astra.inputs)."
+    },
+    "mod:docker/requirements-ml.txt": {
+      "explain": "The Python machine-learning packages of the dev image, the same versions as requirements_jetson.txt: numpy 1.26.4, opencv-python 4.10.0.84, ultralytics 8.4.75, sahi 0.11.36 and watchdog 6.0.0. torch and torchvision are installed separately (they come from PyTorch's own index). numpy must stay below 2 because ROS Humble's cv_bridge is built against numpy 1.x.",
+      "how_it_fits": "Installed by docker/Dockerfile when WITH_PY_ML=true (the default) and by setup/01_install_humble.sh. These are what the team's detector new_od (YOLO + SAHI) and its photo-folder watcher need. Part of the image fingerprint (org.astra.inputs)."
+    },
+    "pkg:simulation/windows": {
+      "explain": "The Windows side of the simulator: five double-click .bat launchers that run the simulator scripts inside the Ubuntu-22.04 WSL distro (Rebuild, Start Search Demo, Start for Mission Planner, Start Over, Stop Simulation), two PowerShell helpers for the Mission Planner plugin (install_mp_plugin.ps1, check_mp_plugin.ps1), and the plugin itself (mission_planner_plugin/astra_gcs.cs).",
+      "how_it_fits": "They let a teammate use the twin without typing Linux commands. Each .bat runs 'wsl.exe -d Ubuntu-22.04 -- bash -lc ...' on a script in simulation/scripts, from the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026 (Rebuild.bat runs 03_build.sh from the Windows folder to make that copy). The plugin turns Mission Planner, the ground station the team flies the real drone with, into the one ASTRA screen; it reads only MAVLink and uses WSL (simulation/scripts/mp_actions.sh) for its simulator buttons. The .bat files keep Windows CRLF line endings (.gitattributes)."
+    },
+    "mod:simulation/windows/Rebuild.bat": {
+      "explain": "Double-click after changing code: runs simulation/setup/03_build.sh inside Ubuntu-22.04, started from THIS Windows folder of the repo (wsl.exe --cd '<repo>'). 03_build.sh mirrors the repo to ~/ODLC_Machine_Inferencing_System_2025-2026 (photos and build results there are kept) and builds everything with colcon. The window says whether the build finished or failed (full log: ~/.astra_sim/logs/build_*.log inside Ubuntu) and waits for a key.",
+      "how_it_fits": "The Windows button for 'I edited the code, let the simulator use it'. The other launchers reuse the last build, so run this first after edits, and close the simulator first (Stop Simulation.bat): a running demo keeps the old build."
+    },
+    "mod:simulation/windows/Start Over.bat": {
+      "explain": "Double-click: puts the running demo back to the start and flies it again. Inside Ubuntu-22.04 it runs 'bash simulation/scripts/start_over.sh --fly --follow' in the Linux-side copy. Gazebo and RViz stay open: a flying drone lands, a fresh drone with both payloads is placed, the autopilot and the team code restart, the mission is uploaded and flown, and this window shows every phase until the landing. With no simulator running it starts a fresh demo.",
+      "how_it_fits": "The same as START OVER (twice) plus UPLOAD MISSION + START in the old demo panel, or START OVER in the Mission Planner plugin. It hands this repo's Windows folder to Ubuntu as ASTRA_WINDOWS_REPO (through WSLENV) and asks you to run Rebuild.bat first when the Linux copy does not exist yet."
+    },
+    "mod:simulation/windows/Start Search Demo.bat": {
+      "explain": "Double-click: the full search demo, kept open. Inside Ubuntu-22.04 it runs 'bash simulation/scripts/demo.sh runway --keep' from the Linux-side copy (the last build): the team's real flight code flies the search, finds the hiker and the tent, drops both payloads and lands, and then everything STAYS open for Start Over.bat (or START OVER) or Stop Simulation.bat.",
+      "how_it_fits": "The quickest way to show the whole system on the team laptop. It passes ASTRA_WINDOWS_REPO through WSLENV so messages can name Windows paths, and reminds that Mission Planner can watch on UDP port 14550."
+    },
+    "mod:simulation/windows/Start for Mission Planner.bat": {
+      "explain": "Double-click: the competition procedure in the simulator. Inside Ubuntu-22.04 it runs 'bash simulation/scripts/demo.sh runway --manual', which starts the simulator, the windows, the team's flight stack and the MAVLink copy for Mission Planner (UDP 14550), and then WAITS: you load, write, arm and start the mission in Mission Planner (the steps are printed). It shows the Windows path of the mission file to load (<repo>\\ros2_ws\\src\\simulation\\sim_worlds\\missions\\runway_survey.waypoints).",
+      "how_it_fits": "Practice for the real field: the human does what the pilot does in Mission Planner, the team's code does the rest. Everything stays open after the landing for another run (Start Over.bat or START OVER)."
+    },
+    "mod:simulation/windows/Stop Simulation.bat": {
+      "explain": "Double-click: closes the simulator and everything it started. Inside Ubuntu-22.04 it runs 'bash simulation/scripts/stop_sim.sh' in the Linux-side copy, which stops only the simulator's own programs (found by their session tag), including the team stack that the demo or START OVER started. Mission Planner stays open; close it yourself.",
+      "how_it_fits": "The Windows off switch. Safe to run twice; nothing else on the PC is touched."
+    },
+    "mod:simulation/windows/check_mp_plugin.ps1": {
+      "explain": "Compiles the Mission Planner plugin (mission_planner_plugin\\astra_gcs.cs) OUTSIDE Mission Planner, against Mission Planner's own program files (MissionPlanner.exe, MAVLink.dll, GMap.NET, ... in -MissionPlannerDir, default 'C:\\Program Files (x86)\\Mission Planner'), with the .NET Framework 4 C# compiler csc.exe (C# 5). A mistake then shows up with a line number instead of the plugin silently not appearing. The test DLL goes to the temp folder and is deleted; nothing is installed. Exit 0 = compiles, 1 = compile errors (printed), 2 = Mission Planner or the compiler not found.",
+      "how_it_fits": "A check to run before install_mp_plugin.ps1. The old .NET Framework compiler is stricter than Mission Planner's, so code that passes here also compiles inside Mission Planner."
+    },
+    "mod:simulation/windows/install_mp_plugin.ps1": {
+      "explain": "Puts the ASTRA plugin into Mission Planner, or takes it out with -Remove. It finds MissionPlanner.exe (in -MissionPlannerDir, $env:MISSION_PLANNER_DIR, 'C:\\Program Files (x86)\\Mission Planner' or 'C:\\Program Files\\Mission Planner'), copies mission_planner_plugin\\astra_gcs.cs to '<Mission Planner>\\plugins\\astra_gcs.cs' when the file hashes differ, and says to restart Mission Planner if it is open. Exit 0 = done, 1 = Mission Planner not found, 2 = the plugins folder is not writable (run once as administrator).",
+      "how_it_fits": "Mission Planner compiles every .cs file in its plugins folder when it starts, so installing means copying and restarting. sim_demo/mission_planner.py (behind mission_planner.sh start) does the same copy automatically before it opens Mission Planner."
+    },
+    "pkg:simulation/windows/mission_planner_plugin": {
+      "explain": "The ASTRA Mission Planner plugin: one C# source file, astra_gcs.cs, which Mission Planner compiles by itself when it starts.",
+      "how_it_fits": "It replaces the old Qt demo panel: Mission Planner becomes the single ground-station screen for both the simulator and the real drone."
+    },
+    "mod:simulation/windows/mission_planner_plugin/astra_gcs.cs": {
+      "explain": "Makes Mission Planner the ONE ground-station screen of the ASTRA search mission. It adds (1) the drone camera as the HUD background (an MJPEG stream, default http://127.0.0.1:8081/pov.mjpg from sim_demo's pov_server); (2) an 'ASTRA' tab on the DATA screen with the mission phase strip, one plain sentence about what the drone is doing, 8 readouts, a card each for the hiker and the tent, an event log and buttons (ARM + START MISSION, RETURN HOME, and in the simulator TAKE PHOTO, CAMERA DOWN, CAMERA FORWARD, START OVER); and (3) map markers for the chosen targets and the drop points. Every 2 s it writes Documents\\Mission Planner\\astra_plugin_status.json.",
+      "how_it_fits": "It learns everything from what Mission Planner already receives over MAVLink: the autopilot's state, and the STATUSTEXT messages the team's main_controller sends through MAVROS ('Detected tent', 'All N images processed', 'Aim tent <lat>,<lon>', 'Targets: ...', 'Over tent:', 'Servo 13 -> 1400', 'RTL'), plus the optional lattice_reporter's 'TGT p <lat> <lon> <conf> <n>' texts, so it works the same with the real drone over the telemetry radio. Only the camera picture (HTTP) and the simulator buttons (wsl.exe running simulation/scripts/mp_actions.sh) use something else. The flight buttons ask first and then do what Mission Planner's own buttons do (GUIDED, arm, AUTO; or RTL). Settings live in Mission Planner's config.xml (astra_camera_on, astra_camera_url, astra_sim_buttons, astra_wsl_distro, astra_wsl_repo, astra_drop_channels '11:person,13:tent', astra_drop_open_pwm 1400). Written for Mission Planner 1.3.83 in plain C# 5; check it with check_mp_plugin.ps1, install it with install_mp_plugin.ps1."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Phase": {
+      "explain": "The mission phases in flight order, as the strip shows them from left to right: Waiting, Takeoff, Search, Process, Targets, Drop, Return, Landed."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::TargetInfo": {
+      "explain": "Everything known about one target kind ('person' = the hiker, or 'tent'): how many 'Detected' messages came, when it was first seen, the best radio report (TGT) and its position, the chosen aim point, and whether its payload is dropping or dropped (with time and position)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::TargetInfo.Word": {
+      "explain": "The word used in sentences: 'hiker' for the person, 'tent' for the tent."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::EventItem": {
+      "explain": "One line of the event log: time, source ('autopilot', 'flight code', 'Jetson report' or 'ASTRA'), text, and level (0 normal, 1 good news, 2 warning shown in amber)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Theme": {
+      "explain": "The tab's colours, dark like Mission Planner's own theme: background, card, line, text, muted grey, accent blue, good green, warning amber, bad red, and a green fill and text for finished things."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Ui": {
+      "explain": "Small helpers that make labels and set fonts WITHOUT naming the drawing types (Font, FontStyle, ContentAlignment) that Mission Planner ships twice (its own SkiaSharp-based copy and .NET's). Naming them would not compile, so these helpers reach them through reflection."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Ui.SetFont": {
+      "explain": "Gives a control the 'Segoe UI' font at a size, bold or regular. The font object is created by reflection and cached (one per size and style); on any error the control simply keeps its default font."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Ui.Center": {
+      "explain": "Centres a label's text by setting TextAlign to the value 32 (MiddleCenter) through reflection; if that fails the text stays left-aligned, which is fine too."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Ui.Label": {
+      "explain": "Makes a new label with a text, a text colour, a see-through background, '...' for text that does not fit, and the font from SetFont."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::PhaseStrip": {
+      "explain": "The row of 8 phase boxes at the top of the ASTRA tab: finished phases get a tick and a green fill, the current one is filled blue, the coming ones stay grey."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::PhaseStrip.PhaseStrip": {
+      "explain": "Builds the strip: one equal-width column per phase name (Waiting, Take-off, Search, Process, Targets, Drop, Return, Landed), each a centred bold label, and starts at phase 0 (Waiting)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::PhaseStrip.Current": {
+      "explain": "The index of the current phase (0 = Waiting). Setting a new value re-colours every box: earlier ones ticked and green, this one blue, later ones grey."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin": {
+      "explain": "The plugin itself, a Mission Planner 'Plugin'. It keeps the mission state (phase, targets, events) on Mission Planner's plugin thread, reads the camera stream on its own thread, and changes the ASTRA tab only on the window thread."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Name": {
+      "explain": "The plugin's name shown by Mission Planner: 'ASTRA ground station'."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Version": {
+      "explain": "The plugin's version, '1.0' (also written into the status file)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Author": {
+      "explain": "The author shown by Mission Planner: 'ASTRA team'."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Init": {
+      "explain": "Called once when Mission Planner loads the plugin: asks Mission Planner to call Loop 2 times per second (loopratehz = 2) and creates the two empty target records 'person' and 'tent'."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Loaded": {
+      "explain": "Called when Mission Planner's screens exist: builds the ASTRA tab, adds the 'ASTRA camera' HUD menu and the map layer, subscribes to every STATUSTEXT packet from any system and component, logs 'plugin loaded', starts the camera thread and writes the first status file. Every part catches its own errors (kept in lastError), so one failure never stops the others or Mission Planner."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Loop": {
+      "explain": "Called by Mission Planner 2 times per second: runs Tick and catches any error."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Exit": {
+      "explain": "Called when Mission Planner closes: tells the camera thread to stop, removes the STATUSTEXT subscription and clears the camera picture from the HUD."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.OnStatusText": {
+      "explain": "Runs on Mission Planner's MAVLink reader thread for every STATUSTEXT packet. It skips the autopilot's own texts (component 1; ReadMessages gets those), decodes the text and queues it with its 'sysid:compid' source, keeping at most 500 waiting. It stays fast: the parsing happens later in Tick.",
+      "inputs": "one MAVLink message"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Setting": {
+      "explain": "Reads one value from Mission Planner's settings (config.xml), or returns the fallback when it is empty or cannot be read.",
+      "inputs": "the setting's key and a fallback value"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.SaveSetting": {
+      "explain": "Stores one value in Mission Planner's settings (config.xml); errors are ignored."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.CameraEnabled": {
+      "explain": "True unless the setting astra_camera_on is 'false' (default 'true')."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.CameraUrl": {
+      "explain": "The camera stream address: the setting astra_camera_url, default http://127.0.0.1:8081/pov.mjpg."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Tick": {
+      "explain": "The update that runs 2 times per second. It reads new autopilot and companion status texts, decides whether this is the simulator, notices arming (a new flight starts; after Landed the facts are reset) and disarming, and works out the phase: not armed = Waiting or Landed; RTL, LAND, SMART_RTL or a return message = Return; a drop under way or done = Drop; targets chosen = Targets; search done or photos processed = Process; AUTO above 10 m at waypoint 2 or later = Search; otherwise Takeoff. During a flight the phase never steps back. Then it writes the status file every 2 s and asks the window thread to redraw."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.DetectSimulator": {
+      "explain": "Decides whether the simulator buttons are shown: the setting astra_sim_buttons 'on' or 'off' wins; 'auto' (the default) means yes when the autopilot has the parameter SIM_SPEEDUP, which only SITL has."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ResetFlight": {
+      "explain": "Clears the facts of the last flight (search done, targets chosen, returning, photos processed, and each target's detections, report, aim and drop), marks the map for redrawing and logs '---- a new flight starts ----'."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ReadMessages": {
+      "explain": "Reads the newest status texts of the autopilot (component 1) from Mission Planner's message list, skips the ones already handled (Remember) and passes each new one to HandleText. Texts of other components arrive through OnStatusText instead, so nothing is counted twice."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ReadCompanionTexts": {
+      "explain": "Takes every text OnStatusText queued from the companion side (the Jetson's MAVROS or another component), counts it, and passes it to HandleText with its component id."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Remember": {
+      "explain": "Remembers message ids (source, time and text) so every message is handled once; above 3000 it forgets the oldest. Returns false for a message it has seen before."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.HandleText": {
+      "explain": "Turns one status text from the autopilot or the team's code into mission facts, by matching it against a few fixed patterns (listed under 'effects'). Texts with words like FAILED, timeout or PreArm are logged as warnings, and every text goes into the event log.",
+      "inputs": "time, component id, text",
+      "effects": "'Detected person|tent' counts a detection; 'TGT p|t <lat> <lon> <conf> <n>' keeps the best radio report; 'All N images processed' or 'Reached last WP' = search done; 'Aim person|tent <lat>,<lon>' = target position and map marker; 'Targets:' = targets chosen; 'Over person|tent:' = dropping; 'Servo <channel> -> <pwm>' = payload released when the channel is in astra_drop_channels and pwm equals the open value (1400), with the drone's position as the drop point; 'RTL', 'All targets done', 'No valid targets' or 'Divert failed' = returning"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.DropChannels": {
+      "explain": "Reads the setting astra_drop_channels (default '11:person,13:tent') into a table: servo channel -> payload kind."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.DropOpenPwm": {
+      "explain": "Reads the setting astra_drop_open_pwm: the servo value that means 'payload released' (default 1400 microseconds, the team's PULLEY_OPEN)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.AddEvent": {
+      "explain": "Adds one line to the event log (keeping the last 500) and to the list of lines the screen has not shown yet. There are two versions with the same name: one stamps the time 'now', the other uses the time of the message."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.CameraLoop": {
+      "explain": "The camera thread's loop: when the camera is switched off it waits 1 s; when the stream's /health address does not answer it waits 2 s ('waiting for the camera stream'); otherwise it reads the stream (ReadStream) until it ends or fails, then clears the HUD picture, logs 'Camera picture off', waits 1 s and tries again, until Mission Planner closes."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.HealthUrl": {
+      "explain": "Turns the stream address into its health address: it keeps 'http://host:port' and adds '/health' (http://127.0.0.1:8081/pov.mjpg becomes http://127.0.0.1:8081/health, which sim_demo's pov_server answers)."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Probe": {
+      "explain": "Asks an address with one HTTP GET (1.5 s time limit, no proxy) and answers true only for status 200 OK."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ReadStream": {
+      "explain": "Reads the MJPEG stream (pictures one after another over HTTP, 5 s silence limit), cuts out each complete JPEG (from the bytes FF D8 to FF D9; anything over 8 MB is thrown away) and shows it with ShowFrame, as long as the camera stays on and its address does not change."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ShowFrame": {
+      "explain": "Turns one JPEG into a .NET picture (Image.FromStream, found by reflection) and sets it as the HUD's background (FlightData.myhud.bgimage); it counts frames and disposes old pictures so only the newest 4 are kept."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.ClearHud": {
+      "explain": "Removes the camera picture from the HUD (bgimage = null), so Mission Planner's normal artificial horizon comes back, and disposes the pictures it kept."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.BuildTab": {
+      "explain": "Builds the ASTRA tab and puts it FIRST (and selected) on the DATA screen's tab row: the phase strip; the status sentence and link line; a 4 x 2 grid of readouts (MODE, HEIGHT, SPEED, BATTERY, GPS, HOME, IN THE AIR, WAYPOINT); the HIKER and TENT cards; the event log (Time, From, Message); the flight buttons; and the hidden row of simulator buttons."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.MakeTile": {
+      "explain": "Makes one readout tile: a small grey caption on top and a big value below ('-' at first), and remembers the value label under the caption's name."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.MakeCard": {
+      "explain": "Makes one target card (hiker or tent): a title, three text lines (detections, target, payload) and a coloured stripe on the left whose colour shows how far that target has come."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.MakeButton": {
+      "explain": "Makes one flat coloured button with white bold text, a given size and a click action."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.UpdateUiAsync": {
+      "explain": "Asks the window thread to run UpdateUi (BeginInvoke), because only that thread may change the screen; it does nothing before the tab exists."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.UpdateUi": {
+      "explain": "Redraws the tab from the current state: the phase strip; the status sentence; the link line (telemetry, camera state and picture count, seconds since the last message); the 8 readouts from Mission Planner's CurrentState (battery below 30 % and GPS without a 3D fix in red); both target cards and their colours; the newest event-log lines (at most 300 kept, newest on top); whether the simulator buttons are visible; and the map when it changed."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.SetText": {
+      "explain": "Changes a label's text only when it is different, so the screen does not flicker."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.SetTile": {
+      "explain": "Sets one readout tile's value text and colour, found by its caption name."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Sentence": {
+      "explain": "Builds the plain sentence under the strip for the current phase, for example 'Searching: waypoint 5, 30 m, 5.5 m/s. Detections so far: hiker 2, tent 1', 'Over the tent: dropping the payload' or 'Returning home: 120 m to go, 30 m high'."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.AddMapOverlay": {
+      "explain": "Adds a map layer named 'astra' to the flight-data map; the target and drop markers go there."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.RefreshMap": {
+      "explain": "Redraws the map markers: a red (hiker) or orange (tent) dot with a label at each chosen target, and a small green marker at each payload release point."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.AddHudMenu": {
+      "explain": "Adds 'ASTRA camera' to the HUD's right-click menu: a tick box to show or hide the drone camera (setting astra_camera_on) and 'Camera address ...' to type another MJPEG address (setting astra_camera_url); the camera thread notices the change and reconnects."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.OnStartMission": {
+      "explain": "The ARM + START MISSION button. It refuses when the drone has fewer than 2 mission items, asks 'Arm the motors and start the mission (AUTO)?', and then, in the background, sets GUIDED, waits 0.5 s, arms, waits 1 s and sets AUTO, logging each result (a refused arm is logged as a warning: see the PreArm messages).",
+      "effects": "MAVLink mode and arm commands through Mission Planner's own functions (setMode, doARM)"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.OnReturnHome": {
+      "explain": "The RETURN HOME (RTL) button: asks 'Fly back to the launch point and land (RTL)?' and then switches the autopilot to RTL in the background, logging the result.",
+      "effects": "a MAVLink mode change to RTL"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.OnStartOver": {
+      "explain": "The simulator's START OVER button: explains what will happen (a flying drone lands, a fresh drone with both payloads stands at the start, the mission is uploaded again), asks for a yes, and runs the start_over action through RunSimAction."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.RunSimAction": {
+      "explain": "Runs one simulator button in the background through WSL: wsl.exe -d <astra_wsl_distro, default Ubuntu-22.04> -- bash -lc 'bash <astra_wsl_repo>/simulation/scripts/mp_actions.sh <action>' (from a 32-bit process it uses Sysnative\\wsl.exe), waits up to 15 minutes, and logs ': done' or ': FAILED' together with the script's last output line.",
+      "inputs": "the action (take_photo, look_down, look_forward or start_over) and a label for the log",
+      "effects": "starts a WSL process that publishes on /camera/trigger or /camera/command, or runs start_over.sh"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.WriteStatus": {
+      "explain": "Writes Documents\\Mission Planner\\astra_plugin_status.json: plugin version, time, phase, whether the tab was built, camera state, picture count and age of the last picture, messages and companion texts seen, whether the STATUSTEXT subscription works, simulator yes/no, photos processed, each target's detections, target position and release time, the number of events, the last event and the last error. Tick calls it every 2 s, so scripts and teammates can check the plugin works without looking at the screen.",
+      "effects": "writes one small JSON file"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Field": {
+      "explain": "Adds one 'name: value' line to the status file's JSON text, either raw (numbers, true or false) or as a quoted string with backslashes, quotes and line breaks made safe."
+    },
+    "pkg:simulation/profiles": {
+      "explain": "Plug-in profiles: small YAML files that say which piece fills each 'slot' of the simulator (world, autopilot, camera, detector, mission brain, extra programs, network addresses, run settings). A profile only holds the lines it changes; default.yaml writes every setting out. Use one with 'demo.sh --profile NAME' or 'start_sim.sh --profile NAME'.",
+      "how_it_fits": "Read by sim_plugins.profile_tool (called by demo.sh and start_sim.sh only when --profile, --set or a plug-in option is given; otherwise the scripts run exactly as before and no profile is read). profile_tool merges the profile with default.yaml (and 'extends:'), checks every value and file, and turns it into sim.launch.py arguments, team-stack arguments and stack_check options. Simulator only: on the real drone a new detector must go into main/launch/tracker.launch.xml. AGENTS.md marks the plug-and-play mechanism as work in progress."
+    },
+    "mod:simulation/profiles/README.md": {
+      "explain": "A short guide to the profiles folder: what a profile is, a table of every shipped profile and what it changes, and the commands to use one (demo.sh --profile ...) and to check one (python3 -m sim_plugins.profile_tool list / plan --profile X --check).",
+      "how_it_fits": "Points to docs/simulation/PLUGINS.md (every slot's contract and key) and docs/simulation/ARDUPILOT.md (the autopilot slot)."
+    },
+    "mod:simulation/profiles/default.yaml": {
+      "explain": "The profile that is EXACTLY today's simulator, with every setting written out and explained in a comment. The values: world runway with its own survey mission; autopilot sitl_binary (~/sitl/arducopter 4.6.3, instance 0, safe parameter filter); camera siyi_emulator, model zr10 (2560x1440 photos), zoom survey (full 81 degree view); detector team (new_od + ~/.astra_sim/models/yolo26m.pt, not batched); mission_brain team (main_controller.py); no extras; network: MAVProxy outputs on UDP 14550 (our scripts / a ground station), 14552 (MAVROS's old door) and 14553 (demo panel), windows_gcs true, camera_ip 192.168.144.25, and fcu_url '' = MAVROS on tcp://127.0.0.1:<5763 + 10 x instance> (SITL's SERIAL2, like the Jetson on TELEM2); run not headless, 30 minute timeout, team stack local.",
+      "how_it_fits": "The reference to copy when making your own profile (then delete every line you do not change). 'demo.sh --profile default' equals plain 'demo.sh'. sim_plugins' unit tests (test_profiles.py) check this file equals the built-in defaults."
+    },
+    "mod:simulation/profiles/truth_detector.yaml": {
+      "explain": "Flies the demo with the ANSWER-KEY detector instead of the team's YOLO model: detector.kind truth, so sim_demo's truth_detector publishes the same /image_detection messages new_od would, for every photo that shows a target, using the world's truth file. The panel shows an amber 'STAND-IN' banner.",
+      "how_it_fits": "The same as 'demo.sh runway --detector truth'. Used to test the mission logic (waypoint insertion, drops, RTL) even when the real detector misses the simulated targets."
+    },
+    "mod:simulation/profiles/example_detector.yaml": {
+      "explain": "Plugs the TEMPLATE detector (sim_plugin_examples/example_detector, a colour-blob finder) into the demo in place of the team's new_od: detector.kind custom with package example_detector, launch file example_detector.launch.py, node name example_detector, provides_health true and the launch argument min_blob_area_px 150.",
+      "how_it_fits": "team_stack.launch.py then starts a copy of tracker.launch.xml WITHOUT new_od plus this detector; stack_check waits for the node example_detector and its /sahi/get_health 'ModelLoaded: True' answer. Copy it next to your own detector package and change the package, launch and node_name lines; check it while it runs with 'ros2 run sim_plugins check_slot --slot detector --take-photo'."
+    },
+    "mod:simulation/profiles/example_listener.yaml": {
+      "explain": "Starts the TEMPLATE 'extra' (sim_plugin_examples/example_listener) together with the team stack: a node that only LISTENS (telemetry, mission progress, detections), prints a summary every 10 s (summary_period_s) and writes a JSON summary file when it stops (default ~/.astra_sim/example_listener_summary.json).",
+      "how_it_fits": "Shows how 'extras' add a logger, monitor or test driver without touching anything else; start_with team_stack starts it with ./launcher.sh sim (start_with simulator would start it with sim.launch.py). Another profile can say 'extends: example_listener'."
+    },
+    "mod:simulation/profiles/lattice_mock.yaml": {
+      "explain": "Tries the Lattice bridge with the simulated drone and NO Lattice account. It adds four extra programs to the normal demo: lattice_ground_radio (a second ground station that plays the field's telemetry radio), fake_lattice (a pretend Lattice with a live map at http://127.0.0.1:8089/), lattice_bridge (the real ground-side bridge, publishing to the pretend Lattice) and lattice_reporter (the Jetson-side reporter that sends one short text such as 'TGT p 36.215133 -96.006219 95 1' per hiker or tent through MAVROS).",
+      "effects": "lattice_ground_radio = MAVProxy on the autopilot's spare port SERIAL1 (TCP 5762, system id 254), started by sim_bringup's wait_then_exec once that port listens, output UDP 14554, log <run folder>/lattice/lattice_ground_radio.tlog; fake_lattice journal <run folder>/lattice/fake_lattice_journal.jsonl, answering 4 s past the end; lattice_bridge reads udpin:127.0.0.1:14554 with a made-up token; lattice_reporter starts with the team stack with min_confidence 0.5 and min_move_m 1.5",
+      "how_it_fits": "The team's target and drop texts ('TGT ...', 'Servo 13 -> 1400') come through MAVROS; ArduPilot passes them on to every OTHER port where it heard a ground station, so the ground station on SERIAL1 receives them the way the real radio does (MAVProxy never copies one client's messages to another). On disk on 2026-10-31 it also sets network.fcu_url udp://:14552@localhost:14552 (MAVROS behind MAVProxy, the old wiring) instead of the new SERIAL2 default, because with MAVROS on SERIAL2 ArduPilot also forwards MAVROS's own heartbeat to UDP 14550 and mission_tool could read it as 'STABILIZE, disarmed' and stop the demo (lattice run 1, 2026-10-31). Keep TCP 5762 free during this demo. Nothing leaves the computer and the flight is not affected if a part fails. Use: demo.sh runway --profile lattice_mock, then open http://127.0.0.1:8089/ (docs/lattice/BRIDGE.md)."
+    },
+    "mod:simulation/profiles/ardupilot_version.yaml": {
+      "explain": "Flies the simulated drone with ANOTHER ArduCopter version than the real Pixhawk's 4.6.3: autopilot sitl_binary, version '4.7.1' (a folder in ~/sitl/versions, fetched first with 'bash simulation/setup/fetch_sitl.sh 4.7.1').",
+      "how_it_fits": "Checks the team's code against a newer firmware before the drone is updated. That version keeps its own saved parameters in ~/.astra_sim/sitl_I0_v4.7.1, so the default's are not touched. Without editing: demo.sh --sitl-version latest."
+    },
+    "mod:simulation/profiles/ardupilot_source.yaml": {
+      "explain": "Flies the simulated drone with ArduCopter BUILT FROM AN ARDUPILOT SOURCE TREE: autopilot sitl_source, source_dir /opt/ardupilot (the Docker 'sitl' image's Copter-4.6.3 build), whose build/sitl/bin/arducopter and own Tools/autotest/default_params files are used.",
+      "how_it_fits": "For trying firmware changes: build a tree once (./waf configure --board sitl && ./waf copter), then demo.sh --profile ardupilot_source, or demo.sh --sitl-source ~/ardupilot for your own tree (docs/simulation/ARDUPILOT.md)."
+    },
+    "mod:simulation/profiles/real_drone_params.yaml": {
+      "explain": "Makes the simulated autopilot fly the mission like the REAL drone by loading the real Pixhawk's parameter file on top of the simulator's own: autopilot.param_files [params/example_real_drone.param] (a path relative to this profile's folder) with param_filter safe and an empty param_keep list.",
+      "how_it_fits": "The 'safe' filter keeps lines about how the drone flies the mission (waypoint speed and radius, RTL height, failsafes) and drops lines about the PHYSICAL drone that would break the simulator (sensor calibrations, wiring, airframe and tuning, the payload servos). The plan says how many lines were used and dropped: python3 -m sim_plugins.profile_tool plan --profile real_drone_params --check. Quick way: demo.sh --param-file <file>."
+    },
+    "mod:simulation/profiles/external_autopilot.yaml": {
+      "explain": "EXAMPLE with made-up addresses: the autopilot runs SOMEWHERE ELSE (another container or PC) and this computer runs Gazebo, MAVProxy, the camera emulator and the demo. autopilot kind external, mavlink tcp:192.168.1.50:5760 (where that SITL's MAVLink is), fdm_addr 0.0.0.0 (the drone plugin here listens for physics on every address) and sim_address 192.168.1.20 (this computer, for the printed command).",
+      "how_it_fits": "On the other computer SITL runs 'arducopter --model JSON --sim-address=<this PC> ...' and sends its physics packets to UDP 9002 here; MAVProxy here connects to its TCP 5760 and shares the MAVLink out as usual. Firewalls must open UDP 9002 here and TCP 5760 there."
+    },
+    "mod:simulation/profiles/docker_split.yaml": {
+      "explain": "EXAMPLE network settings for a split setup: this container or PC runs the simulator, and the team stack (./launcher.sh sim) runs in ANOTHER container, like on the real drone's Jetson. network.mavros_out udp:172.30.0.3:14552 (change to the other container's address), camera_bind 0.0.0.0 (the camera emulator answers on every address), windows_gcs false; run.team_stack external (demo.sh does not start launcher.sh, it waits for it) and headless true.",
+      "how_it_fits": "On the other side MAVROS must listen on every address (FCU_URL='udp://:14552@' ./launcher.sh sim), this side needs the camera address 192.168.144.25 on the shared Docker network, and both need the same ROS_DOMAIN_ID and working ROS 2 discovery. docker/compose.sim.yml is the ready-made version of this idea."
+    },
+    "pkg:simulation/profiles/params": {
+      "explain": "Example parameter files for profiles (today one file, example_real_drone.param).",
+      "how_it_fits": "Referenced by real_drone_params.yaml through a path relative to the profiles folder."
+    },
+    "mod:simulation/profiles/params/example_real_drone.param": {
+      "explain": "A SHORT EXAMPLE of a parameter file saved from Mission Planner (CONFIG -> Full Parameter List -> Save to file), one NAME,VALUE per line. The first block describes how the drone flies the mission (WPNAV_SPEED 500, WPNAV_RADIUS 200, RTL_ALT 3000, LAND_SPEED 50, failsafes ...), which the simulator uses; the second block describes the physical drone (sensor offsets, compass, serial ports, battery, frame, motor and rate tuning, SERVO11/13_FUNCTION, SYSID_THISMAV ...), which the 'safe' filter drops.",
+      "how_it_fits": "Used by real_drone_params.yaml to show how the filter works. It is NOT the real drone's parameter list: replace it with yours."
+    },
+    "pkg:.": {
+      "explain": "The repository root. It holds launcher.sh (the entry point of the team's flight software), the guides (README.md, AGENTS.md, CLAUDE.md), the Jetson's pip pins (requirements_jetson.txt and its .lock), ruff.toml (lint rules), saved Lattice SDK pages and team notes. An empty COLCON_IGNORE file keeps colcon out of it: ROS packages are built inside ros2_ws.",
+      "how_it_fits": "Everything hangs below it: ros2_ws/ (team and simulation ROS 2 packages), simulation/ (the simulator's scripts, profiles, Docker helpers and Windows launchers), docker/ (images and compose files), scripts/ (operator tools) and docs/. Two loose bench files also sit here: servo_wiggle.py (swings servo output 13 with pymavlink, like the tools in servo_test/) and its stray copy servo_wiggle.py'."
+    },
+    "mod:launcher.sh.bak": {
+      "explain": "The OLD launcher, kept as a backup copy: it sources ROS 2 Humble and the workspace, starts MAVROS with px4.launch (the PX4 settings, not ArduPilot's) on FCU_URL (default /dev/ttyUSB0:115200), waits up to 30 s for /mavros/state, then runs 'ros2 launch main tracker.launch.xml' in the foreground.",
+      "how_it_fits": "DEAD (AGENTS.md): replaced by launcher.sh (apm.launch, sim mode, readable logs, camera ping, TRACKER_CMD). Nothing calls it."
+    },
+    "mod:simulation/docker/check_host.sh": {
+      "explain": "The Docker 'doctor': checks whether THIS computer is ready for the ASTRA containers, in the order a first run meets the problems, and for every problem prints what is wrong and exactly what to type to fix it. It changes nothing (only --fix-line-endings rewrites line ends, and --deep starts small test containers). Exit code 0 = nothing blocks Docker (warnings may remain), 1 = at least one [FAIL] to fix first.",
+      "outputs": "a report in 7 sections (8 with --deep): 1 the computer (WSL2 or Linux, not root, x86_64, Ubuntu 22.04, about 8 GB memory); 2 the repo copy (Linux-side copy up to date, Windows CRLF line endings in scripts, root-owned folders); 3 Docker (installed, the right program, allowed, running, buildx, Compose 2.20+, credential helpers, disk space, compose files valid, leftover containers and networks, subnet 192.168.144.0/24 free); 4 the images (built, not running as root, up to date, your user id); 5 internet, proxy and clock; 6 windows, 3D and the NVIDIA card; 7 things in the way (a native simulator, busy ports, the camera address, detector weights); 8 test containers (images' self-test, name lookup, GPU).",
+      "how_it_fits": "Run before a first Docker build or when a container run fails. It uses _host_common.sh's helpers (astra_copy_differences, astra_compose_files, astra_subnet_conflict, astra_image_label, astra_docker_inputs_hash, astra_free_gb, astra_native_sim_running ...) and, with --deep, build_images.sh --check. Options: --offline, --deep, --fix-line-endings, --repo DIR. Its header points to check_host.ps1 for the Windows side (the PowerShell half of the doctor, added on 2026-10-31) and to docs/simulation/DOCKER.md 'Troubleshooting'."
+    },
+    "fn:simulation/docker/check_host.sh::pass": {
+      "explain": "Prints a '[ OK ]' line: this check passed."
+    },
+    "fn:simulation/docker/check_host.sh::note": {
+      "explain": "Prints a '[ .. ]' line: a fact worth knowing that is not a problem."
+    },
+    "fn:simulation/docker/check_host.sh::caution": {
+      "explain": "Prints a '[WARN]' line and adds 1 to the warnings counter: something that may cause trouble but does not block Docker."
+    },
+    "fn:simulation/docker/check_host.sh::fail": {
+      "explain": "Prints a '[FAIL]' line and adds 1 to the failures counter; any failure makes the script end with exit code 1. (This is check_host.sh's own report helper, not a stop like fetch_sitl.sh's fail.)"
+    },
+    "fn:simulation/docker/check_host.sh::tip": {
+      "explain": "Prints an indented '-> ...' line with the exact fix for the finding just above."
+    },
+    "fn:simulation/docker/check_host.sh::title": {
+      "explain": "Prints an empty line and a section title such as '3. Docker'."
+    },
+    "fn:simulation/docker/check_host.sh::fix_line_endings": {
+      "explain": "Repairs scripts that a Windows git clone (core.autocrlf=true) gave Windows line endings: for every file that git stores with LF but finds with CRLF (or mixed) on disk, it removes the CR characters with sed. Files marked eol=crlf (Windows .bat, .cmd, .ps1) keep CRLF and symbolic links are skipped. Then it runs 'git add' on exactly the repaired files whose content now equals git's copy, so git stops listing them as modified (files with your own edits stay modified), and it reminds you to refresh the Linux-side copy.",
+      "inputs": "the checkout folder (must be a git checkout)",
+      "called_when": "only with --fix-line-endings",
+      "effects": "rewrites the line ends of the affected files; refreshes git's index entry of the repaired files that are otherwise unchanged (nothing new is staged)"
+    },
+    "fn:simulation/docker/check_host.sh::net_check": {
+      "explain": "Tries all 14 download sites the image build and the first run need (Docker Hub, packages.ros.org, snapshots.ros.org, keyserver.ubuntu.com, archive.ubuntu.com, packages.osrfoundation.org, GitHub and its file servers, PyPI, download.pytorch.org, SourceForge, fuel.gazebosim.org) at the same time with curl (8 s each, through this terminal's proxy). Unreachable sites go into NET_BAD; sites that answer with a certificate this Linux does not trust (a network that inspects HTTPS) go into NET_TLS.",
+      "called_when": "section 5, unless --offline, curl is missing or name lookup already fails"
+    },
+    "mod:simulation/docker/check_host.ps1": {
+      "explain": "The WINDOWS half of the Docker 'doctor' (check_host.sh is the Linux half), run in PowerShell before a teammate's first Docker build on Windows. It checks what only Windows can see: the Windows build, virtualization in the BIOS, how much memory WSL gets (.wslconfig; about 8 GB is needed), free space on the drive of the Ubuntu-22.04 virtual disk, WSL and the Ubuntu-22.04 distro (installed, WSL version 2, the default distro), Docker Desktop and its WSL integration, Windows line endings (CRLF) in this checkout's scripts, OneDrive and long paths, the NVIDIA driver, who listens on UDP 14550, a proxy, and (unless -Offline) internet access to github.com and the clock. It changes nothing; every problem is printed with exactly what to do, and the exit code is 0 (nothing on the Windows side blocks Docker) or 1 (a [FAIL] to fix first).",
+      "how_it_fits": "Run from the repository folder with 'powershell -ExecutionPolicy Bypass -File simulation\\docker\\check_host.ps1' (add -Offline to skip the internet check); the next step is check_host.sh inside Ubuntu ('wsl -d Ubuntu-22.04'), which can also repair CRLF scripts with --fix-line-endings. Every message is explained in docs/simulation/DOCKER.md, 'Troubleshooting'. New on 2026-10-31 (described as it was on disk then)."
+    },
+    "fn:simulation/docker/check_host.ps1::Pass": {
+      "explain": "Prints a '[ OK ]' line: this check passed."
+    },
+    "fn:simulation/docker/check_host.ps1::Note": {
+      "explain": "Prints a '[ .. ]' line: a fact worth knowing that is not a problem."
+    },
+    "fn:simulation/docker/check_host.ps1::Caution": {
+      "explain": "Prints a '[WARN]' line and adds 1 to the warning counter: something that may cause trouble but does not block Docker."
+    },
+    "fn:simulation/docker/check_host.ps1::Fail": {
+      "explain": "Prints a '[FAIL]' line and adds 1 to the failure counter; any failure makes the script end with exit code 1."
+    },
+    "fn:simulation/docker/check_host.ps1::Tip": {
+      "explain": "Prints an indented '-> ...' line with the exact fix for the finding just above it."
+    },
+    "fn:simulation/docker/check_host.ps1::Title": {
+      "explain": "Prints an empty line and then a section title such as '3. Docker on Windows'."
+    },
+    "fn:simulation/docker/check_host.ps1::FreeGB": {
+      "explain": "Returns the free space, in whole gigabytes, of the drive that holds a folder (found from its drive letter with Get-PSDrive), or -1 when that cannot be found.",
+      "called_when": "for the drive of the Ubuntu-22.04 virtual disk and of Docker Desktop's disk (a warning below 40 GB)",
+      "inputs": "a folder path",
+      "outputs": "a number of GB, or -1"
+    }
+  }
+}

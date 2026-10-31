@@ -1,0 +1,1260 @@
+{
+  "area": "Camera, detection and mapping code",
+  "entries": {
+    "pkg:ros2_ws/src/video_cam": {
+      "explain": "The team's driver for the SIYI gimbal camera (an ament_python ROS 2 package). Its one program, 'siyi' (ROS node 'siyi'), turns every photo request into one photo saved on the Jetson, named after the drone's GPS position, with a small JSON 'sidecar' file next to it. It talks to the camera directly: SIYI SDK commands over UDP port 37260 (shutter, zoom, focus, gimbal) and the camera's web server on port 82 (download the photo from the camera's SD card).",
+      "how_it_fits": "Started by main/launch/tracker.launch.xml (from launcher.sh on the Jetson, or './launcher.sh sim' in the Gazebo twin). It listens to /camera/trigger (one per second from mapping's mission_camera_trigger; also the simulator panel's TAKE PHOTO button), /camera/command (lens and gimbal commands) and MAVROS's /mavros/global_position/global, /rel_alt and /compass_hdg. It writes photos into <ws>/src/video_cam/mapping_photos as '<lat> , <lon>.jpg' plus '<lat> , <lon>.json'; detection/new_od finds them there and main_controller reads the sidecars to aim the payload drops. It reports to Mission Planner with STATUSTEXT on /mavros/statustext/send (for example 'SUCCESS: Captured 2K image #12'), to scripts/watch_status.py and the simulator's demo panel on /camera/status, and also publishes /camera/disk_free_mb and the full photo on /image_raw (nobody listens to those two). In the simulator the camera address 192.168.144.25 is answered by siyi_emulator, which renders each photo in Gazebo, so this package runs unchanged. Every camera number lives in video_cam/config.py; HOW_OUR_CAMERA_WORKS.md explains the pipeline and siyi_documentations/ holds the vendor manuals."
+    },
+    "mod:ros2_ws/src/video_cam/HOW_OUR_CAMERA_WORKS.md": {
+      "explain": "The plain-words guide to the camera pipeline: the October 2026 changes (photo waiting line, photos before lens housekeeping, GPS name taken right before the shutter, the JSON sidecar), what each camera model can do, a table of the new settings (image_top_direction_deg, CAMERA_HFOV_DEG, MAX_PENDING_CAPTURES, WRITE_PHOTO_SIDECAR), and the original notes on capture, SD indexing, download and why still photos replaced the video stream.",
+      "how_it_fits": "The first thing to read about video_cam; AGENTS.md links it for the camera driver, SDK, sidecar and photo orientation."
+    },
+    "mod:ros2_ws/src/video_cam/fullrun.md": {
+      "explain": "A quick-start guide (159 lines; only the start was reviewed) for running the camera pipeline by hand in two terminals: 'ros2 run video_cam siyi' in one, and a one-time 'ros2 topic pub /camera/trigger std_msgs/msg/Bool' with data true in the other. It calls the system the 'SIYI Unified Pipeline' and probably describes an older state in places."
+    },
+    "mod:ros2_ws/src/video_cam/launch/siyi_unified_pipeline.launch.py": {
+      "explain": "A ROS 2 launch file that starts only the camera node 'siyi', with use_real_camera true and four launch arguments: camera_ip (192.168.144.25), resolution (4K), min_altitude_agl (-13.716) and rotate_180 (false). It also renames the node's /image_raw topic to /camera/image_raw.",
+      "how_it_fits": "A bench tool to run the camera alone ('ros2 launch video_cam siyi_unified_pipeline.launch.py'). The flight launch (main/launch/tracker.launch.xml) does NOT use it: there siyi runs with its defaults (camera model asked from the camera, ZR10 2K profile as fallback)."
+    },
+    "fn:ros2_ws/src/video_cam/launch/siyi_unified_pipeline.launch.py::generate_launch_description": {
+      "explain": "Declares the launch arguments camera_ip (192.168.144.25), resolution (4K), min_altitude_agl (-13.716) and rotate_180 (false), and returns a launch description that starts video_cam/siyi as node 'siyi' with use_real_camera true and those values, /image_raw renamed to /camera/image_raw, plus two log lines.",
+      "called_when": "When someone runs 'ros2 launch video_cam siyi_unified_pipeline.launch.py' (not part of the flight launch or the simulator)."
+    },
+    "mod:ros2_ws/src/video_cam/launch/siyi_unified_pipeline.launch.py.bak-rotate-20260820-162052": {
+      "explain": "An old backup copy of siyi_unified_pipeline.launch.py from 20 August 2026; the only difference is that rotate_180 defaults to 'true' (photos turned upside down). It is not installed (setup.py only installs files ending in .launch.py) and nothing uses it."
+    },
+    "mod:ros2_ws/src/video_cam/package.xml": {
+      "explain": "The ROS package description of video_cam: name, version 0.0.0, build type ament_python, what it needs at run time (rclpy, cv_bridge, sensor_msgs, std_msgs, mavros_msgs, ament_index_python, interfaces) and the lint test tools.",
+      "how_it_fits": "colcon reads it to know how to build the package and in which order."
+    },
+    "mod:ros2_ws/src/video_cam/requirements.txt": {
+      "explain": "pip list of the camera driver's Python needs: requests >= 2.28.0 (HTTP to the camera), opencv-python >= 4.8.0 and numpy >= 1.24.0 (decode and save photos). On the Jetson the real pins are in the repo's requirements_jetson.txt (numpy must stay below 2)."
+    },
+    "mod:ros2_ws/src/video_cam/resource/video_cam": {
+      "explain": "An empty marker file. It is installed into share/ament_index/resource_index/packages so ROS 2 tools (ros2 run, ros2 launch) can find the video_cam package."
+    },
+    "mod:ros2_ws/src/video_cam/setup.cfg": {
+      "explain": "Tells setuptools to put the 'siyi' executable into lib/video_cam, the place where 'ros2 run video_cam siyi' and launch files look for it."
+    },
+    "mod:ros2_ws/src/video_cam/setup.py": {
+      "explain": "The Python install recipe of the video_cam package: it installs the video_cam modules, package.xml and launch/*.launch.py, and creates the command 'siyi' that runs video_cam.siyi_node:main. It lists requests, opencv-python and numpy as Python needs.",
+      "how_it_fits": "Used by colcon build (03_build.sh in the simulator). The executable name 'siyi' is what tracker.launch.xml starts (pkg video_cam, exec siyi)."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/A8 mini User Manual v1.6(old).pdf": {
+      "explain": "By its file name, the SIYI A8 mini user manual, version 1.6 (old) (PDF, about 161 pages). Reference only; no code reads it."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/A8 mini User Manual v1.8(old).pdf": {
+      "explain": "By its file name, the SIYI A8 mini user manual, version 1.8 (old) (PDF, about 112 pages). Reference only; no code reads it."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/A8_old_cam": {
+      "explain": "A PDF document without the .pdf ending (about 108 pages); by its name an old SIYI A8 mini manual. Add .pdf to the name (or open it with a PDF reader directly) to read it."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/SIYI_Gimbal_Camera_SDK.pdf": {
+      "explain": "SIYI's gimbal camera SDK manual (PDF, about 110 pages): the UDP packet format and every command id. config.py cites its support table (UDP interface, printed pages 86-99) for which commands the A8 mini answers."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/ZR10_User_Manual_v1_7_08dd0f1b.pdf": {
+      "explain": "SIYI ZR10 user manual v1.7 (PDF). The code comments cite it for the still-photo size (2K 2560 x 1440, page 14) and for SDK details on pages 43-49 (autofocus 0x04, hardware id 0x02, absolute zoom 0x0F, shutter function types 0x0C)."
+    },
+    "mod:ros2_ws/src/video_cam/siyi_documentations/ZR30_OLD_cam": {
+      "explain": "A PDF document without the .pdf ending (about 149 pages); by its name an old SIYI ZR30 manual."
+    },
+    "mod:ros2_ws/src/video_cam/test/test_capture_queue.py": {
+      "explain": "Pure-Python unit tests (no ROS needed) for the photo waiting line and the camera capability table: first-in-first-out order, nothing lost while there is room (90 triggers in a row), the OLDEST request dropped when the line is full, clear() counted separately, the statistics line, thread safety (4 threads x 500 pushes), an A8 mini having no autofocus, manual focus or zoom readback while a ZR10 has all three, and the field-of-view lookup (A8 mini 81 degrees).",
+      "how_it_fits": "Run with 'python3 -m pytest ros2_ws/src/video_cam/test/test_capture_queue.py'; part of the video_cam test suite listed in AGENTS.md."
+    },
+    "mod:ros2_ws/src/video_cam/test/test_gps_filename.py": {
+      "explain": "Unit tests of the photo-name rule: they run the real SIYINode._generate_gps_filename on a stand-in object (no node, camera or disk) and check that a good fix gives '36.215000 , -96.006800.jpg' while NaN, infinite, out-of-range or (0, 0) fixes give no GPS name. Needs ROS 2 sourced (otherwise skipped)."
+    },
+    "mod:ros2_ws/src/video_cam/test/test_orientation_parameter.py": {
+      "explain": "Starts the real SIYINode in simulation mode (use_real_camera false, StorageManager replaced by a dummy) in a private ROS domain and checks the image_top_direction_deg parameter: '90' gives 90, '90.5' gives 90.5, '90' with rotate_180 gives 270, '-90' gives 270, and 'true' or 'typo' fall back to 0 instead of stopping the node. Needs ROS 2 (otherwise skipped)."
+    },
+    "mod:ros2_ws/src/video_cam/test/test_photo_metadata.py": {
+      "explain": "Pure-Python unit tests for the photo sidecar: same name with .json next to the photo, the photo-name contract untouched, full-precision position (1e-9 degree), unknown or NaN values become null and stay strict JSON, the atomic write leaves no .tmp file and reads back equal, other formats and missing files are refused, and writing into a missing folder returns False."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/QUICK_START.md": {
+      "explain": "'SIYI Camera Start Guide', version 2.0, dated January 15, 2026 (only the start was reviewed): how the photo system works (photos saved on the camera's SD card, then downloaded to the Jetson over Ethernet) and how to set it up. It is older than the October 2026 changes."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/SIYI_Gimbal_Camera_SDK.pdf": {
+      "explain": "NOT a real PDF: this file is a saved GitHub web page (HTML, about 180 KB) that shows siyi_documentations/SIYI_Gimbal_Camera_SDK.pdf on the team's GitHub. A PDF reader cannot open it; use the real manual in siyi_documentations/ instead."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/__init__.py": {
+      "explain": "Marks the folder as the Python package 'video_cam' and sets __version__ = '0.0.0'. No code runs here.",
+      "how_it_fits": "Lets other packages import video_cam.logging_utils and video_cam.storage_manager (the detection package does)."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/camera_interface.py": {
+      "explain": "The low-level 'telephone line' to the SIYI camera (class CameraInterface). It builds and checks SIYI SDK packets (header 55 66, sequence number, command id, data, CRC16 checksum) sent over UDP to 192.168.144.25:37260, and uses HTTP on port 82 (/cgi-bin/media.cgi/api/v1/getdirectories, getmedialist, then the photo's own URL) to list and download photos from the camera's SD card. Every camera feature the team uses has one method here: shutter 0x0C, autofocus 0x04, manual focus 0x06, zoom 0x05/0x0F/0x16/0x18, gimbal 0x07/0x08/0x0D/0x0E/0x41/0x19, system info 0x0A, hardware id 0x02 and SD format 0x48.",
+      "how_it_fits": "Used only by siyi_node.py (lens and gimbal commands, model detection) and pipeline_orchestrator.py (shutter, SD search, download). In the Gazebo twin the same packets reach siyi_emulator, which was written to answer them exactly like the real camera."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraConnectionError": {
+      "explain": "The error raised when talking to the camera fails badly (for example the shutter packet could not be sent). siyi_node catches it and reports a failed photo or command."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface": {
+      "explain": "One object that holds the UDP socket for SDK commands and the HTTP session for the camera's media server, plus what it knows about the SD card (current photo folder, how many photos, which files were already there)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.__init__": {
+      "explain": "Prepares the camera link: remembers the address and ports (192.168.144.25, 37260, 82), opens a UDP socket with a 2 s receive timeout, and opens a reusable HTTP session (keep-alive, User-Agent 'SIYI-ROS-Client/1.0', no automatic retries). The media API base URL becomes http://192.168.144.25:82/cgi-bin/media.cgi/api/v1."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._next_seq": {
+      "explain": "Hands out the next SDK packet sequence number (0, 1, 2 ... wrapping after 65535), so answers can be matched to questions."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._compute_crc16": {
+      "explain": "Computes the 16-bit checksum (CRC-16/CCITT, XMODEM variant, start value 0) that ends every SIYI SDK packet, so damaged packets can be spotted."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._build_sdk_packet": {
+      "explain": "Builds one SDK packet: bytes 0x55 0x66, a control byte (1 = please answer), the data length (2 bytes), the sequence number (2 bytes), the command id, the data, and the CRC16 checksum (2 bytes, low byte first)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._parse_sdk_packet": {
+      "explain": "Checks a received UDP packet (starts with 55 66, long enough, checksum correct) and splits it into control byte, sequence number, command id and data. Returns None for anything broken (and logs a checksum mismatch)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._receive_sdk_packet": {
+      "explain": "Waits for the camera's answer: reads up to 8 UDP packets until one carries an expected command id, or gives up when the timeout passes (2 s unless told otherwise). Returns the parsed packet or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._send_sdk_command": {
+      "explain": "Sends one SDK command to the camera (192.168.144.25:37260) and, unless no answer is expected, waits for the reply with the same command id (or another accepted id)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._status_ok": {
+      "explain": "Turns an SDK reply into yes/no: no reply = False; a reply without data = True; otherwise True only when the first data byte is 1 (the SDK's 'success')."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.send_capture_command": {
+      "explain": "Presses the shutter: sends the fixed take-photo packet 55 66 01 01 00 00 00 0c 00 34 ce (command 0x0C) and waits 0.8 s for feedback (0x0C or 0x0B). No feedback is treated as success; feedback 1 or 4 means the camera cannot see its SD (TF) card, so it logs how to fix that and returns False. A network error raises CameraConnectionError.",
+      "called_when": "Step 1 of every photo (pipeline_orchestrator._phase1_capture).",
+      "inputs": "resolution: only a check-profile name; every photo uses the same packet because the sensor fixes the photo size."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.auto_focus": {
+      "explain": "Asks for one autofocus cycle (SDK 0x04) at a touch point given in video pixels (each value kept between 0 and 65535). Returns True if the camera said success. An A8 mini does not answer this command."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.manual_zoom": {
+      "explain": "Starts or stops a manual zoom (SDK 0x05: 1 = zoom in, -1 = zoom out, 0 = stop) and returns the zoom the camera reports (for example 2.5), or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.manual_focus": {
+      "explain": "Moves the focus by hand (SDK 0x06: 1 = towards far, -1 = towards near, 0 = stop). FOCUS_MODE 'infinity' uses it: far for 3 s, then stop. Returns True on success."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.absolute_zoom_autofocus": {
+      "explain": "Asks for an exact zoom such as 5.0x (SDK 0x0F, sent as whole part 5 and tenths 0); cameras with optical zoom refocus by themselves afterwards. Returns True if acknowledged, but the acknowledgement often times out on a long zoom travel, so siyi_node checks by reading the zoom back."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_hardware_id": {
+      "explain": "Asks the camera for its hardware-ID text (SDK 0x02), for example a string starting with '6B' for a ZR10. Returns the text or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.detect_model": {
+      "explain": "Finds out which SIYI camera is connected: reads the hardware ID and turns its first two hex characters into a model name (6B = ZR10, 73 = A8MINI, 75 = A2MINI, 78 = ZR30, 7A = ZT30, 82 = ZT6). Returns None when the camera stays silent or is unknown.",
+      "called_when": "Once at start-up when the camera_model parameter is 'AUTO' (the default). The simulator's emulator answers 6B... (ZR10, its default) or 73... (A8 mini)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_supported_zoom_range": {
+      "explain": "Asks for the largest zoom the camera supports (SDK 0x16) and returns it as {'max_zoom': value}, for example 30.0."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_current_zoom_magnification": {
+      "explain": "Asks the camera for its current zoom (SDK 0x18) and returns it (for example 5.0), or None. The A8 mini does not answer this."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.rotate_gimbal": {
+      "explain": "Turns the gimbal at a speed (SDK 0x07): yaw and pitch speeds from -100 to 100 (0 stops)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.stop_gimbal_rotation": {
+      "explain": "Stops the gimbal turning by sending speed 0 for yaw and pitch."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.center_gimbal": {
+      "explain": "Puts the gimbal back to its centre position (SDK 0x08 with value 1)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.request_gimbal_attitude": {
+      "explain": "Asks the gimbal for its angles (SDK 0x0D) and returns yaw, pitch and roll in degrees plus their turning speeds (the camera sends tenths of a degree). siyi_node asks before every photo with a 0.3 s timeout."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.set_gimbal_angles": {
+      "explain": "Points the gimbal at a yaw and pitch angle in degrees (SDK 0x0E, sent in tenths of a degree); yaw 0, pitch -90 means straight down. Returns the angles the gimbal reports, or None.",
+      "called_when": "The 'gimbal_set_angles' command, e.g. the simulator panel's LOOK DOWN (0,-90) and LOOK FORWARD (0,0)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.set_single_axis_angle": {
+      "explain": "Points only one gimbal axis, 'yaw' or 'pitch', at an angle (SDK 0x41). An answer with command id 0x41 or 0x0E is accepted, because the A8 mini answers 0x41 with 0x0E. Returns the reported angles or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_system_info": {
+      "explain": "Asks for the camera's status (SDK 0x0A) and returns whether HDR is on, the recording state, whether the SD (TF) card is mounted (state 2 means 'NO TF CARD') and the gimbal motion mode."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.sd_card_present": {
+      "explain": "True if the camera can see its SD card, False if not, None if the camera did not answer (uses get_system_info)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_gimbal_mode": {
+      "explain": "Asks for the gimbal's motion mode (SDK 0x19) and returns 'lock', 'follow' or 'fpv'."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.set_gimbal_motion_mode": {
+      "explain": "Switches the gimbal to 'lock', 'follow' or 'fpv' mode (sent as command 0x0C with function type 3, 4 or 5, no answer expected), then waits 0.4 s for an optional 0x0B feedback. Returns False only if the feedback reports a failure."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.format_sd_card": {
+      "explain": "DANGEROUS: tells the camera to erase its SD card (SDK 0x48, no answer expected) and always returns True. It is reached only through the command 'sd_format yes'; never use it on a development machine."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_directories": {
+      "explain": "Sends HTTP GET .../getdirectories?media_type=0 to the camera's port 82 and returns the list of photo folders on the SD card (an empty list on any error)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_media_list": {
+      "explain": "Sends HTTP GET .../getmedialist?media_type=0&path=<folder>&start=0&count=9999 and returns the list of files (name, URL, size ...) in that SD-card folder; an empty list on error."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_media_count": {
+      "explain": "Same request as get_media_list but with count=1, only to read how many photos the folder holds ('total'). Returns None on error."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.download_image": {
+      "explain": "Downloads one photo's bytes over HTTP from the URL the camera listed (the address 192.168.144.25 inside the URL is replaced by the configured camera_ip), with a 10 s timeout. Returns the bytes or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.decode_image": {
+      "explain": "Turns JPEG bytes into a picture array that OpenCV and the detector can use (height x width x 3, BGR colours), or None if the bytes are not a valid image."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.initialize_sd_card": {
+      "explain": "Gets ready to recognise new photos: checks that the SD card is mounted (SDK 0x0A), picks the last photo folder the camera lists, counts its photos and marks every file already on the card as 'seen', so old photos are never downloaded as new ones. If no folder is listed it assumes 'A:/DCIM/100MEDIA'.",
+      "called_when": "Once at start-up, through PipelineOrchestrator.initialize_sd_card."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface._load_existing_sd_files": {
+      "explain": "Adds the name of every file already in the current SD-card folder to the 'seen' set (downloaded_files) and logs how many there were."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_new_file": {
+      "explain": "Looks for the new photo: lists the SD folder and, only if it now holds more files than last time, returns the newest file that is not in the 'seen' set (and remembers the new count). Returns None when nothing new is there yet.",
+      "called_when": "Every 0.5 s during step 2 of a capture (pipeline_orchestrator._phase2_index), for up to 15 s."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.mark_file_downloaded": {
+      "explain": "Adds a file name to the 'seen' set. Nothing in the current code calls it; new photos are recognised by the growing file count instead."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.get_downloaded_count": {
+      "explain": "Returns how many names are in the 'seen' set (in practice the files that were on the card at start-up); reported in the pipeline statistics."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.ping": {
+      "explain": "Quick 'are you there?' check: asks for the gimbal attitude (SDK 0x0D) with a 1 s timeout and returns True if anything came back. The node does not use it at the moment."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/camera_interface.py::CameraInterface.close": {
+      "explain": "Closes the HTTP session and the UDP socket and logs 'Camera interface closed'."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/capture_queue.py": {
+      "explain": "A small, thread-safe waiting line for photo requests (class CaptureRequestQueue). Each /camera/trigger adds its arrival time; the camera takes the oldest one as soon as it is free; if 5 are already waiting when another one arrives, the OLDEST one is dropped and counted. It keeps counters (received, served, dropped, discarded, longest line) for the 'Photo stats' log line.",
+      "how_it_fits": "Added in October 2026 to stop lost photos: before it, a trigger that arrived while the lens was zooming or focusing was thrown away (49 of 83 triggers in one simulator run). Used by siyi_node.py; pure Python, tested by test/test_capture_queue.py."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue": {
+      "explain": "A first-in-first-out line of photo requests (their arrival times) with a maximum length, safe to use from several threads, plus counters for the statistics line."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.__init__": {
+      "explain": "Makes an empty line that holds at most max_pending requests (5 by default, never fewer than 1) and sets the counters received, served, dropped, discarded and max_depth to 0."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.push": {
+      "explain": "Adds a request (its arrival time t). If the line is already full, the OLDEST request is thrown away first (the drone has already flown past that spot) and counted as dropped. Returns True if it fitted, False if something had to be dropped."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.pop": {
+      "explain": "Takes the oldest waiting request out of the line and returns its arrival time, or None when nobody is waiting."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.clear": {
+      "explain": "Throws away every waiting request on purpose (for example when photos are disabled below the height limit), counts them as discarded and returns how many there were."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.__len__": {
+      "explain": "Returns how many requests are waiting, so len(queue) works."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.pending": {
+      "explain": "A read-only property: the number of requests waiting right now (the same as len)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/capture_queue.py::CaptureRequestQueue.stats_text": {
+      "explain": "Returns one log line with all counters, e.g. '83 triggers: 83 served, 0 dropped (queue full), 0 discarded, 0 waiting (longest wait line 1)'."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/config.py": {
+      "explain": "All the camera numbers in one file, with no ROS imports: camera address 192.168.144.25, SDK port 37260, media port 82, the SDK command ids, the still-photo check profile per model (ZR10 = 2K, ZR30 and A8 mini = 4K), the zoom and focus routine (CAPTURE_ZOOM_X 5.0, FOCUS_MODE 'infinity', 3 zoom attempts with 3 s settle time), timeouts (capture 15 s, HTTP 10 s, SDK socket 2 s), what each model can do (CAMERA_CAPABILITIES), the 81 degree field of view, the photo queue size (MAX_PENDING_CAPTURES 5) and the sidecar switch (WRITE_PHOTO_SIDECAR True).",
+      "how_it_fits": "Imported by every other video_cam module and by the unit tests; changing a number here changes the camera's behaviour. The simulator copies several of these values (81 degree field of view, ZR10 fallback, 2560 x 1440 photos) so the twin matches the drone."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/config.py::MediaTypes": {
+      "explain": "Names the two media kinds of the camera's HTTP API: IMAGE = 0 and VIDEO = 1 (photos are listed with media_type=0)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/config.py::camera_capabilities": {
+      "explain": "Returns a copy of the feature table for a model (autofocus, manual_focus, zoom_readback): all False for A8MINI, all True for ZR10, ZR30 and any model not in the table."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/config.py::camera_hfov_deg": {
+      "explain": "Returns the photo's horizontal field of view in degrees at 1x zoom: 81.0 for ZR10, ZR30, A8MINI and also for unknown models (the ZR10/ZR30 values still need measuring). It goes into every sidecar so main_controller can turn pixels into metres on the ground."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/config.py.bak-rotate-20260820-162052": {
+      "explain": "Backup copy (167 lines, 20 August 2026) of an older config.py from before the photo-rotation default changed: here DEFAULT_ROTATE_180 = True. It has none of the later additions (zoom/focus routine, capability table, field of view, photo queue, sidecar). Nothing imports it (Python only imports files ending in .py)."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/config.py.bak-zoom-20260821-161748": {
+      "explain": "Backup copy (167 lines, 21 August 2026) of config.py saved before the capture-zoom and focus settings (CAPTURE_ZOOM_X, FOCUS_MODE ...) were added; DEFAULT_ROTATE_180 is already False here. Nothing imports it."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/logging_utils.py": {
+      "explain": "Makes the log lines of the team nodes look the same: '[HH:MM:SS] [node name]: message'. configure_console_format() sets the ROS console format to '[{severity}] {message}' (it must run before rclpy is imported), and install_wallclock_logging(node) wraps the node's logger so every line starts with the wall-clock time and the node name.",
+      "how_it_fits": "Called at the very top of siyi_node.py and detection/new_od.py (new_od imports it from video_cam, one reason the detection package depends on video_cam). scripts/humanize.sh does a similar job for other lines in launcher.sh's output."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::configure_console_format": {
+      "explain": "Sets the environment variable RCUTILS_CONSOLE_OUTPUT_FORMAT to '[{severity}] {message}', so ROS prints only the severity and the message (install_wallclock_logging adds the time and name).",
+      "called_when": "At import time at the top of siyi_node.py and detection/new_od.py, before rclpy is imported."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging": {
+      "explain": "Replaces the node logger's debug, info, warn/warning, error and fatal methods with versions that put '[HH:MM:SS] [node name]: ' in front of every message, and returns the logger.",
+      "called_when": "First thing in SIYINode.__init__ and SAHIObjectDetectionNode.__init__."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._fmt": {
+      "explain": "Builds the prefixed text, e.g. '[17:36:19] [siyi]: message', from the current wall-clock time and the node name."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._debug": {
+      "explain": "Replacement for logger.debug: logs the prefixed message with DEBUG severity. Each of the five wrappers sits on its own line of code on purpose, because rclpy remembers the severity per line."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._info": {
+      "explain": "Replacement for logger.info: logs the prefixed message with INFO severity."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._warn": {
+      "explain": "Replacement for logger.warn and logger.warning: logs the prefixed message with WARN severity."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._error": {
+      "explain": "Replacement for logger.error: logs the prefixed message with ERROR severity."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/logging_utils.py::install_wallclock_logging._fatal": {
+      "explain": "Replacement for logger.fatal: logs the prefixed message with FATAL severity."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/photo_metadata.py": {
+      "explain": "Builds, writes and reads the JSON 'sidecar' saved next to every photo ('<lat> , <lon>.json', format 'astra.photo_metadata.v1'). It records what the drone and camera were doing at the shutter: exact GPS position, height above home, compass heading, camera model, field of view, zoom, whether the zoom was still moving, gimbal angles, and which way the top of the photo points compared with the drone's nose.",
+      "how_it_fits": "siyi_node writes a sidecar for every photo before the photo itself appears; main_controller (with its own reader in main/src/target_geolocation.py) uses it to turn a detected box's pixel position into the latitude/longitude to drop on. The photo's file name is unchanged, so detection/geotag.py is not affected. Pure Python, tested by test/test_photo_metadata.py."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/photo_metadata.py::sidecar_path_for": {
+      "explain": "Returns the sidecar's path for a photo: same folder and name, extension .json ('36.214934 , -96.007241.jpg' -> '36.214934 , -96.007241.json')."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/photo_metadata.py::_clean": {
+      "explain": "Makes a number safe for JSON: returns it rounded to the given number of decimals, or None for missing, NaN, infinite or non-number values."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/photo_metadata.py::build_photo_metadata": {
+      "explain": "Builds the sidecar dictionary (format 'astra.photo_metadata.v1') from the values at the shutter: image name, shutter and trigger times, position (latitude and longitude to 9 decimals, altitude, age), height above home, heading, a camera block (model, field of view, zoom, zoom source, zoom_changing, image_top_direction_deg, rotate_180) and a gimbal block (or null). Every unknown or broken number becomes null, so the result is always strict JSON."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/photo_metadata.py::write_sidecar": {
+      "explain": "Writes the sidecar as JSON to '<path>.tmp' and renames it to the final name, so a reader never sees half a file. Returns True, or False if it could not be written (the photo is still saved; main_controller then aims at the photo's own position for that photo)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/photo_metadata.py::read_sidecar": {
+      "explain": "Reads a sidecar file and returns its dictionary, or None when the file is missing, is not valid JSON or has another format. Used by the tests; main_controller has its own reader in main/src/target_geolocation.py."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py": {
+      "explain": "Runs one photo capture as three steps (class PipelineOrchestrator): 1 press the shutter (SDK 0x0C), 2 ask the camera's SD card list every 0.5 s, for up to 15 s, until the new file appears, 3 download it over HTTP, decode it, check its size and save it. Steps 1 and 2 are protected by a lock but step 3 is not, so the next photo's shutter can overlap the previous photo's download.",
+      "how_it_fits": "Created by SIYINode when use_real_camera is true; siyi_node calls capture_and_index() while holding its camera lock and download_and_save() without it. It uses camera_interface.py for the camera and storage_manager.py to save into mapping_photos."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator": {
+      "explain": "Runs a capture as three steps (shutter, find on the SD card, download and save) and counts the photos. A lock makes sure only one capture is in steps 1-2 at a time."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.__init__": {
+      "explain": "Keeps the camera and storage helpers, creates the capture lock, sets the photo counter to 0 and the check profile to the default (2K). rotate_180 says whether downloaded photos are turned upside down; siyi_node passes its own parameter (false by default)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.is_busy": {
+      "explain": "True while a capture is in steps 1-2 (shutter + SD search), i.e. while the capture lock is held. A download in step 3 does not count as busy, so the next shutter may start."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.set_resolution": {
+      "explain": "Sets which check profile ('2K', '4K', 'ANY' ...) the next photos are checked against, and logs 'Resolution set to: 2K'. It does not change anything on the camera."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.initialize_sd_card": {
+      "explain": "Passes the start-up SD card check on to CameraInterface.initialize_sd_card."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.capture_and_index": {
+      "explain": "Steps 1 and 2 of a photo: presses the shutter, waits 0.5 s for the camera to write the file, then asks the SD card list until the new file shows up (up to 15 s). Returns the camera's file record (name, URL, size) or None; if another capture is already in these steps it gives up at once.",
+      "effects": "SDK 0x0C over UDP, then HTTP getmedialist requests every 0.5 s."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.download_and_save": {
+      "explain": "Step 3 of a photo: downloads, decodes, checks and saves the file, under filename_override (the GPS name) when given. Returns (saved path, picture) or None, logging what failed."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator._phase1_capture": {
+      "explain": "Presses the shutter through CameraInterface.send_capture_command and counts the photo; returns False if the camera rejected it, so the pointless 15 s search is skipped."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator._phase2_index": {
+      "explain": "Calls CameraInterface.get_new_file every 0.5 s (SD_POLL_INTERVAL) until the new photo appears or 15 s (CAPTURE_TIMEOUT_SECONDS) have passed; logs 'Found new image: <name>' or 'Timeout after 15.0s'."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator._phase3_download": {
+      "explain": "Downloads the bytes, decodes and checks the picture, then saves it under the GPS name (or its SD-card name) through StorageManager.save_image. Returns (path, picture) or (None, None)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator._download_bytes": {
+      "explain": "Checks there is enough free disk space (at least 10 MB, or twice the file size if that is more) and then downloads the photo's bytes from the camera."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator._decode_and_verify": {
+      "explain": "Decodes the JPEG bytes, turns the picture 180 degrees when rotate_180 is on, and checks its size against the profile (2K needs at least 2400 x 1300 pixels). Returns the picture or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/pipeline_orchestrator.py::PipelineOrchestrator.get_stats": {
+      "explain": "Returns the counters for status messages: photo_count (shutters pressed), downloaded_files, the current SD folder and the check profile. siyi_node uses them in 'SUCCESS: Captured 2K image #N'."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/siyiInstructions.md": {
+      "explain": "A short checklist for reaching the camera from the Jetson: 'ip addr', 'ping 192.168.144.25', a curl of http://192.168.144.25:82/cgi-bin/media.cgi/api/v1/getdirectories?media_type=0 (answer: a folder named 101SIYI_IMG), then running a separate siyi-download.py script (not in this repo) to download the photos."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/siyi_node.py": {
+      "explain": "The camera driver node itself (class SIYINode, ROS node name 'siyi'). It puts every /camera/trigger into a waiting line, takes each photo through the pipeline (press the shutter, find the new file on the SD card, download it), names it after the GPS fix taken right before the shutter, writes the JSON sidecar, and carries out lens and gimbal commands that arrive on /camera/command. Zoom and focus run on one background 'lens worker' thread so they never hold up photos.",
+      "how_it_fits": "The only executable of video_cam ('ros2 run video_cam siyi', entry point main). It sits between the survey trigger (mapping) and the detector (detection/new_od): the photos it saves into mapping_photos are what new_od processes and what main_controller aims at. It uses camera_interface.py (talk to the camera), pipeline_orchestrator.py (capture steps), storage_manager.py (saving), capture_queue.py (waiting line), photo_metadata.py (sidecar) and config.py (all numbers)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode": {
+      "explain": "The camera driver as a ROS 2 node named 'siyi'. It owns the photo waiting line, the camera lock (only one SDK conversation at a time), the lens worker thread, the newest GPS, height and heading values, and the camera, pipeline and storage helper objects."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.__init__": {
+      "explain": "Sets the node up: declares its 12 parameters (use_real_camera true, min_altitude_agl -13.716, camera_ip 192.168.144.25, ctrl_port 37260, media_port 82, http_timeout_sec 10, capture_timeout_sec 15, min_free_space_mb 50, camera_model 'AUTO', resolution '', rotate_180 false, image_top_direction_deg 0), creates its publishers, subscriptions and three timers, and finds the photo folder. With a real camera it opens the camera link, asks the camera which model it is (SDK 0x02; ZR10 if there is no answer), builds the capture pipeline and reads the SD card state.",
+      "called_when": "Once, when main() creates the node at start-up.",
+      "inputs": "ROS parameters (all have defaults; tracker.launch.xml sets none). image_top_direction_deg accepts whole numbers and decimals; anything else is logged and replaced by 0; rotate_180 adds 180 degrees.",
+      "outputs": "Publishers: image_raw (sensor_msgs/Image), /mavros/statustext/send (mavros_msgs/StatusText), /camera/status (std_msgs/String), /camera/disk_free_mb (std_msgs/Float64). Subscriptions: /camera/trigger, /mavros/global_position/rel_alt, /mavros/global_position/global, /mavros/global_position/compass_hdg, /camera/command, and /camera/image only in simulation mode. Timers: 1 s disk status, 0.1 s photo queue, 30 s photo statistics.",
+      "effects": "Creates <ws>/src/video_cam/mapping_photos if missing; sends SDK 0x02 and 0x0A over UDP plus HTTP getdirectories/getmedialist requests to the camera; logs 'SIYI pipeline initialized (REAL CAMERA) ...'. capture_timeout_sec and min_free_space_mb are read but never passed on (the pipeline uses config's 15 s and its own disk check)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._apply_camera_model": {
+      "explain": "Remembers which camera model is in use and picks the photo check profile from config.CAMERA_MODELS (ZR10 -> 2K, ZR30 and A8MINI -> 4K, A2MINI, ZT6 and ZT30 -> ANY). A non-empty 'resolution' parameter always wins over the model's profile. It tells the pipeline the new profile and can log 'Camera model: ZR10 (native stills: 2K)'.",
+      "called_when": "In __init__: first with the provisional model, then again after the camera answered the model question (or did not)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._capabilities": {
+      "explain": "Returns which optional SDK features the current camera model answers: autofocus (0x04), manual_focus (0x06) and zoom_readback (0x18), taken from config.CAMERA_CAPABILITIES. An A8 mini answers none of the three; unknown models are assumed to answer all of them.",
+      "outputs": "A dict such as {'autofocus': True, 'manual_focus': True, 'zoom_readback': True}."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._log_skip_once": {
+      "explain": "Logs a 'this camera cannot do that' message only the first time for a given key (such as 'focus-auto'), so the log is not flooded every 5 s by the survey's autofocus loop on an A8 mini."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._set_zoom": {
+      "explain": "Remembers the zoom value, and where it came from ('readback' or 'commanded ...'), that the next photos' sidecars will report. A value that is None or not above 0 is ignored."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._apply_capture_zoom": {
+      "explain": "Racks the lens to config.CAPTURE_ZOOM_X (5.0x) for the survey. It first reads the zoom (SDK 0x18, if the camera can) and stops if it is already within 0.6x; otherwise it sends the absolute-zoom command (0x0F) up to 3 times, waits 3 s after each one WITHOUT holding the camera lock (so photos continue), and confirms by reading the zoom back. A camera that cannot report its zoom (A8 mini) gets one command and the commanded value is assumed.",
+      "called_when": "On the lens worker thread after a 'capture_setup' or 'zoom_capture' command (mapping's trigger sends 'capture_setup' when ArduPilot reports DigiCamCtrl).",
+      "outputs": "True when the zoom is confirmed (or assumed); False when CAPTURE_ZOOM_X is None, outside 1-30, or not confirmed after 3 attempts.",
+      "effects": "SDK 0x18 and 0x0F over UDP; STATUSTEXT 'Zoom set to <x>x' when the readback confirms the zoom (an assumed zoom is only logged); while it runs, photo sidecars say zoom_changing true. In the simulator (emulator maximum zoom 1) it logs 'Could not confirm 5.0x after 3 attempts', which is expected."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._focus_touch_point": {
+      "explain": "Returns the middle of the video frame in the SDK's touch coordinates: (960, 540), from FOCUS_TOUCH_FRACTION (0.5, 0.5) times FOCUS_TOUCH_FRAME (1920 x 1080). An autofocus at (0, 0) would focus on the top-left corner instead of the middle."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._check_climb_focus": {
+      "explain": "Asks for one focus pass the first time the drone climbs through 15 m above home (FOCUS_AT_ALTITUDE_M), and re-arms itself once the drone is back below 5 m (FOCUS_REARM_ALTITUDE_M), so a second flight focuses again.",
+      "called_when": "For every /mavros/global_position/rel_alt message (from altitude_callback).",
+      "effects": "May start the lens worker thread for a focus pass; on an A8 mini the focus is skipped because it has a fixed-focus lens."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._lens_busy": {
+      "explain": "True while the lens worker thread (a zoom rack or a focus pass) is still running."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._focus_supported": {
+      "explain": "Says whether this camera can do a focus pass of the given mode: 'infinity' needs manual focus (SDK 0x06), anything else ('auto') needs autofocus (SDK 0x04)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._request_lens_setup": {
+      "explain": "Starts the single lens worker thread to do a zoom rack and/or a focus pass, without waiting for it. It leaves the focus out when FOCUS_MODE is 'off' or the camera cannot do it, and refuses (returns False) in simulation mode, when nothing is left to do, or when the lens is already busy.",
+      "inputs": "reason (for the log), zoom (bool), focus (bool), mode ('infinity' by default from FOCUS_MODE, or 'auto'), optional touch point.",
+      "outputs": "True if a worker thread was started.",
+      "effects": "Starts a daemon thread running _lens_worker."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._request_focus": {
+      "explain": "Shortcut for _request_lens_setup that asks for a focus pass only (no zoom).",
+      "called_when": "Climb-out focus at 15 m, every 40 photos (REFOCUS_EVERY_N_CAPTURES), and the 'autofocus', 'focus' and 'focus_infinity' commands."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._lens_worker": {
+      "explain": "The body of the lens worker thread: first the zoom rack (if asked), then the focus pass (if asked), always in that order, because the zoom command 0x0F refocuses by itself and would undo a focus done before it."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._focus_once": {
+      "explain": "Does one focus pass. In 'infinity' mode it drives the focus to far (SDK 0x06 value 1) for 3 s and then stops it (value 0); otherwise it sends one autofocus (SDK 0x04) at the frame centre. Then it waits 2.5 s for the lens to settle, holding the camera lock only during each command so photos keep being taken.",
+      "effects": "STATUSTEXT 'Focus set (infinity)' or 'Focus set (auto)' when the camera acknowledged; resets the 'photos since last focus' counter."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._find_ros2_workspace": {
+      "explain": "Returns (and creates if needed) the folder <ws>/src/video_cam, using storage_manager.get_ros2_ws_directory(); the StorageManager then puts mapping_photos inside it."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._pipeline_loop": {
+      "explain": "The 1 s timer: publishes the free disk space on /camera/disk_free_mb. Photos are not started here any more; _service_capture_queue does that every 0.1 s.",
+      "called_when": "Every 1 s (NODE_LOOP_PERIOD)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._service_capture_queue": {
+      "explain": "Starts the oldest waiting photo request as soon as the camera can take it. Below min_altitude_agl it throws the waiting requests away; with a real camera it starts a capture thread only if no other capture is still in its shutter/SD-search steps; in simulation mode it saves the newest /camera/image straight away.",
+      "called_when": "Every 0.1 s (CAPTURE_SERVICE_PERIOD) and right after each trigger or 'capture' command.",
+      "effects": "Starts a daemon thread running _execute_real_camera_capture(trigger_time)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._log_capture_stats": {
+      "explain": "Logs a line like 'Photo stats: 94 triggers: 94 served, 0 dropped (queue full), 0 discarded, 0 waiting (longest wait line 1); 94 photos saved', but only when the numbers changed (or always when force=True at shutdown).",
+      "called_when": "Every 30 s (CAPTURE_STATS_PERIOD) and once at shutdown."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._query_gimbal_attitude": {
+      "explain": "Asks the gimbal for its yaw, pitch and roll (SDK 0x0D, waiting at most 0.3 s) for the photo's sidecar. After 3 unanswered questions in a row it stops asking for the rest of the flight; main_controller then assumes the camera looks straight down.",
+      "called_when": "Right before each shutter, inside the camera lock (from _capture_metadata).",
+      "outputs": "{'yaw_deg', 'pitch_deg', 'roll_deg', 'source': 'camera 0x0D'} or None."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._capture_metadata": {
+      "explain": "Collects everything the sidecar needs at this instant: shutter and trigger times, the newest GPS fix (latitude, longitude, altitude) and its age, height above home, compass heading, camera model, field of view (81 degrees), zoom and whether it is changing, photo orientation and the gimbal angles. It hands them to photo_metadata.build_photo_metadata.",
+      "outputs": "The sidecar dict (format astra.photo_metadata.v1)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._capture_metadata.age": {
+      "explain": "Tiny helper inside _capture_metadata: how many seconds ago time t was (None if t is None). Used for the age of the GPS, height and heading values."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._execute_real_camera_capture": {
+      "explain": "Takes one real photo on its own thread. While holding the camera lock it picks the GPS file name, gathers the sidecar data and runs the shutter + SD-card search; then, without the lock, it writes the sidecar, downloads and saves the photo as '<lat> , <lon>.jpg' and publishes it. Every 40 photos it also asks for a new focus pass.",
+      "called_when": "Started by _service_capture_queue for each waiting request (real camera only).",
+      "inputs": "trigger_time: when the /camera/trigger arrived (goes into the sidecar).",
+      "effects": "SDK 0x0C and HTTP requests to the camera; files '<lat> , <lon>.json' and then '<lat> , <lon>.jpg' in mapping_photos (SD-card name when there is no GPS fix); STATUSTEXT 'SUCCESS: Captured 2K image #N' (or 'FAILED: ...', 'WARN: No GPS fix - image will not have lat/lon name'); /camera/status 'FAILURE: ...' on errors; the photo on /image_raw."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._result_payload": {
+      "explain": "Builds the small result dictionary of a camera command: {'ok': True or False} plus any extra details (action, error, values)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._split_csv": {
+      "explain": "Splits a command parameter like '0,-90' into exactly the expected number of parts, or raises ValueError ('Expected 2 CSV values, got 1')."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._parse_switch": {
+      "explain": "Turns on/off words ('on', '1', 'true', 'enable', 'enabled' / 'off', '0', 'false', 'disable', 'disabled') into True or False and raises ValueError for anything else. Nothing in the current code calls it (probably left over from an older command)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.gps_cb": {
+      "explain": "Stores the newest GPS fix (sensor_msgs/NavSatFix) and the time it arrived; photo names and sidecars use it.",
+      "called_when": "For every /mavros/global_position/global message (about once per second on the drone, because gps_ros2 sets all MAVLink streams to 1 Hz)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.heading_cb": {
+      "explain": "Stores the newest compass heading in degrees (0 = north) and the time it arrived, for the photo sidecars.",
+      "called_when": "For every /mavros/global_position/compass_hdg message."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._execute_camera_command": {
+      "explain": "Carries out one /camera/command. 'capture', 'autofocus'/'focus', 'focus_infinity', 'capture_setup' and 'zoom_capture' only queue work (a photo, or the lens worker); the others talk to the camera straight away: zoom_manual in/out/stop, zoom_absolute X, zoom_range, zoom_current, focus_manual far/near/stop, gimbal_rotate yaw,pitch, gimbal_stop, gimbal_center, gimbal_attitude, gimbal_set_angles yaw,pitch, gimbal_set_axis yaw|pitch,angle, gimbal_mode_get, gimbal_mode_set lock|follow|fpv and sd_format yes. It refuses everything in simulation mode, refuses direct commands while a shutter is in progress ('Pipeline is busy'), and raises ValueError for unknown commands or bad parameters.",
+      "inputs": "command (the first word) and parameter (the text after it).",
+      "outputs": "A result dict from _result_payload, e.g. {'ok': True, 'action': 'gimbal_set_angles', ...}.",
+      "effects": "SDK commands over UDP. 'sd_format yes' ERASES the camera's SD card (never use it on a development machine)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.camera_command_callback": {
+      "explain": "Receives a /camera/command message, either a JSON object with the keys command and parameter, or plain text 'command parameter' (for example 'gimbal_set_angles 0,-90'). Queue-only commands run at once; direct camera commands first wait up to 3 s for the camera lock. It reports the result on /camera/status as 'CMD SUCCESS: ...', 'CMD SKIPPED: ...', 'CMD FAILED: ...' or 'CMD ERROR: ...'.",
+      "called_when": "For every /camera/command message: 'capture_setup' and 'autofocus' from mapping's trigger, the simulator panel's LOOK DOWN / LOOK FORWARD buttons ('gimbal_set_angles 0,-90' / '0,0'), or a person using ros2 topic pub."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._execute_simulation_capture": {
+      "explain": "The old simulation mode (use_real_camera false): saves the newest image received on /camera/image as a JPEG in mapping_photos, named after the GPS fix or 'sim_<date>-<time>.jpg'. The Gazebo digital twin does NOT use this path: it keeps use_real_camera true and lets siyi_emulator play the camera.",
+      "effects": "Writes one JPEG; STATUSTEXT 'Simulation photo captured: <time>'."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._generate_gps_filename": {
+      "explain": "Makes the photo's file name from the newest GPS fix: '<lat> , <lon>.jpg' with 6 decimals and space-comma-space between them (for example '36.214934 , -96.007241.jpg'). It returns None (no GPS name, the SD-card name is kept) when there is no fix, when the numbers are NaN, infinite or out of range, or when the fix is (0, 0), which the autopilot reports before it has GPS lock.",
+      "outputs": "The file name or None. detection/geotag.py and main_controller read the position back from exactly this format, so it must not change."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._publish_captured_image": {
+      "explain": "Publishes the already-decoded photo on /image_raw (sensor_msgs/Image, encoding bgr8, frame_id 'camera_link') without reading it back from disk. Nothing in the team stack subscribes to it."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._publish_disk_status": {
+      "explain": "Publishes the free space of the photo folder's disk, in megabytes, on /camera/disk_free_mb (std_msgs/Float64)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.camera_trigger_callback": {
+      "explain": "Handles one photo request: a /camera/trigger message with data true goes into the waiting line (if 5 are already waiting, the oldest is dropped and a warning says so), then the line is served at once. Messages with data false are ignored.",
+      "called_when": "For every /camera/trigger (std_msgs/Bool): once per second during the survey from mapping's mission_camera_trigger; also the simulator panel's TAKE PHOTO and take_photo.sh."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.altitude_callback": {
+      "explain": "Stores the height above home (/mavros/global_position/rel_alt), runs the climb-out focus check, and switches photos on (height >= min_altitude_agl) or off (below it). The default threshold is -13.716 m (minus 45 ft), so in practice the camera is always enabled.",
+      "effects": "STATUSTEXT 'Altitude threshold reached - Camera enabled' or 'Below altitude threshold - Camera disabled' when the state changes."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.sim_image_callback": {
+      "explain": "Simulation mode only: remembers the newest image from /camera/image so the next trigger can save it."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._send_status": {
+      "explain": "Sends a short text to the ground station: publishes a mavros_msgs/StatusText with severity 6 (INFO) on /mavros/statustext/send, which MAVROS forwards as a MAVLink STATUSTEXT (shown in Mission Planner's Messages tab), and logs it.",
+      "effects": "MAVLink STATUSTEXT (cut at 50 characters). The simulator reads some of these texts: 'SUCCESS: Captured ... image #N' (sim_bringup's phase_monitor and sim_demo's phases.py) and 'Zoom set to ...' (sim_demo's phases.py and zoom.py)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode._publish_camera_status": {
+      "explain": "Publishes a camera status line (std_msgs/String) on /camera/status, e.g. 'CMD SUCCESS: autofocus' or 'FAILURE: Capture download error'. scripts/watch_status.py prints these and the simulator's demo panel shows them."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::SIYINode.shutdown": {
+      "explain": "Cleans up when the node stops: logs the final photo statistics and closes the camera's UDP socket and HTTP session. Errors during shutdown are ignored."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/siyi_node.py::main": {
+      "explain": "Entry point of the 'siyi' executable: starts ROS 2, creates SIYINode and spins it (runs its callbacks) until Ctrl-C or shutdown, then cleans up.",
+      "called_when": "When tracker.launch.xml (or 'ros2 run video_cam siyi') starts the program."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/siyi_node.py.bak": {
+      "explain": "The oldest backup of the camera node (622 lines): no camera-model detection, no zoom/focus worker, no photo queue (only one pending trigger at a time) and no sidecar. Nothing imports or runs it (Python only imports files ending in .py)."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/siyi_node.py.bak-zoom-20260821-161748": {
+      "explain": "Backup of the camera node (681 lines, 21 August 2026) from before the zoom/focus work: it already asks the camera for its model, but has no lens worker, no photo queue and no sidecar. Nothing imports or runs it."
+    },
+    "mod:ros2_ws/src/video_cam/video_cam/storage_manager.py": {
+      "explain": "Saves photos safely on the Jetson's disk (class StorageManager) and finds the workspace folder at run time (function get_ros2_ws_directory). A photo is first written as '<name>.tmp.jpg' and then renamed to its final name in one step, so a reader never sees half a file. The checks use the profiles in config.RESOLUTION_SPECS (2K: at least 2400 x 1300 pixels and 30,000 bytes): verify_image checks the decoded picture's pixel size BEFORE it is saved (called by pipeline_orchestrator), and verify_file checks the saved file's size afterwards.",
+      "how_it_fits": "It decides the shared photo folder <ws>/src/video_cam/mapping_photos that siyi writes and new_od and main_controller read. get_ros2_ws_directory() is also imported by detection/model_manager.py (and from there by new_od), so the nodes agree on where the workspace is without any machine-specific path."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::get_ros2_ws_directory": {
+      "explain": "Finds the workspace's src folder at run time: it checks the folder of this installed file and then its parent folders (10 folders at most) until one contains both install/ and src/, and returns that src/ path (for example ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src). If none is found it returns the home folder, so no machine-specific path is ever written in the code.",
+      "called_when": "At start-up by siyi_node (photo folder) and by detection/model_manager.py and new_od (photo, results and model folders)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager": {
+      "explain": "Knows the photo folder (mapping_photos) and saves photos there safely, checking disk space and file sizes."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.__init__": {
+      "explain": "Sets the photo folder to <workspace_root>/mapping_photos (siyi passes <ws>/src/video_cam) and creates the folders if they do not exist."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.check_disk_space": {
+      "explain": "True if the photo folder's disk has at least the needed megabytes free (50 MB unless told otherwise); logs an error and returns False if not. If the check itself fails it assumes there is enough space."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.get_free_space_mb": {
+      "explain": "Returns the free space of the photo folder's disk in megabytes (0.0 if it cannot be read)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.save_image": {
+      "explain": "Saves a picture into mapping_photos under the given name with an atomic write, then checks the file size; returns the full path or None. When only the size check fails, the renamed file stays in mapping_photos although None is returned."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager._atomic_write": {
+      "explain": "Writes the picture first as '<name>.tmp.jpg' (keeping .jpg so OpenCV picks the JPEG encoder), checks it is at least 1000 bytes, then renames it to the final name in one step (os.replace). The detector reacts to that rename, so it only ever sees complete photos."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.verify_file": {
+      "explain": "Checks that a saved file exists and is big enough for its profile (2K at least 30,000 bytes, 4K 50,000, ANY 20,000)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.get_mapping_dir": {
+      "explain": "Returns the photo folder path (<ws>/src/video_cam/mapping_photos)."
+    },
+    "fn:ros2_ws/src/video_cam/video_cam/storage_manager.py::StorageManager.verify_image": {
+      "explain": "Checks that a decoded picture is not junk: at least 100 x 100 pixels and at least the profile's size (2K: 2400 x 1300, 4K: 3000 x 1600, ANY: 640 x 480). A shaky network link can deliver cut-off pictures; this catches them."
+    },
+    "pkg:ros2_ws/src/detection": {
+      "explain": "The team's object detector (an ament_python package). Its program 'new_od' (ROS node 'new_od') watches the photo folder, cuts every new photo into 640 x 640 pixel tiles that overlap by 15 %, runs the YOLO26m model on them, keeps only 'person' and 'tent' look-alikes, and publishes one result message per photo.",
+      "how_it_fits": "Started by main/launch/tracker.launch.xml. Input: new JPEGs in <ws>/src/video_cam/mapping_photos written by video_cam (noticed through inotify with the watchdog library, plus a rescan every 3 s) and /mavros/mission/reached. Output: /image_detection (interfaces/msg/ImageResult, RELIABLE depth 10) for main_controller, which keeps the best person and tent and flies to them; annotated copies in <ws>/src/video_cam/detection_results_sahi; /sahi_detection_results and /sahi_detection_info (nobody listens); services /sahi/get_health (answers '... ModelLoaded: True ...', which the simulator's stack_check waits for) and /sahi/get_statistics. On the Jetson it loads the TensorRT engine yolo26m.engine; in the simulator team_stack.launch.py passes model_path ~/.astra_sim/models/yolo26m.pt and use_batched_inference false, and with detector:=truth an always-empty camera_feed_path so sim_demo's truth_detector answers instead. The model is the stock COCO one: a tent is only found as 'umbrella' or 'kite'."
+    },
+    "mod:ros2_ws/src/detection/Documentation/DocForML.md": {
+      "explain": "The machine-learning to-do list and findings: collect or generate top-down aerial pictures of tents and mannequins, train with 'hard negatives' (rocks, cars, animals ...), try other SAHI tile sizes and overlaps, try yolo11m, fine-tune and tune the confidence. Findings: at 150 ft the camera's horizontal field of view is about 81 degrees (about 78 m of ground, 24.6 px per metre), so a 3 m tent is about 74 px and a mannequin about 44 x 12 px; MobileNet would only slow things down.",
+      "how_it_fits": "video_cam/config.py takes its 81 degree field of view from this note."
+    },
+    "mod:ros2_ws/src/detection/Documentation/Documentation.md": {
+      "explain": "Older system documentation (November 2025, 622 lines; only the start was reviewed) of the image capture and object detection workflow, titled 'Image Publisher SIYI A8 Camera'. AGENTS.md marks this folder as stale; none of its files mentions today's detector new_od."
+    },
+    "mod:ros2_ws/src/detection/Documentation/EXECUTION_FLOW.md": {
+      "explain": "A step-by-step walk-through (904 lines; only the start was reviewed) of 'ros2 launch detection detection_complete.launch.py', which started two old nodes, image_pub and object_detection_sahi. That launch file is no longer in the package, so this describes an older design."
+    },
+    "mod:ros2_ws/src/detection/Documentation/README.md": {
+      "explain": "An older package README (309 lines; only the start was reviewed) that describes two detectors, object_detection.py and a SAHI version, which are no longer in the package; today the package has only new_od."
+    },
+    "mod:ros2_ws/src/detection/Documentation/TasksForML.md": {
+      "explain": "Notes (245 lines; only the start was reviewed) on making training pictures, with an example Blender Python script that clears the scene, loads the models, places objects at random and simulates a drone camera at a fixed height."
+    },
+    "mod:ros2_ws/src/detection/Documentation/od_upgrade.md": {
+      "explain": "A comparison (dated November 25, 2025, 747 lines; only the start was reviewed) of a basic and an advanced version of object_detection_sahi.py, the older detector program. Its line in tracker.launch.xml is commented out; new_od runs instead."
+    },
+    "mod:ros2_ws/src/detection/Documentation/ods_documentation.md": {
+      "explain": "A method-by-method reference (632 lines; only the start was reviewed) for the old object_detection_sahi node, starting with get_detection_directory(). Stale: the functions it describes are not in today's code."
+    },
+    "mod:ros2_ws/src/detection/detection/README.md": {
+      "explain": "Two commands: build and run the detector ('colcon build && source install/setup.bash && ros2 run detection new_od') and stop it with 'ros2 lifecycle set /new_od shutdown'. The stop command probably does not work, because new_od is a plain ROS node, not a lifecycle node (Ctrl-C stops it)."
+    },
+    "mod:ros2_ws/src/detection/detection/__init__.py": {
+      "explain": "An empty file that marks the folder as the Python package 'detection', so imports like 'from detection.geotag import parse_latlon_from_name' work."
+    },
+    "mod:ros2_ws/src/detection/detection/annotation.py": {
+      "explain": "Draws the results onto a copy of the photo (all boxes are 1-pixel lines): green boxes labelled 'PERSON (95%)', orange-yellow boxes labelled 'TENT (85%)', blue boxes without a label for other objects, and a dark header bar with the counts, the engine (TensorRT or PyTorch), the processing time and the tile size.",
+      "how_it_fits": "new_od saves the drawn copy as detection_results_sahi/sahi_detected_<photo name> and publishes it on /sahi_detection_results; the simulator copies these files into each run folder's detections/. A commented-out crop helper (save_top_matches_crop) is still in the file."
+    },
+    "fn:ros2_ws/src/detection/detection/annotation.py::annotate_frame": {
+      "explain": "Returns a copy of the photo with the results drawn on it: a green box and label 'PERSON (95%)' for people, an orange-yellow box and label 'TENT (85%)' for tents, a blue box without a label for other objects (all boxes 1 pixel wide), and a dark header bar reading 'SAHI+YOLO (TensorRT or PyTorch) | N people, M tents, K other' and 'Time: T s | Slices: 640x640'."
+    },
+    "mod:ros2_ws/src/detection/detection/batched_inference.py": {
+      "explain": "A hand-made replacement for SAHI that sends several tiles to the model at once (a batch), which is faster with the Jetson's TensorRT engine. It cuts the photo the way SAHI does, pads the edge tiles, runs predict on batches, moves the boxes back to photo coordinates, merges duplicates across tiles (Intersection-over-Smaller >= 0.5, per class) and sorts them into classes with detection_processor._categorize.",
+      "how_it_fits": "Used by new_od when use_batched_inference is true (the default on the drone, batch_size 2). The simulator switches it off because this path only works with the Jetson's TensorRT engine."
+    },
+    "fn:ros2_ws/src/detection/detection/batched_inference.py::_generate_slices": {
+      "explain": "Works out the tile rectangles that cover the whole photo: tiles start every tile size x (1 - overlap) pixels (544 px for 640 px tiles and 15 % overlap) and the last row and column are pushed to the photo's edge. A 2560 x 1440 photo gives 5 x 3 = 15 tiles."
+    },
+    "fn:ros2_ws/src/detection/detection/batched_inference.py::_extract_yolo": {
+      "explain": "Gets the plain Ultralytics YOLO model out of a SAHI wrapper (loading it if needed); returns the object unchanged if it already is one."
+    },
+    "fn:ros2_ws/src/detection/detection/batched_inference.py::_ios_nms": {
+      "explain": "Removes duplicate boxes found in overlapping tiles: keeps the most confident box and drops every other box of the same class whose overlap covers at least 50 % of the smaller box (Intersection-over-Smaller)."
+    },
+    "fn:ros2_ws/src/detection/detection/batched_inference.py::run_batched_detection": {
+      "explain": "Finds objects in one photo by sending tiles to YOLO in batches (batch_size; new_od passes 2): converts to RGB, cuts and pads the tiles, runs predict, shifts each box back to photo coordinates (dropping boxes that lie in the padding), merges duplicates with _ios_nms and sorts them like the SAHI path. Same inputs and output format as run_sahi_detection."
+    },
+    "mod:ros2_ws/src/detection/detection/detection_processor.py": {
+      "explain": "The SAHI detection path and the class map. run_sahi_detection lets the SAHI library cut the photo into tiles, run YOLO on each tile and merge the boxes; _categorize then throws away boxes that are too small, too big, too thin or below the confidence limit, and turns YOLO class names into mission classes: person, mannequin, doll -> person; umbrella, kite -> tent; everything else -> object.",
+      "how_it_fits": "Used by new_od when use_batched_inference is false (the simulator's setting); _categorize and CLASS_MAP are also used by batched_inference.py. CLASS_MAP is kept short on purpose: a wrong class makes the drone fly to the wrong place."
+    },
+    "fn:ros2_ws/src/detection/detection/detection_processor.py::run_sahi_detection": {
+      "explain": "Finds objects in one photo with SAHI: converts the colours BGR -> RGB, runs get_sliced_prediction with the given tile size and overlap (no extra whole-photo pass; boxes merged with Intersection-over-Smaller 0.5, per class), then sorts and filters each box with _categorize. On CUDA it frees GPU memory every 10th photo.",
+      "outputs": "A list of detection dicts {'class', 'yolo_class', 'confidence', 'bbox' [x1, y1, x2, y2], 'description', 'method', 'area', 'is_target'}."
+    },
+    "fn:ros2_ws/src/detection/detection/detection_processor.py::_categorize": {
+      "explain": "Decides what one YOLO box means for the mission: drops it if its area is outside the limits (25 to 1,000,000 square pixels by default), its width/height ratio is outside 0.1-10, or its confidence is below the limit (0.25); otherwise it maps the YOLO class with CLASS_MAP (person, mannequin, doll -> 'person'; umbrella, kite -> 'tent'; others -> 'object') and returns a detection dict."
+    },
+    "mod:ros2_ws/src/detection/detection/geotag.py": {
+      "explain": "Reads the GPS position back out of a photo's file name: '38.315339 , -76.548108.jpg' -> (38.315339, -76.548108); names without ' , ' (such as 'IMG_0042.jpg') or with halves that are not numbers give (None, None). It needs only the standard library, so it can be tested without ROS, OpenCV or CUDA.",
+      "how_it_fits": "The reading half of video_cam's naming rule (SIYINode._generate_gps_filename). new_od puts the values into ImageResult.latitude/longitude; main_controller and the simulator's sim_demo use the same rule. Tested by test/test_latlon_filename.py."
+    },
+    "fn:ros2_ws/src/detection/detection/geotag.py::parse_latlon_from_name": {
+      "explain": "Splits a photo name like '36.214934 , -96.007241.jpg' at ' , ' (space, comma, space) and returns (36.214934, -96.007241). Returns (None, None) when the name has no ' , ' or either half is not a number.",
+      "called_when": "For every processed photo, through SAHIObjectDetectionNode._parse_latlon_from_name."
+    },
+    "mod:ros2_ws/src/detection/detection/gpu_utils.py": {
+      "explain": "Small GPU helpers: pick the device ('cuda:0' if PyTorch sees a GPU, otherwise 'cpu'), warn when a Jetson is not in its fastest power mode (nvpmodel MAXN), free GPU memory (garbage collection + torch.cuda.empty_cache), and silence noisy native (TensorRT) console output while a model loads.",
+      "how_it_fits": "Used by new_od, model_manager, detection_processor and batched_inference. Its TORCH_AVAILABLE flag tells the others whether PyTorch is installed."
+    },
+    "fn:ros2_ws/src/detection/detection/gpu_utils.py::suppress_native_output": {
+      "explain": "A 'with' block that sends everything printed to the process's real stdout and stderr (file descriptors 1 and 2, including output from C/C++ code such as TensorRT) to /dev/null, and puts them back afterwards."
+    },
+    "fn:ros2_ws/src/detection/detection/gpu_utils.py::detect_device": {
+      "explain": "Returns 'cuda:0' when PyTorch can use a GPU (and logs the GPU name and, on a Jetson, the board model from /proc/device-tree/model), otherwise 'cpu'. It logs an error if a Jetson has no working GPU."
+    },
+    "fn:ros2_ws/src/detection/detection/gpu_utils.py::check_jetson_power_mode": {
+      "explain": "On a Jetson only: runs 'nvpmodel -q' and warns if the power mode is not MAXN ('sudo nvpmodel -m 0'), and runs 'jetson_clocks --show' to remind about 'sudo jetson_clocks'. On other computers (no /proc/device-tree/model) it does nothing.",
+      "effects": "Starts the nvpmodel and jetson_clocks programs (2 s timeout each)."
+    },
+    "fn:ros2_ws/src/detection/detection/gpu_utils.py::cleanup_gpu": {
+      "explain": "Frees memory: runs Python's garbage collector and, if a GPU is present, empties PyTorch's CUDA cache. It never raises an error."
+    },
+    "mod:ros2_ws/src/detection/detection/model_manager.py": {
+      "explain": "Finds and loads the detection model. It turns the model_path parameter into a real file, prefers a TensorRT '.engine' file next to it, can build that engine from the '.pt' weights (YOLO export, half precision, 640 x 640), loads the model with Ultralytics (wrapped by SAHI for the default path), and warms it up with a blank picture.",
+      "how_it_fits": "Called once by new_od's background loader thread; it also passes video_cam's get_ros2_ws_directory on to new_od. On the Jetson the engine yolo26m.engine is used; in the simulator the .pt file is loaded with PyTorch (no TensorRT)."
+    },
+    "fn:ros2_ws/src/detection/detection/model_manager.py::resolve_model_path": {
+      "explain": "Decides which model file to load and in which format. A relative path is looked up in <ws>/src and next to this module; with model_format 'auto' an existing '<name>.engine' wins, otherwise it converts '<name>.pt' to TensorRT when allowed and possible (falling back to the .pt if that fails), otherwise it uses the path it was given (or the .pt name when a missing .engine was asked for). 'tensorrt' insists on an engine (returns (None, None) if that is impossible); 'pytorch' uses the path as given.",
+      "called_when": "Once, from new_od's background model loader. In the simulator there is no TensorRT, so ~/.astra_sim/models/yolo26m.pt is loaded with PyTorch; on the Jetson the .engine next to the default model_path (/home/astra-dev/astra/ros2_ws/src/yolo26m.pt) is preferred when it exists.",
+      "outputs": "(path, 'tensorrt' or 'pytorch'), or (None, None)."
+    },
+    "fn:ros2_ws/src/detection/detection/model_manager.py::load_sahi_model": {
+      "explain": "Loads the model with Ultralytics YOLO (task 'detect'). For the batched path it returns the plain YOLO model; for the SAHI path it wraps it in SAHI's AutoDetectionModel (type 'yolov8'). On CUDA it first tunes PyTorch (cuDNN benchmark, TF32 maths), and if a TensorRT engine fails to load it falls back to the .pt file."
+    },
+    "fn:ros2_ws/src/detection/detection/model_manager.py::warmup_model": {
+      "explain": "Runs the model once on blank pictures so the first real photo is not slow: batched path = batch_size blank tiles (640 x 640) plus one single tile; SAHI path = one blank 640 x 640 picture through SAHI's sliced prediction."
+    },
+    "fn:ros2_ws/src/detection/detection/model_manager.py::_detect_format": {
+      "explain": "Guesses the model format from the file name: ending in '.engine' = 'tensorrt', anything else = 'pytorch'."
+    },
+    "fn:ros2_ws/src/detection/detection/model_manager.py::_convert_pt_to_trt": {
+      "explain": "Builds a TensorRT engine from YOLO weights: YOLO(pt).export with format 'engine', GPU 0, image size 640 x 640, half precision, the given workspace in GB and simplify, using a variable batch size only when max_batch > 1; then moves the engine to the wanted path and logs its size. Takes several minutes; returns True on success.",
+      "effects": "Writes '<name>.engine' next to the .pt file (only possible where TensorRT is installed, i.e. the Jetson)."
+    },
+    "mod:ros2_ws/src/detection/detection/new_od.py": {
+      "explain": "The detector node (class SAHIObjectDetectionNode, ROS node 'new_od'). It loads the model on a background thread, notices new photos, processes them one at a time on a worker thread, draws the boxes, and publishes an ImageResult for every photo - also for photos with nothing in them, because main_controller waits until every photo has an answer.",
+      "how_it_fits": "The only executable of the detection package ('ros2 run detection new_od'). It connects video_cam's photo folder to main_controller's /image_detection subscription, using the helper modules model_manager, detection_processor, batched_inference, annotation, gpu_utils and geotag."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode": {
+      "explain": "The detector node 'new_od': its parameters, publishers and services, the model loader thread, the image worker thread, the folder watcher, and the statistics and health counters."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode.__init__": {
+      "explain": "Declares 22 parameters (model_path '/home/astra-dev/astra/ros2_ws/src/yolo26m.pt', model_format 'auto', confidence_threshold 0.25, 640 x 640 tiles, overlap 0.15, use_batched_inference true, batch_size 2, ...), works out the folders (photos: <ws>/src/video_cam/mapping_photos, results: <ws>/src/video_cam/detection_results_sahi), picks the device and creates the publishers and services. Then it starts the model loader thread and the worker thread and sets up the folder watch, so the constructor returns right away.",
+      "called_when": "Once, when main() creates the node.",
+      "outputs": "Publishers (RELIABLE, depth 10): /sahi_detection_results (Image), /sahi_detection_info (String), /image_detection (interfaces/msg/ImageResult). Services: /sahi/get_statistics and /sahi/get_health (std_srvs/Trigger). Subscription: /mavros/mission/reached. Timer: GPU cleanup every 30 s on CUDA.",
+      "effects": "Creates the results folder (and the photo folder if missing); on CUDA it forces 640 x 640 tiles and 15 % overlap ('Using Jetson Orin settings'); starts 2 threads; on a Jetson it runs nvpmodel and jetson_clocks to check the power mode."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._setup_image_watch": {
+      "explain": "Sets up how new photos are noticed. With the watchdog library it watches the photo folder through inotify (a file created in, or renamed into, the folder) and adds a safety-net rescan every 3 s; without watchdog it falls back to scanning every check_interval (2 s). It also scans once straight away for photos that are already there."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._setup_image_watch._ImageEventHandler": {
+      "explain": "A small watchdog event-handler class made inside _setup_image_watch: it forwards 'file renamed into the folder' and 'file created' events (not folders) to the node's _on_image_event."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._setup_image_watch._ImageEventHandler.on_moved": {
+      "explain": "Called by watchdog when a file is renamed inside the photo folder. video_cam's atomic save renames '<name>.tmp.jpg' to '<name>.jpg', so this is how a finished photo is normally noticed; it passes the new name (dest_path) on.",
+      "called_when": "On the watchdog observer thread, for every rename in mapping_photos."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._setup_image_watch._ImageEventHandler.on_created": {
+      "explain": "Called by watchdog when a new file appears in the folder (for a program that writes in place); passes its path on. Half-written files are held back later by _is_file_ready."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._on_image_event": {
+      "explain": "Handles one file event: it is ignored until the model is ready (the rescan picks the photo up later) and for names that are not images (such as the .json sidecars). Otherwise it tries to queue the photo; if the photo is too fresh (younger than 0.2 s) it tries again every 0.1 s, up to 15 times.",
+      "called_when": "From the watchdog thread, and from its own retry timers."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._enqueue_file": {
+      "explain": "Puts one photo into the work queue if it is an image (.jpg, .jpeg, .png, .bmp), has not been seen before and is completely written; it then remembers the name as processed. Returns True if it was queued. A lock makes it safe to call from the watchdog thread and the timer at the same time."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode.check_for_new_images": {
+      "explain": "The rescan: waits until the model is ready, deletes the oldest photos if the folder holds more than 10,000, forgets old 'processed' names, then lists the photo folder (oldest first) and queues every unseen, finished image (at most 1000 per scan). Every 10th scan it logs 'Check #N: X images, Y processed, queue=Z'.",
+      "called_when": "Every 3 s (safety net) when watchdog is installed, otherwise every check_interval (2 s); also once at start-up."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._worker_loop": {
+      "explain": "The worker thread: takes one photo path at a time from the work queue (checking every 0.2 s whether it should stop), processes it, and updates the health counters (time of the last success, number of errors in a row)."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._process_image": {
+      "explain": "Processes one photo: reads it, runs the detector (the batched path or the SAHI path, with the node's settings), draws the boxes, publishes the results and updates the statistics; logs 'Found N objects in T s: P people, K tents, O other'."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._publish_results": {
+      "explain": "Publishes everything about one photo: the drawn picture on /sahi_detection_results and as the file sahi_detected_<name> in detection_results_sahi; one interfaces/msg/ImageResult on /image_detection with image_name, time, number of detections, method ('sahi+yolo' or 'sahi+yolo+tensorrt'), tile size, overlap, the last waypoint index, latitude/longitude read from the file name, and one Detection2D per person or tent box (class_id '0' person, '1' tent, score, box centre and size in photo pixels); and a short JSON summary on /sahi_detection_info. Boxes of class 'object' stay out of the box list because main_controller would mistake them for a tent.",
+      "effects": "One ImageResult per photo, even with zero detections; warns when a photo with detections has no latitude/longitude in its name."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._background_model_load": {
+      "explain": "Runs once on its own thread at start-up: resolves the model file (preferring a TensorRT .engine; it asks for a multi-image engine only when the batched path is on), loads it and warms it up, then logs 'Model ready -- processing can begin'. On failure it marks the node unhealthy. At the end it always sets the 'model ready' flag so the scans stop waiting."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._validate_parameters": {
+      "explain": "Repairs bad start-up parameters: an unknown model_format becomes 'auto', a confidence outside 0-1 becomes 0.25, tiles smaller than 64 px become 64, an overlap outside 0-1 becomes 0.15, a check_interval below 0.1 s becomes 2.0 s, and max_images_per_cycle below 1 becomes 1."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._parse_latlon_from_name": {
+      "explain": "Gets (lat, lon) from a '<lat> , <lon>.jpg' file name by calling geotag.parse_latlon_from_name; returns (None, None) when the name carries no coordinates."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._is_file_ready": {
+      "explain": "Says whether a file is completely written: at least 0.2 s old, not empty, and still the same size 0.05 s later."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._prune_processed": {
+      "explain": "Keeps the list of processed names small: forgets names older than 1 hour and keeps at most 2000 (oldest forgotten first). A photo that is forgotten but still in the folder would probably be processed again; this only matters for folders with more than 2000 photos or runs longer than an hour."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._cleanup_old_images": {
+      "explain": "Deletes the oldest photos from the photo folder when it holds more than max_camera_feed_images (10,000) images, so the disk cannot fill up.",
+      "effects": "Deletes files in mapping_photos (only above 10,000 images)."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._periodic_gpu_cleanup": {
+      "explain": "Timer callback (every 30 s, only on CUDA) that frees cached GPU memory through gpu_utils.cleanup_gpu."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._waypoint_cb": {
+      "explain": "Remembers the number of the last waypoint the drone reached (wp_seq of /mavros/mission/reached); it is copied into each ImageResult.waypoint_index."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._parameter_callback": {
+      "explain": "Accepts live parameter changes ('ros2 param set') for confidence_threshold (0-1), check_interval (at least 0.1 s; restarts the polling timer when watchdog is not used) and max_images_per_cycle (at least 1), and refuses bad values."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._stats_srv_cb": {
+      "explain": "Answers the /sahi/get_statistics service with one text line: 'Images: N, Detections: N, People: N, Tents: N, AvgTime: T s, Errors: N, Uptime: S s'."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode._health_srv_cb": {
+      "explain": "Answers the /sahi/get_health service with 'Healthy: ..., ConsecErrors: ..., ModelLoaded: True/False, Format: tensorrt/pytorch'; the answer's success flag is the healthy flag. The simulator's stack_check waits for 'ModelLoaded: True'."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::SAHIObjectDetectionNode.shutdown": {
+      "explain": "Stops the folder watcher and the worker and loader threads (each with a time limit), frees the model and the GPU memory, and logs the final statistics."
+    },
+    "fn:ros2_ws/src/detection/detection/new_od.py::main": {
+      "explain": "Entry point of 'new_od': starts ROS 2, refuses to run (and prints the pip commands) if SAHI or Ultralytics is missing, creates the node and spins it on a 2-thread MultiThreadedExecutor until shutdown.",
+      "called_when": "When tracker.launch.xml (or 'ros2 run detection new_od') starts the program."
+    },
+    "mod:ros2_ws/src/detection/detection/new_od.py.bak": {
+      "explain": "Old backup of new_od.py (799 lines): the full-folder rescan ran every 15 s instead of 3 s, at most 5 images per scan, a work queue of only 50, no retry of too-early file events, and the file-name parser was written inline instead of in geotag.py. Nothing imports or runs it (Python only imports files ending in .py)."
+    },
+    "mod:ros2_ws/src/detection/detection/new_od.py.bak2": {
+      "explain": "A later backup of new_od.py (809 lines): the same as today's file except that the latitude/longitude parser is still written inline instead of calling geotag.py. Nothing imports or runs it."
+    },
+    "mod:ros2_ws/src/detection/package.xml": {
+      "explain": "ROS package description of detection (build type ament_python, version 0.0.0). Run-time needs listed: rclpy, cv_bridge, sensor_msgs, std_msgs, mavros_msgs, ament_index_python and video_cam (new_od imports video_cam's logging and folder helpers). It also lists rosidl/ament_cmake items it does not use, and does not list interfaces, vision_msgs or std_srvs, which new_od imports; those are installed anyway, so it still works."
+    },
+    "mod:ros2_ws/src/detection/requirements_sahi.txt": {
+      "explain": "pip list for a desktop install of the detector: torch >= 2.0.0, torchvision >= 0.15.0, ultralytics >= 8.0.0, sahi >= 0.11.0, opencv-python and opencv-contrib-python >= 4.8.0, Pillow, numpy == 1.24.0, pandas, matplotlib. Probably out of date: the Jetson's real pins are in requirements_jetson.txt (torch 2.8.0, ultralytics 8.4.75, sahi 0.11.36, numpy 1.26.4)."
+    },
+    "mod:ros2_ws/src/detection/resource/detection": {
+      "explain": "An empty marker file installed into the ament resource index so ROS 2 tools can find the detection package."
+    },
+    "mod:ros2_ws/src/detection/setup.cfg": {
+      "explain": "Puts the new_od executable into lib/detection, where 'ros2 run detection new_od' and launch files look for it."
+    },
+    "mod:ros2_ws/src/detection/setup.py": {
+      "explain": "Install recipe of the detection package: installs the detection modules and package.xml and creates the command 'new_od' (detection.new_od:main). It asks pip for watchdog (file events; new_od falls back to polling without it). Its launch/*.launch.py line finds nothing because the package has no launch folder.",
+      "how_it_fits": "Used by colcon build; 'new_od' is the executable tracker.launch.xml starts."
+    },
+    "mod:ros2_ws/src/detection/test/test_copyright.py": {
+      "explain": "Standard ament template test that would check copyright headers with ament_copyright; it is marked skip."
+    },
+    "mod:ros2_ws/src/detection/test/test_flake8.py": {
+      "explain": "Standard ament template test that runs the flake8 style checker over the package; it fails today (old style problems), so the functional test commands leave it out."
+    },
+    "mod:ros2_ws/src/detection/test/test_latlon_filename.py": {
+      "explain": "Six pure-Python tests of geotag.parse_latlon_from_name: a normal name, a negative latitude, an SD-card name (no coordinates), a comma without spaces (not the delimiter), halves that are not numbers, and a round trip with the exact f-string siyi_node uses.",
+      "how_it_fits": "Protects the photo-name contract between video_cam and main_controller: if it broke, every target would quietly be placed at (0, 0). Run with 'python3 -m pytest ros2_ws/src/detection/test/test_latlon_filename.py'."
+    },
+    "mod:ros2_ws/src/detection/test/test_pep257.py": {
+      "explain": "Standard ament template test that checks docstring style (pep257); it fails today and is left out of the functional test commands."
+    },
+    "pkg:ros2_ws/src/mapping": {
+      "explain": "Despite its name, this package's working part is the survey photo trigger: the program 'trigger' (ROS node 'mission_camera_trigger', file do_digi_cam_trigger.py) starts one photo request per second when the mission reaches its DO_DIGICAM_CONTROL item, and stops at waypoint buffer_wp. The program 'mapping' (mapping.py, a panorama stitcher) is broken and never launched.",
+      "how_it_fits": "Started by main/launch/tracker.launch.xml. It listens to ArduPilot through MAVROS (/mavros/statustext/recv for 'Mission: 3 DigiCamCtrl', /mavros/mission/reached) and to waypoint_manager (its buffer_wp parameter, read with the service waypoint_manager/get_parameters and followed on /parameter_events). It talks to video_cam with /camera/trigger (std_msgs/Bool true, every second) and /camera/command ('capture_setup' each time DigiCamCtrl is reported, 'autofocus' every 5 s), and reports 'Camera trigger STARTED' / 'Camera trigger STOPPED' to Mission Planner on /mavros/statustext/send (the simulator's phase monitor reads those texts). mapping_output/ holds example stitched maps (jpg + jgw + report json) made by a GPS-based stitching tool that is not in this repo; README.md explains the parameters."
+    },
+    "mod:ros2_ws/src/mapping/README.md": {
+      "explain": "Plain-words guide to the survey trigger: what mission_camera_trigger does, its two parameters (capture_period_s 1.0 and autofocus_period_s 5.0, where 0 switches autofocus off; whole numbers are accepted; below 0.1 s counts as 0.1 s), an example command, and how to run test/test_trigger_node.py. It notes that mapping.py is an old, broken stitcher that is not launched."
+    },
+    "mod:ros2_ws/src/mapping/mapping/__init__.py": {
+      "explain": "An empty file that marks the folder as the Python package 'mapping'."
+    },
+    "mod:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py": {
+      "explain": "The survey photo trigger node (class MissionCameraTrigger, node 'mission_camera_trigger'). When ArduPilot reports 'Mission: <n> DigiCamCtrl' it asks the camera for 'capture_setup' (zoom + focus; video_cam ignores a repeat when the zoom is already right), publishes /camera/trigger every capture_period_s (1 s) and 'autofocus' every autofocus_period_s (5 s, 0 = off), and stops both when the drone reaches waypoint buffer_wp.",
+      "how_it_fits": "The link between the mission plan and the camera: ArduPilot (through MAVROS) decides WHEN photos start, this node turns that into requests, and video_cam takes the photos. buffer_wp comes from waypoint_manager (item R-2 of the mission layout; 9 on the simulator's runway mission)."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger": {
+      "explain": "The survey trigger node 'mission_camera_trigger': the photo timer, the autofocus timer, the buffer_wp waypoint it stops at, and publishers to the camera and to the ground station."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.__init__": {
+      "explain": "Subscribes to /mavros/statustext/recv (sensor QoS), /mavros/mission/reached and /parameter_events, creates the publishers /mavros/statustext/send, /camera/trigger and /camera/command, and reads the two period parameters (capture_period_s 1.0, never below 0.1; autofocus_period_s 5.0). It also creates a client for waypoint_manager/get_parameters and a 2 s timer that asks for buffer_wp without ever blocking.",
+      "called_when": "Once at start-up, from main().",
+      "effects": "Nothing is sent until DigiCamCtrl arrives; buffer_wp starts at -1 (= never stop)."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.number_parameter": {
+      "explain": "Declares a number parameter that accepts both whole numbers and decimals (dynamic typing) and returns it as a float. If the value is not a number (for example true or 'abc') it logs an error and uses the default instead of stopping the node, which would cost every survey photo."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.fetch_mission_indices": {
+      "explain": "Asks waypoint_manager for its buffer_wp parameter without waiting (call_async). Until that service exists it just returns and the 2 s timer tries again; the first time the service is ready the timer is removed.",
+      "called_when": "Every 2 s at start-up until waypoint_manager answers, and whenever waypoint_manager announces a new buffer_wp."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger._buffer_wp_cb": {
+      "explain": "Receives waypoint_manager's answer: an integer value (type 2) becomes buffer_wp; a missing value or a failed call gives -1 (photos then run until shutdown). Logs 'buffer_wp = <n>' (9 on the simulator's runway mission)."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.parameter_event_cb": {
+      "explain": "Watches /parameter_events; when the node /waypoint_manager reports a changed buffer_wp (for example after a new mission was read) it fetches the new value."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.update_waypoint_reached": {
+      "explain": "Remembers the waypoint the drone just reached (wp_seq of /mavros/mission/reached) and stops the photos when it equals buffer_wp."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.stop_camera_trigger": {
+      "explain": "Stops the survey photos: first the autofocus loop, then (if it is running) the photo timer, and sends STATUSTEXT 'Camera trigger STOPPED'. Safe to call when nothing was started.",
+      "effects": "STATUSTEXT 'Camera trigger STOPPED' (and 'Autofocus loop STOPPED')."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.statustext_callback": {
+      "explain": "Looks at every autopilot text. When one contains 'DigiCamCtrl' (ArduPilot says 'Mission: 3 DigiCamCtrl' when it runs the DO_DIGICAM_CONTROL item) it asks for the lens set-up, starts the autofocus loop and, if it is not already running, starts the photo timer and sends STATUSTEXT 'Camera trigger STARTED'. Repeats of the text never start a second timer.",
+      "called_when": "For every /mavros/statustext/recv message."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.request_capture_setup": {
+      "explain": "Publishes 'capture_setup' on /camera/command; video_cam then racks the zoom to 5.0x and focuses. It is one command on purpose, so zoom and focus cannot race each other."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.start_autofocus_loop": {
+      "explain": "Starts a timer that sends 'autofocus' every autofocus_period_s (5 s) and sends STATUSTEXT 'Autofocus every 5s'. It does nothing if the loop already runs or the period is 0 or less."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.request_autofocus": {
+      "explain": "Publishes 'autofocus' on /camera/command: one autofocus cycle (SDK 0x04 at the frame centre). video_cam skips it on an A8 mini (no autofocus) or while the lens is busy.",
+      "called_when": "Every autofocus_period_s (5 s) while the survey runs."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.stop_autofocus_loop": {
+      "explain": "Removes the autofocus timer (if there is one) and sends STATUSTEXT 'Autofocus loop STOPPED'."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.trigger_camera": {
+      "explain": "Publishes std_msgs/Bool true on /camera/trigger: one photo request.",
+      "called_when": "Every capture_period_s (1 s) while the survey runs."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::MissionCameraTrigger.send_ack": {
+      "explain": "Sends a text to the ground station: a mavros_msgs/StatusText with severity 6 (INFO) on /mavros/statustext/send, and logs it.",
+      "effects": "MAVLink STATUSTEXT shown in Mission Planner's Messages tab."
+    },
+    "fn:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py::main": {
+      "explain": "Entry point of 'trigger': starts ROS 2, creates MissionCameraTrigger and spins it until shutdown.",
+      "called_when": "When tracker.launch.xml (or 'ros2 run mapping trigger') starts the program."
+    },
+    "mod:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py.prefix_bak": {
+      "explain": "Old backup of the trigger node (114 lines): it read buffer_wp with wp_sender's blocking ParameterManager inside __init__ (today's file explains why a blocking read there could stop every photo), used a fixed 1 s timer and had no capture_setup or autofocus. Nothing imports or runs it."
+    },
+    "mod:ros2_ws/src/mapping/mapping/mapping.py": {
+      "explain": "An old panorama stitcher node ('mapping_node'): it was meant to read all photos, match neighbouring photos with ORB (or SIFT) features, chain the transforms and blend everything into final_panorama.jpg. It is broken: __init__ lists the folder self.camera_feed_path, which is never set, so the node stops with an AttributeError at start; other names it uses (input_dir, output_dir, save_dir, _command_cb, mapping_started) are missing too.",
+      "how_it_fits": "DEAD: installed as the executable 'mapping' but commented out in tracker.launch.xml and never started; nothing builds a map on board. Its two image functions (estimate_affine, warp_and_blend) could be reused by a future offline map tool."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::estimate_affine": {
+      "explain": "Finds how a new photo sits on top of a reference photo: improves contrast (CLAHE), finds ORB features (8000) or SIFT features (5000), matches them with a ratio test, and fits a rotate+scale+shift transform with RANSAC (3 px tolerance). It rejects weak results (fewer than 10 inliers or under 25 %, or a scale outside 0.65-1.55) and returns (3x3 matrix, inlier count, message) or (None, count, reason)."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::estimate_affine.enhance": {
+      "explain": "Makes a grayscale copy of the picture and boosts its local contrast with CLAHE (clip limit 2.0, 8 x 8 tiles), so more features can be found."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::warp_and_blend": {
+      "explain": "Places a photo onto the growing panorama: works out the bigger canvas, warps the photo with the given 3x3 transform, requires at least 3 % overlap, and blends the overlap smoothly (distance-transform weights, Gaussian blur 31 x 31). Returns (panorama, mask, shift (tx, ty), message) - four values, although its docstring says three."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode": {
+      "explain": "The stitcher node 'mapping_node' (broken, never launched): 28 parameters, the list of photos, the panorama being built, and a status-message queue."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.__init__": {
+      "explain": "Declares 28 parameters (most of them are never used), then tries to list the photos in self.camera_feed_path, which is never set, so the node stops right here with an AttributeError. If it got further it would subscribe to /mavros/statustext/recv with a method that does not exist (_command_cb) and run the whole stitch inside the constructor."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.__init__.numeric_key": {
+      "explain": "Sort key for photo names: joins all digits of the file name into one number (no digits = 0), so IMG_2 sorts before IMG_10."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.send_back": {
+      "explain": "Puts a NOTICE StatusText for the ground station into the status queue; nothing ever takes it out and publishes it."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.command_cb": {
+      "explain": "Meant to start mapping when a text containing 'follow' arrives; it only checks self.mapping_started (never set) and returns. It is not connected: the subscription names _command_cb instead."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.run_mapping": {
+      "explain": "The stitch loop: for up to max_frames (150) photos it shrinks each by downscale_factor (0.5), starts the panorama with the first one, matches every next photo against the 10 most recent keyframes (newest first) with estimate_affine, chains the transforms, blends it in with warp_and_blend and shifts the stored transforms; a photo that matches nothing inherits the last good transform. Then it calls finish_and_shutdown."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::MappingNode.finish_and_shutdown": {
+      "explain": "Crops the black border off the panorama, saves it as final_panorama.jpg in self.save_dir (never set, so this would fail too), logs frames processed, frames stitched and the success rate, and queues a 'Mapping complete ...' message."
+    },
+    "fn:ros2_ws/src/mapping/mapping/mapping.py::main": {
+      "explain": "Entry point of the 'mapping' executable: starts ROS 2, builds MappingNode (which crashes today), spins, then asks the (never started) worker thread to stop and shuts down."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_center.jgw": {
+      "explain": "The 'world file' of gps_center.jpg: six numbers (the size of one pixel in degrees east and north, two zero rotation terms, and the longitude/latitude of the top-left pixel, -117.8152742690 / 34.0422536647) that let map (GIS) programs place the picture on the Earth."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_center.jpg": {
+      "explain": "An example stitched map picture (3.7 MB JPEG) made from 30 survey photos by a GPS-based stitching tool that is not in this repo (its report: calibration method 'altitude', 3.0 cm per pixel, 4057 x 1974 pixels). No code reads it."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_center_report.json": {
+      "explain": "Report of the gps_center stitch: 30 of 30 photos placed, calibration method 'altitude', source 1.335 cm per pixel, output 3.0 cm per pixel, canvas 4057 x 1974 px, 85 % of the bounding box covered, and the reference and top-left latitude/longitude."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_map_20260714-180812.jgw": {
+      "explain": "The world file of gps_map_20260714-180812.jpg: pixel size in degrees and the longitude/latitude of its top-left pixel, so map programs can place it."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_map_20260714-180812.jpg": {
+      "explain": "An example stitched map picture (14.4 MB JPEG, the name says 14 July 2026 18:08:12) from the 30 photos of the same photo folder, at full detail (its report: 1.335 cm per pixel, 9121 x 4439 pixels). No code reads it."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/gps_map_20260714-180812_report.json": {
+      "explain": "Report of that stitch: 30 of 30 photos placed, calibration method 'altitude', 1.335 cm per pixel in and out, canvas 9121 x 4439 px, plus coverage and reference positions."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/snake_map.jgw": {
+      "explain": "The world file of snake_map.jpg: pixel size in degrees and the longitude/latitude of its top-left pixel."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/snake_map.jpg": {
+      "explain": "An example stitched map picture (32.7 MB JPEG) made with the stitching tool's 'snake' calibration from 30 photos (see snake_map_report.json). No code reads it."
+    },
+    "mod:ros2_ws/src/mapping/mapping_output/snake_map_report.json": {
+      "explain": "Report of the 'snake' stitch: 30 of 30 photos placed, 23 photo-to-photo links matched in 7 segments, a GPS residual of 5.29 m, source 0.488 cm per pixel, heading -142.88 degrees, and a heading per photo (the photos carry the team's '<lat> , <lon>.jpg' names)."
+    },
+    "mod:ros2_ws/src/mapping/package.xml": {
+      "explain": "ROS package description of mapping (build type ament_python, version 0.0.0): depends on rclpy and std_msgs, and at run time on sensor_msgs and mavros_msgs, plus the lint test tools."
+    },
+    "mod:ros2_ws/src/mapping/resource/mapping": {
+      "explain": "An empty marker file installed into the ament resource index so ROS 2 tools can find the mapping package."
+    },
+    "mod:ros2_ws/src/mapping/setup.cfg": {
+      "explain": "Puts the mapping executables into lib/mapping, where 'ros2 run mapping trigger' and launch files look for them."
+    },
+    "mod:ros2_ws/src/mapping/setup.py": {
+      "explain": "Install recipe of the mapping package: creates two commands, 'mapping' (mapping.mapping:main, the broken stitcher) and 'trigger' (mapping.do_digi_cam_trigger:main, the survey trigger used in flight).",
+      "how_it_fits": "Used by colcon build; tracker.launch.xml starts 'trigger' (pkg mapping, exec trigger)."
+    },
+    "mod:ros2_ws/src/mapping/test/test_copyright.py": {
+      "explain": "Standard ament template test that would check copyright headers; it is marked skip."
+    },
+    "mod:ros2_ws/src/mapping/test/test_flake8.py": {
+      "explain": "Standard ament template test that runs the flake8 style checker over the package; it fails today, so the functional test commands leave it out."
+    },
+    "mod:ros2_ws/src/mapping/test/test_pep257.py": {
+      "explain": "Standard ament template test that checks docstring style (pep257); it fails today and is left out of the functional test commands."
+    },
+    "mod:ros2_ws/src/mapping/test/test_trigger_node.py": {
+      "explain": "Tests of the trigger node that start the REAL node with rclpy in a private ROS domain (60-89, so they never reach a running simulator or drone) and call its callbacks with hand-made messages. They check the default periods (1 s photos, 5 s autofocus), decimal and whole-number parameters, that 0 switches autofocus off, that the photo period is at least 0.1 s, that non-numbers fall back to the defaults, that a repeated DigiCamCtrl makes only one timer of each kind, that buffer_wp stops both (even before anything started), that a new DigiCamCtrl restarts photos, the buffer_wp answer and parameter events, and that it really publishes 'capture_setup', 'autofocus', true and 'Camera trigger STARTED'. Needs ROS 2 sourced (otherwise skipped).",
+      "how_it_fits": "15 test functions, 20 test cases with the parameter variations (AGENTS.md: 20 pass)."
+    },
+    "pkg:ros2_ws/src/ultralytics_ros": {
+      "explain": "A copy of the open-source ultralytics_ros package (author Alpaca-zip, licence AGPL-3.0, branch humble-devel): a ROS 2 node that runs a YOLOv8 model with ByteTrack tracking on a live image topic, plus a C++ node that combines the 2D boxes with a lidar point cloud into 3D boxes.",
+      "how_it_fits": "DEAD in this repo: it has a COLCON_IGNORE file, 03_build.sh adds --packages-ignore ultralytics_ros, and its tracker node is commented out in main/launch/tracker.launch.xml (that file still carries the tracker's launch arguments, so it was probably tried earlier). The team's detector is detection/new_od, which works on saved photos instead of a video stream; the team's interfaces package has its own YoloResult message."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.clang-format": {
+      "explain": "Upstream C++ formatting rules for clang-format: Google style, 120-character lines, includes not re-sorted."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.clang-tidy": {
+      "explain": "Upstream list of C++ lint checks for clang-tidy: all performance checks, some modernize checks (nullptr, override, loop-convert ...), some readability checks, and naming rules (for example CamelCase class names)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.gitattributes": {
+      "explain": "Upstream git setting: files under ros2bag/ are stored with Git LFS (large file storage)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/ISSUE_TEMPLATE/bug-report.yml": {
+      "explain": "Upstream GitHub issue form for bug reports (choose the branch, describe the bug). It has no effect in this repo."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/ISSUE_TEMPLATE/feature-request.yml": {
+      "explain": "Upstream GitHub issue form for feature requests. It has no effect in this repo."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/ISSUE_TEMPLATE/question.yml": {
+      "explain": "Upstream GitHub issue form for questions. It has no effect in this repo."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/pull_request_template.md": {
+      "explain": "Upstream pull-request form (type of change, overview ...). It has no effect in this repo."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/workflows/humble-ci.yml": {
+      "explain": "Upstream GitHub Actions workflow: clang-format and clang-tidy checks with ros-industrial/industrial_ci on ROS 2 Humble for pull requests. It never runs in this repo, because GitHub only reads workflows from the repository's top-level .github folder."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/workflows/humble-docker-build-check.yml": {
+      "explain": "Upstream workflow that builds the Docker image on pull requests (it needs Docker Hub secrets). It never runs in this repo (not in the top-level .github folder)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.github/workflows/humble-docker-deploy.yml": {
+      "explain": "Upstream workflow that builds and pushes the Docker image when a pull request is closed. It never runs in this repo."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/.gitignore": {
+      "explain": "Upstream list of files git should ignore: .vscode and compile_commands.json."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/CITATION.cff": {
+      "explain": "Upstream citation file: tells people how to cite the ultralytics_ros software (author and project details)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/CMakeLists.txt": {
+      "explain": "Build script (ament_cmake): generates the YoloResult message, builds the C++ tracker_with_cloud_node against OpenCV, PCL and tf2, and installs script/tracker_node.py plus the launch and rviz2 folders. Never run here because of COLCON_IGNORE."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/CODE_OF_CONDUCT.md": {
+      "explain": "Upstream Contributor Covenant code of conduct of the vendored package. Not used by the team."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/COLCON_IGNORE": {
+      "explain": "An empty file whose presence makes colcon skip this whole package, so it is never built."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/Dockerfile": {
+      "explain": "Upstream's Docker recipe: a ROS 2 Humble desktop-VNC image that installs cv-bridge, vision-msgs, image-view and PCL, clones ultralytics_ros from GitHub and builds it. The team does not use it (the team's images come from docker/Dockerfile)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/LICENSE": {
+      "explain": "The GNU Affero General Public License v3 text that covers the vendored package (anyone who copies or changes it must follow the AGPL rules)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/README.md": {
+      "explain": "Upstream README of the vendored package (177 lines; read by its headings): what tracker_node (2D detection on ROS image messages) and tracker_with_cloud_node (3D detection with lidar and camera info) do, CI status, setup and run steps for ROS Melodic, Noetic and ROS 2 Humble, each node's parameters and topics, and a Docker example with the KITTI dataset."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/include/tracker_with_cloud_node/tracker_with_cloud_node.h": {
+      "explain": "C++ header that declares class TrackerWithCloudNode (its publishers, time-matched subscribers, tf buffer, cluster settings and methods) and the ApproximateTime sync policy for camera_info + point cloud + YoloResult."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/launch/kitti_tracker.launch.xml": {
+      "explain": "The tracker set up for the public KITTI driving dataset: simulated time on, debug on, input /kitti/camera_color_left/image_raw."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/launch/kitti_tracker_with_cloud.launch.xml": {
+      "explain": "The 3D version for KITTI: camera /kitti/camera_color_left/image_raw and camera_info, lidar /kitti/velo/pointcloud, and RViz with rviz2/kitti.rviz."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/launch/tracker.launch.xml": {
+      "explain": "Starts tracker_node.py with 17 launch arguments (model yolov8m-seg.pt, input /image_raw, results /yolo_result and /yolo_image, confidence 0.25, IoU 0.45, at most 300 detections, ByteTrack, drawing options) and, when debug is true, an image_view window on /yolo_image."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/launch/tracker_with_cloud.launch.xml": {
+      "explain": "Like tracker.launch.xml, plus the C++ tracker_with_cloud_node (camera_info /camera_info, lidar /points_raw, output /yolo_3d_result, cluster tolerance 0.3, voxel size 0.1, clusters of 100-10000 points) and RViz with rviz2/default.rviz when debug is true."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/msg/YoloResult.msg": {
+      "explain": "Message definition of the vendored package: std_msgs/Header header, vision_msgs/Detection2DArray detections, sensor_msgs/Image[] masks.",
+      "how_it_fits": "Only used inside the vendored package. The team's interfaces package has its own (unused) YoloResult; the detector publishes interfaces/msg/ImageResult."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/package.xml": {
+      "explain": "Package description of the vendored package: ament_cmake build, licence AGPL-3.0, and many dependencies (rclcpp, rclpy, vision_msgs, cv_bridge, image_geometry, message_filters, pcl_ros, tf2 ...)."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/requirements.txt": {
+      "explain": "pip pins of the vendored package: lap 0.4.0, onnx 1.14.0, urllib3 1.26.18, numpy 1.23.4, opencv-python 4.7.0.72 and ultralytics. They differ from the team's pins in requirements_jetson.txt, so they must not be installed on the Jetson."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/rviz2/default.rviz": {
+      "explain": "RViz layout opened by tracker_with_cloud.launch.xml when debug is true: an image view, two point-cloud views, a marker view for the 3D boxes and the TF frames."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/rviz2/kitti.rviz": {
+      "explain": "The same kind of RViz layout (image, two point clouds, markers, TF) for the KITTI example, opened by kitti_tracker_with_cloud.launch.xml when debug is true."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/script/tracker_node.py": {
+      "explain": "The vendored Python node 'tracker_node': it subscribes to an image topic (parameter input_topic, default 'image_raw'), runs YOLO model.track with the ByteTrack tracker on every frame, and publishes an ultralytics_ros/YoloResult (2D boxes, plus segmentation masks for '-seg' models) on yolo_result and a drawn picture on yolo_image.",
+      "how_it_fits": "Not built and not launched (COLCON_IGNORE). It would need the model file inside the package's share/models folder."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode": {
+      "explain": "The vendored 'tracker_node': a YOLO model, an image subscription and two publishers (results and drawn image)."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode.__init__": {
+      "explain": "Declares 16 parameters (yolo_model 'yolov8n.pt', input_topic 'image_raw', result_topic 'yolo_result', result_image_topic 'yolo_image', conf_thres 0.25, iou_thres 0.45, max_det 300, classes 0-79, tracker 'bytetrack.yaml', device 'cpu' and drawing options), loads the YOLO model from <package share>/models/<yolo_model> and fuses its layers, then creates the image subscription and the two publishers."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode.image_callback": {
+      "explain": "For every incoming image: converts it to an OpenCV picture, runs model.track with the current parameters, and publishes a YoloResult (same header, 2D detections, masks for '-seg' models) and the drawn picture.",
+      "called_when": "For every message on input_topic."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode.create_detections_array": {
+      "explain": "Turns the first result's boxes into a vision_msgs/Detection2DArray: box centre and size in pixels, the class name as class_id, and the confidence as score."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode.create_result_image": {
+      "explain": "Draws the first result (boxes, labels, confidences, using the result_* parameters) with Ultralytics' plot() and returns it as a sensor_msgs/Image (bgr8)."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::TrackerNode.create_segmentation_masks": {
+      "explain": "Turns every segmentation mask of the results into a black-and-white sensor_msgs/Image (mono8, 0 or 255) and returns the list."
+    },
+    "fn:ros2_ws/src/ultralytics_ros/script/tracker_node.py::main": {
+      "explain": "Entry point of tracker_node.py: starts ROS 2, creates TrackerNode and spins it."
+    },
+    "mod:ros2_ws/src/ultralytics_ros/src/tracker_with_cloud_node.cpp": {
+      "explain": "The vendored C++ node 'tracker_with_cloud_node': it time-matches camera_info, a lidar point cloud and yolo_result, thins the cloud (voxel grid), moves it into the camera frame with tf2, keeps the points that fall inside each 2D box or mask, picks the nearest cluster, and publishes 3D boxes (yolo_3d_result), the matching points (detection_cloud) and RViz cubes (detection_marker). Its functions are the TrackerWithCloudNode constructor, syncCallback, transformPointCloud, projectCloud, processPointsWithBbox, processPointsWithMask, createBoundingBox, downsampleCloudMsg, cloud2TransformedCloud, euclideanClusterExtraction, createMarkerArray and main.",
+      "how_it_fits": "Not built (COLCON_IGNORE); the drone has no lidar."
+    },
+    "pkg:servo_test": {
+      "explain": "Bench scripts for the Pixhawk's servo (PWM) outputs, written while wiring the payload-release servos. They talk MAVLink straight to the flight controller with pymavlink over the serial cable /dev/ttyUSB0 at 115200 baud (no ROS, no MAVROS): they read SERVOn_* parameters, send MAV_CMD_DO_SET_SERVO, and watch SERVO_OUTPUT_RAW to see what each output pin really sends.",
+      "how_it_fits": "A TOOL, not part of the flight or the simulator. MAVROS (launcher.sh) must be stopped first, because only one program can own the serial port. Their channels and pulse widths (outputs 2, 7/8, 9, 12, 14; 1900/1400/1100 us) are bench values; in flight main_controller drops with DO_SET_SERVO on output 11 (person) and 13 (tent) at 1400 us open / 500 us closed. servo_control.py and servo_7_8_sweep.py accept --device udp:127.0.0.1:14550, so they could probably also be pointed at the simulator's MAVLink port (not tested here). A similar one-file script, servo_wiggle.py, sits at the repo root."
+    },
+    "mod:servo_test/diag.py": {
+      "explain": "A one-shot check of why output 12 (AUX4) did not move while output 9 (AUX1) did: it prints SERVO9_* and SERVO12_* (FUNCTION, MIN, MAX, TRIM, REVERSED), asks for SERVO_OUTPUT_RAW at 5 Hz, then commands 1900, 1400 and 1900 us on both outputs and prints what each output reports.",
+      "how_it_fits": "Bench tool; it runs from top to bottom when started (python3 servo_test/diag.py). The serial port /dev/ttyUSB0 is fixed in the code."
+    },
+    "fn:servo_test/diag.py::set_interval": {
+      "explain": "Asks the flight controller to send one MAVLink message regularly: MAV_CMD_SET_MESSAGE_INTERVAL with the message id and the interval in microseconds (1,000,000 / hz). Used for SERVO_OUTPUT_RAW (id 36) at 5 Hz."
+    },
+    "fn:servo_test/diag.py::read_outputs": {
+      "explain": "Waits up to 2 s for the next SERVO_OUTPUT_RAW and returns the pulse widths of outputs 9 and 12 (None, None if nothing came)."
+    },
+    "fn:servo_test/diag.py::cmd": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO for output ch with pulse width pwm in microseconds (no acknowledgement awaited)."
+    },
+    "mod:servo_test/diag14.py": {
+      "explain": "Checks that output 14 (AUX6) really sends the commanded pulse: asks for SERVO_OUTPUT_RAW at 20 Hz, then commands 1900, 1400, 1750 and 1100 us on outputs 9 and 14 and prints the newest readback of each after 1.2 s.",
+      "how_it_fits": "Bench tool on /dev/ttyUSB0 (fixed in the code)."
+    },
+    "fn:servo_test/diag14.py::latest": {
+      "explain": "Reads SERVO_OUTPUT_RAW messages for `window` seconds (1.2 s) and returns only the newest one, so the printed value is current and not an old message from the queue."
+    },
+    "fn:servo_test/diag14.py::cmd": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO for output ch with pulse width pwm in microseconds (no acknowledgement awaited)."
+    },
+    "mod:servo_test/diag2.py": {
+      "explain": "A cleaner version of diag.py: SERVO_OUTPUT_RAW at 20 Hz, old messages drained for 1.2 s after each command (1900, 1400, 1750, 1100 us on outputs 9 and 12), then it prints outputs 9, 11, 12 and 13.",
+      "how_it_fits": "Bench tool on /dev/ttyUSB0 (fixed in the code)."
+    },
+    "fn:servo_test/diag2.py::latest_outputs": {
+      "explain": "Reads SERVO_OUTPUT_RAW messages for `window` seconds (called with 1.2 s) and returns the newest one."
+    },
+    "fn:servo_test/diag2.py::cmd": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO for output ch with pulse width pwm in microseconds (no acknowledgement awaited)."
+    },
+    "mod:servo_test/diag_7_8.py": {
+      "explain": "Checks the servo power-board wiring on outputs 7 and 8: prints SERVO7_* and SERVO8_* (FUNCTION must be 0 = Disabled for DO_SET_SERVO to work), streams SERVO_OUTPUT_RAW at 5 Hz, commands 1900, 1100 and 1900 us and prints the readback. If the readback follows the commands but the servos do not move, it tells you to check the 5 V rail and ground with a meter.",
+      "how_it_fits": "Bench tool on /dev/ttyUSB0 (fixed in the code)."
+    },
+    "fn:servo_test/diag_7_8.py::set_interval": {
+      "explain": "Asks the flight controller to send a MAVLink message regularly (MAV_CMD_SET_MESSAGE_INTERVAL, interval 1,000,000 / hz microseconds); used for SERVO_OUTPUT_RAW at 5 Hz."
+    },
+    "fn:servo_test/diag_7_8.py::read_outputs": {
+      "explain": "Waits up to 2 s for the next SERVO_OUTPUT_RAW and returns the pulse widths of outputs 7 and 8 (None, None if nothing came)."
+    },
+    "fn:servo_test/diag_7_8.py::cmd": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO for output ch with pulse width pwm in microseconds (no acknowledgement awaited)."
+    },
+    "mod:servo_test/query14.py": {
+      "explain": "Reads and prints SERVO14_FUNCTION, SERVO14_MIN, SERVO14_MAX, SERVO14_TRIM, SERVO14_REVERSED and BTN_PIN1 to BTN_PIN6, and reminds you that AUX6 is GPIO pin 55, which must not be claimed by a button.",
+      "how_it_fits": "Bench tool on /dev/ttyUSB0 (fixed in the code); only reads, changes nothing."
+    },
+    "mod:servo_test/query_params.py": {
+      "explain": "Reads and prints SERVO9_FUNCTION, SERVO12_FUNCTION, BTN_ENABLE and BTN_PIN1 to BTN_PIN4, to see whether ArduPilot's button feature had taken over an output pin.",
+      "how_it_fits": "Bench tool on /dev/ttyUSB0 (fixed in the code); only reads, changes nothing."
+    },
+    "mod:servo_test/servo_7_8_sweep.py": {
+      "explain": "Command-line tool that moves the servos on outputs 7 and 8 up (1900 us) and down (1100 us), 5 times with 1 s pauses by default. --pwm sets one position once; --setup sets SERVO7_FUNCTION and SERVO8_FUNCTION to 0 and reboots the flight controller.",
+      "how_it_fits": "Bench tool; --device chooses the link (default /dev/ttyUSB0)."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::connect": {
+      "explain": "Opens the MAVLink link (serial device or connection string) with pymavlink, waits up to 15 s for a heartbeat (and exits if none comes), and uses system 1 / component 1 if the heartbeat came from system 0."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::set_servo": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO (output number, pulse width in microseconds) and waits up to 3 s for COMMAND_ACK; prints whether it was ACCEPTED and returns True or False."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::set_servos": {
+      "explain": "Calls set_servo for every output in the list."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::sweep": {
+      "explain": "Repeats `cycles` times: all outputs up, wait `dwell` seconds, all outputs down, wait `dwell` seconds."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::set_param": {
+      "explain": "Sets a flight-controller parameter (PARAM_SET as a 32-bit float) and prints the PARAM_VALUE the autopilot sends back, or a warning after 3 s."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::setup": {
+      "explain": "Sets SERVOx_FUNCTION = 0 (Disabled) for each output so DO_SET_SERVO may drive it, then reboots the flight controller (MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN with param1 = 1).",
+      "effects": "Changes flight-controller parameters and reboots it."
+    },
+    "fn:servo_test/servo_7_8_sweep.py::main": {
+      "explain": "Reads the command-line options (--device /dev/ttyUSB0, --baud 115200, --pwm, --down 1100, --up 1900, --cycles 5, --dwell 1.0, --setup), connects, then runs the setup, a single position, or the sweep."
+    },
+    "mod:servo_test/servo_control.py": {
+      "explain": "Command-line tool to drive any output with DO_SET_SERVO (default output 2 = MAIN OUT 2): --pwm sends one value, --sweep opens (1900 us) and closes (1400 us) 3 times, --interactive lets you type pulse widths, and --setup sets SERVO2_FUNCTION to 0 and reboots the flight controller. Every command waits up to 3 s for the autopilot's COMMAND_ACK and prints it.",
+      "how_it_fits": "Bench tool; --device chooses the link (default /dev/ttyUSB0)."
+    },
+    "fn:servo_test/servo_control.py::connect": {
+      "explain": "Opens the MAVLink link with pymavlink, waits up to 15 s for a heartbeat (exits if none), and uses system 1 / component 1 if the heartbeat came from system 0."
+    },
+    "fn:servo_test/servo_control.py::set_servo": {
+      "explain": "Sends MAV_CMD_DO_SET_SERVO (output number, pulse width in microseconds) and waits up to 3 s for COMMAND_ACK; prints the result name and returns True only if it was ACCEPTED."
+    },
+    "fn:servo_test/servo_control.py::set_servos": {
+      "explain": "Calls set_servo for every output in the list."
+    },
+    "fn:servo_test/servo_control.py::sweep": {
+      "explain": "For each cycle and each group of outputs: open (high pulse width), wait `dwell` seconds, close (low pulse width), wait again."
+    },
+    "fn:servo_test/servo_control.py::interactive": {
+      "explain": "Asks for pulse widths in a loop (prompt 'ch[2] pwm> ') and sends each one to the chosen outputs; 'q', 'quit', 'exit' or Ctrl-D stops it."
+    },
+    "fn:servo_test/servo_control.py::set_param": {
+      "explain": "Sets a flight-controller parameter (a 32-bit float unless another type is given) and prints the PARAM_VALUE answer."
+    },
+    "fn:servo_test/servo_control.py::setup": {
+      "explain": "For each output in MANAGED (only output 2): frees its pin from the button feature if a BTN parameter is listed (none is), sets SERVO2_FUNCTION = 0 so DO_SET_SERVO can drive it, then reboots the flight controller.",
+      "effects": "Changes a flight-controller parameter and reboots it."
+    },
+    "fn:servo_test/servo_control.py::main": {
+      "explain": "Reads the options (--device, --baud, --channels or --channel, --pwm, --sweep with --low 1400 --high 1900 --cycles 3 --dwell 1.0, --interactive, --setup), connects, and runs the chosen action; prints a hint when no action was given."
+    },
+    "mod:servo_wiggle.py": {
+      "explain": "A tiny pymavlink bench script at the repo root (no ROS, no options): it connects to the Pixhawk on /dev/ttyUSB0 at 115200 baud, waits for a heartbeat, then swings servo OUTPUT 13 between 1417 and 1583 microseconds (1500 plus or minus 15 degrees at about 5.6 us per degree) once a second, until Ctrl+C sends it back to 1500 us. Its settings are constants at the top of the file.",
+      "how_it_fits": "A TOOL like the scripts in servo_test/, not part of the flight or the simulator. Output 13 is the tent payload's release servo in flight (main_controller opens it at 1400 us), so do not run it with a payload loaded; MAVROS (launcher.sh) must be stopped first, because only one program can own the serial port. The stray copy servo_wiggle.py' (with an apostrophe in its name) is an older version."
+    },
+    "fn:servo_wiggle.py::set_servo": {
+      "explain": "Sends one COMMAND_LONG MAV_CMD_DO_SET_SERVO to system 1, component 1: output SERVO_CHANNEL (13) to the given pulse width in microseconds. It does not wait for an acknowledgement.",
+      "called_when": "once a second in the script's endless loop (1417, then 1583), and once with 1500 when Ctrl+C stops it",
+      "effects": "MAVLink command to the flight controller: the servo on output 13 moves"
+    },
+    "mod:servo_wiggle.py'": {
+      "explain": "A stray older copy of servo_wiggle.py (the apostrophe is part of the file name, probably a typing slip). It drives output 10 instead of 13 and swings between 1500 and 1833 microseconds (60 degrees, starting at the centre); nothing runs or imports it."
+    },
+    "pkg:scripts": {
+      "explain": "Small operator tools at the repo root: humanize.sh (readable clock times in launcher.sh's output), watch_status.sh + watch_status.py (show every ground-station message and camera status line in a terminal, for example over SSH on the Jetson) and check_versions.sh (list software versions to compare the dev container with the Jetson).",
+      "how_it_fits": "launcher.sh sends all of its output through humanize.sh unless ASTRA_RAW_TIME is set. watch_status listens to /mavros/statustext/send (what the team nodes send to Mission Planner), /mavros/statustext/recv (what ArduPilot sends) and video_cam's /camera/status. None of these tools change the drone; they only read and print."
+    },
+    "mod:scripts/check_versions.sh": {
+      "explain": "Prints one line per piece of software with its installed version: machine type, OS, JetPack (L4T), ROS distro, MAVROS, cv_bridge, mavlink-router, RMW, gcc, cmake, OpenCV, TensorRT, onnxruntime, CUDA, Python, numpy, torch (with cuda or cpu), torchvision, ultralytics, sahi, pymavlink, MAVProxy and watchdog. Run it in the dev container and on the Jetson and compare (diff) the two outputs.",
+      "how_it_fits": "Helps keep the dev container (docker/Dockerfile) matching the Jetson (pins in requirements_jetson.txt); the root README.md mentions it, and the version notes at the top of docker/Dockerfile were read off the Jetson with it on 2026-10-10."
+    },
+    "fn:scripts/check_versions.sh::row": {
+      "explain": "Prints one table row: the name padded to 22 characters, then the value, or 'not installed' when the value is empty."
+    },
+    "fn:scripts/check_versions.sh::pyver": {
+      "explain": "Prints the __version__ of a Python module (for example numpy) using python3, or nothing if the module cannot be imported."
+    },
+    "fn:scripts/check_versions.sh::debver": {
+      "explain": "Prints the version of an installed Ubuntu/Debian package (with dpkg-query), or nothing if it is not installed."
+    },
+    "mod:scripts/humanize.sh": {
+      "explain": "A text filter (awk): it reads lines from its input and replaces every 10-digit epoch time with a fraction, such as the ROS log stamp [1782434179.406602296], with the local clock time [17:36:19] (using the computer's time-zone offset), printing each line straight away.",
+      "how_it_fits": "launcher.sh runs 'exec > >(scripts/humanize.sh) 2>&1', so everything it and its nodes print passes through this filter; set ASTRA_RAW_TIME=1 to see the raw times."
+    },
+    "mod:scripts/watch_status.py": {
+      "explain": "A listen-only ROS node ('status_tap') that prints every STATUSTEXT the team nodes send (TX, /mavros/statustext/send), every STATUSTEXT ArduPilot sends (RX, /mavros/statustext/recv) and every /camera/status line (CAM), each with the time and severity, in colour when printing to a terminal. Options: --send-only, --topic NAME (more std_msgs/String topics), --no-color.",
+      "how_it_fits": "An operator's window into the mission (for example 'Camera trigger STARTED', 'SUCCESS: Captured 2K image #12', 'CMD SUCCESS: autofocus'); started by watch_status.sh."
+    },
+    "fn:scripts/watch_status.py::StatusTap": {
+      "explain": "The listen-only node 'status_tap': its subscriptions and a printing helper."
+    },
+    "fn:scripts/watch_status.py::StatusTap.__init__": {
+      "explain": "Creates the subscriptions: /mavros/statustext/send always; /mavros/statustext/recv (best-effort, to match MAVROS) and /camera/status unless --send-only; one more std_msgs/String subscription per --topic. It turns colour on only for a real terminal and prints 'status tap running - Ctrl-C to stop'.",
+      "inputs": "args: the parsed command-line options (--send-only, --topic, --no-color)"
+    },
+    "fn:scripts/watch_status.py::StatusTap.on_statustext": {
+      "explain": "Turns a StatusText into a printed line: the tag (TX or RX), the severity name (0 EMERG ... 4 WARN, 5 NOTICE, 6 INFO, 7 DEBUG) and the text.",
+      "called_when": "For every message on /mavros/statustext/send or /mavros/statustext/recv."
+    },
+    "fn:scripts/watch_status.py::StatusTap.emit": {
+      "explain": "Prints one line 'HH:MM:SS TAG note text', with dim and colour codes (TX cyan, RX magenta, CAM green) when colour is on, and flushes it at once."
+    },
+    "fn:scripts/watch_status.py::main": {
+      "explain": "Reads the options --send-only, --topic and --no-color, starts ROS 2, spins the StatusTap node until Ctrl-C, then shuts down cleanly."
+    },
+    "mod:scripts/watch_status.sh": {
+      "explain": "Loads ROS 2 Humble (/opt/ros/humble/setup.bash; stops with an error if it is missing) and, if the workspace has been built, ros2_ws/install/setup.bash, then starts watch_status.py with the same options.",
+      "how_it_fits": "The one command a person runs, locally or with ssh on the Jetson, to watch the mission's messages: './scripts/watch_status.sh'."
+    }
+  }
+}

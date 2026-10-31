@@ -1,0 +1,3390 @@
+<!--
+simulation/codemap/web/index.html -- PURPOSE: the ASTRA Code Map explorer page. It draws the team's drone software
+and its Gazebo digital twin as block diagrams that you open one level at a time: whole systems (plus the programs we
+did not write: Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner) -> one system's packages -> one package's
+files -> one file's classes and functions. Click any block to read what it is and exactly what it does, in plain
+words, with its source code. While the traced simulator runs, every function that gets called flashes green, and
+its file, package and system glow and count the calls, so you can watch the code work from the top level down.
+It runs two ways (see simulation/codemap/README.md):
+  * localhost: server.py serves this page on http://127.0.0.1:8090/ ; the page loads /codemap.json, listens to
+    /events (live calls, Server-Sent Events) and can replay the files under /recordings.
+  * artifact: build_artifact.py embeds codemap.json and one recorded run (window.ASTRA_CODEMAP, window.ASTRA_TRACE)
+    into dist/astra_code_map.html ; the page then makes no network requests at all and replays the recording.
+One self-contained file: inline CSS and JavaScript, the dagre layout library from cdnjs (with a built-in fallback
+layout when it cannot load), fonts from Google Fonts. The pure logic sits in the script block whose id is
+astra-core and is tested with node by web/run_selftest.js.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ASTRA Code Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Live, clickable block diagrams of the ASTRA SUAS 2026 drone software and its Gazebo digital twin.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&amp;family=B612+Mono:wght@400;700&amp;family=B612:wght@400;700&amp;display=swap">
+<style>
+:root {
+  /* Layout: a ground-station screen. A status strip runs across the top; the chart (a drill-down block diagram
+     on plotting-grid paper) fills the left with its replay transport underneath; the inspector card (what the
+     clicked block is and does) and the "just ran" log stack on the right. Green means "this code just ran"
+     and is the one strong colour; everything else stays quiet ink on chart paper. */
+  --paper: #edf1f4;          /* chart paper behind the diagram */
+  --paper-2: #f6f8fa;        /* quiet surfaces: toolbar wells, labels */
+  --card: #ffffff;           /* blocks, inspector card */
+  --ink: #13202e;            /* main text and outlines */
+  --ink-2: #4a5a6b;          /* secondary text */
+  --ink-3: #7a8999;          /* faint text, ticks */
+  --rule: #c5cfd9;           /* borders */
+  --rule-2: #dce3e9;         /* faint borders */
+  --grid: rgba(19, 32, 46, 0.05);
+  --grid-major: rgba(19, 32, 46, 0.085);
+  --live: #0f7a3f;           /* green text: called / running */
+  --glow: #2fbf62;           /* green fill of a block that was just called */
+  --glow-halo: #35cf6b;      /* green halo around it */
+  --live-soft: #def4e6;      /* pale green behind counters */
+  --focus: #2457c5;          /* keyboard focus ring */
+  --warn: #9a5a0c;
+  --warn-soft: #f9ecd7;
+  --bad: #b3362b;
+  --k-system: #d9e3ee;       /* block fills, one per kind */
+  --k-external: #eee6d8;
+  --k-package: #e4e8f3;
+  --k-module: #ffffff;
+  --k-class: #f1f4f7;
+  --k-function: #ffffff;
+  --k-topic: #e0eef3;
+  --k-group: #e9edf1;
+  --cluster: rgba(19, 32, 46, 0.035);
+  --cluster-line: #b4c1ce;
+  --e-calls: #56677a;        /* line colours, one per link kind */
+  --e-imports: #8d9aa8;
+  --e-publishes: #2a7486;
+  --e-subscribes: #3b6ca5;
+  --e-launches: #75589a;
+  --e-runs: #8a6a33;
+  --e-mavlink: #b05829;
+  --e-http: #9a4b6b;
+  --e-data: #3e7e87;
+  --shadow: 0 1px 2px rgba(19, 32, 46, 0.08), 0 6px 18px rgba(19, 32, 46, 0.08);
+  /* Type: B612 was drawn for aircraft cockpit screens (block labels, headings); Atkinson Hyperlegible keeps the
+     plain-language explanations easy to read; B612 Mono for code, ids, counters and times. */
+  --f-display: "B612", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "B612 Mono", ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111a23; --paper-2: #16212c; --card: #1a2632; --ink: #e1e8ef; --ink-2: #a3b2c1; --ink-3: #738499;
+    --rule: #2e3d4c; --rule-2: #233140; --grid: rgba(225, 232, 239, 0.04); --grid-major: rgba(225, 232, 239, 0.075);
+    --live: #5fdd8f; --glow: #1e8c4d; --glow-halo: #3fd97c; --live-soft: #15382a; --focus: #82a9ff;
+    --warn: #e2a44d; --warn-soft: #3a2b15; --bad: #ef7f72;
+    --k-system: #213146; --k-external: #322e27; --k-package: #252e44; --k-module: #1a2632; --k-class: #1f2b38;
+    --k-function: #1a2632; --k-topic: #1b3240; --k-group: #212c37; --cluster: rgba(225, 232, 239, 0.035); --cluster-line: #3a4a5b;
+    --e-calls: #8fa1b4; --e-imports: #66788b; --e-publishes: #5ab2c3; --e-subscribes: #7ca5db; --e-launches: #b29ad5;
+    --e-runs: #c8a366; --e-mavlink: #df8a56; --e-http: #d08aaa; --e-data: #6db4bc;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111a23; --paper-2: #16212c; --card: #1a2632; --ink: #e1e8ef; --ink-2: #a3b2c1; --ink-3: #738499;
+  --rule: #2e3d4c; --rule-2: #233140; --grid: rgba(225, 232, 239, 0.04); --grid-major: rgba(225, 232, 239, 0.075);
+  --live: #5fdd8f; --glow: #1e8c4d; --glow-halo: #3fd97c; --live-soft: #15382a; --focus: #82a9ff;
+  --warn: #e2a44d; --warn-soft: #3a2b15; --bad: #ef7f72;
+  --k-system: #213146; --k-external: #322e27; --k-package: #252e44; --k-module: #1a2632; --k-class: #1f2b38;
+  --k-function: #1a2632; --k-topic: #1b3240; --k-group: #212c37; --cluster: rgba(225, 232, 239, 0.035); --cluster-line: #3a4a5b;
+  --e-calls: #8fa1b4; --e-imports: #66788b; --e-publishes: #5ab2c3; --e-subscribes: #7ca5db; --e-launches: #b29ad5;
+  --e-runs: #c8a366; --e-mavlink: #df8a56; --e-http: #d08aaa; --e-data: #6db4bc;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+html { box-sizing: border-box; height: 100%; -webkit-text-size-adjust: 100%; }
+*, *::before, *::after { box-sizing: inherit; }
+body { margin: 0; height: 100%; background: var(--paper); color: var(--ink); font: 400 15px/1.5 var(--f-body); }
+[hidden] { display: none !important; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2.5px solid var(--focus); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.muted { color: var(--ink-2); }
+
+.app {
+  height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px 14px;
+}
+
+/* ---------- status strip ---------- */
+.topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mark { width: 36px; height: 36px; flex: none; color: var(--ink); }
+.mark .body { fill: var(--glow); stroke: var(--ink); stroke-width: 1.5; }
+.brand h1 { margin: 0; font: 700 20px/1.15 var(--f-display); letter-spacing: 0.01em; text-wrap: balance; }
+.brand p { margin: 2px 0 0; font-size: 13px; line-height: 1.35; color: var(--ink-2); max-width: 62ch; }
+.status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 11px 4px 9px; border-radius: 999px; border: 1px solid var(--rule); background: var(--card); font: 700 11.5px/1.2 var(--f-mono); letter-spacing: 0.07em; text-transform: uppercase; white-space: nowrap; }
+.pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); flex: none; }
+.pill[data-state="live"] { border-color: var(--live); color: var(--live); }
+.pill[data-state="live"] .dot { background: var(--glow-halo); box-shadow: 0 0 0 3px var(--live-soft); }
+.pill[data-state="waiting"] { border-color: var(--warn); color: var(--warn); }
+.pill[data-state="waiting"] .dot { background: var(--warn); }
+.pill[data-state="replay"] .dot { background: var(--ink); }
+.pill[data-state="error"] { border-color: var(--bad); color: var(--bad); }
+.pill[data-state="error"] .dot { background: var(--bad); }
+@media (prefers-reduced-motion: no-preference) { .pill[data-state="waiting"] .dot { animation: blink 1.4s ease-in-out infinite; } }
+@keyframes blink { 50% { opacity: 0.25; } }
+.chip { display: inline-block; padding: 3px 9px; border-radius: 6px; border: 1px solid var(--rule-2); background: var(--paper-2); font: 400 11.5px/1.3 var(--f-mono); color: var(--ink-2); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.chip.warn { border-color: var(--warn); background: var(--warn-soft); color: var(--warn); font-weight: 700; letter-spacing: 0.06em; }
+.search { position: relative; flex: 1 1 260px; max-width: 460px; margin-left: auto; }
+.search input { width: 100%; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); font: 400 14px var(--f-body); }
+.search input::placeholder { color: var(--ink-3); }
+.search-results { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; right: 0; max-height: min(60vh, 440px); overflow: auto; margin: 0; padding: 4px; list-style: none; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); }
+.search-results li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1px 8px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.search-results li.is-active, .search-results li:hover { background: var(--paper); }
+.sr-label { font: 400 13.5px var(--f-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-ctx { grid-column: 2; font: 400 11px var(--f-mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-empty { color: var(--ink-2); cursor: default !important; }
+.kdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--ink-3); background: var(--k-function); flex: none; }
+.kdot.k-system { background: var(--k-system); border-color: var(--ink); }
+.kdot.k-external { background: var(--k-external); border-style: dashed; border-color: var(--ink-2); }
+.kdot.k-package { background: var(--k-package); border-color: var(--ink-2); }
+.kdot.k-module { background: var(--k-module); border-color: var(--ink-2); }
+.kdot.k-class { background: var(--k-class); border-color: var(--ink-2); border-radius: 1px; }
+.kdot.k-function, .kdot.k-method { background: var(--k-function); border-radius: 5px; }
+.kdot.k-topic { background: var(--k-topic); border-color: var(--e-publishes); transform: skewX(-14deg); }
+
+/* ---------- main area ---------- */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 31vw, 430px); gap: 12px; min-height: 0; }
+.stage-wrap { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-2); overflow: hidden; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-bottom: 1px solid var(--rule-2); background: var(--card); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; min-width: 0; flex: 1 1 280px; }
+.crumb { position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; font: 400 13px var(--f-display); color: var(--ink-2); max-width: 32ch; }
+.crumb::before { content: ""; position: absolute; inset: 0; border-radius: inherit; background: var(--glow); opacity: var(--g, 0); z-index: -1; }
+.crumb:hover { border-color: var(--rule); color: var(--ink); }
+.crumb.is-current { color: var(--ink); font-weight: 700; border-color: var(--rule); background: var(--paper-2); cursor: default; }
+.crumb-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb-n { font: 700 10.5px var(--f-mono); color: var(--live); font-variant-numeric: tabular-nums; }
+.crumb-n:empty { display: none; }
+.crumb-sep { color: var(--ink-3); font-size: 13px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; }
+.seg button { border: 0; background: var(--card); padding: 4px 10px; font: 400 12.5px var(--f-body); color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+.tbtn { border: 1px solid var(--rule); background: var(--card); border-radius: 7px; padding: 4px 10px; font: 400 12.5px var(--f-body); color: var(--ink); }
+.tbtn:hover { border-color: var(--ink-3); }
+.tbtn.icon { width: 30px; padding: 4px 0; font: 700 15px/1 var(--f-mono); }
+.tbtn[disabled] { opacity: 0.45; cursor: default; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); padding: 2px 4px; white-space: nowrap; }
+.check input { accent-color: var(--live); margin: 0; }
+
+/* ---------- the chart ---------- */
+.stage {
+  position: relative; min-height: 0; overflow: hidden; touch-action: none; cursor: grab; background-color: var(--paper);
+  --gs: 24px; --gx: 0px; --gy: 0px;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    linear-gradient(var(--grid-major) 1px, transparent 1px), linear-gradient(90deg, var(--grid-major) 1px, transparent 1px);
+  background-size: var(--gs) var(--gs), var(--gs) var(--gs), calc(var(--gs) * 5) calc(var(--gs) * 5), calc(var(--gs) * 5) calc(var(--gs) * 5);
+  background-position: var(--gx) var(--gy);
+}
+.stage.is-panning { cursor: grabbing; }
+#svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none; }
+.stage-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--ink-2); pointer-events: none; text-align: center; }
+.stage-msg .box { pointer-events: auto; max-width: 600px; text-align: left; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); color: var(--ink); }
+.stage-msg .box h2 { margin: 0 0 8px; font: 700 16px var(--f-display); }
+.stage-msg .box p { margin: 0 0 8px; }
+.stage-msg code { font: 400 12.5px var(--f-mono); background: var(--paper); border: 1px solid var(--rule-2); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.level-info { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); font: 400 11px/1.4 var(--f-mono); color: var(--ink-2); background: var(--paper-2); border: 1px solid var(--rule-2); border-radius: 6px; padding: 2px 8px; pointer-events: none; }
+.level-info:empty { display: none; }
+.tooltip { position: absolute; z-index: 20; max-width: 300px; padding: 8px 10px; border-radius: 8px; background: var(--ink); color: var(--card); font-size: 13px; line-height: 1.4; pointer-events: none; box-shadow: var(--shadow); }
+.tooltip b { display: block; font: 700 12.5px/1.3 var(--f-display); overflow-wrap: anywhere; }
+.tooltip .tt-kind { display: block; font: 400 10.5px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.75; }
+
+/* blocks (SVG) */
+.node { cursor: pointer; outline: none; }
+.node .shape { fill: var(--k-function); stroke: var(--ink-3); stroke-width: 1.2; }
+.node.k-system .shape { fill: var(--k-system); stroke: var(--ink); stroke-width: 1.8; }
+.node.k-external .shape { fill: var(--k-external); stroke: var(--ink-2); stroke-width: 1.4; stroke-dasharray: 6 3; }
+.node.k-package .shape { fill: var(--k-package); stroke: var(--ink-2); }
+.node.k-module .shape { fill: var(--k-module); stroke: var(--ink-2); }
+.node.k-module .fold { fill: none; stroke: var(--ink-3); stroke-width: 1; }
+.node.k-class .shape { fill: var(--k-class); stroke: var(--ink-2); }
+.node.k-topic .shape { fill: var(--k-topic); stroke: var(--e-publishes); }
+.node.k-group .shape, .node .stack { fill: var(--k-group); stroke: var(--ink-3); }
+.node.r-ghost .shape { fill: var(--paper); stroke: var(--ink-3); stroke-dasharray: 4 3; }
+.node.r-ghost .nlabel { fill: var(--ink-2); }
+.node.r-self .shape { stroke-dasharray: 1.5 3; stroke-width: 2; }
+.node .glow { fill: var(--glow); opacity: 0; pointer-events: none; }
+.node .halo { fill: none; stroke: var(--glow-halo); stroke-width: 6; opacity: 0; pointer-events: none; }
+.node .ntag { font: 400 9.5px var(--f-mono); letter-spacing: 0.08em; fill: var(--ink-2); }
+.node .nlabel { font: 400 12.5px var(--f-display); fill: var(--ink); }
+.node.k-system .nlabel { font: 700 14px var(--f-display); }
+.node .nsub { font: 400 10.5px var(--f-mono); fill: var(--ink-2); }
+/* order matters: running < hover < selected < keyboard focus (the focus ring always shows) */
+.node.is-running .shape { stroke: var(--live); stroke-width: 2.2; }
+.node:hover .shape { stroke: var(--ink); }
+.node.is-sel .shape { stroke: var(--ink); stroke-width: 2.8; }
+.node:focus-visible .shape { stroke: var(--focus); stroke-width: 3; }
+.node .badge { display: none; }
+.node.has-count .badge.count, .node.has-run .badge.run { display: inline; }
+.badge.count rect { fill: var(--live-soft); stroke: var(--live); stroke-width: 1; }
+.badge.count text { font: 700 10.5px var(--f-mono); fill: var(--live); }
+.badge.run rect { fill: var(--card); stroke: var(--live); stroke-width: 1; }
+.badge.run circle { fill: var(--glow-halo); }
+.badge.run text { font: 700 9.5px var(--f-mono); letter-spacing: 0.06em; fill: var(--live); }
+@media (prefers-reduced-motion: no-preference) { .badge.run circle { animation: blink 1.6s ease-in-out infinite; } }
+.cluster { cursor: pointer; }
+.cluster rect { fill: var(--cluster); stroke: var(--cluster-line); stroke-width: 1; stroke-dasharray: 3 3; }
+.cluster.ck-system rect { stroke-dasharray: none; stroke-width: 1.4; }
+.cluster .cl-label { font: 700 11px var(--f-mono); letter-spacing: 0.05em; fill: var(--ink-2); }
+.cluster.is-sel rect { stroke: var(--ink); stroke-width: 2; stroke-dasharray: none; }
+.loose-cap { font: 400 10.5px var(--f-mono); fill: var(--ink-3); }
+
+/* links (SVG) */
+.edge { fill: none; stroke: var(--e-data); stroke-width: 1.5; }
+.edge.e-calls { stroke: var(--e-calls); }
+.edge.e-imports { stroke: var(--e-imports); stroke-dasharray: 5 4; }
+.edge.e-publishes { stroke: var(--e-publishes); }
+.edge.e-subscribes { stroke: var(--e-subscribes); }
+.edge.e-launches { stroke: var(--e-launches); stroke-dasharray: 2 4; stroke-linecap: round; }
+.edge.e-runs { stroke: var(--e-runs); stroke-dasharray: 8 3 2 3; }
+.edge.e-mavlink { stroke: var(--e-mavlink); stroke-width: 2.6; }
+.edge.e-http { stroke: var(--e-http); stroke-width: 2; stroke-dasharray: 10 4; }
+.edge.e-data { stroke: var(--e-data); stroke-width: 2; }
+.mk { fill: var(--e-data); }
+.mk.mk-calls { fill: var(--e-calls); } .mk.mk-imports { fill: var(--e-imports); } .mk.mk-publishes { fill: var(--e-publishes); }
+.mk.mk-subscribes { fill: var(--e-subscribes); } .mk.mk-launches { fill: var(--e-launches); } .mk.mk-runs { fill: var(--e-runs); }
+.mk.mk-mavlink { fill: var(--e-mavlink); } .mk.mk-http { fill: var(--e-http); } .mk.mk-data { fill: var(--e-data); }
+.elabel rect { fill: var(--paper-2); stroke: var(--rule-2); stroke-width: 1; }
+.elabel text { font: 400 10.5px var(--f-mono); fill: var(--ink-2); }
+.elabel.lbl-auto { display: none; }
+#svg.has-sel .elabel.lbl-auto.is-nb { display: inline; }
+#svg.has-sel .node:not(.is-sel):not(.is-nb) { opacity: 0.35; }
+#svg.has-sel .edge:not(.is-nb) { opacity: 0.16; }
+#svg.has-sel .elabel:not(.is-nb) { opacity: 0.2; }
+.edge.is-nb { stroke-width: 2.4; }
+
+/* legend popover */
+.legend { position: absolute; z-index: 15; top: 10px; right: 10px; width: min(370px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px 14px; box-shadow: var(--shadow); cursor: default; }
+.lg-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.legend h2 { margin: 0; font: 700 14px var(--f-display); }
+.legend h3 { margin: 12px 0 4px; font: 700 11px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.lg-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 8px; align-items: center; padding: 3px 0; font-size: 12.5px; line-height: 1.35; }
+.lg-row b { font: 700 12.5px var(--f-display); }
+.lg-row svg { width: 58px; height: 28px; overflow: visible; }
+.lg-row .node { cursor: default; }
+
+/* replay transport */
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-top: 1px solid var(--rule-2); background: var(--card); }
+.tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--paper); border: 1px solid var(--rule-2); }
+.tabs [role="tab"] { border: 0; background: transparent; padding: 3px 12px; border-radius: 6px; font: 700 11.5px var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); }
+.tabs [role="tab"][aria-selected="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+.live-row { font: 400 12px var(--f-mono); color: var(--ink-2); min-width: 0; flex: 1 1 240px; font-variant-numeric: tabular-nums; }
+.replay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 380px; min-width: 0; }
+.replay-row select { border: 1px solid var(--rule); border-radius: 7px; background: var(--card); padding: 3px 6px; font: 400 12.5px var(--f-body); max-width: 230px; }
+.play { width: 34px; height: 30px; display: inline-grid; place-items: center; border: 1px solid var(--ink); border-radius: 8px; background: var(--ink); color: var(--card); padding: 0; }
+.play svg { width: 14px; height: 14px; fill: currentColor; }
+.play .i-pause { display: none; }
+.play.is-playing .i-play { display: none; }
+.play.is-playing .i-pause { display: block; }
+.play[disabled] { opacity: 0.4; cursor: default; }
+#scrub { flex: 1 1 140px; min-width: 100px; accent-color: var(--live); }
+.rep-time { font: 400 12px var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rep-note { flex: 1 1 100%; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+.rep-note code, .live-help code { font: 400 12px var(--f-mono); background: var(--paper); border: 1px solid var(--rule-2); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+
+/* right column: inspector + just-ran log */
+.side { display: grid; grid-template-rows: minmax(0, 1fr) minmax(130px, 30%); gap: 12px; min-height: 0; min-width: 0; }
+.panel { min-height: 0; overflow: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px 18px; }
+.ticker { min-height: 0; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 12px; }
+.side-h { margin: 0 0 6px; display: flex; justify-content: space-between; gap: 8px; font: 700 11px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.side-h span { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.ticker-list { list-style: none; margin: 0; padding: 0; overflow: auto; min-height: 0; flex: 1; }
+.ticker .muted { margin: 4px 0 0; font-size: 13px; }
+.tk { width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 0 8px; align-items: center; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.tk:hover { background: var(--paper); }
+.tk-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--glow-halo); opacity: calc(0.25 + var(--g, 0) * 0.75); grid-row: span 2; }
+.tk-name { font: 400 12.5px var(--f-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-n { font: 700 11px var(--f-mono); color: var(--live); font-variant-numeric: tabular-nums; }
+.tk-age { font: 400 11px var(--f-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; min-width: 4.5ch; text-align: right; }
+.tk-ctx { grid-column: 2 / span 3; font: 400 10.5px var(--f-mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pn-head { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--rule-2); }
+.pn-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.kchip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--rule); background: var(--paper-2); font: 700 10.5px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.kchip.run { border-color: var(--live); color: var(--live); background: var(--live-soft); }
+.kchip.test { border-color: var(--warn); color: var(--warn); background: var(--warn-soft); }
+.pn-title { margin: 0; font: 700 19px/1.25 var(--f-display); overflow-wrap: anywhere; text-wrap: balance; }
+.pn-where { margin: 0; font: 400 12px/1.45 var(--f-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.pn-chain { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; font-size: 12.5px; color: var(--ink-3); }
+.lnk { border: 0; background: transparent; padding: 0 2px; font: inherit; color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 2px; }
+.lnk:hover { text-decoration-color: var(--ink); }
+.pn-sec { padding-top: 14px; }
+.pn-sec h3 { margin: 0 0 6px; font: 700 11px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.pn-explain { margin: 0; font-size: 16px; line-height: 1.55; max-width: 65ch; }
+.facts { display: grid; gap: 10px; margin: 0; }
+.facts div { display: grid; gap: 2px; }
+.facts dt { font: 700 12.5px var(--f-display); }
+.facts dd { margin: 0; font-size: 14.5px; line-height: 1.5; max-width: 65ch; overflow-wrap: anywhere; }
+.live-box { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 400 12.5px var(--f-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.live-box b { color: var(--live); font-weight: 700; }
+.sig { display: block; margin: 0; font: 400 12.5px/1.5 var(--f-mono); background: var(--paper); border: 1px solid var(--rule-2); border-radius: 6px; padding: 6px 8px; overflow-x: auto; white-space: pre; }
+/* minmax(0, 1fr) + min-width: 0: the one column may be narrower than a row's no-wrap text (the name then ends in
+   "..."); an automatic column would grow to the widest row and push the page sideways on a phone. */
+.links { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; }
+.links > li { min-width: 0; }
+.links button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; text-align: left; font: 400 13px var(--f-display); color: var(--ink); min-width: 0; }
+.links button:hover { background: var(--paper); }
+.links .indent button { padding-left: 24px; }
+.lk-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.lk-ctx { margin-left: auto; font: 400 11px var(--f-mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.lk-n { font: 700 11px var(--f-mono); color: var(--live); font-variant-numeric: tabular-nums; }
+.more-note { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-2); }
+details.pn-more { margin-top: 12px; border: 1px solid var(--rule-2); border-radius: 8px; background: var(--paper-2); }
+details.pn-more > summary { cursor: pointer; padding: 7px 10px; font: 700 12px var(--f-mono); letter-spacing: 0.03em; color: var(--ink-2); }
+details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
+.doc { margin: 0; padding: 10px; font: 400 13.5px/1.5 var(--f-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.code { margin: 0; padding: 8px 0; font: 400 12px/1.55 var(--f-mono); overflow: auto; max-height: 520px; }
+.code .row { display: block; white-space: pre; padding-right: 12px; min-width: max-content; }
+.code .ln { display: inline-block; width: 5ch; margin-right: 1.2ch; text-align: right; color: var(--ink-3); user-select: none; -webkit-user-select: none; }
+.pn-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; }
+.btn { border: 1px solid var(--ink); background: var(--ink); color: var(--card); border-radius: 8px; padding: 6px 12px; font: 700 13px var(--f-body); }
+.btn.ghost { background: var(--card); color: var(--ink); border-color: var(--rule); }
+.intro h2 { margin: 0 0 6px; font: 700 17px/1.3 var(--f-display); text-wrap: balance; }
+.intro p { margin: 0 0 8px; max-width: 65ch; }
+.steps { margin: 6px 0 0; padding-left: 20px; }
+.steps li { margin: 3px 0; }
+.levels { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 10px 0 4px; font: 400 12px var(--f-mono); color: var(--ink-2); }
+.levels .on { color: var(--ink); font-weight: 700; border-bottom: 2px solid var(--glow-halo); }
+.live-help { margin-bottom: 14px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper-2); }
+.live-help h2 { margin: 0 0 4px; font: 700 11px var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.live-help p { margin: 0 0 6px; font-size: 14px; }
+.copyrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.copybtn { border: 1px solid var(--rule); background: var(--card); border-radius: 6px; padding: 2px 8px; font: 400 12px var(--f-body); }
+.mini { display: grid; gap: 6px; margin-top: 8px; }
+.mini div { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.sw { display: inline-block; width: 26px; height: 14px; border-radius: 4px; border: 1px solid var(--ink-3); background: var(--card); flex: none; }
+.sw.hot { background: var(--glow); border-color: var(--live); }
+.sw.ghost { background: var(--paper); border-style: dashed; }
+.sw.run { background: var(--card); border: 2px solid var(--live); }
+.selftest { font: 400 12px/1.5 var(--f-mono); white-space: pre-wrap; }
+
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .app { height: auto; display: flex; flex-direction: column; }
+  .main { display: flex; flex-direction: column; }
+  .stage-wrap { height: 70vh; height: 70svh; min-height: 440px; }
+  .side { display: flex; flex-direction: column; }
+  .panel { overflow: visible; }
+  .ticker { max-height: 320px; }
+  .search { margin-left: 0; max-width: none; flex-basis: 100%; }
+}
+@media (max-width: 520px) {
+  .brand p { display: none; }
+  .crumb { max-width: 22ch; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12 L28 28 M28 12 L12 28"/><circle cx="10" cy="10" r="6"/><circle cx="30" cy="10" r="6"/><circle cx="10" cy="30" r="6"/><circle cx="30" cy="30" r="6"/></g>
+        <rect class="body" x="16" y="16" width="8" height="8" rx="2"/>
+      </svg>
+      <div>
+        <h1>ASTRA Code Map</h1>
+        <p>SUAS 2026 drone software and its Gazebo twin, from whole systems down to single functions</p>
+      </div>
+    </div>
+    <div class="status">
+      <span class="pill" id="mode-pill" data-state="idle"><span class="dot"></span><span id="mode-text">Loading</span></span>
+      <span class="chip warn" id="sample-chip" hidden title="This is a small hand-made sample map for testing the page, not the full code map.">SAMPLE DATA</span>
+      <span class="chip" id="data-chip"></span>
+    </div>
+    <div class="search" role="search">
+      <label class="sr-only" for="search">Find a file or function</label>
+      <input id="search" type="search" autocomplete="off" spellcheck="false" placeholder="Find a file or function  ( / )" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results">
+      <ul id="search-results" class="search-results" role="listbox" aria-label="Search results" hidden></ul>
+    </div>
+  </header>
+
+  <main class="main">
+    <section class="stage-wrap" aria-label="Block diagram">
+      <div class="toolbar">
+        <nav class="crumbs" id="crumbs" aria-label="Where you are"></nav>
+        <div class="tools">
+          <div class="seg" role="group" aria-label="Diagram type">
+            <button type="button" id="btn-drill" aria-pressed="true">Drill down</button>
+            <button type="button" id="btn-overview" aria-pressed="false">Overview</button>
+          </div>
+          <button type="button" class="tbtn" id="btn-up" title="Up one level (Backspace)">Up</button>
+          <button type="button" class="tbtn" id="btn-fit" title="Fit the whole diagram (F)">Fit</button>
+          <button type="button" class="tbtn icon" id="btn-zoom-out" aria-label="Zoom out" title="Zoom out (-)">&#8722;</button>
+          <button type="button" class="tbtn icon" id="btn-zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+          <label class="check" title="Jump to the file that is busiest right now"><input type="checkbox" id="opt-follow"> Follow activity</label>
+          <label class="check" title="Also show test files"><input type="checkbox" id="opt-tests"> Show tests</label>
+          <button type="button" class="tbtn" id="btn-legend" aria-expanded="false" aria-controls="legend">Legend</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <svg id="svg" role="group" aria-label="Block diagram">
+          <defs id="defs"></defs>
+          <g id="viewport"></g>
+        </svg>
+        <div class="stage-msg" id="stage-msg">Loading the code map&#8230;</div>
+        <div class="level-info" id="level-info"></div>
+        <aside class="legend" id="legend" aria-label="Legend" hidden></aside>
+        <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+      </div>
+      <div class="transport" id="transport">
+        <div class="tabs" role="tablist" aria-label="Where the calls come from" id="tabs">
+          <button type="button" role="tab" id="tab-live" aria-selected="true">Live</button>
+          <button type="button" role="tab" id="tab-replay" aria-selected="false">Replay</button>
+        </div>
+        <div class="live-row" id="live-row"><span id="live-stats">Waiting for the tracer&#8230;</span></div>
+        <div class="replay-row" id="replay-row" hidden>
+          <select id="rec-select" aria-label="Recording"></select>
+          <button type="button" class="play" id="btn-play" aria-label="Play">
+            <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>
+            <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></svg>
+          </button>
+          <input type="range" id="scrub" min="0" max="1000" step="1" value="0" aria-label="Position in the recording">
+          <span class="rep-time" id="rep-time">0:00 / 0:00</span>
+          <select id="rep-speed" aria-label="Replay speed">
+            <option value="0.5">0.5&#215;</option>
+            <option value="1" selected>1&#215;</option>
+            <option value="2">2&#215;</option>
+            <option value="4">4&#215;</option>
+            <option value="8">8&#215;</option>
+            <option value="16">16&#215;</option>
+          </select>
+          <label class="check"><input type="checkbox" id="rep-loop" checked> Loop</label>
+        </div>
+        <p class="rep-note" id="rep-note" hidden></p>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="panel" id="panel" aria-label="Details" tabindex="-1">
+        <div id="panel-body"></div>
+      </section>
+      <section class="ticker" aria-labelledby="ticker-h">
+        <h2 class="side-h" id="ticker-h">Just ran <span id="ticker-sub">newest first</span></h2>
+        <ol class="ticker-list" id="ticker-list"></ol>
+        <p class="muted" id="ticker-empty">Nothing has run yet. When a traced program calls a function, it shows up here (newest first).</p>
+      </section>
+    </div>
+  </main>
+  <div class="sr-only" id="announce" aria-live="polite"></div>
+  <noscript><p>The ASTRA Code Map needs JavaScript to draw its diagrams.</p></noscript>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js" integrity="sha384-2IH3T69EIKYC4c+RXZifZRvaH5SRUdacJW7j6HtE5rQbvLhKKdawxq6vpIzJ7j9M" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script id="astra-core">
+/* ------------------------------------------------------------------------------------------------------------
+   astra-core: the page's pure logic. No DOM, no network, no timers: the browser uses it as window.AstraCore and
+   web/run_selftest.js runs the same code under node to test it. It knows how to:
+     * read ids                 (fn:<path>::<qualname>, mod:<path>, pkg:<dir>, sys:<key>, ext:<key>, topic:<name>)
+     * index a codemap.json     (parents, children, links, topics, counts)
+     * build one diagram level  (which blocks and which labelled links to draw; at most ~300 blocks)
+     * lay a level out          (dagre when it is loaded, otherwise a simple layered layout of its own)
+     * model the live glow      (a green flash that fades over 1.5 s; brighter for more calls)
+     * read recorded traces     (JSON lines) and step a replay through them
+     * search, explain, format  (for the side panel)
+   ------------------------------------------------------------------------------------------------------------ */
+(function (root) {
+  'use strict';
+  const C = {};
+
+  C.FADE_MS = 1500;        // a called function glows, then fades to nothing over 1.5 s
+  C.LEVEL_CAP = 300;       // never draw more than ~300 blocks at once; the rest fold into one group block
+  C.GHOST_CAP = 24;        // at most 24 "outside this view" blocks per view
+  C.TOPIC_CAP = 48;        // at most 48 ROS topic blocks per view
+  C.RATE_TAU_S = 3;        // calls per second are averaged over about 3 seconds
+  C.GAP_SKIP_S = 8;        // a replay skips quiet stretches longer than 8 seconds
+  C.REPLAY_TAIL_S = 2;     // a replay waits 2 s after its last event so the last flashes can fade
+
+  C.FN_KINDS = { 'class': 1, 'function': 1, method: 1 };
+  C.DRILL_KINDS = { system: 1, 'package': 1, module: 1 };
+  C.KIND_ORDER = { system: 0, external: 1, 'package': 2, module: 3, 'class': 4, 'function': 5, method: 6, topic: 7 };
+  C.KIND_WORD = {
+    system: 'system', external: 'external program', 'package': 'package', module: 'file', 'class': 'class',
+    'function': 'function', method: 'method', topic: 'ROS topic', group: 'group'
+  };
+  C.EDGE_KINDS = ['calls', 'imports', 'publishes', 'subscribes', 'launches', 'runs', 'mavlink', 'http', 'data'];
+  C.EDGE_WORD = {
+    calls: 'calls', imports: 'imports', publishes: 'publishes', subscribes: 'subscribes', launches: 'launches',
+    runs: 'runs', mavlink: 'MAVLink', http: 'HTTP', data: 'data'
+  };
+
+  /* ---------- ids ---------- */
+
+  // Split an id into its parts. "fn:a/b.py::C.m" -> {prefix:'fn', path:'a/b.py', qual:'C.m'}.
+  C.parseId = function (id) {
+    const s = String(id == null ? '' : id);
+    const c = s.indexOf(':');
+    if (c < 0) return { prefix: '', rest: s, path: s, qual: '' };
+    const prefix = s.slice(0, c), rest = s.slice(c + 1);
+    let path = rest, qual = '';
+    if (prefix === 'fn') {
+      const k = rest.indexOf('::');
+      if (k >= 0) { path = rest.slice(0, k); qual = rest.slice(k + 2); }
+    }
+    return { prefix: prefix, rest: rest, path: path, qual: qual };
+  };
+  C.isTopicId = (id) => typeof id === 'string' && id.slice(0, 6) === 'topic:';
+  C.baseName = function (p) { p = String(p || ''); const i = p.lastIndexOf('/'); return i >= 0 ? p.slice(i + 1) : p; };
+  C.clip = (t, n) => { t = String(t == null ? '' : t); return t.length > n ? t.slice(0, Math.max(1, n - 1)) + '…' : t; };
+  C.plural = (n, word, many) => n + ' ' + (n === 1 ? word : (many || word + 's'));
+
+  // The name shown for a block: the node's own label, or one made from its id.
+  C.labelOf = function (idx, id) {
+    const n = idx && idx.nodes.get(id);
+    if (n && n.label) return String(n.label);
+    const p = C.parseId(id);
+    if (p.prefix === 'fn') return p.qual || C.baseName(p.path);
+    if (p.prefix === 'mod' || p.prefix === 'pkg') return C.baseName(p.path) || p.path;
+    return p.rest || String(id);
+  };
+  // The last part of a function's name: "MainController.change_mode" -> "change_mode".
+  C.shortName = function (idx, id) {
+    const p = C.parseId(id);
+    if (p.prefix === 'fn' && p.qual) { const parts = p.qual.split('.'); return parts[parts.length - 1]; }
+    return C.labelOf(idx, id);
+  };
+
+  /* ---------- the index ---------- */
+
+  function push(map, k, v) { let a = map.get(k); if (!a) { a = []; map.set(k, a); } a.push(v); }
+
+  C.compareIds = function (idx, a, b) {
+    const na = idx.nodes.get(a), nb = idx.nodes.get(b);
+    const ka = na && C.KIND_ORDER[na.kind] != null ? C.KIND_ORDER[na.kind] : 9;
+    const kb = nb && C.KIND_ORDER[nb.kind] != null ? C.KIND_ORDER[nb.kind] : 9;
+    if (ka !== kb) return ka - kb;
+    const la = na && typeof na.line === 'number' ? na.line : null, lb = nb && typeof nb.line === 'number' ? nb.line : null;
+    if (la != null && lb != null && la !== lb && C.parseId(a).path === C.parseId(b).path) return la - lb;
+    const sa = C.labelOf(idx, a).toLowerCase(), sb = C.labelOf(idx, b).toLowerCase();
+    return sa < sb ? -1 : sa > sb ? 1 : (a < b ? -1 : a > b ? 1 : 0);
+  };
+
+  // Read a codemap.json object once and remember everything the page needs to answer quickly.
+  C.buildIndex = function (cm) {
+    const idx = {
+      cm: cm || {}, nodes: new Map(), parent: new Map(), children: new Map(), roots: [],
+      edges: [], out: new Map(), inc: new Map(), topicPubs: new Map(), topicSubs: new Map(), topicIds: [],
+      aggDeg: new Map(), descCount: new Map(), chainCache: new Map(), testCache: new Map(), resolveCache: new Map(),
+      counts: {}, unresolvedEdges: 0
+    };
+    const list = cm && Array.isArray(cm.nodes) ? cm.nodes : [];
+    for (const n of list) {
+      if (!n || typeof n.id !== 'string' || !n.id || idx.nodes.has(n.id)) continue;
+      idx.nodes.set(n.id, n);
+      idx.counts[n.kind] = (idx.counts[n.kind] || 0) + 1;
+    }
+    for (const [id, n] of idx.nodes) {
+      const p = n.parent;
+      idx.parent.set(id, typeof p === 'string' && p && p !== id && idx.nodes.has(p) ? p : null);
+    }
+    // A broken map must never hang the page: cut any parent loop.
+    for (const id of idx.nodes.keys()) {
+      let p = idx.parent.get(id), steps = 0;
+      while (p && steps < 64) { if (p === id) { idx.parent.set(id, null); break; } p = idx.parent.get(p); steps++; }
+    }
+    for (const [id, p] of idx.parent) {
+      if (p) push(idx.children, p, id); else idx.roots.push(id);
+    }
+    const cmp = (a, b) => C.compareIds(idx, a, b);
+    idx.roots.sort(cmp);
+    for (const arr of idx.children.values()) arr.sort(cmp);
+    // How many files / functions / ... sit under every container.
+    for (const [id, n] of idx.nodes) {
+      const ch = C.chainOf(idx, id);
+      for (let j = 1; j < ch.length; j++) {
+        let dc = idx.descCount.get(ch[j]);
+        if (!dc) { dc = {}; idx.descCount.set(ch[j], dc); }
+        dc[n.kind] = (dc[n.kind] || 0) + 1;
+      }
+    }
+    // Links. publishes/subscribes are turned into "data flows" (publisher -> topic -> subscriber).
+    const raw = cm && Array.isArray(cm.edges) ? cm.edges : [];
+    const seenTopic = new Set();
+    for (const r of raw) {
+      if (!r) continue;
+      const f = C.resolveId(idx, r.from), t = C.resolveId(idx, r.to);
+      if (!f || !t) { idx.unresolvedEdges++; continue; }
+      const kind = typeof r.kind === 'string' && r.kind ? r.kind : 'data';
+      let a = f, b = t, topic = null;
+      if (kind === 'publishes' || kind === 'subscribes') {
+        const fT = C.isTopic(idx, f), tT = C.isTopic(idx, t);
+        if (fT !== tT) {
+          topic = fT ? f : t;
+          const other = fT ? t : f;
+          if (kind === 'publishes') { a = other; b = topic; push(idx.topicPubs, topic, other); }
+          else { a = topic; b = other; push(idx.topicSubs, topic, other); }
+          if (!seenTopic.has(topic)) { seenTopic.add(topic); idx.topicIds.push(topic); }
+        }
+      }
+      const e = { i: idx.edges.length, from: f, to: t, a: a, b: b, kind: kind, label: r.label == null ? '' : String(r.label), topic: topic };
+      idx.edges.push(e);
+      push(idx.out, a, e.i);
+      push(idx.inc, b, e.i);
+      for (const x of C.chainOf(idx, a)) idx.aggDeg.set(x, (idx.aggDeg.get(x) || 0) + 1);
+      for (const x of C.chainOf(idx, b)) idx.aggDeg.set(x, (idx.aggDeg.get(x) || 0) + 1);
+    }
+    return idx;
+  };
+
+  // [id, parent, grandparent, ..., top] (cached).
+  C.chainOf = function (idx, id) {
+    let ch = idx.chainCache.get(id);
+    if (ch) return ch;
+    ch = [];
+    let x = id, steps = 0;
+    while (x && steps < 64) { ch.push(x); x = idx.parent.get(x) || null; steps++; }
+    idx.chainCache.set(id, ch);
+    return ch;
+  };
+  C.parentOf = (idx, id) => idx.parent.get(id) || null;
+  C.ancestorOfKind = function (idx, id, kind) {
+    for (const x of C.chainOf(idx, id)) { const n = idx.nodes.get(x); if (n && n.kind === kind) return x; }
+    return null;
+  };
+  C.isTopic = function (idx, id) { const n = idx.nodes.get(id); return (n && n.kind === 'topic') || C.isTopicId(id); };
+  // A test file, or anything inside one.
+  C.isTest = function (idx, id) {
+    if (idx.testCache.has(id)) return idx.testCache.get(id);
+    let t = false;
+    for (const x of C.chainOf(idx, id)) { const n = idx.nodes.get(x); if (n && n.is_test === true) { t = true; break; } }
+    idx.testCache.set(id, t);
+    return t;
+  };
+
+  // Find the codemap node a traced id belongs to. A nested function that the map does not list
+  // ("fn:f.py::outer.inner", or Python's "outer.<locals>.inner") lights up its outer function, else its file.
+  C.resolveId = function (idx, id) {
+    if (typeof id !== 'string' || !id) return null;
+    if (idx.nodes.has(id)) return id;
+    if (idx.resolveCache.has(id)) return idx.resolveCache.get(id);
+    let r = null;
+    const p = C.parseId(id);
+    if (p.prefix === 'fn' && p.path) {
+      let q = p.qual.replace(/\.<locals>/g, '');
+      const head = 'fn:' + p.path + '::';
+      if (q && idx.nodes.has(head + q)) r = head + q;
+      while (!r && q.indexOf('.') > 0) {
+        q = q.slice(0, q.lastIndexOf('.'));
+        if (idx.nodes.has(head + q)) r = head + q;
+      }
+      if (!r && idx.nodes.has('mod:' + p.path)) r = 'mod:' + p.path;
+    }
+    if (idx.resolveCache.size > 50000) idx.resolveCache.clear();
+    idx.resolveCache.set(id, r);
+    return r;
+  };
+
+  /* ---------- building one diagram level ---------- */
+
+  // Shared link step for every kind of view: map both ends of every codemap link to the blocks of this view,
+  // drop links that stay outside, and merge links that land on the same pair of blocks into one labelled line.
+  function collectEdges(idx, L, describe, materialize, topicSet) {
+    const items = L.itemMap, edgeMap = new Map();
+    const isOutside = (it) => it && (it.role === 'ghost' || it.role === 'ghostgroup' || it.role === 'group');
+    const merge = (A, B, e) => {
+      const key = A + '\u0000' + B;
+      let g = edgeMap.get(key);
+      if (!g) {
+        g = { id: 'e' + edgeMap.size, from: A, to: B, kinds: {}, count: 0, under: [], topics: [], labels: [], ends: [], derived: false };
+        edgeMap.set(key, g);
+      }
+      g.kinds[e.kind] = (g.kinds[e.kind] || 0) + 1;
+      g.count++;
+      if (e.i >= 0 && g.under.length < 64) g.under.push(e.i);
+      if (e.topic && g.topics.indexOf(e.topic) < 0) g.topics.push(e.topic);
+      if (e.derived) g.derived = true;
+      if (e.label && g.labels.indexOf(e.label) < 0 && g.labels.length < 8) g.labels.push(e.label);
+      if (e.kind === 'calls' && g.ends.length < 8) {
+        // calls into (or from) a block that stands for many functions: remember the real function names
+        if (isOutside(items.get(B)) && e.b && g.ends.indexOf(e.b) < 0) g.ends.push(e.b);
+        else if (isOutside(items.get(A)) && e.a && g.ends.indexOf(e.a) < 0) g.ends.push(e.a);
+      }
+    };
+    for (const e of idx.edges) {
+      if (L.fnLevel && e.kind === 'imports') continue;            // imports are file-to-file facts
+      if (e.topic) {
+        if (!L.showTopics || !topicSet.has(e.topic)) continue;     // drawn as derived links below instead
+        const part = e.a === e.topic ? e.b : e.a;
+        const d = describe(part);
+        if (!d) continue;
+        const P = materialize(d);
+        if (!P) continue;
+        if (e.a === e.topic) merge(e.topic, P, e); else merge(P, e.topic, e);
+        continue;
+      }
+      const da = describe(e.a), db = describe(e.b);
+      if (!da || !db) continue;
+      if (da.type === 'ghost' && db.type === 'ghost') continue;
+      const A = materialize(da), B = materialize(db);
+      if (!A || !B || A === B) continue;
+      merge(A, B, e);
+    }
+    if (!L.showTopics) {
+      // No topic blocks in this view: "X publishes /t, Y subscribes /t" becomes one data link X -> Y labelled /t.
+      const uniq = (arr) => { const seen = new Set(), out = []; for (const d of arr) { if (d && !seen.has(d.id)) { seen.add(d.id); out.push(d); } } return out; };
+      for (const t of idx.topicIds) {
+        const pubs = uniq((idx.topicPubs.get(t) || []).map(describe));
+        const subs = uniq((idx.topicSubs.get(t) || []).map(describe));
+        if (!pubs.length || !subs.length) continue;
+        for (const p of pubs) for (const s of subs) {
+          if (p.type === 'ghost' && s.type === 'ghost') continue;
+          if (p.id === s.id) continue;
+          const A = materialize(p), B = materialize(s);
+          if (!A || !B || A === B) continue;
+          merge(A, B, { i: -1, kind: 'data', label: '', topic: t, derived: true, a: null, b: null });
+        }
+      }
+    }
+    for (const g of edgeMap.values()) {
+      const ks = Object.keys(g.kinds).sort((x, y) => g.kinds[y] - g.kinds[x]);
+      g.kind = ks[0];
+      g.label = C.edgeLabel(idx, g, ks);
+      g.priority = (g.kind === 'calls' || g.kind === 'imports' || g.kind === 'publishes' || g.kind === 'subscribes') ? 1 : 2;
+      L.edges.push(g);
+    }
+  }
+
+  // The words written on a link line.
+  C.edgeLabel = function (idx, g, ks) {
+    ks = ks || Object.keys(g.kinds).sort((x, y) => g.kinds[y] - g.kinds[x]);
+    const word = (k) => {
+      if (k === 'data' && g.derived && g.topics.length) return C.labelOf(idx, g.topics[0]) + (g.topics.length > 1 ? ' +' + (g.topics.length - 1) : '');
+      return C.EDGE_WORD[k] || k;
+    };
+    const names = (arr, max) => arr.slice(0, max).join(', ') + (arr.length > max ? ' +' + (arr.length - max) : '');
+    if (ks.length > 1) {
+      return ks.slice(0, 2).map((k) => word(k) + (g.kinds[k] > 1 && !(k === 'data' && g.derived) ? ' ×' + g.kinds[k] : '')).join(' · ') + (ks.length > 2 ? ' · …' : '');
+    }
+    const k = ks[0], n = g.kinds[k];
+    if (k === 'calls') {
+      if (g.ends.length) return 'calls ' + names(g.ends.map((id) => C.shortName(idx, id) + '()'), 2);
+      return n === 1 ? (g.labels[0] || 'calls') : 'calls ×' + n;
+    }
+    if (k === 'imports') return n === 1 ? 'imports' : 'imports ×' + n;
+    if (g.derived && g.topics.length) return names(g.topics.map((t) => C.labelOf(idx, t)), 2);
+    if (g.labels.length) return names(g.labels, 2);
+    return (C.EDGE_WORD[k] || k) + (n > 1 ? ' ×' + n : '');
+  };
+
+  function newLevel(mode, cid, ckind) {
+    return {
+      mode: mode, containerId: cid, containerKind: ckind, fnLevel: false, showTopics: false,
+      items: [], itemMap: new Map(), clusters: [], edges: [], hiddenTests: 0, folded: 0, topicsFolded: 0,
+      ghostCount: 0, ghostAlias: new Map(), repOf: () => null
+    };
+  }
+
+  // Build the blocks and links of one view.
+  //   view = {mode:'drill', container: null | id}  -> the children of that container (null = all systems)
+  //   view = {mode:'overview'}                      -> systems as boxes with their packages inside
+  // opts: showTests, cap, ghostCap, topicCap, keep (ids that must stay visible when blocks are folded)
+  C.buildLevel = function (idx, view, opts) {
+    opts = opts || {};
+    if (view && view.mode === 'overview') return buildOverview(idx, opts);
+    const cap = opts.cap || C.LEVEL_CAP, ghostCap = opts.ghostCap || C.GHOST_CAP, topicCap = opts.topicCap || C.TOPIC_CAP;
+    const cid = view && view.container && idx.nodes.has(view.container) ? view.container : null;
+    const ckind = cid ? idx.nodes.get(cid).kind : 'root';
+    const testsOk = !!opts.showTests || (!!cid && C.isTest(idx, cid));
+    const L = newLevel('drill', cid, ckind);
+    L.fnLevel = ckind === 'module' || !!C.FN_KINDS[ckind];
+    L.showTopics = ckind === 'package' || L.fnLevel;
+
+    // 1. Candidate blocks: the container's children (for a file: all its classes and functions, nested ones too).
+    const cands = [];
+    if (L.fnLevel) {
+      const stack = (idx.children.get(cid) || []).slice().reverse();
+      while (stack.length) {
+        const id = stack.pop(), n = idx.nodes.get(id);
+        if (!n || !C.FN_KINDS[n.kind]) continue;
+        if (!testsOk && C.isTest(idx, id)) { L.hiddenTests++; continue; }
+        cands.push(id);
+        const kids = idx.children.get(id);
+        if (kids) for (let j = kids.length - 1; j >= 0; j--) stack.push(kids[j]);
+      }
+    } else {
+      const kids = cid ? (idx.children.get(cid) || []) : idx.roots;
+      const nonTopic = kids.filter((id) => !C.isTopic(idx, id));
+      for (const id of (nonTopic.length ? nonTopic : kids)) {
+        if (!testsOk && C.isTest(idx, id)) { L.hiddenTests++; continue; }
+        cands.push(id);
+      }
+    }
+
+    // 2. Too many? Keep the best-connected ones and fold the rest into one group block.
+    let members = cands, grouped = [];
+    if (cands.length > cap) {
+      const keep = new Set();
+      for (const k of opts.keep || []) if (idx.nodes.has(k)) for (const x of C.chainOf(idx, k)) keep.add(x);
+      const ranked = cands.slice().sort((x, y) => (keep.has(y) - keep.has(x)) || ((idx.aggDeg.get(y) || 0) - (idx.aggDeg.get(x) || 0)) || C.compareIds(idx, x, y));
+      const top = new Set(ranked.slice(0, cap - 1));
+      members = cands.filter((id) => top.has(id));
+      grouped = cands.filter((id) => !top.has(id));
+      L.folded = grouped.length;
+    }
+    const memberSet = new Set(members), groupedSet = new Set(grouped);
+    const groupId = grouped.length ? 'group:' + (cid || 'root') : null;
+
+    // 3. In a file view, a class whose methods are shown becomes a box drawn around them.
+    const clusterOf = new Map(), clusterMap = new Map();
+    if (L.fnLevel && opts.clusters !== false) {
+      for (const id of members) {
+        const ch = C.chainOf(idx, id);
+        for (let j = 1; j < ch.length && ch[j] !== cid; j++) {
+          const a = ch[j];
+          if (memberSet.has(a) && idx.nodes.get(a).kind === 'class') { clusterOf.set(id, 'cl:' + a); break; }
+        }
+      }
+      for (const cl of clusterOf.values()) if (!clusterMap.has(cl)) clusterMap.set(cl, { id: cl, nodeId: cl.slice(3), parent: null, kind: 'class' });
+      for (const c of clusterMap.values()) c.parent = clusterOf.get(c.nodeId) || null;
+    }
+
+    // 4. The blocks.
+    const items = L.itemMap, order = [];
+    const addItem = (it) => { if (!items.has(it.id)) { items.set(it.id, it); order.push(it.id); } return it.id; };
+    for (const id of members) {
+      if (clusterMap.has('cl:' + id)) continue;
+      addItem({ id: id, nodeId: id, role: 'member', kind: idx.nodes.get(id).kind, cluster: clusterOf.get(id) || null });
+    }
+    if (groupId) addItem({ id: groupId, nodeId: null, role: 'group', kind: 'group', members: grouped, cluster: null });
+
+    // 5. Where does any codemap node show up in this view? (describe = decide, materialize = create the block)
+    const cset = new Set(cid ? C.chainOf(idx, cid) : []);
+    const descCache = new Map();
+    const describe = (nid) => {
+      if (descCache.has(nid)) return descCache.get(nid);
+      let d = null;
+      if (idx.nodes.has(nid) && !C.isTopic(idx, nid) && (testsOk || !C.isTest(idx, nid))) {
+        const ch = C.chainOf(idx, nid);
+        const pos = cid ? ch.indexOf(cid) : ch.length;   // all systems view: the whole chain is "inside"
+        if (pos === 0) d = { type: 'self', id: 'self:' + cid, nodeId: cid };
+        else if (pos > 0) {
+          for (let k = 0; k < pos; k++) {
+            if (memberSet.has(ch[k])) { d = { type: 'member', id: ch[k], nodeId: ch[k] }; break; }
+            if (groupedSet.has(ch[k])) { d = { type: 'group', id: groupId, nodeId: null }; break; }
+          }
+        } else if (!cset.has(nid)) {
+          // Outside this container: show the part of the system it belongs to, at the same depth.
+          let g = ch[ch.length - 1];
+          for (let m = 1; m < ch.length; m++) if (cset.has(ch[m])) { g = ch[m - 1]; break; }
+          d = { type: 'ghost', id: 'ghost:' + g, nodeId: g };
+        }
+      }
+      descCache.set(nid, d);
+      return d;
+    };
+    const leafFor = (id) => {
+      const cl = 'cl:' + id;
+      if (!clusterMap.has(cl)) return id;
+      // a link to a class (for example "make a MainController") goes to its __init__ when that is shown
+      const pi = C.parseId(id), init = 'fn:' + pi.path + '::' + pi.qual + '.__init__';
+      if (items.has(init) && items.get(init).role === 'member') return init;
+      return addItem({ id: 'hdr:' + id, nodeId: id, role: 'header', kind: 'class', cluster: cl });
+    };
+    const materialize = (d) => {
+      if (d.type === 'member') return leafFor(d.id);
+      if (d.type === 'group') return d.id;
+      if (d.type === 'self') return addItem({ id: d.id, nodeId: cid, role: 'self', kind: ckind, cluster: null });
+      if (d.type === 'ghost') {
+        if (items.has(d.id)) return d.id;
+        if (L.ghostAlias.has(d.nodeId)) return L.ghostAlias.get(d.nodeId);
+        if (L.ghostCount >= ghostCap) {
+          const oid = 'ghost:*';
+          if (!items.has(oid)) addItem({ id: oid, nodeId: null, role: 'ghostgroup', kind: 'group', members: [], cluster: null });
+          items.get(oid).members.push(d.nodeId);
+          L.ghostAlias.set(d.nodeId, oid);
+          return oid;
+        }
+        L.ghostCount++;
+        return addItem({ id: d.id, nodeId: d.nodeId, role: 'ghost', kind: idx.nodes.get(d.nodeId).kind, cluster: null });
+      }
+      return null;
+    };
+
+    // 6. ROS topics used by the blocks of this view (package and file views only).
+    const topicSet = new Set();
+    if (L.showTopics) {
+      const scored = [];
+      for (const t of idx.topicIds) {
+        let inside = 0;
+        for (const part of (idx.topicPubs.get(t) || []).concat(idx.topicSubs.get(t) || [])) {
+          const d = describe(part);
+          if (d && d.type !== 'ghost') inside++;
+        }
+        if (inside) scored.push([t, inside]);
+      }
+      scored.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+      for (const pair of scored.slice(0, topicCap)) { topicSet.add(pair[0]); addItem({ id: pair[0], nodeId: pair[0], role: 'topic', kind: 'topic', cluster: null }); }
+      L.topicsFolded = Math.max(0, scored.length - topicCap);
+    }
+
+    // 7. The links.
+    collectEdges(idx, L, describe, materialize, topicSet);
+
+    L.items = order.map((id) => items.get(id));
+    L.clusters = Array.from(clusterMap.values());
+    L.repOf = (nid) => {
+      if (topicSet.has(nid)) return nid;
+      const d = describe(nid);
+      if (!d) return null;
+      if (d.type === 'member') {
+        if (clusterMap.has('cl:' + d.id)) return items.has('hdr:' + d.id) ? 'hdr:' + d.id : null;
+        return d.id;
+      }
+      if (d.type === 'group') return d.id;
+      if (d.type === 'self') return items.has(d.id) ? d.id : null;
+      if (d.type === 'ghost') return items.has(d.id) ? d.id : (L.ghostAlias.get(d.nodeId) || null);
+      return null;
+    };
+    L.title = cid ? C.labelOf(idx, cid) : 'All systems';
+    L.levelName = !cid ? 'systems and outside programs' : ckind === 'system' ? 'packages' : ckind === 'package' ? 'files' : 'classes and functions';
+    return L;
+  };
+
+  // The overview: every system as a box with its packages (and programs) inside.
+  function buildOverview(idx, opts) {
+    const cap = opts.cap || C.LEVEL_CAP, showTests = !!opts.showTests;
+    const L = newLevel('overview', null, 'overview');
+    const items = L.itemMap, order = [];
+    const addItem = (it) => { if (!items.has(it.id)) { items.set(it.id, it); order.push(it.id); } return it.id; };
+    const clusterMap = new Map();
+    let leaves = [];
+    for (const r of idx.roots) {
+      if (C.isTopic(idx, r)) continue;
+      if (!showTests && C.isTest(idx, r)) { L.hiddenTests++; continue; }
+      const n = idx.nodes.get(r);
+      const kids = n.kind === 'system' ? (idx.children.get(r) || []).filter((k) => !C.isTopic(idx, k)) : [];
+      const shown = kids.filter((k) => showTests || !C.isTest(idx, k));
+      L.hiddenTests += kids.length - shown.length;
+      if (shown.length) {
+        const cl = 'cl:' + r;
+        clusterMap.set(cl, { id: cl, nodeId: r, parent: null, kind: 'system' });
+        for (const k of shown) leaves.push([k, cl]);
+      } else leaves.push([r, null]);
+    }
+    let grouped = [];
+    if (leaves.length > cap) {
+      const keep = new Set(opts.keep || []);
+      const ranked = leaves.slice().sort((x, y) => (keep.has(y[0]) - keep.has(x[0])) || ((idx.aggDeg.get(y[0]) || 0) - (idx.aggDeg.get(x[0]) || 0)));
+      const top = new Set(ranked.slice(0, cap - 1).map((l) => l[0]));
+      grouped = leaves.filter((l) => !top.has(l[0])).map((l) => l[0]);
+      leaves = leaves.filter((l) => top.has(l[0]));
+      L.folded = grouped.length;
+    }
+    const leafSet = new Set(leaves.map((l) => l[0])), groupedSet = new Set(grouped);
+    for (const pair of leaves) addItem({ id: pair[0], nodeId: pair[0], role: 'member', kind: idx.nodes.get(pair[0]).kind, cluster: pair[1] });
+    const groupId = grouped.length ? 'group:overview' : null;
+    if (groupId) addItem({ id: groupId, nodeId: null, role: 'group', kind: 'group', members: grouped, cluster: null });
+    // (system boxes that end up holding no block are dropped after the links are collected, below)
+    const describe = (nid) => {
+      if (!idx.nodes.has(nid) || C.isTopic(idx, nid)) return null;
+      if (!showTests && C.isTest(idx, nid)) return null;
+      const ch = C.chainOf(idx, nid);
+      for (const x of ch) {
+        if (leafSet.has(x)) return { type: 'member', id: x, nodeId: x };
+        if (groupedSet.has(x)) return { type: 'group', id: groupId, nodeId: null };
+      }
+      for (const x of ch) if (clusterMap.has('cl:' + x)) return { type: 'header', id: 'hdr:' + x, nodeId: x };
+      return null;
+    };
+    const materialize = (d) => d.type === 'header'
+      ? addItem({ id: d.id, nodeId: d.nodeId, role: 'header', kind: 'system', cluster: 'cl:' + d.nodeId })
+      : d.id;
+    collectEdges(idx, L, describe, materialize, new Set());
+    L.items = order.map((id) => items.get(id));
+    const used = new Set(L.items.map((it) => it.cluster).filter(Boolean));
+    L.clusters = Array.from(clusterMap.values()).filter((c) => used.has(c.id));
+    L.repOf = (nid) => {
+      const d = describe(nid);
+      if (!d) return null;
+      if (d.type === 'header') return items.has(d.id) ? d.id : null;
+      return d.id;
+    };
+    L.title = 'Overview';
+    L.levelName = 'systems with their packages';
+    return L;
+  }
+
+  // Which view shows a node best (for search, the ticker and links in the panel).
+  C.viewFor = function (idx, id) {
+    const n = idx.nodes.get(id);
+    if (!n) return { mode: 'drill', container: null };
+    if (C.isTopic(idx, id)) {
+      const parts = (idx.topicPubs.get(id) || []).concat(idx.topicSubs.get(id) || []);
+      for (const part of parts) {
+        const pk = C.ancestorOfKind(idx, part, 'package');
+        if (pk) return { mode: 'drill', container: pk };
+      }
+      return { mode: 'drill', container: null };
+    }
+    if (C.FN_KINDS[n.kind]) {
+      const m = C.ancestorOfKind(idx, id, 'module');
+      if (m) return { mode: 'drill', container: m };
+    }
+    let p = C.parentOf(idx, id);
+    while (p && !C.DRILL_KINDS[idx.nodes.get(p).kind]) p = C.parentOf(idx, p);
+    return { mode: 'drill', container: p };
+  };
+  C.canOpen = function (idx, id) {
+    const n = idx.nodes.get(id);
+    if (!n || !C.DRILL_KINDS[n.kind]) return false;
+    if (n.kind === 'module') { const dc = idx.descCount.get(id) || {}; return !!(dc['function'] || dc.method || dc['class']); }
+    return (idx.children.get(id) || []).length > 0;
+  };
+
+  /* ---------- text shown on a block ---------- */
+
+  C.fileTag = function (path) {
+    const p = String(path || '').toLowerCase();
+    if (/\.launch\.(py|xml|yaml)$/.test(p)) return 'LAUNCH FILE';
+    if (/\.py$/.test(p)) return 'PYTHON FILE';
+    if (/\.sh$/.test(p)) return 'SHELL SCRIPT';
+    if (/\.cs$/.test(p)) return 'C# FILE';
+    if (/\.ya?ml$/.test(p)) return 'YAML FILE';
+    if (/\.xml$/.test(p)) return 'XML FILE';
+    if (/\.(md|txt|rst)$/.test(p)) return 'TEXT FILE';
+    if (/\.(bat|ps1|cmd)$/.test(p)) return 'WINDOWS SCRIPT';
+    if (/\.(sdf|urdf|xacro)$/.test(p)) return 'MODEL FILE';
+    if (/\.(parm|param)$/.test(p)) return 'PARAMETERS';
+    if (/\.(png|jpe?g|gif|svg)$/.test(p)) return 'IMAGE';
+    if (/\.(json|jsonl)$/.test(p)) return 'JSON FILE';
+    return 'FILE';
+  };
+  C.linesText = (n, prefix) => n && n.line ? (prefix || '') + (n.end_line && n.end_line !== n.line ? 'lines ' + n.line + '–' + n.end_line : 'line ' + n.line) : '';
+  // The folder of a file inside its package, e.g. "src" or "launch" (empty when it sits at the top).
+  C.folderIn = function (idx, modId) {
+    const p = C.parseId(modId).path, pk = C.ancestorOfKind(idx, modId, 'package');
+    const base = pk ? C.parseId(pk).path : '';
+    const rel = base && p.indexOf(base + '/') === 0 ? p.slice(base.length + 1) : p;
+    const k = rel.lastIndexOf('/');
+    return k > 0 ? rel.slice(0, k) : '';
+  };
+  C.displayLabel = function (idx, it) {
+    if (it.role === 'group' || it.role === 'ghostgroup') return '+' + (it.members ? it.members.length : 0) + ' more';
+    const id = it.nodeId, n = idx.nodes.get(id);
+    if (!n) return String(id);
+    if (it.role === 'self') return C.labelOf(idx, id);
+    const p = C.parseId(id);
+    if (it.role === 'header') return n.kind === 'class' ? (p.qual.split('.').pop() || C.labelOf(idx, id)) : C.labelOf(idx, id);
+    if (p.prefix === 'fn' && p.qual) {
+      if (it.cluster) {
+        const cq = C.parseId(it.cluster.slice(3)).qual;
+        if (cq && p.qual.indexOf(cq + '.') === 0) return p.qual.slice(cq.length + 1);
+      }
+      return p.qual;
+    }
+    return C.labelOf(idx, id);
+  };
+  C.tagLine = function (idx, it) {
+    if (it.role === 'group') return 'FOLDED TOGETHER';
+    if (it.role === 'ghostgroup') return 'OUTSIDE THIS VIEW';
+    const n = it.nodeId ? idx.nodes.get(it.nodeId) : null;
+    if (!n) return '';
+    let t = '';
+    if (n.kind === 'system') t = 'SYSTEM';
+    else if (n.kind === 'external') t = 'EXTERNAL PROGRAM';
+    else if (n.kind === 'package') t = 'PACKAGE';
+    else if (n.kind === 'module') t = C.fileTag(n.path || C.parseId(it.nodeId).path);
+    else if (n.kind === 'class') t = 'CLASS';
+    else if (n.kind === 'topic') t = 'ROS TOPIC';
+    if (it.role === 'ghost') return 'OUTSIDE · ' + (t || String(C.KIND_WORD[n.kind] || n.kind).toUpperCase());
+    if (it.role === 'self') return 'THIS WHOLE ' + String(C.KIND_WORD[n.kind] || 'part').toUpperCase();
+    if (it.role === 'header') return n.kind === 'class' ? 'CLASS' : 'WHOLE SYSTEM';
+    return t;   // functions and methods stay compact: no tag line
+  };
+  C.subLine = function (idx, it) {
+    if (it.role === 'group') return 'click to list them';
+    if (it.role === 'ghostgroup') return 'more places';
+    const id = it.nodeId, n = id ? idx.nodes.get(id) : null;
+    if (!n) return '';
+    const dc = idx.descCount.get(id) || {};
+    const fns = (dc['function'] || 0) + (dc.method || 0);
+    if (it.role === 'self') return n.kind === 'module' ? 'code outside any function' : 'the ' + (C.KIND_WORD[n.kind] || 'part') + ' itself';
+    if (it.role === 'ghost') return 'lives outside this view';
+    if (it.role === 'header') return n.kind === 'class' ? C.plural(dc.method || 0, 'method') : 'the system as a whole';
+    switch (n.kind) {
+      case 'system': return C.plural(dc['package'] || 0, 'package') + (dc.external ? ' · ' + C.plural(dc.external, 'program') : '');
+      case 'external': return 'a program we did not write';
+      case 'package': return C.plural(dc.module || 0, 'file') + ' · ' + C.plural(fns, 'function');
+      case 'module': { const fold = C.folderIn(idx, id); return (fold ? fold + '/ · ' : '') + (fns ? C.plural(fns, 'function') : 'no functions'); }
+      case 'class': return C.plural(dc.method || 0, 'method') + C.linesText(n, ' · ');
+      case 'function': case 'method': return C.linesText(n, '') || C.KIND_WORD[n.kind];
+      case 'topic': return 'message channel';
+      default: return C.KIND_WORD[n.kind] || String(n.kind || '');
+    }
+  };
+
+  /* ---------- layout ---------- */
+
+  // A smooth SVG path through dagre's bend points.
+  C.pathD = function (pts) {
+    const r = (v) => Math.round(v * 10) / 10;
+    if (!pts || pts.length < 2) return '';
+    let d = 'M' + r(pts[0].x) + ' ' + r(pts[0].y);
+    if (pts.length === 2) return d + 'L' + r(pts[1].x) + ' ' + r(pts[1].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const p = pts[i], q = pts[i + 1];
+      if (i === pts.length - 2) d += 'Q' + r(p.x) + ' ' + r(p.y) + ' ' + r(q.x) + ' ' + r(q.y);
+      else d += 'Q' + r(p.x) + ' ' + r(p.y) + ' ' + r((p.x + q.x) / 2) + ' ' + r((p.y + q.y) / 2);
+    }
+    return d;
+  };
+  C.midPoint = function (pts) {
+    if (!pts || !pts.length) return { x: 0, y: 0 };
+    const m = Math.floor(pts.length / 2);
+    if (pts.length % 2) return { x: pts[m].x, y: pts[m].y };
+    return { x: (pts[m - 1].x + pts[m].x) / 2, y: (pts[m - 1].y + pts[m].y) / 2 };
+  };
+  const finitePt = (p) => p && isFinite(p.x) && isFinite(p.y);
+  function emptyLayout() { return { nodes: new Map(), clusters: new Map(), edges: new Map(), width: 0, height: 0, engine: 'none' }; }
+
+  // Shift a layout so it starts at (margin, margin) and record its size.
+  function normalise(res, margin, extra) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const grow = (ax, ay, bx, by) => { if (ax < x0) x0 = ax; if (ay < y0) y0 = ay; if (bx > x1) x1 = bx; if (by > y1) y1 = by; };
+    res.nodes.forEach((b) => grow(b.x, b.y, b.x + b.w, b.y + b.h));
+    res.clusters.forEach((b) => grow(b.x, b.y, b.x + b.w, b.y + b.h));
+    res.edges.forEach((e) => { e.points.forEach((p) => grow(p.x, p.y, p.x, p.y)); if (e.lw) grow(e.lx - e.lw / 2, e.ly - 10, e.lx + e.lw / 2, e.ly + 10); });
+    (extra || []).forEach((b) => grow(b.x, b.y, b.x + b.w, b.y + b.h));
+    if (!isFinite(x0)) { res.width = 0; res.height = 0; return res; }
+    const dx = margin - x0, dy = margin - y0;
+    res.nodes.forEach((b) => { b.x += dx; b.y += dy; });
+    res.clusters.forEach((b) => { b.x += dx; b.y += dy; });
+    res.edges.forEach((e) => { e.points.forEach((p) => { p.x += dx; p.y += dy; }); e.lx += dx; e.ly += dy; });
+    res.width = x1 - x0 + 2 * margin;
+    res.height = y1 - y0 + 2 * margin;
+    return res;
+  }
+
+  function dagreLayout(sub, sizes, dagre, opts) {
+    const useClusters = sub.clusters.length > 0;
+    const g = new dagre.graphlib.Graph({ compound: useClusters, multigraph: false });
+    g.setGraph({ rankdir: 'LR', nodesep: useClusters ? 30 : 20, ranksep: 64, edgesep: 12, marginx: 24, marginy: 30 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const it of sub.items) { const s = sizes.get(it.id); g.setNode(it.id, { width: s.w, height: s.h }); }
+    if (useClusters) {
+      for (const c of sub.clusters) g.setNode(c.id, {});
+      for (const c of sub.clusters) if (c.parent && g.hasNode(c.parent)) g.setParent(c.id, c.parent);
+      for (const it of sub.items) if (it.cluster && g.hasNode(it.cluster)) g.setParent(it.id, it.cluster);
+    }
+    const labelSizes = opts.labelSizes || new Map();
+    for (const e of sub.edges) {
+      if (e.from === e.to || !g.hasNode(e.from) || !g.hasNode(e.to)) continue;
+      const ls = labelSizes.get(e.id);
+      g.setEdge(e.from, e.to, ls ? { width: ls.w, height: ls.h, labelpos: 'c', minlen: 1 } : { minlen: 1 });
+    }
+    dagre.layout(g);
+    const res = emptyLayout();
+    for (const it of sub.items) {
+      const n = g.node(it.id), s = sizes.get(it.id);
+      if (!n || !isFinite(n.x) || !isFinite(n.y)) throw new Error('dagre gave no position for ' + it.id);
+      res.nodes.set(it.id, { x: n.x - s.w / 2, y: n.y - s.h / 2, w: s.w, h: s.h });
+    }
+    for (const c of sub.clusters) {
+      const n = g.node(c.id);
+      if (!n || !isFinite(n.x) || !isFinite(n.width)) continue;
+      const pad = 20;   // room for the class / system name at the top of the box
+      res.clusters.set(c.id, { x: n.x - n.width / 2, y: n.y - n.height / 2 - pad, w: n.width, h: n.height + pad });
+    }
+    for (const e of sub.edges) {
+      if (!g.hasEdge(e.from, e.to)) continue;
+      const ed = g.edge(e.from, e.to);
+      let pts = (ed && ed.points ? ed.points : []).filter(finitePt).map((p) => ({ x: p.x, y: p.y }));
+      if (pts.length < 2) {
+        const A = res.nodes.get(e.from), B = res.nodes.get(e.to);
+        if (!A || !B) continue;
+        pts = [{ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 }];
+      }
+      const ls = labelSizes.get(e.id);
+      const reserved = !!(ls && ed && isFinite(ed.x) && isFinite(ed.y));
+      const mid = reserved ? { x: ed.x, y: ed.y } : C.midPoint(pts);
+      res.edges.set(e.id, { points: pts, lx: mid.x, ly: mid.y, lw: reserved ? ls.w : 0, reserved: reserved });
+    }
+    return res;
+  }
+
+  // A simple layered layout (used when dagre did not load, or failed): longest-path layers from left to
+  // right, a few barycentre sweeps to reduce crossings, straight or arched links.
+  C.simpleLayout = function (sub, sizes) {
+    const RS = 70, NS = 22;
+    const items = sub.items, N = items.length;
+    const res = emptyLayout();
+    if (!N) return res;
+    const pos = new Map();
+    items.forEach((it, i) => pos.set(it.id, i));
+    const succ = [];
+    for (let i = 0; i < N; i++) succ.push([]);
+    for (const e of sub.edges) {
+      const a = pos.get(e.from), b = pos.get(e.to);
+      if (a === undefined || b === undefined || a === b) continue;
+      if (succ[a].indexOf(b) < 0) succ[a].push(b);
+    }
+    // 1. links that point backwards in a loop (depth-first search) are turned around for layering
+    const color = new Array(N).fill(0), back = new Set();
+    for (let i = 0; i < N; i++) {
+      if (color[i]) continue;
+      const stack = [[i, 0]];
+      color[i] = 1;
+      while (stack.length) {
+        const top = stack[stack.length - 1], u = top[0];
+        if (top[1] < succ[u].length) {
+          const v = succ[u][top[1]++];
+          if (color[v] === 1) back.add(u * N + v);
+          else if (color[v] === 0) { color[v] = 1; stack.push([v, 0]); }
+        } else { color[u] = 2; stack.pop(); }
+      }
+    }
+    const dsucc = [], indeg = new Array(N).fill(0);
+    for (let i = 0; i < N; i++) dsucc.push([]);
+    for (let i = 0; i < N; i++) for (const v of succ[i]) {
+      if (back.has(i * N + v)) { if (dsucc[v].indexOf(i) < 0) dsucc[v].push(i); }
+      else if (dsucc[i].indexOf(v) < 0) dsucc[i].push(v);
+    }
+    for (let i = 0; i < N; i++) for (const v of dsucc[i]) indeg[v]++;
+    // 2. layers: the longest path from a source
+    const rank = new Array(N).fill(0), queue = [];
+    for (let i = 0; i < N; i++) if (!indeg[i]) queue.push(i);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const u = queue[qi];
+      for (const v of dsucc[u]) { if (rank[u] + 1 > rank[v]) rank[v] = rank[u] + 1; if (--indeg[v] === 0) queue.push(v); }
+    }
+    let maxRank = 0;
+    for (let i = 0; i < N; i++) if (rank[i] > maxRank) maxRank = rank[i];
+    const layers = [];
+    for (let r = 0; r <= maxRank; r++) layers.push([]);
+    for (let i = 0; i < N; i++) layers[rank[i]].push(i);
+    // 3. order inside each layer: barycentre sweeps; members of one class box stay together
+    const order = new Array(N).fill(0);
+    layers.forEach((Ly) => Ly.forEach((v, k) => { order[v] = k; }));
+    const nb = [];
+    for (let i = 0; i < N; i++) nb.push([]);
+    for (let i = 0; i < N; i++) for (const v of succ[i]) { nb[i].push(v); nb[v].push(i); }
+    const ckey = items.map((it) => it.cluster || '');
+    for (let sweep = 0; sweep < 6; sweep++) {
+      const down = sweep % 2 === 0;
+      for (let li = down ? 1 : maxRank - 1; down ? li <= maxRank : li >= 0; li += down ? 1 : -1) {
+        const ref = down ? li - 1 : li + 1, Ly = layers[li], bc = new Map();
+        for (const v of Ly) {
+          let s = 0, c = 0;
+          for (const w of nb[v]) if (rank[w] === ref) { s += order[w]; c++; }
+          bc.set(v, c ? s / c : order[v]);
+        }
+        Ly.sort((a, b) => (ckey[a] < ckey[b] ? -1 : ckey[a] > ckey[b] ? 1 : 0) || (bc.get(a) - bc.get(b)) || (a - b));
+        Ly.forEach((v, k) => { order[v] = k; });
+      }
+    }
+    // 4. coordinates: one column per layer, blocks stacked and centred
+    const colW = layers.map((Ly) => Ly.reduce((m, v) => Math.max(m, sizes.get(items[v].id).w), 0));
+    const colH = layers.map((Ly) => Ly.reduce((s, v) => s + sizes.get(items[v].id).h, 0) + Math.max(0, Ly.length - 1) * NS);
+    const tallest = colH.reduce((m, v) => Math.max(m, v), 0);
+    let x = 0;
+    layers.forEach((Ly, r) => {
+      let y = (tallest - colH[r]) / 2;
+      for (const v of Ly) {
+        const s = sizes.get(items[v].id);
+        res.nodes.set(items[v].id, { x: x + (colW[r] - s.w) / 2, y: y, w: s.w, h: s.h });
+        y += s.h + NS;
+      }
+      x += colW[r] + RS;
+    });
+    // 5. links
+    for (const e of sub.edges) {
+      const A = res.nodes.get(e.from), B = res.nodes.get(e.to);
+      if (!A || !B || e.from === e.to) continue;
+      let pts;
+      if (B.x >= A.x + A.w) pts = [{ x: A.x + A.w, y: A.y + A.h / 2 }, { x: B.x, y: B.y + B.h / 2 }];
+      else if (A.x >= B.x + B.w) {
+        const top = Math.min(A.y, B.y) - 28;
+        pts = [{ x: A.x + A.w / 2, y: A.y }, { x: (A.x + A.w / 2 + B.x + B.w / 2) / 2, y: top }, { x: B.x + B.w / 2, y: B.y }];
+      } else {
+        const rx = Math.max(A.x + A.w, B.x + B.w) + 26;
+        pts = [{ x: A.x + A.w, y: A.y + A.h / 2 }, { x: rx, y: (A.y + A.h / 2 + B.y + B.h / 2) / 2 }, { x: B.x + B.w, y: B.y + B.h / 2 }];
+      }
+      const mid = C.midPoint(pts);
+      res.edges.set(e.id, { points: pts, lx: mid.x, ly: mid.y, lw: 0, reserved: false });
+    }
+    // 6. class boxes: the outline of their members
+    const parentOf = new Map(sub.clusters.map((c) => [c.id, c.parent]));
+    const inside = (it, cid) => { let c = it.cluster, guard = 0; while (c && guard++ < 16) { if (c === cid) return true; c = parentOf.get(c); } return false; };
+    for (const c of sub.clusters) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const it of items) if (inside(it, c.id)) {
+        const b = res.nodes.get(it.id);
+        if (!b) continue;
+        x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+      }
+      if (isFinite(x0)) res.clusters.set(c.id, { x: x0 - 12, y: y0 - 32, w: x1 - x0 + 24, h: y1 - y0 + 44 });
+    }
+    return res;
+  };
+
+  // Lay out one level. Blocks without any link (and outside class boxes) are packed in a tidy grid below the
+  // linked drawing, so a folder full of unrelated files does not become one endless column.
+  C.layoutLevel = function (level, sizes, dagre, opts) {
+    opts = opts || {};
+    const M = 28;
+    const touched = new Set();
+    for (const e of level.edges) { touched.add(e.from); touched.add(e.to); }
+    let main = [], loose = [];
+    for (const it of level.items) (touched.has(it.id) || it.cluster ? main : loose).push(it);
+    const sub = { items: main, edges: level.edges, clusters: level.clusters };
+    let res = null;
+    if (main.length && dagre && dagre.graphlib && typeof dagre.layout === 'function') {
+      try { res = dagreLayout(sub, sizes, dagre, opts); res.engine = 'dagre'; }
+      catch (err) { res = null; if (opts.onError) opts.onError(err); }
+    }
+    if (!res) { res = C.simpleLayout(sub, sizes); res.engine = main.length ? 'simple' : 'grid'; }
+    normalise(res, M);
+    if (loose.length) {
+      const cols = Math.max(1, Math.min(loose.length, Math.round(Math.sqrt(loose.length * 2.2))));
+      const cw = loose.reduce((m, it) => Math.max(m, sizes.get(it.id).w), 0);
+      const rh = loose.reduce((m, it) => Math.max(m, sizes.get(it.id).h), 0) + 16;
+      const top = res.height ? res.height + 12 : M;
+      if (main.length) { res.looseX = M; res.looseY = top + 4; }
+      const y0 = top + (main.length ? 18 : 0);
+      loose.forEach((it, i) => {
+        const s = sizes.get(it.id), c = i % cols, r = Math.floor(i / cols);
+        res.nodes.set(it.id, { x: M + c * (cw + 20), y: y0 + r * rh, w: s.w, h: s.h });
+      });
+      const rows = Math.ceil(loose.length / cols);
+      res.width = Math.max(res.width, M + cols * (cw + 20) - 20 + M);
+      res.height = y0 + rows * rh - 16 + M;
+    }
+    return res;
+  };
+
+  /* ---------- live glow and counters ---------- */
+
+  // How bright a block flashes for `count` calls: 1 call -> ~0.53, 10 -> ~0.74, 100 or more -> 1.
+  C.strength = (count) => Math.min(1, 0.45 + 0.55 * Math.min(1, Math.log10(1 + Math.max(0, count)) / 2));
+  // Current brightness of a block (0..1), fading in a straight line to 0 over FADE_MS after the last call.
+  C.glowAt = function (s, nowMs) {
+    if (!s || !(s.lastHit > -Infinity)) return 0;
+    const age = Math.max(0, nowMs - s.lastHit);
+    const v = s.level * (1 - age / C.FADE_MS);
+    return v > 0 ? v : 0;
+  };
+  C.rateAt = function (s, t) {
+    if (!s) return 0;
+    const dt = t - s.rateT;
+    return dt > 0 ? s.rate * Math.exp(-dt / C.RATE_TAU_S) : s.rate;
+  };
+  // Count `count` calls for id at event time t (seconds). nowMs = page clock for the glow (null = count only).
+  C.bump = function (stats, id, count, t, nowMs) {
+    let s = stats.get(id);
+    if (!s) { s = { total: 0, rate: 0, rateT: t, level: 0, lastHit: -Infinity, lastT: t }; stats.set(id, s); }
+    const dt = t - s.rateT;
+    if (dt > 0) { s.rate *= Math.exp(-dt / C.RATE_TAU_S); s.rateT = t; }
+    s.rate += count / C.RATE_TAU_S;
+    s.total += count;
+    s.lastT = t;
+    if (nowMs != null) {
+      const cur = C.glowAt(s, nowMs);
+      s.level = Math.max(cur, C.strength(Math.max(count, s.rate)));
+      s.lastHit = nowMs;
+    }
+    return s;
+  };
+  // Apply one "calls" event: every called function and all its parents (class, file, package, system) count.
+  C.applyCalls = function (idx, stats, calls, t, nowMs) {
+    const merged = new Map();
+    let unknown = 0, total = 0;
+    for (const raw in calls) {
+      if (!Object.prototype.hasOwnProperty.call(calls, raw)) continue;
+      const c = Number(calls[raw]);
+      if (!(c > 0) || !isFinite(c)) continue;
+      total += c;
+      const id = C.resolveId(idx, raw);
+      if (!id) { unknown += c; continue; }
+      merged.set(id, (merged.get(id) || 0) + c);
+    }
+    const hits = [];
+    for (const [id, c] of merged) {
+      hits.push({ id: id, count: c });
+      for (const a of C.chainOf(idx, id)) C.bump(stats, a, c, t, nowMs);
+    }
+    return { hits: hits, unknown: unknown, total: total };
+  };
+  // Apply one "procs" event: which programs (files or outside programs) are running right now.
+  C.applyProcs = function (idx, running) {
+    const set = new Set(), desc = new Map();
+    let unknown = 0;
+    for (const raw of running || []) {
+      const id = C.resolveId(idx, raw);
+      if (!id) { unknown++; continue; }
+      if (set.has(id)) continue;
+      set.add(id);
+      const ch = C.chainOf(idx, id);
+      for (let j = 1; j < ch.length; j++) desc.set(ch[j], (desc.get(ch[j]) || 0) + 1);
+    }
+    return { running: set, desc: desc, unknown: unknown };
+  };
+
+  /* ---------- recorded traces and replay ---------- */
+
+  // Accept the event shapes the server may send or record:
+  //   {"event":"calls","t":..,"calls":{id:n}}   {"event":"procs","t":..,"running":[ids]}
+  //   {"event":"calls","data":{..}}            calls as [[id, n], ...]      no "event" key (guessed from the fields)
+  //   {"event":"meta","note":".."}             (a note about the recording)
+  C.normalizeEvent = function (obj) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+    let p = obj.data;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = null; } }
+    if (!p || typeof p !== 'object' || Array.isArray(p)) p = obj;
+    let kind = obj.event || obj.type || obj.kind || p.event || null;
+    if (!kind) kind = p.calls ? 'calls' : (p.running ? 'procs' : null);
+    const tRaw = p.t != null ? p.t : obj.t;
+    const t = Number(tRaw);
+    if (kind === 'meta' || kind === 'note') return { event: 'meta', t: isFinite(t) ? t : null, note: String(p.note || p.text || obj.note || '') };
+    if (tRaw == null || !isFinite(t)) return null;
+    if (kind === 'calls') {
+      let calls = p.calls;
+      if (Array.isArray(calls)) {
+        const m = {};
+        for (const it of calls) if (Array.isArray(it) && typeof it[0] === 'string') m[it[0]] = (m[it[0]] || 0) + (Number(it[1]) || 1);
+        calls = m;
+      }
+      if (!calls || typeof calls !== 'object') return null;
+      const out = {};
+      let any = false;
+      for (const k in calls) {
+        if (!Object.prototype.hasOwnProperty.call(calls, k)) continue;
+        const c = Number(calls[k]);
+        if (c > 0 && isFinite(c)) { out[k] = c; any = true; }
+      }
+      return any ? { event: 'calls', t: t, calls: out } : null;
+    }
+    if (kind === 'procs') return { event: 'procs', t: t, running: Array.isArray(p.running) ? p.running.filter((x) => typeof x === 'string') : [] };
+    return null;
+  };
+  C.normalizeEvents = (arr) => (Array.isArray(arr) ? arr : []).map(C.normalizeEvent).filter(Boolean);
+  // A recording file: JSON lines (one event per line). A JSON array is accepted too. Bad lines are skipped.
+  C.parseRecording = function (text) {
+    const s = String(text || '').trim();
+    if (!s) return [];
+    if (s[0] === '[') { try { return C.normalizeEvents(JSON.parse(s)); } catch (e) { /* fall through to lines */ } }
+    const out = [];
+    for (const line of s.split(/\r?\n/)) {
+      const l = line.trim();
+      if (!l) continue;
+      let obj;
+      try { obj = JSON.parse(l); } catch (e) { continue; }
+      const ev = C.normalizeEvent(obj);
+      if (ev) out.push(ev);
+    }
+    return out;
+  };
+  C.createReplay = function (events) {
+    const evs = (events || []).filter((e) => e && (e.event === 'calls' || e.event === 'procs')).slice().sort((a, b) => a.t - b.t);
+    const metas = (events || []).filter((e) => e && e.event === 'meta');
+    const t0 = evs.length ? evs[0].t : 0, t1 = evs.length ? evs[evs.length - 1].t : 0;
+    return { events: evs, metas: metas, t0: t0, t1: t1, duration: Math.max(0, t1 - t0), cur: t0, idx: 0, skipped: 0 };
+  };
+  // Move the replay clock forward by dt seconds of page time x speed; emit every event that is now due.
+  C.replayAdvance = function (r, dt, speed, emit, opts) {
+    const skip = !opts || opts.skipGaps !== false;
+    r.cur += Math.max(0, dt) * (speed || 1);
+    if (skip && r.idx < r.events.length) {
+      const next = r.events[r.idx].t;
+      if (next - r.cur > C.GAP_SKIP_S) { r.skipped += next - r.cur; r.cur = next - 0.25; }
+    }
+    let n = 0;
+    while (r.idx < r.events.length && r.events[r.idx].t <= r.cur) { emit(r.events[r.idx]); r.idx++; n++; }
+    const end = r.t1 + C.REPLAY_TAIL_S;
+    const done = r.idx >= r.events.length && r.cur >= end;
+    if (r.cur > end) r.cur = end;
+    return { emitted: n, done: done };
+  };
+  // Jump to time t: start again from the beginning and emit (quietly) every event up to t.
+  C.replaySeek = function (r, t, emitQuiet) {
+    r.cur = Math.max(r.t0, Math.min(r.t1, t));
+    r.idx = 0;
+    while (r.idx < r.events.length && r.events[r.idx].t <= r.cur) { emitQuiet(r.events[r.idx]); r.idx++; }
+  };
+
+  /* ---------- search ---------- */
+
+  C.searchIndex = function (idx) {
+    const out = [];
+    for (const [id, n] of idx.nodes) {
+      const label = C.labelOf(idx, id), p = C.parseId(id);
+      out.push({ id: id, kind: n.kind, label: label, l: label.toLowerCase(), q: String(p.qual || '').toLowerCase(), path: String(n.path || p.path || '').toLowerCase(), test: C.isTest(idx, id) });
+    }
+    return out;
+  };
+  const KIND_BOOST = { system: 5, external: 4, 'package': 4, module: 3, 'class': 2, 'function': 2, method: 2, topic: 1 };
+  C.search = function (sidx, query, limit) {
+    const q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    const terms = q.split(/\s+/);
+    const res = [];
+    for (const it of sidx) {
+      let s = 0;
+      if (it.l === q || it.q === q) s = 100;
+      else if (it.l.indexOf(q) === 0) s = 80;
+      else {
+        const k = it.l.indexOf(q);
+        if (k > 0) s = 60 - Math.min(20, k);
+        else if (it.q.indexOf(q) >= 0) s = 50;
+        else if (it.path.indexOf(q) >= 0) s = 35;
+        else if (terms.length > 1) { const hay = it.l + ' ' + it.q + ' ' + it.path; if (terms.every((t) => hay.indexOf(t) >= 0)) s = 25; }
+      }
+      if (!s) continue;
+      if (it.test) s -= 15;
+      s += KIND_BOOST[it.kind] || 0;
+      res.push({ s: s, it: it });
+    }
+    res.sort((a, b) => b.s - a.s || a.it.l.length - b.it.l.length || (a.it.l < b.it.l ? -1 : a.it.l > b.it.l ? 1 : 0));
+    return res.slice(0, limit || 30).map((r) => r.it);
+  };
+
+  /* ---------- the side panel ---------- */
+
+  C.purposeOf = function (doc) {
+    const s = String(doc || '');
+    if (!s.trim()) return '';
+    const k = s.indexOf('PURPOSE:');
+    const body = k >= 0 ? s.slice(k + 8) : s;
+    return body.split(/\n\s*\n/)[0].replace(/\s+/g, ' ').trim().slice(0, 1500);
+  };
+  C.firstParagraph = (doc) => String(doc || '').trim().split(/\n\s*\n/)[0].replace(/\s+/g, ' ').trim();
+  C.firstSentence = function (text) {
+    const s = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    const m = /^(.{12,220}?[.!?])(\s|$)/.exec(s);
+    return m ? m[1] : C.clip(s, 180);
+  };
+  // Everything the side panel says about one node: relations are grouped by meaning.
+  C.details = function (idx, id) {
+    const n = idx.nodes.get(id);
+    if (!n) return null;
+    const p = C.parseId(id);
+    const d = {
+      id: id, node: n, kind: n.kind, label: C.labelOf(idx, id), qual: p.qual,
+      path: n.path || (p.prefix === 'fn' || p.prefix === 'mod' || p.prefix === 'pkg' ? p.path : ''),
+      line: n.line || null, end: n.end_line || null, chain: C.chainOf(idx, id).slice(1).reverse(),
+      children: idx.children.get(id) || [], rel: {}, talk: [], isTest: C.isTest(idx, id), purpose: ''
+    };
+    const topic = C.isTopic(idx, id);
+    const add = (key, other) => { const arr = d.rel[key] || (d.rel[key] = []); if (arr.indexOf(other) < 0 && arr.length < 300) arr.push(other); };
+    for (const i of idx.out.get(id) || []) {
+      const e = idx.edges[i];
+      if (e.kind === 'calls') add('calls', e.b);
+      else if (e.kind === 'imports') add('imports', e.b);
+      else if (e.kind === 'launches') add('launches', e.b);
+      else if (e.kind === 'runs') add('runs', e.b);
+      else if (e.topic && e.kind === 'publishes') add('publishes', e.b);
+      else if (e.topic && e.kind === 'subscribes' && topic) add('subscribers', e.b);
+      else if (d.talk.length < 100) d.talk.push({ dir: 'to', id: e.b, kind: e.kind, label: e.label });
+    }
+    for (const i of idx.inc.get(id) || []) {
+      const e = idx.edges[i];
+      if (e.kind === 'calls') add('calledBy', e.a);
+      else if (e.kind === 'imports') add('importedBy', e.a);
+      else if (e.kind === 'launches') add('launchedBy', e.a);
+      else if (e.kind === 'runs') add('runBy', e.a);
+      else if (e.topic && e.kind === 'publishes' && topic) add('publishers', e.a);
+      else if (e.topic && e.kind === 'subscribes') add('subscribes', e.a);
+      else if (d.talk.length < 100) d.talk.push({ dir: 'from', id: e.a, kind: e.kind, label: e.label });
+    }
+    if (n.kind === 'module') {
+      // topics used anywhere inside the file
+      const stack = (idx.children.get(id) || []).slice();
+      let guard = 0;
+      while (stack.length && guard++ < 20000) {
+        const x = stack.pop();
+        for (const i of idx.out.get(x) || []) { const e = idx.edges[i]; if (e.topic && e.kind === 'publishes') add('publishes', e.b); }
+        for (const i of idx.inc.get(x) || []) { const e = idx.edges[i]; if (e.topic && e.kind === 'subscribes') add('subscribes', e.a); }
+        for (const k of idx.children.get(x) || []) stack.push(k);
+      }
+      d.purpose = C.purposeOf(n.doc || '');
+    }
+    return d;
+  };
+
+  /* ---------- formatting ---------- */
+
+  C.fmtCount = function (n) {
+    n = Math.max(0, Math.round(Number(n) || 0));
+    if (n < 1000) return String(n);
+    if (n < 10000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+    if (n < 1e6) return Math.round(n / 1000) + 'k';
+    return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  };
+  C.fmtInt = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  C.fmtClock = function (sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (hh ? hh + ':' + String(mm).padStart(2, '0') : String(mm)) + ':' + String(ss).padStart(2, '0');
+  };
+  C.fmtAgo = function (ms) {
+    if (!(ms >= 0)) return '';
+    if (ms < 1500) return 'now';
+    if (ms < 60000) return Math.round(ms / 1000) + ' s';
+    if (ms < 3600000) return Math.round(ms / 60000) + ' min';
+    return Math.round(ms / 3600000) + ' h';
+  };
+
+  /* ---------- self-test (node: web/run_selftest.js; browser: open the page with #selftest) ---------- */
+
+  C.selfTest = function (extra) {
+    extra = extra || {};
+    const out = { passed: 0, failed: 0, lines: [] };
+    const ok = (cond, msg) => { if (cond) out.passed++; else { out.failed++; out.lines.push('FAIL ' + msg); } };
+    const near = (a, b, eps) => Math.abs(a - b) <= (eps || 1e-6);
+    const run = (name, fn) => { try { fn(); } catch (err) { out.failed++; out.lines.push('FAIL ' + name + ' threw ' + (err && err.stack || err)); } };
+
+    run('ids', () => {
+      const p = C.parseId('fn:a/b.py::C.m');
+      ok(p.prefix === 'fn' && p.path === 'a/b.py' && p.qual === 'C.m', 'parseId fn');
+      ok(C.parseId('topic:/sim/camera/image').rest === '/sim/camera/image', 'parseId topic');
+      ok(C.parseId('mod:x/y.sh').path === 'x/y.sh', 'parseId mod');
+      ok(C.parseId('plain').prefix === '', 'parseId without prefix');
+    });
+
+    const cm = {
+      schema: 1, nodes: [
+        { id: 'sys:a', kind: 'system', label: 'A' }, { id: 'sys:b', kind: 'system', label: 'B' },
+        { id: 'ext:x', kind: 'external', label: 'X' },
+        { id: 'pkg:p', kind: 'package', parent: 'sys:a' }, { id: 'pkg:q', kind: 'package', parent: 'sys:b' },
+        { id: 'mod:p/m.py', kind: 'module', parent: 'pkg:p', doc: 'm.py -- PURPOSE: the main file.\n\nMore text.' },
+        { id: 'mod:p/n.py', kind: 'module', parent: 'pkg:p' }, { id: 'mod:q/k.py', kind: 'module', parent: 'pkg:q' },
+        { id: 'fn:p/m.py::C', kind: 'class', parent: 'mod:p/m.py', line: 3, end_line: 20 },
+        { id: 'fn:p/m.py::C.__init__', kind: 'method', parent: 'fn:p/m.py::C', line: 4, end_line: 6 },
+        { id: 'fn:p/m.py::C.run', kind: 'method', parent: 'fn:p/m.py::C', line: 8, end_line: 20 },
+        { id: 'fn:p/m.py::helper', kind: 'function', parent: 'mod:p/m.py', line: 22, end_line: 30 },
+        { id: 'fn:p/n.py::util', kind: 'function', parent: 'mod:p/n.py', line: 1, end_line: 5 },
+        { id: 'fn:q/k.py::serve', kind: 'function', parent: 'mod:q/k.py', line: 1, end_line: 9 },
+        { id: 'mod:p/test_m.py', kind: 'module', parent: 'pkg:p', is_test: true },
+        { id: 'fn:p/test_m.py::test_x', kind: 'function', parent: 'mod:p/test_m.py' },
+        { id: 'topic:/t', kind: 'topic', label: '/t' },
+        { id: 'loop:1', kind: 'module', parent: 'loop:2' }, { id: 'loop:2', kind: 'module', parent: 'loop:1' }
+      ],
+      edges: [
+        { from: 'fn:p/m.py::C.run', to: 'fn:p/m.py::helper', kind: 'calls' },
+        { from: 'fn:p/m.py::helper', to: 'fn:p/n.py::util', kind: 'calls' },
+        { from: 'fn:p/m.py::C.run', to: 'fn:q/k.py::serve', kind: 'calls' },
+        { from: 'fn:p/m.py::helper', to: 'fn:p/m.py::C', kind: 'calls' },
+        { from: 'mod:p/m.py', to: 'mod:p/n.py', kind: 'imports' },
+        { from: 'fn:p/m.py::C.run', to: 'topic:/t', kind: 'publishes' },
+        { from: 'fn:q/k.py::serve', to: 'topic:/t', kind: 'subscribes' },
+        { from: 'ext:x', to: 'sys:a', kind: 'mavlink', label: 'UDP 14552' },
+        { from: 'fn:p/test_m.py::test_x', to: 'fn:p/m.py::helper', kind: 'calls' },
+        { from: 'fn:missing.py::f', to: 'fn:p/m.py::helper', kind: 'calls' }
+      ]
+    };
+    let idx = null;
+    run('index', () => {
+      idx = C.buildIndex(cm);
+      ok(idx.nodes.size === 19, 'index keeps every node');
+      ok(idx.unresolvedEdges === 1, 'one link points nowhere');
+      ok(idx.roots.indexOf('sys:a') >= 0 && idx.roots.indexOf('pkg:p') < 0, 'roots are the top nodes');
+      ok(C.chainOf(idx, 'fn:p/m.py::C.run').join('>') === 'fn:p/m.py::C.run>fn:p/m.py::C>mod:p/m.py>pkg:p>sys:a', 'parent chain');
+      ok(C.chainOf(idx, 'loop:1').length < 4, 'a parent loop is cut');
+      ok(C.isTest(idx, 'fn:p/test_m.py::test_x') && !C.isTest(idx, 'fn:p/m.py::helper'), 'test detection');
+      ok((idx.topicPubs.get('topic:/t') || []).indexOf('fn:p/m.py::C.run') >= 0, 'publisher recorded');
+      ok((idx.descCount.get('pkg:p') || {}).module === 3, 'descendant counts');
+    });
+    run('resolve', () => {
+      ok(C.resolveId(idx, 'fn:p/m.py::C.run.inner') === 'fn:p/m.py::C.run', 'nested function -> outer');
+      ok(C.resolveId(idx, 'fn:p/m.py::C.run.<locals>.inner') === 'fn:p/m.py::C.run', 'python <locals> qualname');
+      ok(C.resolveId(idx, 'fn:p/m.py::nothing') === 'mod:p/m.py', 'unknown function -> its file');
+      ok(C.resolveId(idx, 'fn:zz.py::f') === null, 'unknown file -> nothing');
+      ok(C.resolveId(idx, 'sys:a') === 'sys:a', 'known id');
+    });
+    run('levels', () => {
+      const has = (L, id) => L.itemMap.has(id);
+      const edge = (L, a, b) => L.edges.find((e) => e.from === a && e.to === b);
+      const root = C.buildLevel(idx, { mode: 'drill', container: null });
+      ok(has(root, 'sys:a') && has(root, 'sys:b') && has(root, 'ext:x'), 'root shows systems and programs');
+      ok(edge(root, 'ext:x', 'sys:a') && edge(root, 'ext:x', 'sys:a').label === 'UDP 14552', 'root mavlink link keeps its label');
+      const ab = edge(root, 'sys:a', 'sys:b');
+      ok(ab && ab.kinds.calls === 1 && ab.kinds.data === 1, 'root: a calls b and sends /t to b');
+      ok(ab && ab.label.indexOf('/t') >= 0, 'derived topic name on the label: ' + (ab && ab.label));
+      const pk = C.buildLevel(idx, { mode: 'drill', container: 'pkg:p' });
+      ok(has(pk, 'mod:p/m.py') && has(pk, 'mod:p/n.py') && !has(pk, 'mod:p/test_m.py'), 'package shows files, hides tests');
+      ok(pk.hiddenTests === 1, 'hidden test counted');
+      ok(has(pk, 'topic:/t'), 'package view shows the topic');
+      ok(has(pk, 'ghost:sys:b'), 'outside system shown as a ghost');
+      ok(edge(pk, 'mod:p/m.py', 'topic:/t') && edge(pk, 'topic:/t', 'ghost:sys:b'), 'topic links: publisher -> topic -> subscriber');
+      const mn = edge(pk, 'mod:p/m.py', 'mod:p/n.py');
+      ok(mn && mn.kinds.imports === 1 && mn.kinds.calls === 1, 'file link merges imports and calls');
+      ok(!pk.itemMap.has('ext:x'), 'links touching the parent system are not drawn inside it');
+      const pkT = C.buildLevel(idx, { mode: 'drill', container: 'pkg:p' }, { showTests: true });
+      ok(has(pkT, 'mod:p/test_m.py') && edge(pkT, 'mod:p/test_m.py', 'mod:p/m.py'), 'tests can be shown');
+      const md = C.buildLevel(idx, { mode: 'drill', container: 'mod:p/m.py' });
+      ok(md.clusters.length === 1 && md.clusters[0].nodeId === 'fn:p/m.py::C', 'class becomes a box');
+      ok(has(md, 'fn:p/m.py::C.run') && has(md, 'fn:p/m.py::helper') && !has(md, 'fn:p/m.py::C'), 'file view shows functions, class as box');
+      ok(edge(md, 'fn:p/m.py::helper', 'fn:p/m.py::C.__init__'), 'link to a class goes to its __init__');
+      const call = edge(md, 'fn:p/m.py::helper', 'ghost:mod:p/n.py');
+      ok(call && call.label === 'calls util()', 'call into another file names the function: ' + (call && call.label));
+      ok(!md.edges.some((e) => e.kinds.imports), 'no imports in a file view');
+      ok(md.repOf('fn:p/m.py::C.run') === 'fn:p/m.py::C.run', 'repOf member');
+      ok(md.repOf('fn:p/n.py::util') === 'ghost:mod:p/n.py', 'repOf outside function -> ghost file');
+      ok(C.displayLabel(idx, md.itemMap.get('fn:p/m.py::C.run')) === 'run', 'method label drops the class name');
+      const capped = C.buildLevel(idx, { mode: 'drill', container: null }, { cap: 2 });
+      ok(capped.items.length === 2 && capped.folded === 3, 'cap folds the rest into a group (' + capped.items.length + ' blocks, ' + capped.folded + ' folded)');
+      ok(capped.items.some((it) => it.role === 'group'), 'group block exists');
+      const kept = C.buildLevel(idx, { mode: 'drill', container: null }, { cap: 2, keep: ['ext:x'] });
+      ok(kept.itemMap.has('ext:x'), 'keep forces a block to stay visible');
+      const ov = C.buildLevel(idx, { mode: 'overview' });
+      ok(ov.clusters.length === 2 && has(ov, 'pkg:p') && has(ov, 'ext:x'), 'overview: systems as boxes');
+      ok(has(ov, 'hdr:sys:a') && edge(ov, 'ext:x', 'hdr:sys:a'), 'overview: link to a system lands on its header');
+      ok(C.viewFor(idx, 'fn:p/m.py::C.run').container === 'mod:p/m.py', 'viewFor function -> its file');
+      ok(C.viewFor(idx, 'mod:p/m.py').container === 'pkg:p', 'viewFor file -> its package');
+      ok(C.viewFor(idx, 'sys:a').container === null, 'viewFor system -> top');
+      ok(C.canOpen(idx, 'mod:p/m.py') && C.canOpen(idx, 'pkg:p') && !C.canOpen(idx, 'fn:p/m.py::helper') && !C.canOpen(idx, 'ext:x'), 'canOpen: containers with content only');
+      const dt = C.details(idx, 'fn:p/m.py::helper');
+      ok(dt.rel.calledBy.indexOf('fn:p/m.py::C.run') >= 0 && dt.rel.calls.indexOf('fn:p/n.py::util') >= 0, 'details: callers and callees');
+      ok(C.details(idx, 'mod:p/m.py').purpose === 'the main file.', 'details: PURPOSE paragraph');
+      ok(C.details(idx, 'mod:p/m.py').rel.publishes.indexOf('topic:/t') >= 0, 'details: file publishes through its method');
+      ok(C.details(idx, 'topic:/t').rel.subscribers.indexOf('fn:q/k.py::serve') >= 0, 'details: topic subscribers');
+    });
+    run('layout', () => {
+      const views = [{ mode: 'drill', container: null }, { mode: 'drill', container: 'pkg:p' }, { mode: 'drill', container: 'mod:p/m.py' }, { mode: 'overview' }];
+      for (const v of views) {
+        const L = C.buildLevel(idx, v);
+        const sizes = new Map(L.items.map((it) => [it.id, { w: 120, h: 40 }]));
+        for (const engine of extra.dagre ? [null, extra.dagre] : [null]) {
+          const res = C.layoutLevel(L, sizes, engine, { onError: (err) => { out.lines.push('note: dagre failed on ' + (v.container || v.mode) + ': ' + err); } });
+          ok(L.items.every((it) => { const b = res.nodes.get(it.id); return b && isFinite(b.x) && isFinite(b.y); }), 'every block placed (' + (v.container || v.mode) + ', ' + res.engine + ')');
+          ok(L.edges.every((e) => { const g = res.edges.get(e.id); return g && g.points.length >= 2 && g.points.every(finitePt); }), 'every link routed (' + (v.container || v.mode) + ', ' + res.engine + ')');
+          ok(res.width > 0 && res.height > 0, 'layout has a size');
+        }
+      }
+      ok(C.pathD([{ x: 0, y: 0 }, { x: 10, y: 0 }]) === 'M0 0L10 0', 'straight path');
+      ok(C.pathD([{ x: 0, y: 0 }, { x: 5, y: 5 }, { x: 10, y: 0 }]).indexOf('Q') > 0, 'curved path');
+    });
+    run('glow', () => {
+      const st = new Map();
+      ok(near(C.strength(1), 0.45 + 0.55 * Math.log10(2) / 2), 'strength of one call');
+      ok(C.strength(100) === 1 && C.strength(10) > C.strength(1), 'more calls glow brighter');
+      C.bump(st, 'a', 1, 0, 1000);
+      const s = st.get('a');
+      ok(near(C.glowAt(s, 1000), C.strength(1) > 0 ? s.level : 0), 'glow right after the call');
+      ok(near(C.glowAt(s, 1750), s.level / 2, 1e-9), 'half faded after 0.75 s');
+      ok(C.glowAt(s, 2600) === 0, 'gone after 1.5 s');
+      C.bump(st, 'a', 50, 0.5, 1100);
+      ok(st.get('a').level > C.strength(1) && st.get('a').total === 51, 'second hit brighter, counted');
+      const r0 = C.rateAt(st.get('a'), 0.5);
+      ok(near(C.rateAt(st.get('a'), 3.5), r0 * Math.exp(-1), 1e-9), 'rate decays over 3 s');
+      const res = C.applyCalls(idx, st, { 'fn:p/m.py::C.run': 2, 'fn:p/m.py::C.run.inner': 1, 'fn:nope.py::x': 4 }, 1, 2000);
+      ok(res.hits.length === 1 && res.hits[0].count === 3 && res.unknown === 4 && res.total === 7, 'applyCalls merges and counts unknown');
+      ok(st.get('sys:a').total === 3 && st.get('mod:p/m.py').total === 3, 'parents count the calls');
+      ok(C.glowAt(st.get('pkg:p'), 2000) > 0, 'package glows too');
+      const q = C.applyCalls(idx, st, { 'fn:p/m.py::helper': 1 }, 2, null);
+      ok(q.hits.length === 1 && st.get('fn:p/m.py::helper').lastHit === -Infinity, 'quiet apply counts without glowing');
+      const pr = C.applyProcs(idx, ['mod:p/m.py', 'ext:x', 'mod:zzz']);
+      ok(pr.running.size === 2 && pr.desc.get('sys:a') === 1 && pr.unknown === 1, 'procs mark running blocks and parents');
+    });
+    run('events', () => {
+      ok(C.normalizeEvent({ event: 'calls', t: 1, calls: { a: 2 } }).calls.a === 2, 'calls event');
+      ok(C.normalizeEvent({ event: 'calls', data: { t: 1, calls: [['a', 2], ['a', 1]] } }).calls.a === 3, 'calls as pairs inside data');
+      ok(C.normalizeEvent({ t: 2, running: ['x'] }).event === 'procs', 'procs guessed from fields');
+      ok(C.normalizeEvent({ event: 'calls', calls: { a: 1 } }) === null, 'no time -> dropped');
+      ok(C.normalizeEvent({ event: 'calls', t: 1, calls: { a: 0 } }) === null, 'zero counts -> dropped');
+      ok(C.normalizeEvent('junk') === null && C.normalizeEvent(null) === null, 'junk dropped');
+      ok(C.normalizeEvent({ event: 'meta', note: 'hi' }).note === 'hi', 'meta note kept');
+      const evs = C.parseRecording('{"event":"meta","note":"x"}\n\n{"event":"calls","t":10,"calls":{"a":1}}\nnot json\n{"event":"procs","t":10.5,"running":["b"]}\n{"event":"calls","t":10.2,"calls":{"a":3}}');
+      ok(evs.length === 4, 'recording lines parsed, bad line skipped');
+      ok(C.parseRecording('[{"event":"calls","t":1,"calls":{"a":1}}]').length === 1, 'JSON array recording');
+      const r = C.createReplay(evs);
+      ok(r.events.length === 3 && r.metas.length === 1 && r.t0 === 10 && near(r.duration, 0.5), 'replay sorted');
+      const got = [];
+      C.replayAdvance(r, 0.25, 1, (e) => got.push(e.t));
+      ok(got.join(',') === '10,10.2', 'first 0.25 s emits two events: ' + got.join(','));
+      let st = C.replayAdvance(r, 1, 1, (e) => got.push(e.t));
+      ok(got.length === 3 && !st.done, 'third event, waiting for the tail');
+      st = C.replayAdvance(r, 5, 1, () => {});
+      ok(st.done, 'done after the tail');
+      const seen = [];
+      C.replaySeek(r, 10.3, (e) => seen.push(e.t));
+      ok(seen.join(',') === '10,10.2' && r.idx === 2, 'seek replays quietly up to the time');
+      const gap = C.createReplay([{ event: 'calls', t: 0, calls: { a: 1 } }, { event: 'calls', t: 100, calls: { a: 1 } }]);
+      const g2 = [];
+      C.replayAdvance(gap, 0.1, 1, (e) => g2.push(e.t));
+      C.replayAdvance(gap, 0.1, 1, (e) => g2.push(e.t));
+      ok(g2.length === 1 && gap.cur > 90, 'long quiet stretch skipped');
+      C.replayAdvance(gap, 0.5, 1, (e) => g2.push(e.t));
+      ok(g2.length === 2, 'event after the gap arrives');
+    });
+    run('search+format', () => {
+      const sx = C.searchIndex(idx);
+      const r = C.search(sx, 'help', 5);
+      ok(r.length && r[0].id === 'fn:p/m.py::helper', 'search finds helper first');
+      ok(C.search(sx, 'C.run', 5).some((x) => x.id === 'fn:p/m.py::C.run'), 'search by qualname');
+      ok(C.search(sx, '', 5).length === 0, 'empty search');
+      ok(C.fmtCount(999) === '999' && C.fmtCount(1234) === '1.2k' && C.fmtCount(45678) === '46k' && C.fmtCount(2500000) === '2.5M', 'fmtCount');
+      ok(C.fmtClock(65) === '1:05' && C.fmtClock(3725) === '1:02:05', 'fmtClock');
+      ok(C.fmtInt(1234567) === '1,234,567', 'fmtInt');
+      ok(C.fmtAgo(500) === 'now' && C.fmtAgo(5000) === '5 s', 'fmtAgo');
+      ok(C.purposeOf('x.py -- PURPOSE: does a\nthing.\n\nrest') === 'does a thing.', 'purposeOf');
+      ok(C.firstSentence('The first thing. Two things.') === 'The first thing.', 'firstSentence');
+      ok(C.firstSentence('Use e.g. the camera now. Then more.') === 'Use e.g. the camera now.', 'firstSentence keeps e.g.');
+      ok(C.fileTag('a/b.launch.py') === 'LAUNCH FILE' && C.fileTag('x.cs') === 'C# FILE', 'fileTag');
+    });
+    if (extra.sample) run('sample codemap', () => {
+      const sidx = C.buildIndex(extra.sample);
+      ok(sidx.nodes.size > 20, 'sample has nodes');
+      ok(sidx.unresolvedEdges === 0, 'every sample link resolves (' + sidx.unresolvedEdges + ' do not)');
+      const views = [{ mode: 'drill', container: null }, { mode: 'overview' }];
+      for (const [id, n] of sidx.nodes) if (C.DRILL_KINDS[n.kind] && C.canOpen(sidx, id)) views.push({ mode: 'drill', container: id });
+      for (const v of views) {
+        const L = C.buildLevel(sidx, v);
+        ok(L.items.length > 0, 'sample view has blocks: ' + (v.container || v.mode));
+        ok(L.edges.every((e) => L.itemMap.has(e.from) && L.itemMap.has(e.to)), 'sample links join blocks: ' + (v.container || v.mode));
+        const sizes = new Map(L.items.map((it) => [it.id, { w: 150, h: 46 }]));
+        const res = C.layoutLevel(L, sizes, extra.dagre || null, {});
+        ok(L.items.every((it) => res.nodes.has(it.id)), 'sample view laid out: ' + (v.container || v.mode) + ' (' + res.engine + ')');
+      }
+      if (extra.recording) {
+        const evs = C.parseRecording(extra.recording);
+        const calls = evs.filter((e) => e.event === 'calls');
+        ok(calls.length > 10, 'sample recording has call events');
+        const stats = new Map();
+        let unknown = 0;
+        for (const e of calls) unknown += C.applyCalls(sidx, stats, e.calls, e.t, null).unknown;
+        ok(unknown === 0, 'every recorded call matches the sample map (' + unknown + ' do not)');
+        const procs = evs.filter((e) => e.event === 'procs');
+        ok(procs.length > 0 && procs.every((e) => C.applyProcs(sidx, e.running).unknown === 0), 'every running program matches the sample map');
+      }
+    });
+    out.lines.unshift(out.failed ? out.failed + ' FAILED, ' + out.passed + ' passed' : 'all ' + out.passed + ' checks passed');
+    return out;
+  };
+
+  root.AstraCore = C;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
+<!-- ASTRA_EMBED -->
+<script id="astra-app">
+/* ------------------------------------------------------------------------------------------------------------
+   astra-app: everything on screen. It draws one level of the block diagram (SVG), handles clicks, keys, zoom
+   and pan, fills the side panel, and feeds live or recorded call events into the green glow.
+   Mode: window.ASTRA_CODEMAP present -> artifact (no network at all, replay of window.ASTRA_TRACE);
+         otherwise -> localhost (GET /codemap.json, EventSource /events, replays from /recordings).
+   ------------------------------------------------------------------------------------------------------------ */
+(function () {
+  'use strict';
+  const Core = window.AstraCore;
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const f1 = (n) => Math.round(n * 10) / 10;
+  const LIVE_CMD = 'bash simulation/scripts/demo_traced.sh';
+  const LIVE_URL = 'http://127.0.0.1:8090/';
+
+  const FONT = {
+    label: '400 12.5px "B612", "Segoe UI", system-ui, sans-serif',
+    labelBig: '700 14px "B612", "Segoe UI", system-ui, sans-serif',
+    sub: '400 10.5px "B612 Mono", ui-monospace, Consolas, monospace',
+    tag: '400 9.5px "B612 Mono", ui-monospace, Consolas, monospace',
+    edge: '400 10.5px "B612 Mono", ui-monospace, Consolas, monospace',
+    badge: '700 10.5px "B612 Mono", ui-monospace, Consolas, monospace',
+    badgeSmall: '700 9.5px "B612 Mono", ui-monospace, Consolas, monospace'
+  };
+  // Block sizes per kind (height, narrowest, widest). "compact" blocks (functions) have no tag line.
+  const GEOM = {
+    system: { h: 62, min: 170, max: 290 },
+    external: { h: 58, min: 160, max: 260 },
+    'package': { h: 60, min: 150, max: 260, top: 6 },
+    module: { h: 54, min: 140, max: 260 },
+    'class': { h: 52, min: 130, max: 250 },
+    fn: { h: 40, min: 110, max: 250, compact: true },
+    fnTall: { h: 52, min: 130, max: 250 },
+    topic: { h: 46, min: 130, max: 250, inset: 6 },
+    group: { h: 52, min: 140, max: 220 }
+  };
+  const KIND_TEXT = {
+    system: 'A big part of the whole setup, for example the team code that flies on the drone or the simulator.',
+    external: 'A program we use but did not write, such as Gazebo, ArduPilot SITL, MAVProxy, MAVROS or Mission Planner.',
+    'package': 'A folder of code that is built and installed together (a ROS 2 package, or a folder of scripts).',
+    module: 'One file: Python, shell script, launch file, C# plugin, config ...',
+    'class': 'A blueprint that groups functions (its methods) and the data they share.',
+    'function': 'A named step of code. When it runs, its block flashes green.',
+    method: 'A function that belongs to a class.',
+    topic: 'A named ROS 2 message channel. Programs publish (send) and subscribe (listen) on it.'
+  };
+  const EDGE_TEXT = {
+    calls: 'one function asks another to do something',
+    imports: 'a file uses code from another file',
+    publishes: 'sends messages on a ROS topic',
+    subscribes: 'listens to a ROS topic',
+    launches: 'a launch file starts this program',
+    runs: 'a script starts this program',
+    mavlink: 'the drone radio language between autopilot and ground station',
+    http: 'web requests, for example photo downloads from the camera',
+    data: 'other data flowing between programs (named on the line)'
+  };
+
+  const S = {
+    mode: null, codemap: null, idx: null, sidx: null, sample: false,
+    view: { mode: 'drill', container: null }, lastDrill: { mode: 'drill', container: null },
+    level: null, layout: null, elements: new Map(), edgeEls: new Map(), clusterEls: new Map(), order: [], crumbs: [],
+    sel: null, focusEl: null, showTests: false, follow: false, lastFollow: 0,
+    stats: new Map(), vstats: new Map(), running: new Set(), runDesc: new Map(), procsWall: 0, runDirty: true,
+    ticker: [], tickerDirty: false, tickerAt: 0, countsAt: 0,
+    tab: 'live', replay: null, playing: false, speed: 1, loop: true, recName: '',
+    es: null, esRetry: 0, connected: false, callsSeen: 0, unknownCalls: 0, lastEventWall: 0, lastEventT: 0,
+    tf: { x: 0, y: 0, k: 1 }, tween: 0, reducedMotion: false, lastFrame: 0, frameReq: 0, fontsAtRender: true
+  };
+
+  let measureCtx = null;
+  try { measureCtx = document.createElement('canvas').getContext('2d'); } catch (e) { measureCtx = null; }
+  function textW(text, font) {
+    text = String(text == null ? '' : text);
+    if (!measureCtx) return text.length * 7;
+    measureCtx.font = font;
+    return measureCtx.measureText(text).width;
+  }
+  function clipText(text, font, maxW) {
+    text = String(text || '');
+    if (textW(text, font) <= maxW) return text;
+    let lo = 0, hi = text.length;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (textW(text.slice(0, mid) + '…', font) <= maxW) lo = mid; else hi = mid - 1; }
+    return text.slice(0, Math.max(1, lo)) + '…';
+  }
+  // Small DOM helpers. Text from the code map always goes in through textContent (never as HTML).
+  function h(tag, attrs, kids) {
+    const el = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      const v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'text') el.textContent = v;
+      else if (k === 'hidden') el.hidden = true;
+      else if (k.slice(0, 2) === 'on' && typeof v === 'function') el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : String(v));
+    }
+    if (kids != null) add(el, kids);
+    return el;
+  }
+  function add(el, kids) {
+    for (const c of (Array.isArray(kids) ? kids : [kids])) {
+      if (c == null || c === false) continue;
+      el.appendChild(typeof c === 'string' || typeof c === 'number' ? document.createTextNode(String(c)) : c);
+    }
+    return el;
+  }
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVGNS, tag);
+    if (attrs) for (const k in attrs) if (attrs[k] != null) el.setAttribute(k, String(attrs[k]));
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  function announce(text) { const a = $('announce'); if (a) a.textContent = text; }
+  const kindWord = (k) => Core.KIND_WORD[k] || k || 'block';
+  const cap1 = (s) => String(s || '').charAt(0).toUpperCase() + String(s || '').slice(1);
+  const safeKind = (k) => (Core.EDGE_WORD[k] ? k : 'data');
+
+  /* ================================ boot ================================ */
+
+  function boot() {
+    const mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    S.reducedMotion = !!(mq && mq.matches);
+    if (mq && mq.addEventListener) mq.addEventListener('change', () => { S.reducedMotion = mq.matches; });
+    buildDefs();
+    buildLegend();
+    wireToolbar();
+    wireStage();
+    wireSearch();
+    wireTransport();
+    wirePanelClicks();
+    document.addEventListener('keydown', onGlobalKey);
+    setInterval(slowTick, 1000);
+    setInterval(followTick, 2000);
+    try { if (window.localStorage && localStorage.getItem('astra-codemap-legend') === 'open') toggleLegend(true); } catch (e) { /* storage blocked: fine */ }
+    if (window.ASTRA_CODEMAP && typeof window.ASTRA_CODEMAP === 'object') bootArtifact();
+    else bootLocal();
+  }
+
+  // Artifact mode: everything is embedded; never touch the network.
+  function bootArtifact() {
+    S.mode = 'artifact';
+    $('tab-live').hidden = true;
+    $('tab-replay').textContent = 'Recorded run';
+    $('rec-select').hidden = true;
+    setPill('replay', 'Recorded run');
+    whenFontsReady().then(() => {
+      loadCodemap(window.ASTRA_CODEMAP);
+      setTab('replay', { quiet: true });
+      const evs = Core.normalizeEvents(Array.isArray(window.ASTRA_TRACE) ? window.ASTRA_TRACE : []);
+      setupReplay(evs, 'the embedded recording');
+      if (S.replay && S.replay.events.length) play();
+    }).catch(fatal);
+  }
+
+  // Localhost mode: the code map server (server.py) serves this page, /codemap.json and /events.
+  function bootLocal() {
+    S.mode = 'live';
+    setPill('waiting', 'Loading');
+    getJson('/codemap.json').then((cm) => ({ cm: cm, sample: cm && cm.sample === true }), (err1) =>
+      getJson('sample_codemap.json').then((cm) => ({ cm: cm, sample: true }), () => { throw err1; })
+    ).then((got) => whenFontsReady().then(() => {
+      try {
+        S.sample = got.sample;
+        loadCodemap(got.cm);
+        setTab('live', { quiet: true });
+        startLive();
+      } catch (err) { fatal(err); }   // the map loaded but could not be drawn: say so, not "no code map"
+    })).catch((err) => showLoadError(err));
+  }
+
+  function getJson(url) {
+    if (S.mode === 'artifact') return Promise.reject(new Error('the artifact makes no network requests'));
+    return fetch(url, { cache: 'no-store' }).then((r) => {
+      if (!r.ok) throw new Error(url + ' answered HTTP ' + r.status);
+      return r.json();
+    });
+  }
+  function getText(url) {
+    if (S.mode === 'artifact') return Promise.reject(new Error('the artifact makes no network requests'));
+    return fetch(url, { cache: 'no-store' }).then((r) => {
+      if (!r.ok) throw new Error(url + ' answered HTTP ' + r.status);
+      return r.text();
+    });
+  }
+
+  function whenFontsReady() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    const loads = Promise.all([
+      document.fonts.load('400 12.5px "B612"'), document.fonts.load('700 14px "B612"'), document.fonts.load('400 10.5px "B612 Mono"')
+    ]).catch(() => null);
+    return Promise.race([loads, new Promise((r) => setTimeout(r, 1800))]).then(() => {
+      S.fontsAtRender = document.fonts.check ? document.fonts.check('12.5px "B612"') : true;
+      if (!S.fontsAtRender && document.fonts.ready) {
+        // the fonts arrived late: measure and draw the current view again so labels fit their blocks
+        document.fonts.ready.then(() => { if (S.idx && !S.fontsAtRender) { S.fontsAtRender = true; setView(S.view, { keepTransform: true }); } });
+      }
+    });
+  }
+
+  function loadCodemap(cm) {
+    if (!cm || !Array.isArray(cm.nodes)) throw new Error('this does not look like a codemap.json (no "nodes" list)');
+    S.codemap = cm;
+    S.idx = Core.buildIndex(cm);
+    S.sidx = Core.searchIndex(S.idx);
+    S.sample = S.sample || cm.sample === true;
+    $('sample-chip').hidden = !S.sample;
+    const c = S.idx.counts;
+    const fns = (c['function'] || 0) + (c.method || 0);
+    const chip = $('data-chip');
+    chip.textContent = Core.fmtInt(fns) + ' functions · ' + Core.fmtInt(c.module || 0) + ' files' + (cm.commit ? ' · commit ' + cm.commit : '');
+    chip.title = 'Code map ' + (cm.generated ? 'made ' + cm.generated : '') + (S.idx.unresolvedEdges ? '; ' + S.idx.unresolvedEdges + ' links point at nothing and are skipped' : '');
+    setStageMsg(null);
+    setView({ mode: 'drill', container: null }, { instant: true });
+  }
+
+  function fatal(err) {
+    console.error(err);
+    setPill('error', 'Error');
+    const box = h('div', { class: 'box' }, [
+      h('h2', { text: 'The code map could not be drawn' }),
+      h('p', { text: String(err && err.message || err) }),
+      h('p', { class: 'muted', text: 'Reload the page. If it keeps happening, the code map file may be damaged: run the extractor again (see simulation/codemap/README.md).' })
+    ]);
+    setStageMsg(box);
+  }
+
+  function showLoadError(err) {
+    setPill('error', 'No code map');
+    const input = h('input', { type: 'file', id: 'file-open', accept: '.json,.jsonl,application/json', multiple: true });
+    input.addEventListener('change', () => openLocalFiles(input.files));
+    const box = h('div', { class: 'box' }, [
+      h('h2', { text: 'No code map here yet' }),
+      h('p', null, ['This page could not load ', h('code', { text: '/codemap.json' }), ' (' + String(err && err.message || err) + ').']),
+      h('p', null, ['To watch the simulator live: in Ubuntu run ', h('code', { text: LIVE_CMD }), ' (it starts the code map server), then open ', h('code', { text: LIVE_URL }), '.']),
+      h('p', null, ['Or open a ', h('code', { text: 'codemap.json' }), ' (and, if you have one, a recording ', h('code', { text: '.jsonl' }), ') from your computer:']),
+      h('p', null, [h('label', { class: 'sr-only', for: 'file-open', text: 'Choose a codemap.json and an optional recording' }), input])
+    ]);
+    setStageMsg(box);
+  }
+  // Read a codemap.json (and an optional recording) chosen from the computer. No network needed.
+  function openLocalFiles(files) {
+    const list = Array.from(files || []);
+    const readOne = (file) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve({ file: file, text: String(fr.result || '') }); fr.onerror = () => reject(fr.error); fr.readAsText(file); });
+    Promise.all(list.map(readOne)).then((got) => {
+      let cm = null, rec = null, recName = '';
+      for (const g of got) {
+        const t = g.text.trim();
+        if (!cm && t[0] === '{') { try { const o = JSON.parse(t); if (o && Array.isArray(o.nodes)) { cm = o; continue; } } catch (e) { /* maybe JSON lines */ } }
+        const evs = Core.parseRecording(t);
+        if (evs.length) { rec = evs; recName = g.file.name; }
+      }
+      if (!cm) throw new Error('none of the chosen files is a codemap.json');
+      S.mode = 'file';
+      if (S.es) { S.es.close(); S.es = null; }
+      return whenFontsReady().then(() => {
+        loadCodemap(cm);
+        $('tab-live').hidden = true;
+        $('rec-select').hidden = true;
+        setTab('replay', { quiet: true });
+        setupReplay(rec || [], recName || 'no recording chosen');
+        if (S.replay.events.length) play();
+      });
+    }).catch((err) => { const box = $('stage-msg').querySelector('.box'); if (box) add(box, h('p', { class: 'muted', text: 'Could not open those files: ' + (err && err.message || err) })); });
+  }
+
+  function setStageMsg(content) {
+    const m = $('stage-msg');
+    m.textContent = '';
+    if (content == null) { m.hidden = true; return; }
+    m.hidden = false;
+    add(m, typeof content === 'string' ? h('div', { text: content }) : content);
+  }
+  function setPill(state, text) {
+    $('mode-pill').setAttribute('data-state', state);
+    $('mode-text').textContent = text;
+  }
+
+  /* ================================ views ================================ */
+
+  function sameView(a, b) { return a && b && a.mode === b.mode && (a.mode === 'overview' || (a.container || null) === (b.container || null)); }
+
+  // Build, lay out and draw one view. opts: focusId, keep, instant, keepTransform
+  function setView(view, opts) {
+    opts = opts || {};
+    if (!opts.keepTransform) S.userMoved = false;
+    S.view = view.mode === 'overview' ? { mode: 'overview' } : { mode: 'drill', container: view.container || null };
+    if (S.view.mode === 'drill') S.lastDrill = S.view;
+    const level = Core.buildLevel(S.idx, S.view, { showTests: S.showTests, keep: opts.keep || (S.sel && S.sel.node ? [S.sel.node] : []) });
+    const sizes = new Map();
+    for (const it of level.items) sizes.set(it.id, prepareItem(it));
+    const labelSizes = new Map();
+    const many = level.edges.length > 60;
+    for (const e of level.edges) {
+      e.text = Core.clip(e.label, 42);
+      e.always = !many || (e.priority >= 2 && level.edges.length <= 160);
+      if (e.always && e.text) labelSizes.set(e.id, { w: Math.ceil(textW(e.text, FONT.edge)) + 14, h: 18 });
+    }
+    let layoutError = null;
+    const lay = Core.layoutLevel(level, sizes, window.dagre, { labelSizes: labelSizes, onError: (err) => { layoutError = err; console.warn('dagre layout failed; using the simple layout', err); } });
+    S.level = level;
+    S.layout = lay;
+    S.vstats = new Map();
+    if (S.sel && S.sel.el && !level.itemMap.has(S.sel.el)) S.sel = S.sel.node ? { el: level.repOf(S.sel.node), node: S.sel.node } : null;
+    // keyboard users keep their place: if a block had the focus, the new view's current block gets it
+    const ae = document.activeElement;
+    const hadFocus = !!(ae && ae.closest && ae.closest('#svg'));
+    renderDiagram(level, lay);
+    if (hadFocus && S.focusEl) focusElement(S.focusEl);
+    renderCrumbs();
+    $('btn-drill').setAttribute('aria-pressed', String(S.view.mode === 'drill'));
+    $('btn-overview').setAttribute('aria-pressed', String(S.view.mode === 'overview'));
+    $('btn-up').disabled = S.view.mode === 'drill' && !S.view.container;
+    $('svg').setAttribute('aria-label', 'Block diagram: ' + level.title + ', ' + level.levelName);
+    const info = [Core.plural(level.items.length, 'block'), Core.plural(level.edges.length, 'link')];
+    if (level.hiddenTests) info.push(level.hiddenTests + ' test' + (level.hiddenTests === 1 ? '' : 's') + ' hidden');
+    if (level.folded) info.push(level.folded + ' folded into a group');
+    if (level.topicsFolded) info.push(level.topicsFolded + ' topics not drawn');
+    if (lay.engine !== 'dagre' && lay.engine !== 'grid' && level.items.length) info.push(layoutError ? 'simple layout (dagre failed)' : 'simple layout (layout library not loaded)');
+    $('level-info').textContent = info.join(' · ');
+    if (!level.items.length) {
+      const cn = level.containerId ? S.idx.nodes.get(level.containerId) : null;
+      setStageMsg(cn && cn.kind === 'module'
+        ? 'This file has no functions or classes (a config, launch or text file, for example). Its details are in the panel.'
+        : 'Nothing to draw here' + (level.hiddenTests ? ' (only tests: tick "Show tests")' : '') + '.');
+      if (level.containerId && (!S.sel || S.sel.node !== level.containerId)) { S.sel = { el: null, node: level.containerId }; }
+    } else if (!$('stage-msg').querySelector('.box')) setStageMsg(null);
+    markSelection();
+    if (S.sel && S.sel.node) renderPanelNode(S.sel.node); else if (S.sel && S.sel.el) renderPanelGroup(S.sel.el); else renderPanelRest();
+    if (opts.keepTransform) applyTransform();
+    else if (opts.focusId && level.repOf(opts.focusId)) centerOn(level.repOf(opts.focusId), !opts.instant);
+    else fit(!opts.instant);
+    S.runDirty = true;
+    S.countsAt = 0;
+    announce('Showing ' + level.title + ': ' + Core.plural(level.items.length, 'block') + '.');
+    requestFrame();
+  }
+
+  function geomFor(it) {
+    if (it.role === 'group' || it.role === 'ghostgroup') return GEOM.group;
+    const k = it.role === 'header' ? (it.kind === 'class' ? 'class' : 'system') : it.kind;
+    if (k === 'function' || k === 'method') return it.role === 'member' ? GEOM.fn : GEOM.fnTall;
+    return GEOM[k] || GEOM.module;
+  }
+  function shapeKind(it) {
+    if (it.role === 'group' || it.role === 'ghostgroup') return 'group';
+    if (it.role === 'header') return it.kind === 'class' ? 'class' : 'system';
+    const known = !!GEOM[it.kind] || it.kind === 'function' || it.kind === 'method';
+    return known ? it.kind : 'module';
+  }
+  // Work out the three text lines of a block and its size.
+  function prepareItem(it) {
+    const g = geomFor(it), sk = shapeKind(it);
+    const tag = g.compact ? '' : Core.tagLine(S.idx, it);
+    const full = Core.displayLabel(S.idx, it);
+    const font = sk === 'system' ? FONT.labelBig : FONT.label;   // matches the CSS: system labels are 14px bold
+    const room = g.max - 28 - (g.inset || 0) * 2;
+    const label = clipText(full, font, room);
+    const sub = clipText(Core.subLine(S.idx, it), FONT.sub, room);
+    const need = Math.max(textW(label, font), textW(sub, FONT.sub), textW(tag, FONT.tag)) + 28 + (g.inset || 0) * 2;
+    const w = Math.ceil(Math.max(g.min, Math.min(g.max, need)));
+    it.view = { tag: tag, label: label, full: full, sub: sub, font: font, w: w, h: g.h, g: g, sk: sk };
+    return { w: w, h: g.h };
+  }
+
+  function shapeFor(kind, w, h) {
+    switch (kind) {
+      case 'system': return { tag: 'rect', attrs: { width: w, height: h, rx: 12 } };
+      case 'external': return { tag: 'rect', attrs: { width: w, height: h, rx: 3 } };
+      case 'package': {
+        const t = 6, tw = Math.min(64, w * 0.38);
+        return { tag: 'path', attrs: { d: 'M0 4Q0 0 4 0H' + f1(tw) + 'L' + f1(tw + 7) + ' ' + t + 'H' + f1(w - 4) + 'Q' + f1(w) + ' ' + t + ' ' + f1(w) + ' ' + (t + 4) + 'V' + f1(h - 4) + 'Q' + f1(w) + ' ' + f1(h) + ' ' + f1(w - 4) + ' ' + f1(h) + 'H4Q0 ' + f1(h) + ' 0 ' + f1(h - 4) + 'Z' } };
+      }
+      case 'module': return { tag: 'path', attrs: { d: 'M0 3Q0 0 3 0H' + f1(w - 11) + 'L' + f1(w) + ' 11V' + f1(h - 3) + 'Q' + f1(w) + ' ' + f1(h) + ' ' + f1(w - 3) + ' ' + f1(h) + 'H3Q0 ' + f1(h) + ' 0 ' + f1(h - 3) + 'Z' } };
+      case 'class': return { tag: 'rect', attrs: { width: w, height: h, rx: 2 } };
+      case 'function': case 'method': return { tag: 'rect', attrs: { width: w, height: h, rx: 8 } };
+      case 'topic': return { tag: 'path', attrs: { d: 'M9 0H' + f1(w) + 'L' + f1(w - 9) + ' ' + f1(h) + 'H0Z' } };
+      default: return { tag: 'rect', attrs: { width: w, height: h, rx: 6 } };
+    }
+  }
+
+  function buildDefs() {
+    const defs = $('defs');
+    for (const k of Core.EDGE_KINDS) {
+      const m = svgEl('marker', { id: 'mk-' + k, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 9, markerHeight: 9, markerUnits: 'userSpaceOnUse', orient: 'auto-start-reverse' }, defs);
+      svgEl('path', { class: 'mk mk-' + k, d: 'M0 0L10 5L0 10z' }, m);
+    }
+  }
+
+  function renderDiagram(level, lay) {
+    const vp = $('viewport');
+    vp.textContent = '';
+    hideTooltip();
+    S.elements = new Map(); S.edgeEls = new Map(); S.clusterEls = new Map();
+    const gC = svgEl('g', { class: 'clusters' }, vp), gE = svgEl('g', { class: 'edges' }, vp);
+    const gL = svgEl('g', { class: 'elabels' }, vp), gN = svgEl('g', { class: 'nodes' }, vp);
+    // class / system boxes, biggest first so nested boxes sit on top
+    const cls = level.clusters.slice().sort((a, b) => { const A = lay.clusters.get(a.id), B = lay.clusters.get(b.id); return (B ? B.w * B.h : 0) - (A ? A.w * A.h : 0); });
+    for (const c of cls) {
+      const b = lay.clusters.get(c.id);
+      if (!b) continue;
+      const n = S.idx.nodes.get(c.nodeId);
+      const cg = svgEl('g', { class: 'cluster ck-' + (n ? n.kind : 'class'), 'data-node': c.nodeId }, gC);
+      svgEl('rect', { x: f1(b.x), y: f1(b.y), width: f1(b.w), height: f1(b.h), rx: 10 }, cg);
+      const name = n && n.kind === 'class' ? 'class ' + Core.parseId(c.nodeId).qual.split('.').pop() : String(Core.labelOf(S.idx, c.nodeId)).toUpperCase();
+      svgEl('text', { class: 'cl-label', x: f1(b.x + 10), y: f1(b.y + 15) }, cg).textContent = clipText(name, FONT.badge, Math.max(40, b.w - 20));
+      S.clusterEls.set(c.id, { g: cg, c: c });
+    }
+    if (lay.looseY != null) svgEl('text', { class: 'loose-cap', x: f1(lay.looseX), y: f1(lay.looseY) }, vp).textContent = 'Not linked to anything else in this view:';
+    for (const e of level.edges) {
+      const L = lay.edges.get(e.id);
+      if (!L) continue;
+      const k = safeKind(e.kind);
+      const p = svgEl('path', { class: 'edge e-' + k, d: Core.pathD(L.points), 'marker-end': 'url(#mk-' + k + ')' }, gE);
+      // hovering a line or its label shows the whole text (labels on the drawing are cut at 42 characters)
+      const full = edgeTitle(e);
+      svgEl('title', null, p).textContent = full;
+      let lab = null;
+      if (e.text) {
+        const pos = L.reserved ? { x: L.lx, y: L.ly } : Core.midPoint(L.points);
+        lab = svgEl('g', { class: 'elabel ' + (e.always ? 'lbl-on' : 'lbl-auto'), transform: 'translate(' + f1(pos.x) + ',' + f1(pos.y) + ')' }, gL);
+        svgEl('title', null, lab).textContent = full;
+        const tw = Math.ceil(textW(e.text, FONT.edge)) + 10;
+        svgEl('rect', { x: f1(-tw / 2), y: -9, width: tw, height: 18, rx: 4 }, lab);
+        svgEl('text', { x: 0, y: 3.5, 'text-anchor': 'middle' }, lab).textContent = e.text;
+      }
+      S.edgeEls.set(e.id, { path: p, label: lab, edge: e });
+    }
+    const ordered = level.items.filter((it) => lay.nodes.has(it.id)).sort((a, b) => { const A = lay.nodes.get(a.id), B = lay.nodes.get(b.id); return (A.x - B.x) || (A.y - B.y); });
+    for (const it of ordered) S.elements.set(it.id, buildNode(it, lay.nodes.get(it.id), gN));
+    S.order = ordered.map((it) => it.id);
+    const first = S.sel && S.sel.el && S.elements.has(S.sel.el) ? S.sel.el : S.order[0];
+    setRoving(first || null);
+  }
+
+  // The full words of one link line: who talks to whom, how, and every label it carries.
+  function edgeTitle(e) {
+    const name = (id) => { const it = S.level.itemMap.get(id); return it && it.view ? it.view.full : id; };
+    const kinds = Object.keys(e.kinds).map((k) => (Core.EDGE_WORD[k] || k) + (e.kinds[k] > 1 ? ' ×' + e.kinds[k] : '')).join(', ');
+    const extra = e.labels.length ? '\n' + e.labels.join('\n') : '';
+    const topics = e.topics.length ? '\nROS topics: ' + e.topics.map((t) => Core.labelOf(S.idx, t)).join(', ') : '';
+    const ends = e.ends.length ? '\nfunctions: ' + e.ends.map((id) => Core.shortName(S.idx, id) + '()').join(', ') : '';
+    return name(e.from) + ' → ' + name(e.to) + ' (' + kinds + ')' + extra + topics + ends;
+  }
+
+  function buildNode(it, box, parent) {
+    const v = it.view, w = box.w, hh = box.h, g = v.g;
+    const el = svgEl('g', { class: 'node k-' + v.sk + ' r-' + it.role, transform: 'translate(' + f1(box.x) + ',' + f1(box.y) + ')', 'data-el': it.id, role: 'button', tabindex: -1, 'aria-label': ariaFor(it) }, parent);
+    const halo = svgEl('rect', { class: 'halo', x: -5, y: -5, width: f1(w + 10), height: f1(hh + 10), rx: 12 }, el);
+    if (v.sk === 'group') {
+      svgEl('rect', { class: 'stack', x: 6, y: -6, width: f1(w), height: f1(hh), rx: 6 }, el);
+      svgEl('rect', { class: 'stack', x: 3, y: -3, width: f1(w), height: f1(hh), rx: 6 }, el);
+    }
+    const sh = shapeFor(v.sk, w, hh);
+    svgEl(sh.tag, Object.assign({ class: 'shape' }, sh.attrs), el);
+    const glow = svgEl(sh.tag, Object.assign({ class: 'glow' }, sh.attrs), el);
+    if (v.sk === 'module') svgEl('path', { class: 'fold', d: 'M' + f1(w - 11) + ' 0V11H' + f1(w) }, el);
+    const x = 12 + (g.inset || 0), top = g.top || 0;
+    if (g.compact) {
+      svgEl('text', { class: 'nlabel', x: x, y: 17 }, el).textContent = v.label;
+      svgEl('text', { class: 'nsub', x: x, y: 31 }, el).textContent = v.sub;
+    } else {
+      svgEl('text', { class: 'ntag', x: x, y: top + 15 }, el).textContent = v.tag;
+      svgEl('text', { class: 'nlabel', x: x, y: top + 32 }, el).textContent = v.label;
+      svgEl('text', { class: 'nsub', x: x, y: top + 47 }, el).textContent = v.sub;
+    }
+    const cnt = svgEl('g', { class: 'badge count' }, el);
+    const cntRect = svgEl('rect', { x: f1(w - 34), y: -9, width: 28, height: 18, rx: 9 }, cnt);
+    const cntText = svgEl('text', { x: f1(w - 20), y: 4, 'text-anchor': 'middle' }, cnt);
+    const run = svgEl('g', { class: 'badge run' }, el);
+    const runRect = svgEl('rect', { x: 8, y: -9, width: 80, height: 18, rx: 9 }, run);
+    svgEl('circle', { cx: 18, cy: 0, r: 3.5 }, run);
+    const runText = svgEl('text', { x: 26, y: 3.5 }, run);
+    return { id: it.id, item: it, g: el, glow: glow, halo: halo, box: box, cntRect: cntRect, cntText: cntText, runRect: runRect, runText: runText, shown: -1, lastTotal: -1, lastRun: null };
+  }
+
+  function ariaFor(it) {
+    const v = it.view;
+    let kind = it.role === 'group' ? 'Group' : it.role === 'ghostgroup' ? 'Outside group' : cap1(kindWord(it.kind));
+    if (it.role === 'ghost') kind += ' outside this view';
+    let s = kind + ': ' + v.full + '. ' + (v.sub ? v.sub + '. ' : '');
+    s += 'Enter for details' + (it.nodeId && it.role === 'member' && Core.canOpen(S.idx, it.nodeId) ? ', Enter again to open it.' : '.');
+    return s;
+  }
+
+  /* ---------- breadcrumbs ---------- */
+
+  function renderCrumbs() {
+    const nav = $('crumbs');
+    nav.textContent = '';
+    S.crumbs = [];
+    const addCrumb = (label, nodeId, view, current) => {
+      if (S.crumbs.length) nav.appendChild(h('span', { class: 'crumb-sep', 'aria-hidden': 'true', text: '›' }));
+      const b = h('button', { type: 'button', class: 'crumb' + (current ? ' is-current' : ''), 'aria-current': current ? 'page' : null, title: current ? 'You are here' : 'Go to ' + label }, [h('span', { class: 'crumb-t', text: label }), h('span', { class: 'crumb-n' })]);
+      if (!current) b.addEventListener('click', () => { manualNav(); setView(view); });
+      nav.appendChild(b);
+      S.crumbs.push({ el: b, nodeId: nodeId, num: b.lastChild, shown: -1, lastTotal: -1 });
+    };
+    if (S.view.mode === 'overview') { addCrumb('Overview: systems and their packages', null, S.view, true); return; }
+    addCrumb('All systems', null, { mode: 'drill', container: null }, !S.view.container);
+    if (S.view.container) {
+      const ch = Core.chainOf(S.idx, S.view.container).slice().reverse();
+      ch.forEach((id, i) => addCrumb(Core.labelOf(S.idx, id), id, { mode: 'drill', container: id }, i === ch.length - 1));
+    }
+  }
+
+  /* ================================ zoom and pan ================================ */
+
+  function applyTransform() {
+    const t = S.tf;
+    $('viewport').setAttribute('transform', 'translate(' + f1(t.x) + ',' + f1(t.y) + ') scale(' + (Math.round(t.k * 1000) / 1000) + ')');
+    const st = $('stage');
+    let gs = 24 * t.k;
+    while (gs < 10) gs *= 5;
+    while (gs > 120) gs /= 5;
+    st.style.setProperty('--gs', f1(gs) + 'px');
+    st.style.setProperty('--gx', f1(t.x) + 'px');
+    st.style.setProperty('--gy', f1(t.y) + 'px');
+  }
+  function stageSize() { const r = $('stage').getBoundingClientRect(); return { w: Math.max(50, r.width), h: Math.max(50, r.height), left: r.left, top: r.top }; }
+  function animateTo(target, animate) {
+    cancelAnimationFrame(S.tween);
+    if (!animate || S.reducedMotion) { S.tf = target; applyTransform(); return; }
+    const from = Object.assign({}, S.tf), t0 = performance.now(), dur = 280;
+    const stepFn = (now) => {
+      const u = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - u, 3);
+      S.tf = { x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e, k: from.k + (target.k - from.k) * e };
+      applyTransform();
+      if (u < 1) S.tween = requestAnimationFrame(stepFn);
+    };
+    S.tween = requestAnimationFrame(stepFn);
+  }
+  function fit(animate) {
+    const lay = S.layout;
+    if (!lay || !lay.width) { S.tf = { x: 0, y: 0, k: 1 }; applyTransform(); return; }
+    const s = stageSize(), pad = 24;
+    // big views (the overview is ~13,000 px wide) may need a very small zoom to fit; zoom in to read
+    const k = Math.max(0.04, Math.min(1.3, (s.w - pad * 2) / lay.width, (s.h - pad * 2 - 26) / lay.height));
+    animateTo({ k: k, x: (s.w - lay.width * k) / 2, y: Math.max(pad, (s.h - 26 - lay.height * k) / 2) }, animate);
+  }
+  function centerOn(elId, animate) {
+    const b = S.layout && S.layout.nodes.get(elId);
+    if (!b) { fit(animate); return; }
+    const s = stageSize();
+    const k = Math.max(0.7, Math.min(1.25, S.tf.k));
+    animateTo({ k: k, x: s.w / 2 - (b.x + b.w / 2) * k, y: s.h / 2 - (b.y + b.h / 2) * k }, animate);
+  }
+  function zoomAt(cx, cy, factor) {
+    S.userMoved = true;   // the user chose this view: a window resize should not re-fit it
+    const t = S.tf, k = Math.max(0.04, Math.min(3, t.k * factor)), r = k / t.k;
+    S.tf = { k: k, x: cx - (cx - t.x) * r, y: cy - (cy - t.y) * r };
+    applyTransform();
+  }
+  function zoomBy(factor) { const s = stageSize(); zoomAt(s.w / 2, s.h / 2, factor); }
+  function ensureVisible(elId) {
+    const b = S.layout && S.layout.nodes.get(elId);
+    if (!b) return;
+    const s = stageSize(), t = S.tf;
+    const x0 = t.x + b.x * t.k, y0 = t.y + b.y * t.k, x1 = x0 + b.w * t.k, y1 = y0 + b.h * t.k;
+    if (x0 < 8 || y0 < 8 || x1 > s.w - 8 || y1 > s.h - 8) centerOn(elId, true);
+  }
+
+  /* ================================ pointer and keys on the chart ================================ */
+
+  function wireStage() {
+    const st = $('stage'), svg = $('svg');
+    const ptrs = new Map();
+    let drag = null, pinch = null, lastTap = { id: null, t: 0 };
+    const targetOf = (ev) => {
+      const t = ev.target;
+      if (!t || !t.closest) return null;
+      const n = t.closest('.node');
+      if (n) return { type: 'node', id: n.getAttribute('data-el') };
+      const c = t.closest('.cluster');
+      if (c) return { type: 'cluster', id: c.getAttribute('data-node') };
+      return null;
+    };
+    st.addEventListener('pointerdown', (ev) => {
+      if (ev.target.closest && (ev.target.closest('.legend') || ev.target.closest('.stage-msg .box'))) return;
+      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try { st.setPointerCapture(ev.pointerId); } catch (e) { /* not supported: fine */ }
+      hideTooltip();
+      if (ptrs.size === 1) drag = { x0: ev.clientX, y0: ev.clientY, tx: S.tf.x, ty: S.tf.y, moved: false, target: targetOf(ev) };
+      else if (ptrs.size === 2) {
+        const p = Array.from(ptrs.values());
+        pinch = { d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1, k: S.tf.k };
+        drag = null;
+      }
+    });
+    st.addEventListener('pointermove', (ev) => {
+      if (!ptrs.has(ev.pointerId)) { if (ev.pointerType === 'mouse') hoverTooltip(ev); return; }
+      ptrs.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (pinch && ptrs.size >= 2) {
+        const p = Array.from(ptrs.values()), s = stageSize();
+        const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1;
+        const cx = (p[0].x + p[1].x) / 2 - s.left, cy = (p[0].y + p[1].y) / 2 - s.top;
+        zoomAt(cx, cy, (pinch.k * d / pinch.d) / S.tf.k);
+        return;
+      }
+      if (!drag) return;
+      const dx = ev.clientX - drag.x0, dy = ev.clientY - drag.y0;
+      if (!drag.moved && Math.hypot(dx, dy) > 4) { drag.moved = true; S.userMoved = true; st.classList.add('is-panning'); }
+      if (drag.moved) { cancelAnimationFrame(S.tween); S.tf = { k: S.tf.k, x: drag.tx + dx, y: drag.ty + dy }; applyTransform(); }
+    });
+    const end = (ev) => {
+      if (!ptrs.has(ev.pointerId)) return;
+      ptrs.delete(ev.pointerId);
+      st.classList.remove('is-panning');
+      if (pinch) { if (ptrs.size < 2) pinch = null; drag = null; return; }
+      if (drag && !drag.moved && ev.type === 'pointerup') {
+        const tg = drag.target, now = performance.now();
+        if (tg && tg.type === 'node') {
+          const dbl = lastTap.id === tg.id && now - lastTap.t < 380;
+          lastTap = { id: tg.id, t: now };
+          if (dbl) openElement(tg.id); else selectElement(tg.id, { focus: true });
+        } else if (tg && tg.type === 'cluster') selectNode(tg.id, { el: null });
+        else clearSelection();
+      }
+      drag = null;
+    };
+    st.addEventListener('pointerup', end);
+    st.addEventListener('pointercancel', end);
+    st.addEventListener('pointerleave', (ev) => { if (ev.pointerType === 'mouse' && !ptrs.size) hideTooltip(); });
+    st.addEventListener('wheel', (ev) => {
+      if (ev.target.closest && ev.target.closest('.legend')) return;
+      ev.preventDefault();
+      const s = stageSize();
+      const unit = ev.deltaMode === 1 ? 0.05 : ev.deltaMode === 2 ? 0.5 : 0.0016;
+      zoomAt(ev.clientX - s.left, ev.clientY - s.top, Math.exp(-ev.deltaY * unit));
+    }, { passive: false });
+    svg.addEventListener('keydown', onNodeKey);
+    svg.addEventListener('focusin', (ev) => {
+      const n = ev.target.closest && ev.target.closest('.node');
+      if (!n) return;
+      const id = n.getAttribute('data-el');
+      setRoving(id);
+      let byKeyboard = true;
+      try { byKeyboard = n.matches(':focus-visible'); } catch (e) { byKeyboard = true; }
+      if (byKeyboard) { ensureVisible(id); showTooltipFor(id, null); }   // a mouse click opens the panel instead
+    });
+    svg.addEventListener('focusout', () => hideTooltip());
+    window.addEventListener('resize', () => { if (S.layout && !S.userMoved) fit(false); });
+  }
+
+  function setRoving(id) {
+    if (S.focusEl && S.elements.has(S.focusEl)) S.elements.get(S.focusEl).g.setAttribute('tabindex', '-1');
+    S.focusEl = id;
+    if (id && S.elements.has(id)) S.elements.get(id).g.setAttribute('tabindex', '0');
+  }
+  function focusElement(id) {
+    const r = S.elements.get(id);
+    if (!r) return;
+    setRoving(id);
+    try { r.g.focus({ preventScroll: true }); } catch (e) { r.g.focus(); }
+  }
+  function onNodeKey(ev) {
+    const n = ev.target.closest && ev.target.closest('.node');
+    if (!n) return;
+    const id = n.getAttribute('data-el');
+    switch (ev.key) {
+      case 'Enter': case ' ':
+        ev.preventDefault();
+        if (S.sel && S.sel.el === id) openElement(id); else selectElement(id, { focus: false });
+        break;
+      case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown':
+        ev.preventDefault();
+        moveFocus(id, ev.key);
+        break;
+      case 'o': case 'O': ev.preventDefault(); openElement(id); break;
+      case 'Escape': clearSelection(); break;
+      default: return;
+    }
+  }
+  // Arrow keys: go to the nearest block in that direction.
+  function moveFocus(fromId, key) {
+    const a = S.layout.nodes.get(fromId);
+    if (!a) return;
+    const ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+    const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    let best = null, bestScore = Infinity;
+    for (const id of S.order) {
+      if (id === fromId) continue;
+      const b = S.layout.nodes.get(id);
+      const dx = b.x + b.w / 2 - ax, dy = b.y + b.h / 2 - ay;
+      const along = dx * dir[0] + dy * dir[1];
+      if (along <= 1) continue;
+      const across = Math.abs(dx * dir[1] - dy * dir[0]);
+      const score = along + across * 2.2;
+      if (score < bestScore) { bestScore = score; best = id; }
+    }
+    if (best) focusElement(best);
+  }
+  function onGlobalKey(ev) {
+    const t = ev.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+    const typing = tag === 'input' || tag === 'select' || tag === 'textarea' || (t && t.isContentEditable);
+    if (typing || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const inChart = t && t.closest && t.closest('#stage');
+    if (ev.key === '/') { ev.preventDefault(); $('search').focus(); return; }
+    if (!inChart && t !== document.body) return;
+    if (ev.key === 'Backspace') { ev.preventDefault(); goUp(); }
+    else if (ev.key === 'f' || ev.key === 'F') { S.userMoved = false; fit(true); }
+    else if (ev.key === '+' || ev.key === '=') zoomBy(1.2);
+    else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 1.2);
+  }
+
+  /* ---------- tooltip ---------- */
+
+  function hoverTooltip(ev) {
+    const n = ev.target && ev.target.closest && ev.target.closest('.node');
+    if (!n) { hideTooltip(); return; }
+    const s = stageSize();
+    showTooltipFor(n.getAttribute('data-el'), { x: ev.clientX - s.left, y: ev.clientY - s.top });
+  }
+  function showTooltipFor(elId, at) {
+    const r = S.elements.get(elId), tip = $('tooltip');
+    if (!r) { hideTooltip(); return; }
+    const it = r.item;
+    if (tip.getAttribute('data-for') !== elId) {
+      tip.textContent = '';
+      const n = it.nodeId ? S.idx.nodes.get(it.nodeId) : null;
+      const kindTxt = it.role === 'group' || it.role === 'ghostgroup' ? 'group' : kindWord(n ? n.kind : it.kind) + (it.role === 'ghost' ? ', outside this view' : '');
+      const expl = n ? Core.firstSentence(n.explain || n.summary || Core.firstParagraph(n.doc)) : 'Blocks folded together to keep the drawing readable.';
+      add(tip, [h('span', { class: 'tt-kind', text: kindTxt }), h('b', { text: it.view.full }), expl ? h('span', { text: expl }) : null]);
+      tip.setAttribute('data-for', elId);
+    }
+    tip.hidden = false;
+    const s = stageSize(), t = S.tf;
+    let x, y;
+    if (at) { x = at.x + 14; y = at.y + 16; }
+    else { x = t.x + r.box.x * t.k; y = t.y + (r.box.y + r.box.h) * t.k + 8; }
+    const tw = tip.offsetWidth || 260, th = tip.offsetHeight || 60;
+    x = Math.max(6, Math.min(s.w - tw - 6, x));
+    if (y + th > s.h - 6) y = Math.max(6, (at ? at.y - th - 10 : t.y + r.box.y * t.k - th - 8));
+    tip.style.left = f1(x) + 'px';
+    tip.style.top = f1(y) + 'px';
+  }
+  function hideTooltip() { const tip = $('tooltip'); if (tip) { tip.hidden = true; tip.removeAttribute('data-for'); } }
+
+  /* ================================ selection and navigation ================================ */
+
+  function selectElement(elId, opts) {
+    const r = S.elements.get(elId);
+    if (!r) return;
+    const it = r.item;
+    if (it.role === 'group' || it.role === 'ghostgroup') { S.sel = { el: elId, node: null }; markSelection(); renderPanelGroup(elId); }
+    else { S.sel = { el: elId, node: it.nodeId }; markSelection(); renderPanelNode(it.nodeId); }
+    if (opts && opts.focus) focusElement(elId);
+    setRoving(elId);
+  }
+  function selectNode(nodeId, opts) {
+    S.sel = { el: opts && opts.el !== undefined ? opts.el : (S.level ? S.level.repOf(nodeId) : null), node: nodeId };
+    markSelection();
+    renderPanelNode(nodeId);
+  }
+  function clearSelection() { S.sel = null; markSelection(); renderPanelRest(); }
+  function markSelection() {
+    const svg = $('svg');
+    S.elements.forEach((r) => r.g.classList.remove('is-sel', 'is-nb'));
+    S.clusterEls.forEach((c) => c.g.classList.remove('is-sel'));
+    S.edgeEls.forEach((r) => { r.path.classList.remove('is-nb'); if (r.label) r.label.classList.remove('is-nb'); });
+    const el = S.sel && S.sel.el ? S.elements.get(S.sel.el) : null;
+    if (S.sel && S.sel.node) S.clusterEls.forEach((c) => { if (c.c.nodeId === S.sel.node) c.g.classList.add('is-sel'); });
+    svg.classList.toggle('has-sel', !!el);
+    if (!el) return;
+    el.g.classList.add('is-sel');
+    S.edgeEls.forEach((r) => {
+      if (r.edge.from !== el.id && r.edge.to !== el.id) return;
+      r.path.classList.add('is-nb');
+      if (r.label) r.label.classList.add('is-nb');
+      const o = S.elements.get(r.edge.from === el.id ? r.edge.to : r.edge.from);
+      if (o) o.g.classList.add('is-nb');
+    });
+  }
+  function openElement(elId) {
+    const r = S.elements.get(elId);
+    if (!r) return;
+    const it = r.item;
+    if (it.role === 'member' && it.nodeId && Core.canOpen(S.idx, it.nodeId)) { manualNav(); S.sel = null; setView({ mode: 'drill', container: it.nodeId }); }
+    else if (it.role === 'ghost' && it.nodeId) jump(it.nodeId);
+    else selectElement(elId, { focus: false });
+  }
+  function goUp() {
+    manualNav();
+    if (S.view.mode === 'overview') { setView({ mode: 'drill', container: null }); return; }
+    const cid = S.view.container;
+    if (!cid) return;
+    let p = Core.parentOf(S.idx, cid);
+    while (p && !Core.DRILL_KINDS[S.idx.nodes.get(p).kind]) p = Core.parentOf(S.idx, p);
+    S.sel = { el: null, node: cid };
+    setView({ mode: 'drill', container: p }, { focusId: cid });
+  }
+  // Show a node: switch to the view that shows it best, select it and centre it.
+  function jump(nodeId) {
+    if (!S.idx || !S.idx.nodes.has(nodeId)) return;
+    manualNav();
+    const v = Core.viewFor(S.idx, nodeId);
+    S.sel = { el: null, node: nodeId };
+    if (!sameView(v, S.view) || !S.level.repOf(nodeId)) setView(v, { keep: [nodeId], focusId: nodeId });
+    const el = S.level.repOf(nodeId);
+    S.sel = { el: el, node: nodeId };
+    markSelection();
+    renderPanelNode(nodeId);
+    if (el) { centerOn(el, true); setRoving(el); }
+  }
+  function manualNav() { if (S.follow) { S.follow = false; $('opt-follow').checked = false; } }
+
+  function wireToolbar() {
+    $('btn-drill').addEventListener('click', () => { if (S.view.mode !== 'drill') { manualNav(); setView(S.lastDrill); } });
+    $('btn-overview').addEventListener('click', () => { if (S.view.mode !== 'overview') { manualNav(); setView({ mode: 'overview' }); } });
+    $('btn-up').addEventListener('click', goUp);
+    $('btn-fit').addEventListener('click', () => { S.userMoved = false; fit(true); });
+    $('btn-zoom-in').addEventListener('click', () => zoomBy(1.25));
+    $('btn-zoom-out').addEventListener('click', () => zoomBy(1 / 1.25));
+    $('opt-tests').addEventListener('change', () => { S.showTests = $('opt-tests').checked; if (S.idx) setView(S.view, { keepTransform: false }); });
+    $('opt-follow').addEventListener('change', () => { S.follow = $('opt-follow').checked; S.lastFollow = 0; if (S.follow) followTick(); });
+    $('btn-legend').addEventListener('click', () => toggleLegend());
+  }
+  function toggleLegend(force) {
+    const lg = $('legend'), open = force != null ? force : lg.hidden;
+    lg.hidden = !open;
+    $('btn-legend').setAttribute('aria-expanded', String(open));
+    try { if (window.localStorage) localStorage.setItem('astra-codemap-legend', open ? 'open' : 'closed'); } catch (e) { /* storage blocked: fine */ }
+  }
+  function buildLegend() {
+    const lg = $('legend');
+    const close = h('button', { type: 'button', class: 'tbtn', text: 'Close', onclick: () => { toggleLegend(false); $('btn-legend').focus(); } });
+    add(lg, h('div', { class: 'lg-head' }, [h('h2', { text: 'What the shapes and lines mean' }), close]));
+    add(lg, h('h3', { text: 'Blocks' }));
+    const blockRow = (kind, name, text, extraClass) => {
+      const svg = svgEl('svg', { viewBox: '-2 -2 58 30', 'aria-hidden': 'true' });
+      const g = svgEl('g', { class: 'node k-' + kind + (extraClass ? ' ' + extraClass : '') }, svg);
+      if (kind === 'group') { svgEl('rect', { class: 'stack', x: 4, y: -2, width: 48, height: 22, rx: 4 }, g); }
+      const sh = shapeFor(kind, 50, 24);
+      svgEl(sh.tag, Object.assign({ class: 'shape' }, sh.attrs), g);
+      if (kind === 'module') svgEl('path', { class: 'fold', d: 'M39 0V11H50' }, g);
+      return h('div', { class: 'lg-row' }, [svg, h('div', null, [h('b', { text: name }), ' ', text])]);
+    };
+    add(lg, [
+      blockRow('system', 'System', KIND_TEXT.system), blockRow('external', 'External program', KIND_TEXT.external),
+      blockRow('package', 'Package', KIND_TEXT['package']), blockRow('module', 'File', KIND_TEXT.module),
+      blockRow('class', 'Class', KIND_TEXT['class'] + ' Shown as a dashed box around its methods.'),
+      blockRow('function', 'Function / method', KIND_TEXT['function']), blockRow('topic', 'ROS topic', KIND_TEXT.topic),
+      blockRow('module', 'Outside this view', 'Dashed outline: it lives somewhere else; links show how this view talks to it. Double-click to go there.', 'r-ghost'),
+      blockRow('group', 'Group', 'Many blocks folded into one so the drawing stays readable. Click to list them.')
+    ]);
+    add(lg, h('h3', { text: 'Lines' }));
+    for (const k of Core.EDGE_KINDS) {
+      const svg = svgEl('svg', { viewBox: '0 0 58 28', 'aria-hidden': 'true' });
+      svgEl('path', { class: 'edge e-' + k, d: 'M2 14H48', 'marker-end': 'url(#mk-' + k + ')' }, svg);
+      add(lg, h('div', { class: 'lg-row' }, [svg, h('div', null, [h('b', { text: Core.EDGE_WORD[k] }), ': ' + EDGE_TEXT[k]])]));
+    }
+    add(lg, h('h3', { text: 'Live signals' }));
+    add(lg, h('div', { class: 'mini' }, [
+      h('div', null, [h('span', { class: 'sw hot' }), 'Green flash: this code just ran. Brighter means more calls. It fades in 1.5 s.']),
+      h('div', null, [h('span', { class: 'sw run' }), 'Green outline and RUNNING: this program is running right now.']),
+      h('div', null, [h('span', { class: 'kchip run', text: '1.2k' }), 'Number on a block: calls counted since the page started (or since the replay began).'])
+    ]));
+  }
+
+  /* ================================ the side panel ================================ */
+
+  function wirePanelClicks() {
+    $('panel-body').addEventListener('click', (ev) => {
+      const b = ev.target.closest && ev.target.closest('[data-go]');
+      if (b) { ev.preventDefault(); jump(b.getAttribute('data-go')); }
+    });
+    $('ticker-list').addEventListener('click', (ev) => {
+      const b = ev.target.closest && ev.target.closest('[data-id]');
+      if (b) jump(b.getAttribute('data-id'));
+    });
+  }
+  function sec(title, content) { return h('section', { class: 'pn-sec' }, [h('h3', { text: title }), content]); }
+  function contextOf(id) {
+    const n = S.idx.nodes.get(id);
+    if (!n) return '';
+    if (Core.FN_KINDS[n.kind]) { const m = Core.ancestorOfKind(S.idx, id, 'module'); return m ? Core.labelOf(S.idx, m) : ''; }
+    if (n.kind === 'module') { const p = Core.ancestorOfKind(S.idx, id, 'package'); return p ? Core.labelOf(S.idx, p) : ''; }
+    if (n.kind === 'package') { const s = Core.ancestorOfKind(S.idx, id, 'system'); return s ? Core.labelOf(S.idx, s) : ''; }
+    return kindWord(n.kind);
+  }
+  function linkRow(id, opts) {
+    const n = S.idx.nodes.get(id);
+    const st = S.stats.get(id);
+    const label = n && Core.FN_KINDS[n.kind] ? (Core.parseId(id).qual || Core.labelOf(S.idx, id)) : Core.labelOf(S.idx, id);
+    return h('li', { class: opts && opts.indent ? 'indent' : null }, h('button', { type: 'button', 'data-go': id, title: 'Show ' + label }, [
+      h('span', { class: 'kdot k-' + (n ? n.kind : 'module'), 'aria-hidden': 'true' }),
+      h('span', { class: 'lk-name', text: opts && opts.short ? Core.shortName(S.idx, id) : label }),
+      st && st.total ? h('span', { class: 'lk-n', text: Core.fmtCount(st.total) }) : null,
+      h('span', { class: 'lk-ctx', text: opts && opts.ctx != null ? opts.ctx : contextOf(id) })
+    ]));
+  }
+  function linkList(ids, max) {
+    max = max || 60;
+    const ul = h('ul', { class: 'links' });
+    for (const id of ids.slice(0, max)) ul.appendChild(linkRow(id));
+    const frag = [ul];
+    if (ids.length > max) frag.push(h('p', { class: 'more-note', text: '… and ' + (ids.length - max) + ' more.' }));
+    return h('div', null, frag);
+  }
+  function chainNav(chain) {
+    const nav = h('nav', { class: 'pn-chain', 'aria-label': 'Where it lives' });
+    chain.forEach((id, i) => {
+      if (i) nav.appendChild(document.createTextNode(' › '));
+      nav.appendChild(h('button', { type: 'button', class: 'lnk', 'data-go': id, text: Core.labelOf(S.idx, id) }));
+    });
+    return chain.length ? nav : null;
+  }
+  function liveLine(id) {
+    const st = S.stats.get(id);
+    const running = S.running.has(id), desc = S.runDesc.get(id) || 0;
+    const parts = [];
+    if (st && st.total) {
+      parts.push(h('span', null, ['calls ', h('b', { text: Core.fmtInt(st.total) })]));
+      const rate = Core.rateAt(st, S.lastEventT);
+      parts.push(h('span', { text: 'now ' + (rate >= 10 ? Math.round(rate) : Math.round(rate * 10) / 10) + '/s' }));
+      if (st.lastHitWall) parts.push(h('span', { text: 'last ' + Core.fmtAgo(performance.now() - st.lastHitWall) + (Core.fmtAgo(performance.now() - st.lastHitWall) === 'now' ? '' : ' ago') }));
+    } else parts.push(h('span', { text: S.tab === 'live' && S.mode === 'live' ? 'not called since this page opened' : 'not called in this recording so far' }));
+    if (running) parts.push(h('b', { text: 'RUNNING' }));
+    else if (desc) parts.push(h('b', { text: desc + ' running inside' }));
+    return h('div', { class: 'live-box', id: 'pn-live', 'data-id': id }, parts);
+  }
+  function codeBlock(src, start) {
+    const pre = h('pre', { class: 'code' });
+    const lines = String(src).replace(/\r\n?/g, '\n').split('\n');
+    const max = 800;
+    lines.slice(0, max).forEach((ln, i) => { pre.appendChild(h('span', { class: 'row' }, [h('span', { class: 'ln', text: String((start || 1) + i) }), ln || ' '])); });
+    if (lines.length > max) pre.appendChild(h('span', { class: 'row', text: '… ' + (lines.length - max) + ' more lines' }));
+    return pre;
+  }
+  function copyButton(text, label) {
+    const b = h('button', { type: 'button', class: 'copybtn', text: label || 'Copy' });
+    b.addEventListener('click', () => {
+      const done = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = label || 'Copy'; }, 1400); };
+      const fallback = () => { const code = b.previousSibling; if (code && window.getSelection) { const r = document.createRange(); r.selectNodeContents(code); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = 'Selected: press Ctrl+C'; } };
+      try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback); else fallback(); } catch (e) { fallback(); }
+    });
+    return b;
+  }
+  const LANG = { py: 'Python', python: 'Python', sh: 'Bash', bash: 'Bash', cs: 'C#', xml: 'XML', yaml: 'YAML', yml: 'YAML', md: 'Markdown', json: 'JSON' };
+
+  function renderPanelNode(id) {
+    const body = $('panel-body');
+    body.textContent = '';
+    const d = Core.details(S.idx, id);
+    if (!d) { add(body, h('p', { class: 'muted', text: 'This block is not in the code map.' })); return; }
+    const n = d.node;
+    const chips = [h('span', { class: 'kchip', text: kindWord(n.kind) })];
+    if (S.running.has(id)) chips.push(h('span', { class: 'kchip run', text: 'running' }));
+    if (d.isTest) chips.push(h('span', { class: 'kchip test', text: 'test' }));
+    if (n.entry_point) chips.push(h('span', { class: 'kchip', text: 'starts a program' }));
+    const where = [];
+    if (d.path) where.push(d.path);
+    if (d.line) where.push(d.end && d.end !== d.line ? 'lines ' + d.line + '–' + d.end : 'line ' + d.line);
+    if (n.lang) where.push(LANG[String(n.lang).toLowerCase()] || n.lang);
+    add(body, h('header', { class: 'pn-head' }, [
+      h('div', { class: 'pn-chips' }, chips),
+      h('h2', { class: 'pn-title', id: 'panel-title', text: Core.FN_KINDS[n.kind] && d.qual ? d.qual : d.label }),
+      where.length ? h('p', { class: 'pn-where', text: where.join(' · ') }) : null,
+      chainNav(d.chain)
+    ]));
+    const explain = n.explain || n.summary || (n.kind === 'module' ? d.purpose : '') || Core.firstParagraph(n.doc);
+    add(body, sec('What it does', explain ? h('p', { class: 'pn-explain', text: explain })
+      : h('p', { class: 'muted', text: 'No plain-language explanation has been written for this yet. ' + (n.source || n.doc ? 'The docstring and the source code below show what it does.' : '') })));
+    if (n.summary && n.explain && n.summary !== n.explain) add(body, sec('Summary', h('p', { text: n.summary })));
+    const facts = [['called_when', 'When it runs'], ['inputs', 'What goes in'], ['outputs', 'What comes out'], ['effects', 'What else it changes'], ['how_it_fits', 'How it fits the whole system']];
+    const dl = h('dl', { class: 'facts' });
+    for (const pair of facts) if (n[pair[0]]) dl.appendChild(h('div', null, [h('dt', { text: pair[1] }), h('dd', { text: String(n[pair[0]]) })]));
+    if (dl.childNodes.length) add(body, sec('In detail', dl));
+    if (n.kind === 'module' && d.purpose && d.purpose !== explain) add(body, sec('Purpose (from the top of the file)', h('p', { text: d.purpose })));
+    if (n.entry_point && typeof n.entry_point === 'string') add(body, sec('Starts as', h('code', { class: 'sig', text: n.entry_point })));
+    add(body, sec('Live', liveLine(id)));
+    if (n.signature) add(body, sec('Signature', h('code', { class: 'sig', text: String(n.signature) })));
+    const rel = d.rel;
+    const relSec = (key, title) => { if (rel[key] && rel[key].length) add(body, sec(title + ' (' + rel[key].length + ')', linkList(rel[key]))); };
+    relSec('calledBy', 'Called by');
+    relSec('calls', 'Calls');
+    relSec('publishes', 'Sends messages on (publishes)');
+    relSec('subscribes', 'Listens to (subscribes)');
+    relSec('publishers', 'Who publishes here');
+    relSec('subscribers', 'Who listens here');
+    relSec('imports', 'Uses code from (imports)');
+    relSec('importedBy', 'Used by (imported by)');
+    relSec('launches', 'Starts (launches)');
+    relSec('launchedBy', 'Started by');
+    relSec('runs', 'Runs');
+    relSec('runBy', 'Run by');
+    if (d.talk.length) {
+      const ul = h('ul', { class: 'links' });
+      for (const t of d.talk.slice(0, 40)) {
+        const words = (t.dir === 'to' ? 'to ' : 'from ') + Core.labelOf(S.idx, t.id);
+        ul.appendChild(linkRow(t.id, { ctx: (Core.EDGE_WORD[t.kind] || t.kind) + (t.label ? ': ' + t.label : '') }));
+        ul.lastChild.firstChild.setAttribute('title', words);
+      }
+      add(body, sec('Talks with (' + d.talk.length + ')', ul));
+    }
+    if (d.children.length) {
+      const title = n.kind === 'module' ? 'Inside this file' : n.kind === 'package' ? 'Files in this package' : n.kind === 'system' ? 'Parts of this system' : 'Inside';
+      const ul = h('ul', { class: 'links' });
+      let count = 0;
+      const shown = d.children.filter((c) => S.showTests || d.isTest || !Core.isTest(S.idx, c));
+      for (const c of shown) {
+        if (count++ >= 200) break;
+        ul.appendChild(linkRow(c, { ctx: S.idx.nodes.get(c) ? Core.linesText(S.idx.nodes.get(c), '') || kindWord(S.idx.nodes.get(c).kind) : '' }));
+        const cn = S.idx.nodes.get(c);
+        if (cn && cn.kind === 'class') for (const m of S.idx.children.get(c) || []) { if (count++ >= 200) break; ul.appendChild(linkRow(m, { indent: true, short: true, ctx: Core.linesText(S.idx.nodes.get(m), '') })); }
+      }
+      const hidden = d.children.length - shown.length;
+      add(body, sec(title + ' (' + shown.length + ')', h('div', null, [ul, hidden ? h('p', { class: 'more-note', text: hidden + ' test file' + (hidden === 1 ? '' : 's') + ' hidden (tick "Show tests").' }) : null])));
+    }
+    if (n.doc && (n.kind !== 'module' || C_docDiffers(n.doc, d.purpose))) {
+      add(body, h('details', { class: 'pn-more' }, [h('summary', { text: n.kind === 'module' ? 'Header comment / docstring' : 'Docstring' }), h('pre', { class: 'doc', text: String(n.doc) })]));
+    }
+    if (n.source) {
+      const det = h('details', { class: 'pn-more' }, [h('summary', { text: 'Source code' + (d.line ? ' (from line ' + d.line + ')' : '') })]);
+      let filled = false;
+      det.addEventListener('toggle', () => { if (det.open && !filled) { filled = true; det.appendChild(codeBlock(n.source, d.line || 1)); } });
+      add(body, det);
+    } else {
+      // build_artifact.py may leave source code out of the shareable file to keep it under the size limit
+      const art = S.codemap && S.codemap.artifact;
+      if (art && art.source && art.source !== 'full' && d.path && (d.line || n.kind === 'module')) {
+        add(body, h('p', { class: 'more-note', text: 'The source code is left out of this shareable copy to keep the file small. It is in the repo: ' + d.path + (d.line ? ', line ' + d.line : '') + '.' }));
+      }
+    }
+    const actions = [];
+    const el = S.level ? S.level.repOf(id) : null;
+    if (Core.canOpen(S.idx, id) && !(S.view.mode === 'drill' && S.view.container === id)) actions.push(h('button', { type: 'button', class: 'btn', text: 'Open inside', onclick: () => { manualNav(); S.sel = null; setView({ mode: 'drill', container: id }); } }));
+    if (!el || (S.level.itemMap.get(el) && S.level.itemMap.get(el).role !== 'member' && S.level.itemMap.get(el).role !== 'topic')) actions.push(h('button', { type: 'button', class: 'btn ghost', text: 'Show in its diagram', onclick: () => jump(id) }));
+    if (d.path) { const code = h('code', { class: 'sr-only', text: d.path }); actions.push(code, copyButton(d.path, 'Copy file path')); }
+    if (actions.length) add(body, h('div', { class: 'pn-actions' }, actions));
+  }
+  function C_docDiffers(doc, purpose) { return String(doc || '').replace(/\s+/g, ' ').trim().length > String(purpose || '').length + 40; }
+
+  function renderPanelGroup(elId) {
+    const body = $('panel-body');
+    body.textContent = '';
+    const it = S.level.itemMap.get(elId);
+    if (!it) { renderPanelRest(); return; }
+    const outside = it.role === 'ghostgroup';
+    add(body, h('header', { class: 'pn-head' }, [
+      h('div', { class: 'pn-chips' }, [h('span', { class: 'kchip', text: outside ? 'outside group' : 'group' })]),
+      h('h2', { class: 'pn-title', id: 'panel-title', text: it.members.length + (outside ? ' more places outside this view' : ' more blocks folded together') })
+    ]));
+    add(body, sec('Why', h('p', { text: outside
+      ? 'This view talks to more outside places than can be drawn. They are collected here.'
+      : 'A view draws at most ' + Core.LEVEL_CAP + ' blocks. The ones with the fewest links are folded into this group. Pick one to read about it, or "Show in diagram" to draw it.' })));
+    const ul = h('ul', { class: 'links' });
+    for (const m of it.members.slice(0, 400)) ul.appendChild(linkRow(m));
+    add(body, sec('Members (' + it.members.length + ')', ul));
+  }
+
+  function renderPanelRest() {
+    const body = $('panel-body');
+    body.textContent = '';
+    if (S.mode === 'artifact' || S.mode === 'file') {
+      const help = h('div', { class: 'live-help' }, [
+        h('h2', { text: S.mode === 'artifact' ? 'Recorded run' : 'Opened from files' }),
+        h('p', { text: 'You are watching a recording of the simulator. To watch it live on the team laptop:' }),
+        h('div', { class: 'copyrow' }, ['1. In Ubuntu run ', h('code', { text: LIVE_CMD }), copyButton(LIVE_CMD)]),
+        h('div', { class: 'copyrow' }, ['2. Open ', h('code', { text: LIVE_URL }), copyButton(LIVE_URL), ' in a browser.'])
+      ]);
+      add(body, help);
+    }
+    const lvl = S.level;
+    const steps = ['All systems', 'Packages', 'Files', 'Functions'];
+    const depth = !lvl || lvl.mode === 'overview' ? -1 : !lvl.containerId ? 0 : lvl.containerKind === 'system' ? 1 : lvl.containerKind === 'package' ? 2 : 3;
+    const levels = h('div', { class: 'levels', 'aria-label': 'Levels' });
+    steps.forEach((s, i) => { if (i) levels.appendChild(document.createTextNode('→')); levels.appendChild(h('span', { class: i === depth ? 'on' : null, text: s })); });
+    add(body, h('div', { class: 'intro' }, [
+      h('h2', { text: 'How to read this map' }),
+      h('p', { text: 'Each box is one part of the drone software or the simulator. Big boxes hold smaller ones: open a system to see its packages, a package to see its files, and a file to see its functions.' }),
+      levels,
+      h('ol', { class: 'steps' }, [
+        h('li', { text: 'Click a box to read what it is and exactly what it does.' }),
+        h('li', { text: 'Double-click it (or press Enter twice, or "Open inside") to look inside.' }),
+        h('li', { text: 'Lines show how parts talk: calls, imports, ROS topics, MAVLink, HTTP. "Legend" explains every shape and line.' }),
+        h('li', { text: 'When a function runs, its box flashes green, and the file, package and system around it glow and count the calls.' })
+      ]),
+      h('div', { class: 'mini' }, [
+        h('div', null, [h('span', { class: 'sw hot' }), 'just ran (brighter = more calls)']),
+        h('div', null, [h('span', { class: 'sw run' }), 'program running now']),
+        h('div', null, [h('span', { class: 'sw ghost' }), 'lives outside this view'])
+      ])
+    ]));
+    if (lvl && lvl.containerId) {
+      const n = S.idx.nodes.get(lvl.containerId);
+      const txt = n && (n.explain || n.summary || Core.purposeOf(n.doc));
+      add(body, sec('You are inside: ' + Core.labelOf(S.idx, lvl.containerId), h('div', null, [
+        txt ? h('p', { text: txt }) : null,
+        h('button', { type: 'button', class: 'btn ghost', text: 'Details of ' + Core.labelOf(S.idx, lvl.containerId), onclick: () => selectNode(lvl.containerId, { el: null }) })
+      ])));
+    } else if (lvl) {
+      const ids = lvl.items.filter((it) => it.role === 'member').map((it) => it.nodeId);
+      add(body, sec(lvl.mode === 'overview' ? 'Packages' : 'The big parts', linkList(ids, 40)));
+    }
+  }
+
+  /* ================================ live data ================================ */
+
+  function resetLiveState() {
+    S.stats = new Map(); S.vstats = new Map(); S.running = new Set(); S.runDesc = new Map();
+    S.ticker = []; S.tickerDirty = true; S.callsSeen = 0; S.unknownCalls = 0; S.lastEventT = 0; S.lastEventWall = 0;
+    S.runDirty = true; S.countsAt = 0;
+    S.elements.forEach((r) => { r.lastTotal = -1; r.shown = -1; });
+    S.crumbs.forEach((c) => { c.lastTotal = -1; c.shown = -1; });
+    requestFrame();
+  }
+  function dispatchEvent(ev, quiet) {
+    if (!S.idx || !ev) return;
+    if (ev.event === 'calls') onCalls(ev, quiet);
+    else if (ev.event === 'procs') onProcs(ev);
+  }
+  function onCalls(ev, quiet) {
+    const nowMs = performance.now();
+    const res = Core.applyCalls(S.idx, S.stats, ev.calls, ev.t, quiet ? null : nowMs);
+    S.lastEventT = ev.t;
+    S.callsSeen += res.total;
+    S.unknownCalls += res.unknown;
+    if (quiet) return;
+    S.lastEventWall = nowMs;
+    const L = S.level;
+    for (const hit of res.hits) {
+      const st = S.stats.get(hit.id);
+      if (st) st.lastHitWall = nowMs;
+      if (!L) continue;
+      const el = L.repOf(hit.id);
+      const it = el ? L.itemMap.get(el) : null;
+      if (it && (it.role === 'group' || it.role === 'ghostgroup')) Core.bump(S.vstats, el, hit.count, ev.t, nowMs);
+      if (L.containerId && hit.id === L.containerId) Core.bump(S.vstats, 'self:' + hit.id, hit.count, ev.t, nowMs);
+    }
+    // the "just ran" log: the busiest few functions of this event go on top
+    const top = res.hits.slice().sort((a, b) => b.count - a.count).slice(0, 6);
+    for (let i = top.length - 1; i >= 0; i--) {
+      const hit = top[i];
+      const k = S.ticker.findIndex((t) => t.id === hit.id);
+      let entry;
+      if (k >= 0) { entry = S.ticker[k]; S.ticker.splice(k, 1); entry.count += hit.count; entry.wall = nowMs; }
+      else entry = { id: hit.id, count: hit.count, wall: nowMs };
+      S.ticker.unshift(entry);
+    }
+    if (S.ticker.length > 40) S.ticker.length = 40;
+    S.tickerDirty = true;
+    requestFrame();
+  }
+  function onProcs(ev) {
+    const r = Core.applyProcs(S.idx, ev.running);
+    S.running = r.running;
+    S.runDesc = r.desc;
+    S.procsWall = performance.now();
+    S.runDirty = true;
+    requestFrame();
+  }
+
+  function glowOf(r, now) {
+    const it = r.item;
+    if (it.role === 'group' || it.role === 'ghostgroup' || it.role === 'self') return Core.glowAt(S.vstats.get(it.role === 'self' ? it.id : r.id), now);
+    return Core.glowAt(S.stats.get(it.nodeId), now);
+  }
+  function totalOf(r) {
+    const it = r.item;
+    if (it.role === 'group' || it.role === 'ghostgroup') { let s = 0; for (const m of it.members) { const st = S.stats.get(m); if (st) s += st.total; } return s; }
+    if (it.role === 'self') { const st = S.vstats.get(it.id); return st ? st.total : 0; }
+    const st = S.stats.get(it.nodeId);
+    return st ? st.total : 0;
+  }
+  function runOf(r) {
+    const it = r.item;
+    if (it.role === 'group' || it.role === 'ghostgroup') { let n = 0; for (const m of it.members) n += (S.running.has(m) ? 1 : 0) + (S.runDesc.get(m) || 0); return n ? n + ' running' : ''; }
+    if (!it.nodeId) return '';
+    if (S.running.has(it.nodeId)) return 'RUNNING';
+    if (it.role === 'self') return '';
+    const d = S.runDesc.get(it.nodeId) || 0;
+    return d ? d + ' running' : '';
+  }
+
+  function requestFrame() { if (!S.frameReq) S.frameReq = requestAnimationFrame(frame); }
+  // One animation frame: step the replay, then paint glows (always), counters and badges (a few times a second).
+  function frame() {
+    S.frameReq = 0;
+    const now = performance.now();
+    const dt = S.lastFrame ? Math.min(0.25, (now - S.lastFrame) / 1000) : 0;
+    S.lastFrame = now;
+    let keep = false;
+    if (S.replay && S.playing) { replayStep(dt); keep = true; }
+    if (paintGlow(now)) keep = true;
+    if (now - S.countsAt > 250) { S.countsAt = now; paintCounts(); }
+    if (S.runDirty) { S.runDirty = false; paintRunning(); }
+    if (S.tickerDirty) { if (now - S.tickerAt > 250) renderTicker(now); keep = true; }
+    if (keep) requestFrame(); else S.lastFrame = 0;
+  }
+  function paintGlow(now) {
+    let any = false;
+    S.elements.forEach((r) => {
+      let v = glowOf(r, now);
+      if (v > 0) any = true;
+      if (S.reducedMotion) v = v > 0.02 ? 0.75 : 0;   // no fading animation: on for 1.5 s, then off
+      if (r.shown < 0 || Math.abs(v - r.shown) > 0.01 || (v === 0 && r.shown !== 0)) {
+        r.shown = v;
+        r.glow.style.opacity = (0.9 * v).toFixed(3);
+        r.halo.style.opacity = (0.85 * v).toFixed(3);
+      }
+    });
+    for (const c of S.crumbs) {
+      if (!c.nodeId) continue;
+      let v = Core.glowAt(S.stats.get(c.nodeId), now);
+      if (v > 0) any = true;
+      if (S.reducedMotion) v = v > 0.02 ? 0.75 : 0;
+      if (Math.abs(v - c.shown) > 0.01 || (v === 0 && c.shown !== 0)) { c.shown = v; c.el.style.setProperty('--g', (0.55 * v).toFixed(3)); }
+    }
+    return any;
+  }
+  function paintCounts() {
+    S.elements.forEach((r) => {
+      const tot = totalOf(r);
+      if (tot === r.lastTotal) return;
+      r.lastTotal = tot;
+      if (!tot) { r.g.classList.remove('has-count'); return; }
+      const txt = Core.fmtCount(tot);
+      r.cntText.textContent = txt;
+      const bw = Math.max(24, Math.ceil(textW(txt, FONT.badge)) + 14);
+      r.cntRect.setAttribute('x', f1(r.box.w - bw - 6));
+      r.cntRect.setAttribute('width', bw);
+      r.cntText.setAttribute('x', f1(r.box.w - 6 - bw / 2));
+      r.g.classList.add('has-count');
+    });
+    for (const c of S.crumbs) {
+      if (!c.nodeId) continue;
+      const st = S.stats.get(c.nodeId), tot = st ? st.total : 0;
+      if (tot !== c.lastTotal) { c.lastTotal = tot; c.num.textContent = tot ? Core.fmtCount(tot) : ''; }
+    }
+    const live = $('pn-live');
+    if (live && live.getAttribute('data-id')) { const fresh = liveLine(live.getAttribute('data-id')); live.replaceWith(fresh); }
+  }
+  function paintRunning() {
+    S.elements.forEach((r) => {
+      const info = runOf(r);
+      if (info === r.lastRun) return;
+      r.lastRun = info;
+      r.g.classList.toggle('has-run', !!info);
+      r.g.classList.toggle('is-running', info === 'RUNNING');
+      if (info) { r.runText.textContent = info; r.runRect.setAttribute('width', Math.ceil(textW(info, FONT.badgeSmall)) + 28); }
+    });
+  }
+  function renderTicker(now) {
+    S.tickerDirty = false;
+    S.tickerAt = now;
+    const list = $('ticker-list');
+    list.textContent = '';
+    $('ticker-empty').hidden = S.ticker.length > 0;
+    for (const t of S.ticker.slice(0, 30)) {
+      const n = S.idx.nodes.get(t.id);
+      const label = n && Core.FN_KINDS[n.kind] ? (Core.parseId(t.id).qual || Core.labelOf(S.idx, t.id)) : Core.labelOf(S.idx, t.id);
+      const dot = h('span', { class: 'tk-dot', 'aria-hidden': 'true' });
+      dot.style.setProperty('--g', Core.glowAt(S.stats.get(t.id), now).toFixed(2));
+      list.appendChild(h('li', null, h('button', { type: 'button', class: 'tk', 'data-id': t.id, title: 'Show ' + label }, [
+        dot, h('span', { class: 'tk-name', text: label }), h('span', { class: 'tk-n', text: '×' + Core.fmtCount(t.count) }),
+        h('span', { class: 'tk-age', text: Core.fmtAgo(now - t.wall) }), h('span', { class: 'tk-ctx', text: contextOf(t.id) })
+      ])));
+    }
+    if (S.ticker.some((t) => now - t.wall < 60000)) S.tickerDirty = true;   // keep the ages fresh for a minute
+  }
+
+  // Live events from server.py: "event: calls" every 200 ms, "event: procs" every 2 s.
+  function startLive() {
+    if (S.mode !== 'live') return;
+    if (!('EventSource' in window)) { setPill('error', 'No live updates'); $('live-stats').textContent = 'This browser cannot receive live events (no EventSource).'; return; }
+    if (S.es) { try { S.es.close(); } catch (e) { /* already closed */ } }
+    const es = new EventSource('/events');
+    S.es = es;
+    if (S.tab === 'live' && !S.connected) setPill('waiting', 'Waiting');
+    es.onopen = () => { S.connected = true; S.esRetry = 0; if (S.tab === 'live') setPill('live', 'Live connected'); };
+    es.onerror = () => {
+      S.connected = false;
+      if (S.tab === 'live') setPill('waiting', 'Waiting');
+      if (es.readyState === 2) { // closed for good (for example a 404): try again a little later
+        S.esRetry = Math.min(30, S.esRetry + 5);
+        setTimeout(() => { if (S.es === es && S.mode === 'live') startLive(); }, S.esRetry * 1000);
+      }
+    };
+    const handle = (kind) => (msg) => {
+      let data = null;
+      try { data = JSON.parse(msg.data); } catch (e) { return; }
+      const ev = Core.normalizeEvent(kind && data && !data.event ? Object.assign({ event: kind }, data) : data);
+      if (ev && S.tab === 'live') dispatchEvent(ev, false);
+    };
+    es.addEventListener('calls', handle('calls'));
+    es.addEventListener('procs', handle('procs'));
+    es.onmessage = handle(null);
+  }
+
+  // Once a second: the live status line, and running badges that went stale.
+  function slowTick() {
+    if (S.mode === 'live' && S.tab === 'live') {
+      const now = performance.now();
+      let txt;
+      if (!S.connected) txt = 'Not connected to the code map server. Start the traced demo: ' + LIVE_CMD;
+      else if (!S.lastEventWall) txt = 'Connected. Waiting for the first call (start the traced simulator).';
+      else txt = Core.fmtInt(S.callsSeen) + ' calls seen · last ' + Core.fmtAgo(now - S.lastEventWall) + (Core.fmtAgo(now - S.lastEventWall) === 'now' ? '' : ' ago') + ' · ' + Core.plural(S.running.size, 'program') + ' running' + (S.unknownCalls ? ' · ' + Core.fmtInt(S.unknownCalls) + ' calls not in the map' : '');
+      $('live-stats').textContent = txt;
+      if (S.procsWall && now - S.procsWall > 7000 && S.running.size) { S.running = new Set(); S.runDesc = new Map(); S.runDirty = true; requestFrame(); }
+    }
+    if (S.replay) updateReplayUi();
+  }
+  // "Follow activity": open the file that is busiest right now (with some patience so it does not flicker).
+  function followTick() {
+    if (!S.follow || !S.idx) return;
+    let best = null, bestRate = 0;
+    for (const [id, st] of S.stats) {
+      const n = S.idx.nodes.get(id);
+      if (!n || n.kind !== 'module') continue;
+      const r = Core.rateAt(st, S.lastEventT);
+      if (r > bestRate) { bestRate = r; best = id; }
+    }
+    if (!best || bestRate < 0.2) return;
+    const cur = S.view.mode === 'drill' && S.view.container && S.idx.nodes.get(S.view.container).kind === 'module' ? S.view.container : null;
+    if (best === cur) return;
+    const now = performance.now();
+    const curRate = cur && S.stats.get(cur) ? Core.rateAt(S.stats.get(cur), S.lastEventT) : 0;
+    if (now - S.lastFollow < 4000) return;
+    if (cur && bestRate < curRate * 1.4 && now - S.lastFollow < 10000) return;
+    S.lastFollow = now;
+    S.sel = null;
+    setView({ mode: 'drill', container: best });
+    announce('Following ' + Core.labelOf(S.idx, best));
+  }
+
+  /* ================================ replay ================================ */
+
+  function wireTransport() {
+    $('tab-live').addEventListener('click', () => setTab('live'));
+    $('tab-replay').addEventListener('click', () => setTab('replay'));
+    $('tabs').addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+      const tabs = [$('tab-live'), $('tab-replay')].filter((t) => !t.hidden);
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      const next = tabs[(i + (ev.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+      next.focus();
+      next.click();
+    });
+    $('btn-play').addEventListener('click', () => { if (S.playing) pause(); else play(); });
+    $('scrub').addEventListener('input', () => {
+      if (!S.replay) return;
+      const r = S.replay;
+      seekReplay(r.t0 + (Number($('scrub').value) / 1000) * r.duration);
+    });
+    $('rep-speed').addEventListener('change', () => { S.speed = Number($('rep-speed').value) || 1; updateReplayUi(); });
+    $('rep-loop').addEventListener('change', () => { S.loop = $('rep-loop').checked; });
+    $('rec-select').addEventListener('change', () => loadRecording($('rec-select').value));
+  }
+  function setTab(tab, opts) {
+    S.tab = tab;
+    $('tab-live').setAttribute('aria-selected', String(tab === 'live'));
+    $('tab-replay').setAttribute('aria-selected', String(tab === 'replay'));
+    $('live-row').hidden = tab !== 'live';
+    $('replay-row').hidden = tab !== 'replay';
+    $('rep-note').hidden = tab !== 'replay' || !$('rep-note').textContent;
+    if (opts && opts.quiet) return;
+    pause();
+    resetLiveState();
+    if (tab === 'live') { setPill(S.connected ? 'live' : 'waiting', S.connected ? 'Live connected' : 'Waiting'); S.replay = null; }
+    else { setPill('replay', 'Replay'); if (S.mode === 'live') loadRecordingList(); }
+  }
+  // The list of recordings the server knows (GET /recordings). Accepts a list of names or of {name}.
+  function loadRecordingList() {
+    const sel = $('rec-select');
+    sel.textContent = '';
+    sel.appendChild(h('option', { value: '', text: 'Loading recordings…' }));
+    getJson('/recordings').then((data) => {
+      let list = Array.isArray(data) ? data : (data && (data.recordings || data.files)) || [];
+      list = list.map((x) => typeof x === 'string' ? x : (x && (x.name || x.file || x.path)) || '').filter(Boolean);
+      return list;
+    }, () => []).then((list) => {
+      // server.py already lists the newest recording first: keep its order
+      if (S.sample) list = list.concat(['sample_recording.jsonl (sample)']);   // the sample comes last
+      sel.textContent = '';
+      if (!list.length) {
+        sel.appendChild(h('option', { value: '', text: 'No recordings yet' }));
+        setupReplay([], '');
+        setNote('No recordings yet. The code map server writes one when it runs with --record (see simulation/codemap/README.md).');
+        return;
+      }
+      for (const name of list) sel.appendChild(h('option', { value: name, text: name }));
+      loadRecording(list[0]);
+    });
+  }
+  function loadRecording(name) {
+    if (!name) return;
+    const url = name === 'sample_recording.jsonl (sample)' ? 'sample_recording.jsonl' : '/recordings/' + encodeURIComponent(name);
+    pause();
+    setNote('Loading ' + name + '…');
+    getText(url).then((text) => { setupReplay(Core.parseRecording(text), name); if (S.replay.events.length) play(); },
+      (err) => { setupReplay([], name); setNote('Could not load ' + name + ': ' + (err && err.message || err)); });
+  }
+  function setNote(text, kids) {
+    const p = $('rep-note');
+    p.textContent = '';
+    if (kids) add(p, kids); else p.textContent = text || '';
+    p.hidden = S.tab !== 'replay' || !p.textContent;
+  }
+  function setupReplay(events, name) {
+    pause();
+    resetLiveState();
+    S.replay = Core.createReplay(events);
+    S.recName = name || '';
+    const r = S.replay;
+    const disabled = !r.events.length;
+    $('btn-play').disabled = disabled;
+    $('scrub').disabled = disabled;
+    $('scrub').value = '0';
+    const notes = [];
+    if (r.metas.length && r.metas[0].note) notes.push('About this recording: ' + r.metas[0].note + ' ');
+    if (r.events.length) {
+      const when = new Date(r.t0 * 1000);
+      const calls = r.events.filter((e) => e.event === 'calls').length;
+      notes.push('Recorded ' + (isNaN(when.getTime()) ? '' : when.toLocaleString()) + ' · ' + Core.fmtClock(r.duration) + ' long · ' + Core.fmtInt(calls) + ' call updates. ');
+    } else if (name) notes.push('This recording has no call events. ');
+    if (S.mode === 'artifact' || S.mode === 'file') {
+      setNote(null, [notes.join(''), 'To watch live on the team laptop: ', h('code', { text: LIVE_CMD }), ', then open ', h('code', { text: LIVE_URL }), '.']);
+    } else setNote(notes.join(''));
+    updateReplayUi();
+  }
+  function play() {
+    if (!S.replay || !S.replay.events.length) return;
+    if (S.replay.idx >= S.replay.events.length && S.replay.cur >= S.replay.t1) seekReplay(S.replay.t0);
+    S.playing = true;
+    $('btn-play').classList.add('is-playing');
+    $('btn-play').setAttribute('aria-label', 'Pause');
+    setPill('replay', 'Replay ' + S.speed + '×');
+    S.lastFrame = 0;
+    requestFrame();
+  }
+  function pause() {
+    S.playing = false;
+    const b = $('btn-play');
+    b.classList.remove('is-playing');
+    b.setAttribute('aria-label', 'Play');
+    if (S.tab === 'replay') setPill('replay', S.mode === 'artifact' ? 'Recorded run' : 'Replay paused');
+  }
+  function seekReplay(t) {
+    if (!S.replay) return;
+    resetLiveState();
+    Core.replaySeek(S.replay, t, (ev) => dispatchEvent(ev, true));
+    S.countsAt = 0;
+    updateReplayUi();
+    requestFrame();
+  }
+  function replayStep(dt) {
+    const r = S.replay;
+    const res = Core.replayAdvance(r, dt, S.speed, (ev) => dispatchEvent(ev, false));
+    if (res.done) {
+      if (S.loop) seekReplay(r.t0);
+      else pause();
+    }
+    if (performance.now() - (S.repUiAt || 0) > 200) { S.repUiAt = performance.now(); updateReplayUi(); }
+  }
+  function updateReplayUi() {
+    const r = S.replay;
+    if (!r) return;
+    const pos = Math.max(0, Math.min(r.duration, r.cur - r.t0));
+    $('rep-time').textContent = Core.fmtClock(pos) + ' / ' + Core.fmtClock(r.duration);
+    if (document.activeElement !== $('scrub')) $('scrub').value = String(r.duration ? Math.round((pos / r.duration) * 1000) : 0);
+    if (S.playing) setPill('replay', 'Replay ' + S.speed + '×');
+  }
+
+  /* ================================ search ================================ */
+
+  function wireSearch() {
+    const input = $('search'), list = $('search-results');
+    let results = [], active = -1;
+    const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); };
+    const choose = (it) => { if (!it) return; close(); input.value = ''; jump(it.id); };
+    const render = () => {
+      list.textContent = '';
+      const q = input.value.trim();
+      if (!q || !S.sidx) { close(); return; }
+      if (!results.length) list.appendChild(h('li', { class: 'sr-empty', role: 'option', 'aria-disabled': 'true', text: 'Nothing matches “' + q + '”' }));
+      results.forEach((it, i) => list.appendChild(h('li', { role: 'option', id: 'sr-' + i, 'data-i': i, 'aria-selected': i === active ? 'true' : 'false', class: i === active ? 'is-active' : null }, [
+        h('span', { class: 'kdot k-' + it.kind, 'aria-hidden': 'true' }), h('span', { class: 'sr-label', text: it.label }),
+        h('span', { class: 'sr-ctx', text: kindWord(it.kind) + (contextOf(it.id) && contextOf(it.id) !== kindWord(it.kind) ? ' · ' + contextOf(it.id) : '') + (it.test ? ' · test' : '') })
+      ])));
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      if (active >= 0) input.setAttribute('aria-activedescendant', 'sr-' + active); else input.removeAttribute('aria-activedescendant');
+      const act = list.querySelector('.is-active');
+      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
+    };
+    input.addEventListener('input', () => { results = S.sidx ? Core.search(S.sidx, input.value, 30) : []; active = results.length ? 0 : -1; render(); });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown') { ev.preventDefault(); if (results.length) { active = (active + 1) % results.length; render(); } }
+      else if (ev.key === 'ArrowUp') { ev.preventDefault(); if (results.length) { active = (active - 1 + results.length) % results.length; render(); } }
+      else if (ev.key === 'Enter') { if (active >= 0) { ev.preventDefault(); choose(results[active]); } }
+      else if (ev.key === 'Escape') { if (!list.hidden) { ev.preventDefault(); close(); } else { input.value = ''; input.blur(); } }
+    });
+    input.addEventListener('blur', () => setTimeout(close, 150));
+    list.addEventListener('mousedown', (ev) => ev.preventDefault());
+    list.addEventListener('click', (ev) => { const li = ev.target.closest && ev.target.closest('[data-i]'); if (li) choose(results[Number(li.getAttribute('data-i'))]); });
+  }
+
+  /* ================================ self-test in the browser (#selftest) ================================ */
+
+  function runSelfTestUi() {
+    const res = Core.selfTest({ sample: S.codemap && S.codemap.sample ? S.codemap : null, dagre: window.dagre || null });
+    const body = $('panel-body');
+    add(body, sec('Self-test', h('pre', { class: 'selftest', text: res.lines.join('\n') })));
+  }
+
+  try {
+    boot();
+    if (location.hash === '#selftest') setTimeout(runSelfTestUi, 2500);
+  } catch (err) { fatal(err); }
+})();
+</script>
+</body>
+</html>

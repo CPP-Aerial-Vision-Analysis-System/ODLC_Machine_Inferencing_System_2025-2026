@@ -1,0 +1,10 @@
+# simulation/codemap/.gitignore -- PURPOSE: keep the code map's GENERATED files out of git. They are big (10-20 MB
+# each) and anyone can make them again in about a minute:
+#   python3 simulation/codemap/extract.py --check        -> codemap.json (the map of every file and function)
+#   bash simulation/scripts/demo_traced.sh               -> recordings/<time>.jsonl (a traced flight)
+#   python3 simulation/codemap/build_artifact.py         -> dist/astra_code_map.html (one file to share)
+codemap.json
+dist/
+recordings/
+__pycache__/
+*.pyc
