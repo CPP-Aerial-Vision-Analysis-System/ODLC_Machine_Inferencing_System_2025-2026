@@ -9,10 +9,14 @@ somebody runs, in a second terminal after ./launcher.sh:
     ros2 launch lattice_bridge lattice_reporter.launch.py params_file:=/path/to/my_copy.yaml
 
 Launch arguments:
-  params_file  the settings file (default: the installed config/lattice_reporter.yaml, every option explained)
-  dry_run      "true" or "false"; empty (the default) = use the value in the settings file
-  log_level    debug | info | warn | error (default info)
-A launch argument that you do not give never overrides the settings file.
+  params_file     the settings file (default: the installed config/lattice_reporter.yaml, every option explained)
+  dry_run         "true" or "false"; empty (the default) = use the value in the settings file
+  min_confidence  a number 0..1: ignore detections below it; empty (the default) = the settings file (0.0)
+  min_move_m      a number of metres: send a target again when its best sighting moved more than this; empty
+                  (the default) = the settings file (5.0)
+  log_level       debug | info | warn | error (default info)
+A launch argument that you do not give never overrides the settings file. (min_confidence and min_move_m exist so the
+simulator profile simulation/profiles/lattice_mock.yaml can set them without a second settings file.)
 """
 
 import os
@@ -23,6 +27,9 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+#: Number-valued launch arguments that, when given, override the same-named setting of the settings file.
+NUMBER_ARGUMENTS = ('min_confidence', 'min_move_m')
+
 
 def _reporter_node(context, *args, **kwargs):
     """Build the node once the launch arguments are known (so empty ones can be left out)."""
@@ -32,6 +39,13 @@ def _reporter_node(context, *args, **kwargs):
         parameters.append({'dry_run': dry_run == 'true'})
     elif dry_run:
         raise RuntimeError(f'dry_run must be true or false (or empty), got {dry_run!r}')
+    for name in NUMBER_ARGUMENTS:
+        text = LaunchConfiguration(name).perform(context).strip()
+        if text:
+            try:
+                parameters.append({name: float(text)})       # a float, like the settings file's own value
+            except ValueError:
+                raise RuntimeError(f'{name} must be a number (or empty), got {text!r}') from None
     log_level = LaunchConfiguration('log_level').perform(context).strip() or 'info'
     return [Node(package='lattice_bridge', executable='lattice_reporter', name='lattice_reporter',
                  output='screen', parameters=parameters, arguments=['--ros-args', '--log-level', log_level])]
@@ -45,6 +59,10 @@ def generate_launch_description():
                               description='settings file (every option is explained inside it)'),
         DeclareLaunchArgument('dry_run', default_value='',
                               description='true = decide and log but publish nothing; empty = settings file'),
+        DeclareLaunchArgument('min_confidence', default_value='',
+                              description='ignore detections below this score (0..1); empty = settings file'),
+        DeclareLaunchArgument('min_move_m', default_value='',
+                              description='re-send a target that moved more than this (metres); empty = settings file'),
         DeclareLaunchArgument('log_level', default_value='info', description='debug | info | warn | error'),
         OpaqueFunction(function=_reporter_node),
     ])

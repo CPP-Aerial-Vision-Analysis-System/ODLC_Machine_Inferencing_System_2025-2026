@@ -9,6 +9,7 @@ as the real thing:
                                   breaks the contract (the answer says what is wrong, in plain words).
     GET  /api/v1/entities/<id>    one entity of the current picture, or 404.
     GET  /entities.json           the whole current picture (what the map would show now).
+    GET  /history.json            every update it took, oldest first (also the ones that took an entity away).
     GET  /stats.json              counters: requests, accepted, discarded, refused, ...
     GET  /health                  "ok" (for scripts that wait until it is up).
     GET  /                        a LIVE MAP PAGE: the drone, the targets, the drop points and the areas drawn
@@ -28,7 +29,22 @@ Tokens: with `token` set, `authorization: Bearer <token>` must match (and `andur
 `sandbox_token` is set). With no token the server is in OPEN mode: any non-empty bearer token is accepted (good for a
 quick demo); the tests always set one. It listens on 127.0.0.1 by default so nobody else on the network can reach it.
 
+The JOURNAL (optional, `--journal FILE`): one JSON line per PUT request, written at once so the record survives the
+server. Each line has `t` = the moment the request ARRIVED (before any injected delay), the answer it got and, for an
+accepted or discarded update, the entity. Every PUT gets a line, also the ones refused for a wrong path (404) or a
+missing / oversized body (400 / 413). It is how a simulator run is checked afterwards ("did the drone update every
+second? anything after the final isLive false?"). The last line says the server stopped, with the counters. When
+stop() is called, a PUT that is still being answered gets up to STOP_WAIT_S seconds to finish (its line comes before
+the "stopped" line); an update that is still not done after that is NOT taken (it is answered 503, counted as
+`too_late`) and the "stopped" line counts it as `unfinished`, so nothing is ever accepted without a journal line.
+A journal that cannot be written is switched off with one warning; the server keeps answering.
+
+LINGER (optional, `--linger-s S`): after Ctrl-C / SIGTERM the server keeps answering for S more seconds before it
+stops. The simulator stops every program at the same moment; without this pause the bridge's last update (the drone
+"not live") would find the server already gone.
+
 Run it:   python3 -m lattice_bridge.fake_lattice --port 8089        (Ctrl-C stops it)
+          ... --journal '$ASTRA_RUN_DIR/lattice/fake_lattice_journal.jsonl' --linger-s 4   (what lattice_mock.yaml uses)
 In code:  fake = FakeLattice(token='...').start();  fake.url;  fake.entities();  fake.stop()
 
 Python standard library only (http.server, threading, json, html).
@@ -41,20 +57,69 @@ import html
 import json
 import math
 import os
+import re
 import signal
+import sys
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from . import constants as C
 from .entities import find_problems
 from .sinks.rest_sink import ENTITIES_PATH, SANDBOX_HEADER
-from .timeutil import parse_utc
+from .timeutil import format_utc, parse_utc
 
 MAX_BODY_BYTES = 1024 * 1024
 PAGE_REFRESH_S = 2
+#: The longest --linger-s accepted (a launch system kills a program that ignores it for longer anyway).
+MAX_LINGER_S = 30.0
+#: How long stop() waits for PUT requests that are still being answered before it writes the "stopped" line.
+#: Short on purpose: ros2 launch escalates to SIGKILL about 10 s after its first stop signal, and the linger
+#: (4 s in lattice_mock.yaml) comes first.
+STOP_WAIT_S = 2.0
+
+#: The words used in the journal's "result" field, one per possible outcome of a request.
+RESULT_ACCEPTED = 'accepted'
+RESULT_DISCARDED = 'discarded_older'
+RESULT_REFUSED_AUTH = 'refused_auth'
+RESULT_REFUSED_CONTRACT = 'refused_contract'
+RESULT_REFUSED_MALFORMED = 'refused_malformed'
+RESULT_REFUSED_PATH = 'refused_path'          # a PUT to another path than /api/v1/entities (404)
+RESULT_INJECTED = 'injected_failure'
+RESULT_STOPPED = 'stopped'
+
+#: $NAME or ${NAME} inside a journal path (see resolve_journal_path).
+_VARIABLE = re.compile(r'\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))')
+
+
+def resolve_journal_path(text: str, environ: Optional[Mapping[str, str]] = None) -> Tuple[str, str]:
+    """Expand `~` and `$VARIABLES` in a journal path. Returns (path, warning); path '' = no journal.
+
+    A profile cannot run a shell, so `--journal '$ASTRA_RUN_DIR/lattice/journal.jsonl'` arrives here unexpanded and
+    is expanded here (demo.sh exports ASTRA_RUN_DIR = the run folder). A variable that is not set would leave a '$'
+    in the path and write the file somewhere silly, so the journal is switched off instead, with a warning.
+    """
+    text = (text or '').strip()
+    if not text:
+        return '', ''
+    env = os.environ if environ is None else environ
+    missing: List[str] = []
+
+    def value(match) -> str:
+        """The value of one $NAME / ${NAME}; an unset or empty variable is remembered as missing."""
+        name = match.group('braced') or match.group('plain')
+        found = env.get(name, '')
+        if not found:
+            missing.append(name)
+        return found
+
+    path = _VARIABLE.sub(value, os.path.expanduser(text))
+    if missing:
+        return '', (f'the journal path "{text}" uses ${missing[0]}, which is not set: no journal is written '
+                    f'(demo.sh sets ASTRA_RUN_DIR; elsewhere give a plain path)')
+    return path, ''
 
 
 def _utc_now() -> datetime:
@@ -91,20 +156,28 @@ class FakeLattice:
     """The pretend Lattice (see the module text). Thread safe; `start()` returns self."""
 
     def __init__(self, host: str = '127.0.0.1', port: int = 0, token: str = '', sandbox_token: str = '', *,
-                 clock: Callable[[], datetime] = _utc_now):
+                 clock: Callable[[], datetime] = _utc_now, journal_path: str = ''):
         self.host = host
         self.port = port
         self.token = token
         self.sandbox_token = sandbox_token
         self._clock = clock
         self._lock = threading.Lock()
+        self.journal_path = journal_path
+        self.journal_error = ''                      # set (and the journal switched off) when writing failed
+        self._journal: Optional[Any] = None
         self._picture: Dict[str, Dict[str, Any]] = {}
         self._received_at: Dict[str, float] = {}
         self._held_time: Dict[str, datetime] = {}
         self.history: List[Dict[str, Any]] = []
+        # requests = every PUT; the other PUT counters say what happened to each one ('too_late': answered 503
+        # because it was still running when stop() gave up waiting, see stop()).
         self.counters: Dict[str, int] = {key: 0 for key in (
             'requests', 'accepted', 'discarded_older', 'went_offline', 'refused_auth', 'refused_contract',
-            'refused_malformed', 'injected_failures', 'gets')}
+            'refused_malformed', 'refused_path', 'injected_failures', 'too_late', 'gets')}
+        self._in_flight = 0                          # PUT requests being answered right now
+        self._all_answered = threading.Condition(self._lock)   # notified each time one of them finishes
+        self._closed = False                         # True once stop() wrote (or would write) the "stopped" line
         self._down = False
         self._delay_s = 0.0
         self._fail_status: Optional[int] = None
@@ -115,9 +188,18 @@ class FakeLattice:
 
     # ------------------------------------------------------------------------------------------ life cycle
     def start(self) -> 'FakeLattice':
-        """Start listening in a background thread (port 0 picks a free port; see `url`)."""
+        """Start listening in a background thread (port 0 picks a free port; see `url`); open the journal if asked."""
         if self._server is not None:
             return self
+        with self._lock:
+            self._closed = False                     # a stopped server can be started again
+        if self.journal_path and self._journal is None and not self.journal_error:
+            try:
+                folder = os.path.dirname(os.path.abspath(self.journal_path))
+                os.makedirs(folder, exist_ok=True)
+                self._journal = open(self.journal_path, 'a', encoding='utf-8')
+            except OSError as exc:
+                self._journal_failed(exc)
         owner = self
 
         class Handler(_Handler):
@@ -134,7 +216,13 @@ class FakeLattice:
         return self
 
     def stop(self) -> None:
-        """Stop listening. Safe to call twice."""
+        """Stop listening, let running PUTs finish, then close the journal with a last "stopped" line. Safe twice.
+
+        Requests are answered in their own threads, so a PUT can still be running when the server stops listening
+        (for example one held back by an injected delay). It gets up to STOP_WAIT_S seconds; its journal line then
+        comes BEFORE the "stopped" line. An update that is still not finished after that is answered 503 and not
+        taken (publish() checks `_closed`), so nothing is ever accepted without a journal line.
+        """
         server, self._server = self._server, None
         if server is not None:
             server.shutdown()
@@ -142,6 +230,70 @@ class FakeLattice:
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
+        with self._lock:
+            self._all_answered.wait_for(lambda: self._in_flight == 0, timeout=STOP_WAIT_S)
+            self._closed = True
+            if self._journal is not None:
+                stats = {**self.counters, 'on_picture': len(self._picture), 'history': len(self.history)}
+                record: Dict[str, Any] = {'result': RESULT_STOPPED, 'stats': stats,
+                                          'on_picture': sorted(self._picture)}
+                if self._in_flight:
+                    record['unfinished'] = self._in_flight          # these will be answered 503 (see above)
+                self._write_journal(record)
+                journal, self._journal = self._journal, None
+                try:
+                    journal.close()
+                except OSError:
+                    pass
+
+    # ------------------------------------------------------------------------------------------ the journal
+    def _journal_failed(self, exc: BaseException) -> None:
+        """Switch the journal off after an error, saying so once on stderr (the server itself goes on)."""
+        self.journal_error = f'{exc.__class__.__name__}: {exc}'
+        print(f'fake Lattice: the journal {self.journal_path} cannot be written ({self.journal_error}); '
+              f'it is switched off, the server keeps answering', file=sys.stderr, flush=True)
+        journal, self._journal = self._journal, None
+        if journal is not None:
+            try:
+                journal.close()
+            except OSError:
+                pass
+
+    def _write_journal(self, record: Dict[str, Any], when: Optional[datetime] = None) -> None:
+        """Append one line to the journal (call with self._lock held); `t` = `when` or now. Never raises."""
+        if self._journal is None:
+            return
+        try:
+            line = json.dumps({'t': format_utc(when or self._clock()), **record}, sort_keys=True)
+            self._journal.write(line + '\n')
+            self._journal.flush()                    # at once: the record must survive a server that is killed
+        except (OSError, TypeError, ValueError) as exc:
+            self._journal_failed(exc)
+
+    def note(self, result: str, status: int, entity: Any = None, message: str = '',
+             received: Optional[datetime] = None) -> None:
+        """Record one request's outcome in the journal (a no-op without a journal). Thread safe.
+
+        `received` is when the request arrived (the journal's `t`); without it the time of writing is used.
+        """
+        with self._lock:
+            self._note_locked(result, status, entity, message, received)
+
+    def _note_locked(self, result: str, status: int, entity: Any = None, message: str = '',
+                     received: Optional[datetime] = None) -> None:
+        """note() for callers that already hold self._lock."""
+        if self._journal is None:
+            return
+        record: Dict[str, Any] = {'result': result, 'status': status}
+        if isinstance(entity, dict):
+            record['entityId'] = entity.get('entityId')
+            record['isLive'] = entity.get('isLive')
+            record['sourceUpdateTime'] = (entity.get('provenance') or {}).get('sourceUpdateTime')
+            if result in (RESULT_ACCEPTED, RESULT_DISCARDED):
+                record['entity'] = entity
+        if message:
+            record['message'] = message
+        self._write_journal(record, received)
 
     @property
     def url(self) -> str:
@@ -167,6 +319,11 @@ class FakeLattice:
         """Counters plus the number of entities on the picture and in the history."""
         with self._lock:
             return {**self.counters, 'on_picture': len(self._picture), 'history': len(self.history)}
+
+    def history_copy(self) -> List[Dict[str, Any]]:
+        """Every update that was taken, oldest first (a copy), including the isLive=false ones."""
+        with self._lock:
+            return json.loads(json.dumps(self.history))
 
     # ------------------------------------------------------------------------------------------ misbehaving
     def configure(self, *, down: Optional[bool] = None, delay_s: Optional[float] = None,
@@ -207,24 +364,32 @@ class FakeLattice:
             return False
         return True
 
-    def publish(self, entity: Any) -> Tuple[int, Dict[str, Any]]:
-        """Apply one published entity; returns (HTTP status, JSON answer)."""
+    def publish(self, entity: Any, received: Optional[datetime] = None) -> Tuple[int, Dict[str, Any]]:
+        """Apply one published entity; returns (HTTP status, JSON answer). `received`: when it arrived (journal)."""
         if not isinstance(entity, dict):
+            message = 'the body must be one JSON object (an entity)'
             with self._lock:
                 self.counters['refused_malformed'] += 1
-            return 400, {'message': 'the body must be one JSON object (an entity)'}
+                self._note_locked(RESULT_REFUSED_MALFORMED, 400, message=message, received=received)
+            return 400, {'message': message}
         now = self._clock()
         problems = find_problems(entity, now)
         if problems:
+            message = 'the entity breaks the contract: ' + '; '.join(problems[:5])
             with self._lock:
                 self.counters['refused_contract'] += 1
-            return 400, {'message': 'the entity breaks the contract: ' + '; '.join(problems[:5])}
+                self._note_locked(RESULT_REFUSED_CONTRACT, 400, entity, message, received)
+            return 400, {'message': message}
         entity_id = entity['entityId']
         held_since = parse_utc(entity['provenance']['sourceUpdateTime'])
         with self._lock:
+            if self._closed:                                             # stop() already wrote its last line
+                self.counters['too_late'] += 1
+                return 503, {'message': 'the pretend Lattice has stopped'}
             held = self._held_time.get(entity_id)
             if held is not None and held_since <= held:
                 self.counters['discarded_older'] += 1                    # Lattice: "will discard the update"
+                self._note_locked(RESULT_DISCARDED, 200, entity, received=received)
                 return 200, {}
             self._held_time[entity_id] = held_since
             self.history.append(json.loads(json.dumps(entity)))
@@ -236,6 +401,7 @@ class FakeLattice:
                 self._picture[entity_id] = json.loads(json.dumps(entity))
                 self._received_at[entity_id] = time.monotonic()
             self.counters['accepted'] += 1
+            self._note_locked(RESULT_ACCEPTED, 200, entity, received=received)
         return 200, {}
 
     # ------------------------------------------------------------------------------------------ the map page
@@ -342,26 +508,54 @@ class _Handler(BaseHTTPRequestHandler):
         """Answer with a JSON body."""
         self._send(status, json.dumps(payload).encode('utf-8'), extra=extra)
 
+    #: The status to refuse the body with (400 or 413) when _read_body returned None, else None.
+    body_refused: Optional[int] = None
+
     def _read_body(self) -> Optional[bytes]:
-        """The request body, or None after answering 400/413 when it is missing or larger than MAX_BODY_BYTES."""
+        """The request body, or None (and `body_refused` set) when its length is not readable or above
+        MAX_BODY_BYTES. The caller then answers with _refuse_body() (after writing its journal line)."""
         try:
             length = int(self.headers.get('Content-Length') or 0)
         except ValueError:
             length = -1
         if length < 0 or length > MAX_BODY_BYTES:
-            self._json(413 if length > 0 else 400, {'message': 'the body is missing or too large'})
+            self.body_refused = 413 if length > 0 else 400
             return None
         return self.rfile.read(length) if length else b''
 
+    def _refuse_body(self) -> None:
+        """Answer the 400 / 413 that _read_body decided on (the body itself is never read)."""
+        self._json(self.body_refused or 400, {'message': 'the body is missing or too large'})
+
     def do_PUT(self) -> None:                                      # noqa: N802 (http.server's naming)
-        """PUT /api/v1/entities: count it, apply any injected failure, check the token, then publish."""
+        """PUT /api/v1/entities: count it, then answer it (see _answer_put); stop() waits for running ones."""
         fake = self.fake
+        received = fake._clock()                                   # the journal's `t`: when the request arrived
         with fake._lock:
             fake.counters['requests'] += 1
+            fake._in_flight += 1
+        try:
+            self._answer_put(fake, received)
+        finally:
+            with fake._lock:
+                fake._in_flight -= 1
+                fake._all_answered.notify_all()
+
+    def _answer_put(self, fake: FakeLattice, received: datetime) -> None:
+        """Read the body, check the path, apply any injected failure, check the token, then publish. Every
+        outcome gets one journal line stamped with `received`."""
         body = self._read_body()                                   # always read it first: answering with the body unread can reset the connection
         if body is None:
+            with fake._lock:
+                fake.counters['refused_malformed'] += 1
+                fake._note_locked(RESULT_REFUSED_MALFORMED, self.body_refused or 400,
+                                  message='the body is missing or too large', received=received)
+            self._refuse_body()
             return
         if self.path.split('?')[0] != ENTITIES_PATH:
+            with fake._lock:
+                fake.counters['refused_path'] += 1
+                fake._note_locked(RESULT_REFUSED_PATH, 404, message='not found: ' + self.path[:200], received=received)
             self._json(404, {'message': 'not found'})
             return
         delay, status, retry_after = fake._injected_failure()
@@ -369,11 +563,13 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(delay)
         if status is not None:
             extra = {'Retry-After': f'{retry_after:g}'} if retry_after else None
+            fake.note(RESULT_INJECTED, status, message='injected failure', received=received)
             self._json(status, {'message': 'injected failure'}, extra)
             return
         if not fake.check_auth(self.headers):
             with fake._lock:
                 fake.counters['refused_auth'] += 1
+                fake._note_locked(RESULT_REFUSED_AUTH, 401, message='missing or wrong token', received=received)
             self._json(401, {'message': 'missing or wrong token'})
             return
         try:
@@ -381,9 +577,11 @@ class _Handler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, ValueError):
             with fake._lock:
                 fake.counters['refused_malformed'] += 1
+                fake._note_locked(RESULT_REFUSED_MALFORMED, 400, message='the body is not valid JSON',
+                                  received=received)
             self._json(400, {'message': 'the body is not valid JSON'})
             return
-        code, payload = fake.publish(entity)
+        code, payload = fake.publish(entity, received)
         self._json(code, payload)
 
     def do_GET(self) -> None:                                      # noqa: N802
@@ -398,6 +596,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(200, fake.render_page().encode('utf-8'), 'text/html; charset=utf-8')
         elif path == '/entities.json':
             self._json(200, list(fake.entities().values()))
+        elif path == '/history.json':
+            self._json(200, fake.history_copy())
         elif path == '/stats.json':
             self._json(200, fake.stats())
         elif path.startswith(ENTITIES_PATH + '/'):
@@ -410,6 +610,7 @@ class _Handler(BaseHTTPRequestHandler):
         """POST /control: make the server misbehave on purpose (down, slow, a few failures)."""
         body = self._read_body()
         if body is None:
+            self._refuse_body()
             return
         if self.path.split('?')[0] != '/control':
             self._json(404, {'message': 'not found'})
@@ -435,22 +636,47 @@ def main(argv: Optional[List[str]] = None) -> int:
                              'when it is empty the server is in open mode')
     parser.add_argument('--sandbox-token-env', default='SANDBOXES_TOKEN',
                         help='name of the environment variable that holds the sandbox token to require (default SANDBOXES_TOKEN)')
+    parser.add_argument('--journal', default='', metavar='FILE',
+                        help='also write every request and the answer to FILE, one JSON line each, kept after the server '
+                             'stops. ~ and $VARIABLES are expanded (e.g. "$ASTRA_RUN_DIR/lattice/journal.jsonl"); a '
+                             'variable that is not set switches the journal off with a warning')
+    parser.add_argument('--linger-s', type=float, default=0.0, metavar='S',
+                        help=f'after Ctrl-C / SIGTERM keep answering for S more seconds (default 0, at most '
+                             f'{MAX_LINGER_S:g}), so a bridge stopped at the same moment can still send its last update')
     args = parser.parse_args(argv)
-    fake = FakeLattice(args.host, args.port, os.environ.get(args.token_env, ''), os.environ.get(args.sandbox_token_env, ''))
-    fake.start()
-    mode = 'checks the token from ' + args.token_env if fake.token else f'OPEN mode (any non-empty bearer token; {args.token_env} is not set)'
-    print(f'fake Lattice listening on {fake.url} - {mode}', flush=True)
-    print(f'live map: {fake.url}/   (give {fake.url} to the bridge as its endpoint)', flush=True)
+    if not 0.0 <= args.linger_s <= MAX_LINGER_S:
+        parser.error(f'--linger-s must be between 0 and {MAX_LINGER_S:g} seconds')
+    journal_path, warning = resolve_journal_path(args.journal)
+    if warning:
+        print(f'fake Lattice: WARNING {warning}', file=sys.stderr, flush=True)
+    # The stop handlers come FIRST: a stop request that arrives while the server starts must still get the linger
+    # pause (found by the linger test: a SIGTERM right after "listening" used to kill the server outright).
     stop = threading.Event()
     for name in ('SIGINT', 'SIGTERM'):
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), lambda *_: stop.set())
+    fake = FakeLattice(args.host, args.port, os.environ.get(args.token_env, ''), os.environ.get(args.sandbox_token_env, ''),
+                       journal_path=journal_path)
+    fake.start()
+    mode = 'checks the token from ' + args.token_env if fake.token else f'OPEN mode (any non-empty bearer token; {args.token_env} is not set)'
+    print(f'fake Lattice listening on {fake.url} - {mode}', flush=True)
+    print(f'live map: {fake.url}/   (give {fake.url} to the bridge as its endpoint)', flush=True)
+    if journal_path and not fake.journal_error:
+        print(f'journal: every request is written to {journal_path}', flush=True)
     try:
         while not stop.wait(0.5):
             pass
+        if args.linger_s > 0:
+            # Further signals only set `stop` again, so this pause always runs to its end (a kill still ends it).
+            print(f'fake Lattice: stop requested, still answering for {args.linger_s:g} s', flush=True)
+            time.sleep(args.linger_s)
     finally:
         fake.stop()
-    print('fake Lattice stopped', flush=True)
+    counts = fake.stats()
+    refused = sum(counts[key] for key in ('refused_auth', 'refused_contract', 'refused_malformed', 'refused_path'))
+    print(f'fake Lattice stopped: {counts["requests"]} requests, {counts["accepted"]} accepted, '
+          f'{counts["discarded_older"]} discarded as not newer, {refused} refused, '
+          f'{counts["on_picture"]} on the picture', flush=True)
     return 0
 
 

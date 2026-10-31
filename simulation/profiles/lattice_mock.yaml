@@ -1,29 +1,83 @@
 # lattice_mock.yaml -- PURPOSE: try the Lattice bridge with the simulated drone and NO Lattice account. It starts
-# two small extra programs next to the simulator:
-#   1. fake_lattice   a pretend Lattice on this computer (http://127.0.0.1:8089/ shows a LIVE MAP of everything the
-#                     bridge publishes: the drone, the targets, the drop points and the search areas)
-#   2. lattice_bridge the real bridge program, reading the simulator's MAVLink stream (the same stream Mission
-#                     Planner shows) and publishing to the pretend Lattice
-# Nothing leaves this computer and the flight is not touched: if either program fails, the drone flies the same.
+# four small extra programs next to the normal demo:
+#   1. lattice_ground_radio  a second ground station (MAVProxy) on the autopilot's spare port SERIAL1 (TCP 5762): it
+#                       plays the telemetry radio + Mission Planner of the real field and hands the stream to the
+#                       bridge on UDP 14554 (why: see below). Its log: <run folder>/lattice/lattice_ground_radio.tlog
+#   2. fake_lattice     a pretend Lattice on this computer (http://127.0.0.1:8089/ shows a LIVE MAP of everything the
+#                       bridge publishes: the drone, the targets, the drop points and the search areas). It also writes
+#                       every request it gets to <run folder>/lattice/fake_lattice_journal.jsonl (kept after the run).
+#   3. lattice_bridge   the real ground-side bridge program, reading that MAVLink stream and publishing to the pretend
+#                       Lattice
+#   4. lattice_reporter the Jetson-side target reporter: it listens to the detector and sends one short radio text
+#                       ("TGT p 36.215133 -96.006219 95 1") per hiker / tent through MAVROS. On the REAL drone nothing
+#                       starts it (it is off unless somebody runs it); here it starts with the team's flight stack.
+# Nothing leaves this computer and the flight is not touched: if any of them fails, the drone flies the same.
 #
-# Use it:   bash simulation/scripts/demo.sh --profile lattice_mock
+# Use it:   bash simulation/scripts/demo.sh runway --profile lattice_mock
 #           then open http://127.0.0.1:8089/ in a browser while the drone flies.
-# Needs:    the workspace built and sourced (colcon build --packages-select lattice_bridge), pymavlink installed.
+# Needs:    the workspace built (simulation/setup/03_build.sh), pymavlink and MAVProxy (both installed by the setup).
+#           Keep TCP 5762 free: no Mission Planner on TCP 5762 during this demo (the ground station below uses it).
+# MISSION PLANNER DURING THIS DEMO: it can connect on UDP 14550 and shows the drone (mode, height, battery, GPS), but
+#           because this profile puts MAVROS behind MAVProxy (network.fcu_url below) it gets NONE of the team's texts
+#           ("Detected ...", "Aim ...", "Targets: ...", "Servo 13 -> ...", "TGT ..."): the ASTRA plugin's target cards,
+#           target / drop markers and the phases it reads from those texts stay empty. This ends when the fcu_url line
+#           can go (see "WHY network.fcu_url").
 # Change the world: edit "world:runway" below to the world you fly (a world has its own search areas).
 #
-# Why its own MAVLink output (udp 14554): one UDP port can have ONE listener. 14550 belongs to the demo scripts,
-# 14552 to MAVROS, 14553 to the demo panel, so the bridge gets a port of its own.
+# WHY network.fcu_url (MAVROS behind MAVProxy, udp 14552, the wiring every demo used until 2026-10-31): since commit
+# 6d90c07 the default puts MAVROS on SERIAL2 (TCP 5763). ArduPilot then also forwards MAVROS's own HEARTBEAT (system
+# 1, mode number 0, disarmed) to UDP 14550, and mission_tool, which keeps the newest system-1 heartbeat whatever its
+# component, can read "STABILIZE" / "disarmed" and stop the demo. Lattice run 20261031-094007_runway (MAVROS on
+# SERIAL2) ended early this way soon after take-off: no drop, closed 2:14 after arming, and the main MAVProxy logged
+# "Detected vehicle 1:191" (MAVROS's heartbeat); the console line with mission_tool's reason was seen but not kept.
+# Once mission_tool only trusts the autopilot's own heartbeat, delete the fcu_url line (the team's texts then reach
+# UDP 14550 and Mission Planner again) and keep or drop the ground station.
+# WHY A SECOND GROUND STATION (needed BECAUSE of the fcu_url line): the target texts ("TGT ...") and the drop texts
+# ("Servo 13 -> 1400") come from the TEAM's nodes, through MAVROS. With MAVROS behind MAVProxy they reach the autopilot
+# through MAVProxy, and MAVProxy does not copy one client's messages to its other outputs (from reading MAVProxy's
+# code), so a bridge on an ordinary MAVProxy output would see the drone but never a target or a drop. ArduPilot passes
+# a message on to every OTHER port where it has heard a ground station (never back to the port it came from), so a
+# ground station on SERIAL1 hears them, the way the real radio hears the Jetson on TELEM2. With MAVROS on SERIAL2
+# (the default) an ordinary MAVProxy output does get them: run 20261031-094007_runway had exactly that wiring and its
+# bridge received all 8 of the reporter's texts.
+# The ground station uses system id 254 (Mission Planner / MAVProxy use 255) and only asks for telemetry.
+#
+# The reporter settings below differ from its defaults (ros2_ws/src/lattice_bridge/config/lattice_reporter.yaml):
+#   min_confidence 0.5  removes the stock detector's weakest false "tent" calls, NOT all of them. Run
+#                       20261031-094007_runway (no filter) made three false tent tracks at 30-36 %; the real tent was
+#                       first reported at 33 % and 39 % (later 81-86 %), the hiker at 94 %. Run 20261031-094837_runway
+#                       (0.5) still made one false tent track: a tarp at 56 %; the real tent was reported at 63 % then
+#                       84 %, the hiker at 95 %. A higher value also drops a target's early weak sightings.
+#                       main_controller only acts on the best one. The team chooses the real-drone value.
+#   min_move_m 1.5      tell the ground again when the best sighting moved 1.5 m (default 5 m), so the Lattice
+#                       track stays within ~1.5 m of the point main_controller will aim at.
 #
 # The token below is MADE UP on purpose: the pretend Lattice accepts any token. A real Lattice token never goes into
 # a file in this repository (see docs/lattice/BRIDGE.md, "secrets").
 profile: 1
 name: lattice_mock
-description: the default demo plus a pretend Lattice (live map at http://127.0.0.1:8089/) and the Lattice bridge
+description: the default demo plus a pretend Lattice (live map at http://127.0.0.1:8089/), the Lattice bridge behind a second ground station, and the Jetson-side target reporter
 network:
-  extra_outs: ["udp:127.0.0.1:14554"]
+  fcu_url: "udp://:14552@localhost:14552"
 extras:
+  # bash is used only to pick the folder and MAVProxy; "exec" hands the process over, so Ctrl+C reaches MAVProxy.
+  # wait_then_exec waits (without connecting) until the autopilot listens on TCP 5762.
+  - name: lattice_ground_radio
+    command:
+      - bash
+      - -c
+      - >-
+        cd "${ASTRA_RUN_DIR:-/tmp}" && MP="$HOME/sitl/venv/bin/mavproxy.py" && { [ -x "$MP" ] || MP=mavproxy.py; } &&
+        exec python3 -m sim_bringup.wait_then_exec --tcp-port 5762 --timeout 600 --delay 2 --label lattice_ground_radio --
+        "$MP" --master tcp:127.0.0.1:5762 --out udp:127.0.0.1:14554 --daemon --source-system 254 --target-system 1
+        --target-component 1 --default-modules log --state-basedir . --logfile lattice/lattice_ground_radio.tlog
+    start_with: simulator
+  # $ASTRA_RUN_DIR is NOT expanded by a shell here (no bash in this one): fake_lattice expands it itself.
+  # --linger-s 4: when the demo ends every program is stopped at the same moment; the pretend Lattice keeps
+  # answering 4 more seconds so the bridge's last update (the drone "not live") still arrives.
   - name: fake_lattice
-    command: [ros2, run, lattice_bridge, fake_lattice, --port, "8089"]
+    command: [ros2, run, lattice_bridge, fake_lattice, --port, "8089",
+              --journal, "$ASTRA_RUN_DIR/lattice/fake_lattice_journal.jsonl", --linger-s, "4"]
     start_with: simulator
   - name: lattice_bridge
     command:
@@ -48,3 +102,10 @@ extras:
       - --geoid-undulation
       - "-30"
     start_with: simulator
+  # The Jetson side: started with ./launcher.sh sim, next to the team's nodes (launch arguments: see above).
+  - name: lattice_reporter
+    package: lattice_bridge
+    launch: lattice_reporter.launch.py
+    args: {min_confidence: "0.5", min_move_m: "1.5"}
+    node_name: lattice_reporter
+    start_with: team_stack

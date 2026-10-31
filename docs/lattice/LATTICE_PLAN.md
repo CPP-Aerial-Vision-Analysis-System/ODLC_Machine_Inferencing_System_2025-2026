@@ -3,14 +3,18 @@ docs/lattice/LATTICE_PLAN.md -- PURPOSE: the engineering plan for integrating An
 into the ASTRA codebase: what we publish, where the bridge runs, the package design, how we test it in the
 Gazebo twin without a Lattice account, the phases with "done when" checks, and the open decisions. Based on the
 seven Lattice documentation pages saved in the repo root (*.mhtml, added in cfc8d7c) and docs.anduril.com.
-Phase 1 (the core library, package ros2_ws/src/lattice_bridge) was built on 2026-10-24; the other phases are
-not built yet. Update this file as phases finish.
+Phase 1 (the core library, package ros2_ws/src/lattice_bridge) was built on 2026-10-24, phase 2 the same day and
+run end to end in the Gazebo twin on 2026-10-31 (what that did and did not prove: docs/lattice/BRIDGE.md); the other
+phases are not built yet. Update this file as phases finish.
 -->
 
 # Lattice integration plan
 
-Status: **plan, 2026-10-24; phase 1 (core library) built and tested the same day**. Owner to confirm the open
-decisions in section 9 before Phase 2. The exact data contract as built is in [`DATA_CONTRACT.md`](DATA_CONTRACT.md).
+Status: **plan, 2026-10-24; phase 1 (core library) built and tested the same day; phase 2 built, and on 2026-10-31
+its Gazebo end-to-end (section 6 step 3) met the Lattice checks for the real targets, but not step 3 as written**
+(the run was visible, not headless; the runway world has one search area; the score was comparable, not identical).
+Owner to confirm the open decisions in section 9 before Phase 3. The exact data contract as built is in
+[`DATA_CONTRACT.md`](DATA_CONTRACT.md).
 
 ## 1. What Lattice is, in our terms
 
@@ -108,6 +112,14 @@ README; an older page says `lattice-sdk-python`).
    headless demo shows: the UAV asset updates at ~1 Hz all flight, exactly one track per real target,
    track position within 2 m of the truth file, both search areas and both drop points present, nothing
    published after `isLive false`; and the demo's score is identical with the bridge on and off.
+   **Result 2026-10-31** (visible run, `--sink rest` into the pretend Lattice, which keeps a journal of every
+   request): the Lattice checks passed for the real targets; the score was comparable (2/2 found, drops 1.2 / 2.5 m),
+   not identical, because runs differ by chance; the runway world has one search area, not two; the run was visible,
+   not headless. The first try taught us that detector false alarms become tracks (a confidence filter removes the
+   weak ones, not all) and that a 5 m re-send step leaves a track 3 m off. It also showed that with MAVROS on SERIAL2
+   an ordinary MAVProxy output gets the Jetson's texts; the profile now keeps MAVROS behind MAVProxy (until
+   `mission_tool` ignores MAVROS's heartbeat) and therefore gives the bridge its own ground station. Details:
+   `BRIDGE.md`.
 4. **Fault tests**: kill the mock mid-flight, delay it 5 s, return 500s: the flight result is unchanged and the
    bridge catches up from its buffer.
 5. **Sandbox**: the same profile with `--sink grpc` against a Lattice Developer Program sandbox; verify in the
@@ -119,7 +131,7 @@ README; an older page says `lattice-sdk-python`).
 |---|---|---|
 | 0. Decide + access | confirm why (rule / sponsor / team goal) with Areg; request Lattice Developer Program sandbox access; decide Option A or B; confirm SDK package + version; check the Registry names for `platformType` values | written answers in section 9 |
 | 1. Core library | `entities.py`, `ids.py`, `clustering.py`, `report_codec.py`, `jsonl_sink`, contract tests | unit tests green; golden files reviewed. **DONE 2026-10-24**: package `lattice_bridge`, about 1,100 tests (also from a clean `colcon build`), 11 golden files reviewed against the live docs; findings in `DATA_CONTRACT.md` |
-| 2. Mock + sim | mock Lattice, `mavlink_source`, `bridge_node`, `lattice_mock.yaml` profile, Jetson `TGT` reporter behind a default-off parameter | section 6 steps 3-4 pass in the twin. **BUILT 2026-10-24, not yet flown in Gazebo**: fake Lattice with a live map page, REST sink, MAVLink / replay / ROS sources, bridge program, publisher, `lattice_mock.yaml`, Jetson reporter (default off); about 1,900 tests pass on Windows Python; still to do: the Gazebo run (steps 3-4), the reporter on ROS 2 and the Jetson. How to run: [`BRIDGE.md`](BRIDGE.md) |
+| 2. Mock + sim | mock Lattice, `mavlink_source`, `bridge_node`, `lattice_mock.yaml` profile, Jetson `TGT` reporter behind a default-off parameter | section 6 steps 3-4 pass in the twin. **BUILT 2026-10-24; step 3's Lattice checks met in Gazebo 2026-10-31, step 3 as written not fully** (run `20261031-094837_runway`: drone 0.97 updates/s in flight, one track per real target at 1.3 m / 0.2 m from the truth, the world's one search area and both drop points, nothing after the goodbye, 0 refused; one extra track was a detector false alarm; visible run, score comparable not identical). The reporter ran on ROS 2 in the twin; while the profile keeps MAVROS behind MAVProxy it gives the bridge its own ground station so the Jetson's texts reach it (see `BRIDGE.md`). Still to do: step 4 (fault tests in flight), the Jetson itself. How to run and all numbers: [`BRIDGE.md`](BRIDGE.md) |
 | 3. Sandbox | `grpc_sink` with retries/offline buffer, secrets handling, a replay of a recorded sim run into the sandbox | entities visible and correct in the Lattice UI |
 | 4. Thumbnails + areas | `rest_sink` Objects upload + media link; geo-entities from the mission config | thumbnails show in Lattice; areas drawn correctly |
 | 5. Video (optional) | MediaMTX re-streams the SIYI RTSP feed to a Lattice SRT ingress (ground side or Jetson side, bandwidth permitting) | live feed visible next to the UAV asset |

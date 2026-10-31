@@ -8,8 +8,9 @@ exact JSON we send is in docs/lattice/DATA_CONTRACT.md.
 
 # lattice_bridge: showing the ASTRA mission in Anduril Lattice
 
-**Status: phase 1 of 7 (the core library) is built and tested. Nothing talks to Lattice yet, nothing is
-started by `launcher.sh`, and no flight node knows this package exists.**
+**Status: phases 1 and 2 of 7 are built and tested; phase 2 (bridge, pretend Lattice, Jetson-side reporter) ran end
+to end in the Gazebo twin on 2026-10-31 ([`docs/lattice/BRIDGE.md`](../../../docs/lattice/BRIDGE.md)). Nothing talks
+to a real Lattice yet, nothing is started by `launcher.sh`, and no flight node knows this package exists.**
 
 ## 1. What is this, in plain words
 
@@ -242,8 +243,9 @@ The simulator worlds' positions used by the scenario tests are copied into `test
 
 ## 11. Not built yet (see the plan)
 
-Phase 2: a fake local Lattice, the MAVLink source, the bridge program, the `lattice_mock` profile for the
-simulator, and the Jetson-side `TGT` reporter (default off). Phase 3: the real Lattice sink with retries and an
-offline buffer. Phases 4-7: thumbnails, video, tasking (only with a human confirm) and field use. Open
+Phase 2 (the fake local Lattice, the MAVLink source, the bridge program, the `lattice_mock` simulator profile and the
+Jetson-side `TGT` reporter, default off) is built and ran end to end in the Gazebo twin on 2026-10-31: how to run it,
+the numbers, and what that did and did not prove are in [`docs/lattice/BRIDGE.md`](../../../docs/lattice/BRIDGE.md). Phase 3: the real Lattice sink with
+retries and an offline buffer. Phases 4-7: thumbnails, video, tasking (only with a human confirm) and field use. Open
 questions for the team (why Lattice, who holds the tokens, ground or Jetson bridge) are in section 9 of
 `docs/lattice/LATTICE_PLAN.md`.

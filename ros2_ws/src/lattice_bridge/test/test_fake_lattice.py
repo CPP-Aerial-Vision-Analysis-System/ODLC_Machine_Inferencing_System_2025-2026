@@ -2,18 +2,29 @@
 lattice_bridge/test/test_fake_lattice.py -- PURPOSE: prove the pretend Lattice behaves like the real one where it
 matters: it takes a valid entity, refuses a wrong token and a wrongly built entity (and says why), discards an update
 that is not newer, takes an entity off the picture when isLive is false, can be told to fail / go slow on purpose,
-draws a page that cannot be hijacked by an entity name, and never listens to the whole network by default.
-Real sockets on 127.0.0.1 with an ephemeral port; no sleeping except one short deliberate delay.
+draws a page that cannot be hijacked by an entity name, and never listens to the whole network by default. Added for
+the Gazebo runs (2026-10-31): the journal file (one line per PUT, stamped with its ARRIVAL time, kept after the server
+stops, also for PUTs refused for a wrong path or a bad body, and never missing an update that was still being
+answered when the server stopped), /history.json, and the linger pause that lets a bridge stopped at the same moment
+deliver its last update.
+Real sockets on 127.0.0.1 with an ephemeral port; no sleeping except short deliberate delays.
 """
 
 import json
+import os
+import signal
+import subprocess
+import sys
+import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from lattice_bridge import fake_lattice
 from lattice_bridge.entities import build_uav_asset
 from lattice_bridge.fake_lattice import FakeLattice, main
+from lattice_bridge.timeutil import parse_utc
 from support_net import (AUTH_HEADERS, GOOD_TOKEN, OTHER_TOKEN, SANDBOX_TOKEN, FakeClock, area_at, drop_at,
                          http_request, put_entity, target_at, uav_at)
 
@@ -192,3 +203,188 @@ def test_time_for_an_expired_entity_is_judged_on_the_servers_clock(fake, clock):
     entity = uav_at(clock)                                                  # expires 120 s after creation
     clock.advance(timedelta(seconds=130).total_seconds())
     assert put_entity(fake.url, entity).status == 400
+
+
+# ---------------------------------------------------------------------------------------------------
+# The journal, /history.json and the linger pause (added for the Gazebo runs, 2026-10-31)
+# ---------------------------------------------------------------------------------------------------
+def _journal_lines(path):
+    with open(path, encoding='utf-8') as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def test_the_journal_records_every_request_with_its_outcome_and_a_final_line(tmp_path, clock):
+    path = tmp_path / 'deep' / 'folder' / 'journal.jsonl'                  # the folders are made for it
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now, journal_path=str(path)).start()
+    try:
+        first = uav_at(clock)
+        assert put_entity(server.url, first).status == 200                  # accepted
+        assert put_entity(server.url, first).status == 200                  # same time again: discarded
+        assert put_entity(server.url, first, headers={'authorization': 'Bearer ' + OTHER_TOKEN}).status == 401
+        broken = dict(first, entityId='')
+        assert put_entity(server.url, broken).status == 400                 # breaks the contract
+        clock.advance(1.0)
+        assert put_entity(server.url, uav_at(clock, is_live=False)).status == 200
+    finally:
+        server.stop()
+    lines = _journal_lines(path)
+    assert [line['result'] for line in lines] == ['accepted', 'discarded_older', 'refused_auth', 'refused_contract',
+                                                  'accepted', 'stopped']
+    assert lines[0]['entity'] == first and lines[0]['entityId'] == first['entityId'] and lines[0]['status'] == 200
+    assert 'entity' not in lines[2] and 'entity' not in lines[3] and 'contract' in lines[3]['message']
+    assert lines[4]['isLive'] is False
+    assert lines[-1]['stats']['accepted'] == 2 and lines[-1]['on_picture'] == []
+    assert all(line['t'].endswith('Z') for line in lines)                    # the server's UTC receive time
+    assert 'unfinished' not in lines[-1]                                     # nothing was still running at the stop
+
+
+def test_puts_refused_for_a_wrong_path_or_a_bad_body_are_journaled_and_counted_too(tmp_path, clock):
+    """Every PUT is counted in `requests`, so every PUT must also have a journal line and an outcome counter."""
+    path = tmp_path / 'journal.jsonl'
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now, journal_path=str(path)).start()
+    try:
+        assert http_request(server.url, 'PUT', '/api/v1/other', b'{}', AUTH_HEADERS).status == 404
+        claimed = {**AUTH_HEADERS, 'content-length': str(5 * 1024 * 1024)}   # "huge": refused without reading it
+        assert http_request(server.url, 'PUT', '/api/v1/entities', b'x', claimed).status == 413
+        stats = server.stats()
+    finally:
+        server.stop()
+    lines = _journal_lines(path)
+    assert [(line['result'], line.get('status')) for line in lines] == [
+        ('refused_path', 404), ('refused_malformed', 413), ('stopped', None)]
+    assert '/api/v1/other' in lines[0]['message']
+    assert stats['requests'] == 2 and stats['refused_path'] == 1 and stats['refused_malformed'] == 1
+
+
+def test_the_journal_time_is_when_the_request_arrived_not_after_an_injected_delay(tmp_path):
+    path = tmp_path / 'journal.jsonl'
+    server = FakeLattice(token=GOOD_TOKEN, journal_path=str(path)).start()   # the real clock this time
+    try:
+        server.configure(delay_s=0.6)
+        sent = datetime.now(timezone.utc)
+        assert put_entity(server.url, uav_at(FakeClock(wall=sent))).status == 200
+    finally:
+        server.stop()
+    arrived = parse_utc(_journal_lines(path)[0]['t'])
+    assert abs((arrived - sent).total_seconds()) < 0.4                        # not 0.6 s later, after the delay
+
+
+def _put_in_the_background(server, clock):
+    """Start one PUT in a thread; returns (thread, list that receives its HTTP status)."""
+    answers = []
+    entity = uav_at(clock)
+    worker = threading.Thread(target=lambda: answers.append(put_entity(server.url, entity).status), daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while server.stats()['requests'] < 1 and time.monotonic() < deadline:   # it has arrived and is being answered
+        time.sleep(0.01)
+    return worker, answers
+
+
+def test_an_update_still_being_answered_when_the_server_stops_lands_before_the_stopped_line(tmp_path, clock):
+    """The race the reviewer found: stop() used to write "stopped" first, then the late update got 200 and no line."""
+    path = tmp_path / 'journal.jsonl'
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now, journal_path=str(path)).start()
+    server.configure(delay_s=0.5)                                             # keeps the PUT running during stop()
+    worker, answers = _put_in_the_background(server, clock)
+    server.stop()
+    worker.join(timeout=5)
+    assert answers == [200]
+    lines = _journal_lines(path)
+    assert [line['result'] for line in lines] == ['accepted', 'stopped'] and 'unfinished' not in lines[-1]
+
+
+def test_an_update_that_outlasts_the_stop_wait_is_not_taken_and_the_stopped_line_says_so(tmp_path, clock, monkeypatch):
+    monkeypatch.setattr(fake_lattice, 'STOP_WAIT_S', 0.1)                      # a short wait keeps the test quick
+    path = tmp_path / 'journal.jsonl'
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now, journal_path=str(path)).start()
+    server.configure(delay_s=0.7)
+    worker, answers = _put_in_the_background(server, clock)
+    server.stop()                                                             # gives up waiting after 0.1 s
+    worker.join(timeout=5)
+    assert answers == [503] and server.entities() == {} and server.stats()['too_late'] == 1
+    lines = _journal_lines(path)
+    assert [line['result'] for line in lines] == ['stopped'] and lines[0]['unfinished'] == 1
+
+
+def test_a_stopped_server_can_be_started_again_and_takes_updates(clock):
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now).start()
+    server.stop()
+    server.port = 0                                                           # the old port may still be held
+    server.start()
+    try:
+        assert put_entity(server.url, uav_at(clock)).status == 200
+    finally:
+        server.stop()
+
+
+def test_a_journal_that_cannot_be_written_is_switched_off_and_the_server_still_answers(tmp_path, clock, capsys):
+    server = FakeLattice(token=GOOD_TOKEN, clock=clock.now, journal_path=str(tmp_path)).start()   # a folder, not a file
+    try:
+        assert server.journal_error
+        assert put_entity(server.url, uav_at(clock)).status == 200
+    finally:
+        server.stop()
+    assert 'switched off' in capsys.readouterr().err
+
+
+def test_history_json_lists_every_taken_update_oldest_first(fake, clock):
+    put_entity(fake.url, uav_at(clock))
+    clock.advance(1.0)
+    put_entity(fake.url, uav_at(clock, is_live=False))
+    result = http_request(fake.url, 'GET', '/history.json')
+    assert result.status == 200
+    assert [entity.get('isLive') for entity in result.json] == [True, False]
+    assert fake.entities() == {}                                              # off the picture, still in the history
+
+
+@pytest.mark.parametrize('text, env, expected', [
+    ('', {}, ''),
+    ('/tmp/j.jsonl', {}, '/tmp/j.jsonl'),
+    ('$RUN/lattice/j.jsonl', {'RUN': '/runs/r1'}, '/runs/r1/lattice/j.jsonl'),
+    ('${RUN}_x/j.jsonl', {'RUN': '/runs/r1'}, '/runs/r1_x/j.jsonl'),
+])
+def test_journal_paths_expand_variables(text, env, expected):
+    from lattice_bridge.fake_lattice import resolve_journal_path
+    assert resolve_journal_path(text, env) == (expected, '')
+
+
+@pytest.mark.parametrize('env', [{}, {'ASTRA_RUN_DIR': ''}])
+def test_a_journal_path_with_a_missing_variable_turns_the_journal_off_with_a_warning(env):
+    from lattice_bridge.fake_lattice import resolve_journal_path
+    path, warning = resolve_journal_path('$ASTRA_RUN_DIR/lattice/j.jsonl', env)
+    assert path == '' and 'ASTRA_RUN_DIR' in warning and 'not set' in warning
+
+
+def test_the_command_line_refuses_a_silly_linger():
+    with pytest.raises(SystemExit) as stopped:
+        main(['--linger-s', '-1'])
+    assert stopped.value.code == 2
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='sends SIGTERM to a child process (POSIX only)')
+def test_after_a_stop_signal_the_server_keeps_answering_for_the_linger_time(tmp_path):
+    """What the simulator needs: everything gets SIGINT/SIGTERM at once, the bridge's last update must still land."""
+    journal = tmp_path / 'journal.jsonl'
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    env['LATTICE_TOKEN'] = GOOD_TOKEN                                       # the made-up test token (support_net.py)
+    child = subprocess.Popen([sys.executable, '-m', 'lattice_bridge.fake_lattice', '--port', '0', '--linger-s', '1.5',
+                              '--journal', str(journal)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             env=env)
+    try:
+        first = child.stdout.readline()
+        assert 'listening on http://127.0.0.1:' in first, first
+        url = first.split('listening on ')[1].split()[0]
+        child.send_signal(signal.SIGTERM)
+        stopped_at = time.monotonic()
+        time.sleep(0.3)                                                     # well inside the 1.5 s pause
+        clock = FakeClock(wall=datetime.now(timezone.utc))
+        assert put_entity(url, uav_at(clock, is_live=False)).status == 200    # the "goodbye" still lands
+        assert child.wait(timeout=10) == 0
+        assert time.monotonic() - stopped_at >= 1.2
+    finally:
+        if child.poll() is None:
+            child.kill()
+        child.stdout.close()
+    lines = _journal_lines(journal)
+    assert [line['result'] for line in lines] == ['accepted', 'stopped'] and lines[0]['isLive'] is False

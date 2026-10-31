@@ -7,6 +7,9 @@ DATA_CONTRACT.md, and the code is the ros2_ws/src/lattice_bridge package.
 
 # Anduril Lattice in the ASTRA project
 
+> **Taking over the Lattice work? Start with [HANDOFF.md](HANDOFF.md)** (2026-10-31): what is built and proven,
+> where the work stopped, and what to do next.
+
 **Lattice** is a shared map and tasking program made by Anduril. If our drone, the hiker and the tent we find,
 the search areas and the drop points appear on it, everyone on the team (and anyone we choose to share it with)
 can watch the mission from one browser tab. This folder holds the plan and the facts; the code lives in
@@ -27,24 +30,24 @@ can watch the mission from one browser tab. This folder holds the plan and the f
 | see example requests | `ros2_ws/src/lattice_bridge/test/golden/*.json` (with the hand-review notes in the README next to them) |
 | read the Lattice documentation we saved | the `*.mhtml` pages in the repo root (live version: `https://developer.anduril.com`) |
 
-## Where the work stands (2026-10-24)
+## Where the work stands (2026-10-31)
 
 | Phase | Work | State |
 |---|---|---|
 | 0 | decide why, get sandbox access | open: the questions are in `LATTICE_PLAN.md` section 9; no account or token exists yet |
 | 1 | **core library**: entity builders and checker, stable ids, target clustering, radio message codec, JSONL recorder | **done and tested** (package `lattice_bridge`) |
-| 2 | fake local Lattice, MAVLink source, bridge program, simulator profile, Jetson-side reporter (default off) | **built and unit/end-to-end tested on Windows Python; not yet run with Gazebo, ROS 2 or the Jetson.** Run it with [`BRIDGE.md`](BRIDGE.md) |
+| 2 | fake local Lattice, MAVLink source, bridge program, simulator profile, Jetson-side reporter (default off) | **built, tested (also in WSL with ROS 2) and run end to end in the Gazebo twin**: run `20261031-094837_runway` met the Lattice checks of `LATTICE_PLAN.md` section 6 step 3 for the real targets, but not step 3 as written (visible run, one search area in that world, score comparable not identical; numbers in [`BRIDGE.md`](BRIDGE.md), "What is proven"). During that demo Mission Planner gets none of the team's texts (MAVROS behind MAVProxy). Not yet: the Jetson itself, a real radio, the in-flight fault tests (step 4) |
 | 3 | real Lattice sink with retries and an offline buffer | not started; needs the account |
 | 4-7 | thumbnails and areas, video, tasking (with a human confirm), field use | not started |
 
-Phases 1 and 2 need **no Lattice account**: everything is proven against recordings and a fake Lattice in the
+Phases 1 and 2 need **no Lattice account**: everything is tested against recordings and a fake Lattice in the
 Gazebo twin.
 
 ## Check it yourself (copy and paste, Ubuntu 22.04 or WSL, no ROS needed)
 
 ```bash
 cd ros2_ws/src/lattice_bridge
-python3 -m pytest -q -p no:cacheprovider test        # about 1,900 tests, under a minute (a few are skipped without ROS 2)
+python3 -m pytest -q -p no:cacheprovider test        # about 1,930 tests, under a minute (a few are skipped without ROS 2)
 ```
 
 The same suite from a clean build, the way the build system sees the package:

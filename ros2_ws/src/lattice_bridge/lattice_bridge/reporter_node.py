@@ -6,7 +6,8 @@ STATUSTEXT. On the ground the lattice_bridge program decodes them and puts the t
 
 THIS NODE IS OFF UNLESS YOU START IT. launcher.sh and tracker.launch.xml know nothing about it. Start it by hand
 (`ros2 run lattice_bridge lattice_reporter`, or `ros2 launch lattice_bridge lattice_reporter.launch.py`) or with
-the simulator profile simulation/profiles/lattice_reporter.yaml. All it does with the flight is listen.
+the simulator profile simulation/profiles/lattice_mock.yaml (it starts the reporter with ./launcher.sh sim). All it
+does with the flight is listen.
 
 How it works, in one picture:
 
@@ -32,8 +33,8 @@ Why this cannot hurt the flight:
     `follow_period_s` seconds (see follow_main_controller), made without waiting.
   * `dry_run: true` does everything except publish.
 
-Parameters: see PARAMETERS in reporter_logic.py, config/lattice_reporter.yaml (every one explained) and
-docs/lattice/REPORTER.md.
+Parameters: see PARAMETERS in reporter_logic.py, config/lattice_reporter.yaml (every one explained; checked against
+PARAMETERS by test/test_reporter_docs.py) and docs/lattice/BRIDGE.md ("The Jetson side: the target reporter").
 """
 
 from __future__ import annotations

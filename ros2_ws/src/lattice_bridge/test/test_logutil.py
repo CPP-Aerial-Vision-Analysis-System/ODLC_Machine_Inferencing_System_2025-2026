@@ -1,7 +1,9 @@
 """
 lattice_bridge/test/test_logutil.py -- PURPOSE: prove the loud-once warnings: the altitude warning is logged
 exactly once when no geoid undulation is configured, never when one is (even 0.0), other keys are independent,
-the memory is bounded, and a failing log handler cannot raise into the caller.
+the memory is bounded, and a failing log handler cannot raise into the caller. Also a rule of the test setup
+(conftest.py): a lattice_bridge logger first made INSIDE a test still reaches pytest's caplog, also when ROS 2 is
+sourced (ROS's pytest plugins would otherwise make it a LaunchLogger that keeps its records to itself).
 """
 
 import logging
@@ -116,3 +118,14 @@ def test_thread_safe_exactly_one_winner(logger):
 
 def test_default_logger_is_the_package_logger():
     assert logutil.LOG.name == 'lattice_bridge'
+
+
+def test_a_package_logger_first_made_inside_a_test_reaches_caplog(caplog):
+    """conftest.py's job: with ROS 2 sourced this logger would be a LaunchLogger (propagate False) and caplog empty."""
+    name = f'lattice_bridge.made_inside_a_test_{id(caplog)}'               # a name no other test has used
+    assert name not in logging.Logger.manager.loggerDict
+    log = logging.getLogger(name)
+    assert type(log) is logging.Logger and log.propagate
+    with caplog.at_level(logging.INFO, logger=name):
+        log.info('hello from inside the test')
+    assert 'hello from inside the test' in caplog.text
