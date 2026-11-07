@@ -1,10 +1,15 @@
-<!-- PURPOSE: introduce the team development environment and direct simulator users to setup, architecture, model integration and operator guides. -->
+<!-- PURPOSE: introduce the team development environment, point to the documentation index (docs/README.md) and direct simulator users to setup, architecture, model integration and operator guides. -->
 # ASTRA ODLC — Dev Environment (ROS 2 Humble, Python + C++)
+
+**All documentation: [`docs/README.md`](docs/README.md)** lists every doc in this repo, where it is, what it is
+for and who it is for, plus the rules for keeping the docs up to date (when you add, move or rename a doc, or
+change a command or port, update the doc and that index, then run `python3 simulation/scripts/check_docs.py`).
 
 For the Gazebo digital twin, start with [the simulator run/edit guide](simulation/README.md).
 It links to [architecture](docs/simulation/ARCHITECTURE.md),
 [recognition model testing and plug-ins](docs/simulation/PLUGINS.md),
 [SITL connections](docs/simulation/ARDUPILOT.md), and the remaining operator guides.
+Mission Planner with the ASTRA plugin is the ground station: [MISSION_PLANNER](docs/simulation/MISSION_PLANNER.md).
 Assistants continuing development should read [AGENTS.md](AGENTS.md), then [the handoff](docs/HANDOFF.md).
 
 The dev container is built from our own `docker/Dockerfile`. It mirrors the
@@ -31,6 +36,13 @@ All versions are `ARG`s at the top of `docker/Dockerfile` — change one and reb
    `docker build -t astra-sitl --target sitl docker/`, or `bash simulation/docker/build_images.sh` for all of them.
    In VS Code, "Reopen in Container" offers two dev containers: **ASTRA ODLC dev** works straight away;
    **ASTRA simulator** needs `build_images.sh sim` first.
+   **Any other Docker error? Run the doctor first.** It checks everything a first run trips over (Docker not
+   running, the wrong `docker` program, missing rights, Windows line endings from a Windows clone, disk, clock,
+   network, graphics, old images) and prints the exact command for each problem:
+   `bash simulation/docker/check_host.sh` in the Ubuntu terminal, and on Windows
+   `powershell -ExecutionPolicy Bypass -File simulation\docker\check_host.ps1`.
+   Every message and its fix: [Docker troubleshooting](docs/simulation/DOCKER.md#troubleshooting).
+   Tip: clone the repo **inside Ubuntu** (WSL), not with Git for Windows, so scripts keep Linux line endings.
 2. **VS Code** + the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 3. **GUI windows (optional, only for `image_view` etc.)**
    - **Mac:** install [XQuartz](https://www.xquartz.org/). In XQuartz → Settings → Security,
@@ -111,6 +123,23 @@ bash simulation/setup/03_build.sh --workers 4
 source simulation/setup/sim_env.sh
 bash simulation/scripts/demo.sh runway
 ```
+
+### The real SUAS field (real terrain) and Mission Planner
+
+Besides the small `runway` world and the flat `suas_field`, there is `suas_field_real`: the competition site on **real
+terrain** (USGS lidar ground, NAIP aerial-photo colour, the real trees and buildings). `03_build.sh` makes its
+models; then:
+
+```bash
+bash simulation/scripts/demo.sh suas_field_real            # automatic search of Search Boundary 1, windows open
+bash simulation/scripts/demo.sh suas_field_real --manual   # Mission Planner mode: you upload, arm and start AUTO
+```
+
+For Mission Planner: connect UDP 14550 (or use the Windows launcher: `simulation\windows\Start for Mission Planner.bat suas_field_real`),
+open the **ASTRA** tab for the drone camera, and load `missions/suas_field_real_survey.waypoints` (Search Boundary 1) or
+`..._sb2_survey.waypoints` (Search Boundary 2) with PLAN → Load WP file. Every step, the checks, the optional AI-sharper
+ground and the measured accuracy are in [docs/simulation/WORLDS.md](docs/simulation/WORLDS.md#real-terrain-world-suas_field_real)
+and [docs/simulation/MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md).
 
 The simulator lives in `simulation/` (setup and scripts) and `ros2_ws/src/simulation/` (packages
 `sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`, `sim_plugins`).

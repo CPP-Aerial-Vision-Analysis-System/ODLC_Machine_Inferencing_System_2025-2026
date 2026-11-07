@@ -1,17 +1,20 @@
-<!-- PURPOSE: explain how to observe or manually fly the digital twin with Mission Planner, select the right MAVLink connection, and reset/stop a simulator session. -->
+<!-- PURPOSE: explain how to observe or manually fly the digital twin with Mission Planner (the ground station) and its ASTRA plugin (ASTRA tab, drone camera in the HUD from pov_server on port 8081, map markers), select the right MAVLink connection, and reset/stop a simulator session. -->
 
 # Fly and inspect with Mission Planner
 
-Mission Planner can connect to SITL as a ground station. In an automatic demo it is an observer;
-in `--manual` mode you upload the mission, arm and start AUTO. The team's controller then handles
+Mission Planner, with the ASTRA plugin below, is the ground station of the digital twin (and of the real
+drone). In an automatic demo it is an observer; in `--manual` mode you upload the mission, arm and start AUTO.
+It shows the team code's status texts because MAVROS is wired to SITL's SERIAL2 (TCP 5763), like the Jetson on
+the Pixhawk's TELEM2 (see [ARCHITECTURE](ARCHITECTURE.md)). The team's controller then handles
 detections, target waypoints, drops and RTL. START OVER/manual acceptance flights remain tracked in
 [the handoff](../HANDOFF.md); these instructions describe the implemented flow.
 
 ## Observe an automatic demo
 
 Start `bash simulation/scripts/demo.sh runway --keep` from the Linux checkout. On Windows, open Mission
-Planner normally, use the panel's OPEN MISSION PLANNER button, or run
-`bash simulation/scripts/mission_planner.sh start` through WSL.
+Planner normally, or run `bash simulation/scripts/mission_planner.sh start` through WSL (it also installs or
+updates the ASTRA plugin, see below). The old panel's OPEN MISSION PLANNER button does the same when the demo
+was started with `--panel`.
 
 | Connection | Mission Planner settings | When to use it |
 |---|---|---|
@@ -29,6 +32,22 @@ rates seen by other consumers; use the spare TCP link when comparing runs. The D
 position, mode and messages. PLAN → Read downloads the mission, including newly inserted target points.
 Writing a mission, changing mode or arming/disarming takes control of the simulated vehicle, so reserve
 those actions for the manual flow or deliberate intervention.
+
+## Fly the real-terrain field (`suas_field_real`) from Mission Planner
+
+1. Start the simulator for Mission Planner: `bash simulation/scripts/demo.sh suas_field_real --manual` (or the Windows
+   launcher `simulation\windows\Start for Mission Planner.bat suas_field_real`). Gazebo and RViz open; wait for "ready to arm".
+2. Mission Planner: CONNECT with UDP, port 14550. The ASTRA tab shows the drone camera.
+3. PLAN → Load WP file → `missions/suas_field_real_survey.waypoints` (Search Boundary 1, 58.7 m above the pad) or
+   `missions/suas_field_real_sb2_survey.waypoints` (Search Boundary 2, 55.8 m) → Write. Heights are metres above the
+   pad (frame 3); the ground rises up to 12 m across the area, so the camera is 47 to 56 m above the ground.
+4. Arm and set AUTO (or use the demo's own buttons). The team code takes over when the last lane is done.
+
+If the map and the camera picture seem not to agree, read
+[Why the drone icon can seem to be somewhere else](WORLDS.md#why-the-drone-icon-in-mission-planner-can-seem-to-be-somewhere-else-than-the-camera-picture):
+the measured terrain placement is within 1 to 2 m, the usual cause is the delay of the position the map and the photo
+tags use (5 to 8 m at survey speed), plus the map's own imagery being another date and georeference than the world's
+aerial photo.
 
 ## The ASTRA tab and the drone camera (the ASTRA plugin)
 
@@ -48,10 +67,16 @@ is one file that Mission Planner reads when it starts:
 1. **The drone camera in the HUD.** As soon as the simulator runs, the blue-and-brown horizon background becomes the
    live gimbal camera picture. Nothing to click. When the simulator closes, the normal horizon comes back. Right-click
    the HUD, then **ASTRA camera**, to switch it off or change the address.
-2. **The ASTRA tab** (bottom left, chosen automatically):
+2. **The ASTRA tab**: the FIRST tab under the HUD, chosen automatically when Mission Planner starts. (Mission Planner
+   rebuilds its tab row from its own saved list and drops tabs it does not know; the plugin puts the ASTRA tab back in
+   first place within 2 seconds. It selects the tab only in the first 2 minutes, and only while Mission Planner shows
+   its default "Quick" tab, so it never takes away a tab you picked.) It shows:
    * the **phase strip**: Waiting, Take-off, Search, Process, Targets, Drop, Return, Landed (the current one is blue,
      finished ones are ticked);
-   * one **sentence** saying what the drone does right now ("Searching: waypoint 7, 30 m, 6.0 m/s ...");
+   * one **sentence** saying what the drone does right now ("Searching: waypoint 7, 30 m, 6.0 m/s ..."). When no
+     telemetry has arrived for 10 s it turns amber and says so ("No telemetry for 85 s: the simulator or the radio link
+     is off. The numbers below are the last ones received"): with a UDP connection Mission Planner itself keeps showing
+     the last values, such as "Ready to Arm", after the simulator has closed;
    * big **readouts**: flight mode, height, speed, battery, GPS, distance home, time in the air, waypoint;
    * a **HIKER** card and a **TENT** card: how often it was detected, the target position the flight code chose, and
      when the payload was released (green = done);
@@ -67,7 +92,15 @@ the same with the real drone over the telemetry radio. Only the camera picture a
 simulator.
 
 Check it from outside: the plugin writes `Documents\Mission Planner\astra_plugin_status.json` every 2 s (phase, camera
-pictures shown, detections, last error). No ASTRA tab at all? Run
+pictures shown, detections, last error, where the ASTRA tab is: `tab_index` 0 = first, `tab_selected`, and
+`telemetry_age_s` = seconds since the last packet from the drone).
+
+**The yellow "GROUND HAZARD: Aerodrome SKYWAY36" box.** That box and the yellow area on the map come from Mission
+Planner's own Altitude Angel airspace service, not from ASTRA: the SUAS field really is an aerodrome (Skyway36). To hide
+it, right-click the map, choose **Altitude Angel Settings**, and untick the box that shows it on the DATA map (or press
+Disable).
+
+**No ASTRA tab at all?** Run
 `powershell -ExecutionPolicy Bypass -File simulation\windows\check_mp_plugin.ps1`: it compiles the plugin against your
 Mission Planner and prints the error with a line number.
 
@@ -92,7 +125,8 @@ Good to know:
 * Pictures are shrunk to 960 pixels wide and limited to 10 per second (about 100-300 KB/s).
 * Turn it off with `pov_server:=false`, or move it with `pov_port:=8082` (a launch argument of `sim.launch.py`).
   Settings of the program itself (`ros2 run sim_demo pov_server --ros-args -p max_fps:=5.0`): `topic`, `host`,
-  `port`, `max_fps`, `quality`, `max_width`.
+  `port`, `max_fps`, `quality`, `max_width` and more; the complete list with defaults is the comment at the top of
+  `ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py`.
 * Quick checks: `curl http://127.0.0.1:8081/health` prints how many pictures it has and how old the newest is.
 
 ## Manual flight
@@ -144,9 +178,11 @@ bash simulation/scripts/start_over.sh --fly --follow
 The reset lands an airborne vehicle first (LAND by default, `--land rtl` for RTL), waits for disarm,
 archives the old photos, resets the drone/SITL/team stack, and creates a fresh run folder. It keeps the
 same world/camera/detector settings and windows. `--land-timeout SECONDS` bounds the landing wait.
-Without `--fly`, reset stops at readiness for you to upload/start through Mission Planner or the panel.
-The panel's START OVER action requires a second click within its confirmation window and invokes the
-same reset script. Changing worlds requires stopping the session and starting another demo.
+Without `--fly`, reset stops at readiness for you to upload/start through Mission Planner (the ASTRA tab's
+ARM + START MISSION button) or the old panel. The ASTRA tab's START OVER button (it asks "are you sure?"
+first) runs the same reset script through `simulation/scripts/mp_actions.sh`; the old panel's START OVER
+requires a second click within its confirmation window and invokes it too. Changing worlds requires
+stopping the session and starting another demo.
 
 When no simulator is running, `start_over.sh` starts a fresh kept-open demo (`--fly`) or manual demo
 (without it); `--no-fresh` instead fails if there is nothing to reset. To stop your session, run
@@ -162,7 +198,8 @@ Allow Mission Planner's UDP traffic through Windows Firewall if it is blocked; k
 to the appropriate trusted network. Verify another Mission Planner/QGroundControl instance is not
 holding the same port. A grey map can be an internet/basemap issue while telemetry still works.
 
-The panel uses WSL interop for OPEN/CLOSE MISSION PLANNER; on native Linux those buttons are unavailable.
+The old panel (`--panel`) uses WSL interop for OPEN/CLOSE MISSION PLANNER; on native Linux those buttons
+are unavailable.
 Set `MISSION_PLANNER_EXE` to a nonstandard installation's executable. `mission_planner.sh status`
 returns 0 while running and 3 when not running. See [TROUBLESHOOTING](TROUBLESHOOTING.md) for simulator
 readiness, camera and process checks.

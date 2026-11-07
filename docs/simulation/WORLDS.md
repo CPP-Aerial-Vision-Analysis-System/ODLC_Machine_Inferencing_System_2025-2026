@@ -5,10 +5,16 @@ and check the working synthetic fields, and the real-terrain data pipeline and o
 
 # Worlds, terrain and missions
 
-Status on 2026-10-24: `runway` and `suas_field` are generated working worlds. **`suas_field_real` is still work
-in progress**: source preparation, a compact site pack and partial geometry helpers exist; it has no completed
-world/config/truth/mission or end-to-end flight evidence. Its CLI advertises unfinished stages. Do not use the
-presence of an argparse subcommand as evidence that its implementation exists.
+2026-11-07 addition: [SUAS 2027 training environments](SUAS_2027.md) documents a separate opt-in Blender
+generator for fictional coastal terrain, colored mannequins/suitcases, clutter and landing-zone candidates.
+It produces an external bundle; the 2026 worlds and their default flight behavior stay as described here.
+Its local evaluator is independent of the person-and-tent truth validator and the 2026 score.
+
+Status on 2026-11-07: `runway` and `suas_field` are generated working worlds. **`suas_field_real` now exists end to
+end** (all four generator stages, offline checks, Gazebo load check, box-drop ground check and one complete scored
+flight with the team's real detector, see [Real-terrain world](#real-terrain-world-suas_field_real)). It is a first
+accepted version, not the final one: trees and ground sharpness are still being improved, and it has not been compared
+with the owner's Mission Planner screenshots yet.
 
 Start with the [simulator README](../../simulation/README.md), then [architecture](ARCHITECTURE.md) for how
 Gazebo, SITL and the team's code fit together. [Profiles](PLUGINS.md) select a world without changing flight
@@ -21,7 +27,7 @@ code; [Docker](DOCKER.md) covers container paths.
 | `runway` | Small synthetic field, 120 × 100 m search area, one hiker and one tent | 30 m survey; short default regression demo, flown in SITL |
 | `suas_field` | Synthetic SUAS site using handbook boundary/runway coordinates; two search areas | 50 m surveys, one mission per search area; generated and unit tested |
 | `standin` | ArduPilot Gazebo runway, no ASTRA search targets | Supply a mission explicitly; useful for bringup |
-| `suas_field_real` | Intended real elevation, aerial-derived color, vegetation and structures | Generator incomplete; Task 5 acceptance pending |
+| `suas_field_real` | Real USGS lidar ground, NAIP 2023 aerial colour, the real trees and buildings, the three real poles; two search areas | One legal survey height per area (58.7 m and 55.8 m above the pad); flown once end to end; see [Real-terrain world](#real-terrain-world-suas_field_real) |
 
 From the **built Linux checkout**, after sourcing its environment:
 
@@ -29,7 +35,7 @@ From the **built Linux checkout**, after sourcing its environment:
 source simulation/setup/sim_env.sh
 ros2 run sim_worlds world_info.py --list
 ros2 run sim_worlds world_info.py runway mission
-bash simulation/scripts/demo.sh runway --headless
+bash simulation/scripts/demo.sh runway            # add --headless only on a computer without a screen
 bash simulation/scripts/stop_sim.sh
 ```
 
@@ -115,14 +121,14 @@ from compact derived assets without installing GIS libraries or downloading raw 
 |---|---|---|
 | `prepare` | Private raw cache → aligned `.npy` rasters, feature JSON, tree CSV | `prepare.py`, `trees_detect.py`; implemented, synthetic regressions pass, full new data pass pending |
 | `pack` | Prepared grids → `data/suas_field_real/` compact derived site pack | `pack.py`, `sitepack.py`; implemented; tracked pack predates the latest numerical fixes |
-| `assets` | Site pack → terrain/tree/building Gazebo models and baked textures | Geometry helpers exist (`terrain.py`, `trees.py`, `structures.py`, `texture.py`); `assets_build.py` is missing |
-| `world` | Site pack → SDF, config, truth and missions | CLI dispatch exists; `world_build.py` is missing |
-| `check`, `preview` | Pack/generated models → validation and pictures | CLI dispatch exists; `checks.py` and `previews.py` are missing |
+| `upscale` (optional) | Site pack → AI-sharpened ground picture of the search areas (cache, not in git) | `upscale.py`; Real-ESRGAN x4 on the GPU, about 25 s; used by `assets` when it exists |
+| `assets` | Site pack → terrain/tree/building Gazebo models and baked textures | `assets_build.py` with `terrain.py`, `trees.py`, `texture.py`, `structures.py`; about 40 s (standard) to 2 min (hd) |
+| `world` | Site pack → SDF, config, truth and missions | `world_build.py`; seconds |
+| `check`, `preview` | Pack/generated models → validation and pictures | `checks.py` (offline PASS/FAIL list), `previews.py` (overview, hillshade, per-area top views, altitude profiles) |
 
-The advertised `all` stage needs those missing modules too. `03_build.sh` currently does not generate a
-finished real field. The Docker helper guards on the existence of `assets_build.py`; that guard skips the
-unfinished stage rather than proving the assets exist. Some script headers describe planned final behavior;
-the table above records the present implementation.
+`03_build.sh` (native) and the Docker helper both run `build_real_field.py assets --install --if-needed` after the
+build, so the models are made once and kept up to date; a failure there only warns (the other worlds do not need
+them). The world, config, truth and mission files are small and are committed.
 
 ### Prepare data without changing ROS's Python
 
@@ -169,9 +175,89 @@ configured limits without confusing above-home with AGL. Main-controller geoloca
 a configured constant ground height (zero by default), not a spatial terrain intersection. Terrain slope is
 also a flight-code review issue; a detailed map alone does not correct the aiming math.
 
-Do not run the following until their missing implementation and installation work is completed:
-`assets --install`, `world`, `check`, `preview`, `all`, and `demo.sh suas_field_real --headless`. Their intended
-sequence is prepare → pack → assets → world → offline checks → Gazebo ground/performance checks → scored flight.
+## Real-terrain world (`suas_field_real`)
+
+### Run it (also with Mission Planner)
+
+```bash
+cd ~/ODLC_Machine_Inferencing_System_2025-2026          # the Linux checkout (03_build.sh made it)
+source simulation/setup/sim_env.sh
+bash simulation/scripts/demo.sh suas_field_real           # Gazebo + RViz open; searches Search Boundary 1
+bash simulation/scripts/demo.sh suas_field_real --manual  # Mission Planner mode: you upload, arm and start AUTO
+```
+
+The first `03_build.sh` makes the models (`~/ODLC.../ros2_ws/install/sim_worlds/share/sim_worlds/models/rf_*`). If
+you only changed the generator, re-make them with `python3 scripts/build_real_field.py assets --install` from the
+package folder (add `--quality standard` for half the graphics memory in the search areas). Mission Planner connects
+exactly as for the other worlds ([MISSION_PLANNER](MISSION_PLANNER.md)): UDP 14550, ASTRA tab, camera in the HUD. The
+contract mission is `missions/suas_field_real_survey.waypoints` (Search Boundary 1, 58.7 m above the pad);
+`missions/suas_field_real_sb2_survey.waypoints` is the same for Search Boundary 2 (55.8 m). In Mission Planner use
+PLAN → Load WP file to load either one.
+
+Heights are **metres above the pad** (frame 3), and the ground rises 2 to 12 m across Search Boundary 1, so the
+generator derives the height from the real ground: at least 150 ft above the highest ground under the area and at
+most 400 ft above the lowest, and it spaces the lanes for the camera height over the HIGHEST ground (the smallest
+photo footprint). `check` verifies this for every mission.
+
+### Change the targets, regenerate, check
+
+```bash
+cd ros2_ws/src/simulation/sim_worlds
+python3 scripts/build_real_field.py world --seed 7                       # other target places, same terrain
+python3 scripts/build_real_field.py world --hiker-poses sitting,standing --tent-colours red,blue
+python3 scripts/build_real_field.py check                                # offline PASS/FAIL list (no Gazebo)
+python3 scripts/build_real_field.py preview --out /tmp/rf_preview        # pictures to look at
+ros2 run sim_worlds check_world.py suas_field_real --seconds 20          # Gazebo load, speed, GPS probes (heavy job)
+~/.astra_sim/upscale_venv/bin/python scripts/build_real_field.py upscale && python3 scripts/build_real_field.py assets --install   # sharper ground (after upscale_env.sh)
+```
+
+Targets are placed only on open, level (under 12 degrees) ground of class grass, dry grass, bare soil or gravel, clear
+of every real crown and the forest canopy, and never on the three real poles. Everything stands on the lidar ground
+height under it. The sun is the sun of the aerial photo (15 September, 11:00 local), so photo shadows and Gazebo
+shadows point the same way.
+
+### The optional sharper ground (AI upscale)
+
+The aerial photo has 25 cm pixels; the drone camera sees 2 to 3 cm per pixel. `upscale` runs Real-ESRGAN x4plus
+(BSD-3 licence, GPU, about 25 s) over the search areas and the pad and stores the result in
+`~/.astra_sim/world_data/suas_field_real/upscaled/` (never in git). `assets` paints the ground tiles from it when it
+exists (`--upscale off` ignores it). The AI invents plausible fine texture (grass blades, slab cracks); it adds no
+objects. Because invented texture could trigger a detector, compare the false-alarm counts of two flights (with and
+without) before trusting it. One-time environment: `bash simulation/setup/upscale_env.sh` (its own virtual
+environment; ROS's Python is untouched).
+
+### Evidence (2026-11-07)
+
+| Check | Result |
+|---|---|
+| `build_real_field.py check` | all PASS: 1.69 M triangles to draw (under 2 M), mesh physics, home equals pack home, targets on open level ground, both missions legal |
+| `check_world.py` (headless Gazebo, 20 s) | no `[Err]` lines, all six systems loaded, real-time factor median 0.999 (min 0.65), GPS probe at the origin exact |
+| Box drops on the physics ground (28 points) | boxes rest on the lidar ground within 3.4 cm in the search areas and at the pad; 32 cm at a far point with the coarse 0.6 m tolerance; **outside the flight boundary there is no physics ground by design** (a box dropped at 700 m east fell through) |
+| Scored flight, real detector (`demo.sh suas_field_real`) | landed after 7.4 min; hiker found (confidence 0.92, payload landed 16 m from it); the tent pick was a false alarm at the west edge (222 m error); Search Boundary 2 is not part of the contract mission. Detection quality per photo: person recall 0.86, precision 0.25; tent recall 0.80, precision 0.04 (515 tent false alarms in 110 photos: white dirt patches and bright ground look like tents to the model) |
+| Georeference against independent map data | OpenStreetMap roads and the paved strip lie on the photo's pavement to within 1 to 2 m (roof outlines shift because tall roofs lean in aerial photos); distances between handbook points agree with WGS84 geodesics to 0.2 % (the check itself uses a spherical formula) |
+| End-to-end positional accuracy (flight photos matched to the ground picture by SIFT features) | across the flight direction 0 to 2 m; **along the flight direction the photo's GPS tag is 5 to 8 m off, and the sign flips with the flight direction**: the tag is the last GPS fix, which was 0.3 to 1.7 s old at the shutter (`position.age_s` in each photo's json) at 8.5 m/s. The terrain is not shifted; the timestamped GPS is late. See the next section |
+
+### Why the drone icon in Mission Planner can seem to be "somewhere else" than the camera picture
+
+1. **Timing.** Mission Planner draws the drone at the last position it received (MAVLink position stream), and the
+   photo tag uses the last GPS fix too; at 8.5 m/s one second of delay is 8.5 m. In the 2026-11-07 flight the
+   fix was 0.2 s old on median and 2.3 s at worst. Fly slower (`DO_CHANGE_SPEED`) when comparing by eye.
+2. **The map under Mission Planner is not the photo the world is made from.** Mission Planner's map (Google or Bing
+   tiles) has its own georeference error (often a few metres) and is from another date than NAIP (18 Sept 2023).
+   Trees, ponds and dirt patches change between dates; the world follows the 2017 lidar and the 2023 photo.
+3. **The 3D trees are drawn on top of a ground picture whose tree crowns were painted out.** From above a crown is a
+   modelled blob, not the satellite's pixels (being improved).
+4. Real error budget of the world itself: about 1 to 2 m (lidar, NAIP and OpenStreetMap agree to that level).
+
+To compare properly, put Mission Planner screenshots (flight area, each search boundary, close views of the pond,
+tracks and tree lines) in `D:\suas_scratch\terrain_ref\` and compare them with `build_real_field.py preview`.
+
+### Data caveats that remain
+
+- The lidar is from 2017 (three soil piles were levelled and a wetland dug since; both are patched in the DTM, see
+  `site.DTM_EDITS`; the wetland depth of 0.8 m is an estimate).
+- Building heights fall back to defaults when the lidar has none ("0 with a lidar height" in the assets log).
+- A wire between the three poles is likely but unconfirmed and is not drawn; the poles alone are.
 
 ## Data permissions and public repository rules
 
