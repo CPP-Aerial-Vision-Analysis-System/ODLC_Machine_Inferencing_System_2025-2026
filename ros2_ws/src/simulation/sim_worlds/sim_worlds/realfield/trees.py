@@ -222,6 +222,54 @@ def block_of(x, y):
     return int((x - site.EXTENT[0]) // site.BLOCK_M), int((y - site.EXTENT[1]) // site.BLOCK_M)
 
 
+def _top_down_uv(ts, crown_positions, crown_normals, tops):
+    """Texture coordinates that lay each tree's own top-down photo over its crown mesh (planar projection from above),
+    and the block's picture: all the block's crown pictures side by side. ts: the block's trees (dicts with 'index',
+    'x', 'y', 'crown_diam_m'), crown_positions / crown_normals: world vertex positions / normals of each crown (same
+    order). Steep parts of a crown (its sides) would show the photo's stretched edge pixels, so their lookup is pulled
+    towards the middle of the crown picture (the crown's average look). Returns
+    (uv [N, 2] float32, RGB uint8 picture)."""
+    arr, cell, cols, span = tops
+    n = len(ts)
+    gc = int(math.ceil(math.sqrt(n)))
+    gr = int(math.ceil(n / gc))
+    pic = np.zeros((gr * cell, gc * cell, 3), dtype=np.uint8)
+    UV = []
+    for k, (t, p, nrm) in enumerate(zip(ts, crown_positions, crown_normals)):
+        i = int(t['index'])
+        sr, sc = (i // cols) * cell, (i % cols) * cell
+        r, c = (k // gc) * cell, (k % gc) * cell
+        pic[r:r + cell, c:c + cell] = arr[sr:sr + cell, sc:sc + cell]
+        d = max(float(t['crown_diam_m']), 1.0)
+        # offset from the trunk in photo units: 0.5 = centre of the cell; the cell shows span * d metres, north up
+        a = 0.5 + (p[:, 0] - t['x']) / (span * d)
+        b = 0.5 - (p[:, 1] - t['y']) / (span * d)
+        inset = 0.75 / cell                              # keep the lookup inside the cell: no bleeding from neighbours
+        pull = np.clip(nrm[:, 2] * 1.6, 0.25, 1.0)          # 1 on the top, down to 0.25 on a vertical side
+        a = np.clip(0.5 + (a - 0.5) * pull, inset, 1 - inset)
+        b = np.clip(0.5 + (b - 0.5) * pull, inset, 1 - inset)
+        UV.append(np.stack([(c + a * cell) / (gc * cell), (r + b * cell) / (gr * cell)], -1))
+    return np.concatenate(UV).astype(np.float32), _leaf_detail(pic)
+
+
+def _leaf_detail(pic, factor=2, amount=0.11, seed=11):
+    """The crown pictures are 25 cm per photo pixel, so a crown has only ~30 pixels across: smooth. Double the size and
+    multiply in leaf-clump noise (two scales) whose average is 1, so the real colours of each crown stay what they are
+    on average and only the fine structure (leaf clumps, small gaps) is added. numpy + Pillow."""
+    from PIL import Image
+    h, w = pic.shape[:2]
+    big = np.asarray(Image.fromarray(pic).resize((w * factor, h * factor), Image.BICUBIC), dtype=np.float32)
+    rng = np.random.default_rng(seed)
+    n = np.zeros((h * factor, w * factor), dtype=np.float32)
+    for grid, amp in ((0.5, 0.6), (0.2, 0.4)):                            # lumps about 2 and 0.8 photo pixels wide
+        gh, gw = max(int(h * factor * grid), 4), max(int(w * factor * grid), 4)
+        small = rng.random((gh, gw)).astype(np.float32)
+        n += amp * np.asarray(Image.fromarray(small).resize((w * factor, h * factor), Image.BICUBIC))
+    n = (n - n.mean()) / (n.std() + 1e-6)
+    shade = np.clip(1.0 + amount * n - 0.12 * np.clip(-n - 1.3, 0, None), 0.55, 1.45)
+    return np.clip(np.round(big * shade[..., None]), 0, 255).astype(np.uint8)
+
+
 def build_tree_blocks(pack, home, near_blocks, seed=2026):
     """Merge the 3D-model trees per block. Returns ({block: {'crowns': prim, 'trunks': prim or None, 'trees': n,
     'triangles': n}}, tones, atlas)."""
@@ -231,6 +279,7 @@ def build_tree_blocks(pack, home, near_blocks, seed=2026):
     trees = [t for t in trees if x0 + 1 < t['x'] < x1 - 1 and y0 + 1 < t['y'] < y1 - 1]
     tones, cell_of = leaf_tones(trees)
     atlas = leaf_atlas(tones)
+    tops = pack.tree_tops()                               # the real top-down crown pictures, when the pack has them
     shapes = {(k, dl, v): crown_shape(k, dl, 100 * v + (7 if k == 'cedar' else 3) + (0 if dl == 'near' else 50))
               for k in ('deciduous', 'cedar') for dl in ('near', 'far') for v in range(3)}
     trunks = {k: trunk_shape(k) for k in ('deciduous', 'cedar')}
@@ -267,10 +316,15 @@ def build_tree_blocks(pack, home, near_blocks, seed=2026):
                 tbase += len(p2)
         crowns = {'pos': np.concatenate(CP), 'nrm': np.concatenate(CN), 'uv': np.concatenate(CU).astype(np.float32),
                   'idx': np.concatenate(CI), 'mat': None}
+        if tops is not None:
+            crowns['uv'], block_atlas = _top_down_uv(ts, CP, CN, tops)
+        else:
+            block_atlas = None
         trunk = ({'pos': np.concatenate(TP), 'nrm': np.concatenate(TN), 'uv': None, 'idx': np.concatenate(TI),
                   'mat': None} if TP else None)
         tri = len(crowns['idx']) // 3 + (len(trunk['idx']) // 3 if trunk else 0)
-        out[blk] = {'crowns': crowns, 'trunks': trunk, 'trees': len(ts), 'triangles': tri, 'detail': detail}
+        out[blk] = {'crowns': crowns, 'trunks': trunk, 'trees': len(ts), 'triangles': tri, 'detail': detail,
+                    'atlas': block_atlas}
     return out, tones, atlas
 
 

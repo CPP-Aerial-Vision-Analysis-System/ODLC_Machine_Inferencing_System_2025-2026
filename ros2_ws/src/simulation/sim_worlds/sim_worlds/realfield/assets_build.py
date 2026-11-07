@@ -33,6 +33,9 @@ VERSION = 1                                  #: bump when the layout of the prod
 MODELS = ('rf_ground', 'rf_trees', 'rf_buildings')
 MANIFEST = 'rf_assets_manifest.json'
 JPEG_QUALITY = 92
+#: Do the trees cast Gazebo shadows? NO: the aerial photo that paints the ground already contains the real tree shadows
+#: (same sun as the world's sun), so a second, dynamic shadow would double every one of them (dark, doubled edges).
+TREE_SHADOWS = False
 
 _CONFIG = """<?xml version="1.0"?>
 <model>
@@ -72,7 +75,7 @@ def fingerprint(pack_dir, quality, upscale_sig=''):
     if os.path.isfile(pack_json):
         h.update(open(pack_json, 'rb').read())
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in ('assets_build.py', 'terrain.py', 'texture.py', 'trees.py', 'structures.py', 'glb.py', 'rtin.py', 'site.py', 'upscale.py'):
+    for name in ('assets_build.py', 'terrain.py', 'texture.py', 'trees.py', 'structures.py', 'glb.py', 'rtin.py', 'site.py', 'upscale.py', 'tree_tops.py'):
         p = os.path.join(here, name)
         if os.path.isfile(p):
             h.update(open(p, 'rb').read())
@@ -183,12 +186,17 @@ def build_trees(pack, out, tiles, log):
     for blk, d in sorted(blocks.items()):
         tag = f'b{blk[0]}{blk[1]}'
         glb.write_glb(os.path.join(m, 'meshes', f'crowns_{tag}.glb'), [d['crowns']])
+        if d.get('atlas') is not None:                           # the block's real top-down crown pictures
+            _save_image(os.path.join(m, 'textures', f'crowns_{tag}.jpg'), d['atlas'])
+            crown_tex = f'textures/crowns_{tag}.jpg'
+        else:
+            crown_tex = 'textures/leaf_atlas.png'
         visuals.append(_visual(f'crowns_{tag}', 'rf_trees', f'meshes/crowns_{tag}.glb',
-                               _pbr('rf_trees', 'textures/leaf_atlas.png', roughness=0.9), shadows=True))
+                               _pbr('rf_trees', crown_tex, roughness=0.9), shadows=TREE_SHADOWS))
         if d['trunks'] is not None:
             glb.write_glb(os.path.join(m, 'meshes', f'trunks_{tag}.glb'), [d['trunks']])
             visuals.append(_visual(f'trunks_{tag}', 'rf_trees', f'meshes/trunks_{tag}.glb',
-                                   _plain((0.28, 0.2, 0.14)), shadows=True))
+                                   _plain((0.28, 0.2, 0.14)), shadows=TREE_SHADOWS))
         ntrees += d['trees']
         tris += d['triangles']
     canopy_sheets = 0
@@ -203,7 +211,7 @@ def build_trees(pack, out, tiles, log):
             glb.write_glb(os.path.join(m, 'meshes', f'canopy_{tag}.glb'), [prim])
             _save_image(os.path.join(m, 'textures', f'canopy_{tag}.jpg'), tex)
             visuals.append(_visual(f'canopy_{tag}', 'rf_trees', f'meshes/canopy_{tag}.glb',
-                                   _pbr('rf_trees', f'textures/canopy_{tag}.jpg', roughness=0.95), shadows=True))
+                                   _pbr('rf_trees', f'textures/canopy_{tag}.jpg', roughness=0.95), shadows=TREE_SHADOWS))
             tris += len(prim['idx']) // 3
             canopy_sheets += 1
     log(f'  trees: {ntrees:,} trees in {len(blocks)} blocks, {canopy_sheets} canopy sheets, {tris:,} triangles')

@@ -95,7 +95,8 @@
  },
  "files": {
   "trees": "trees.csv",
-  "features": "features.json"
+  "features": "features.json",
+  "tree_tops": "tree_tops_32.jpg"
  },
  "trees": {
   "cedars": 6827,
@@ -575,5 +576,14 @@
    "pixel_sha256": "2ebffdb1f4bb667c2f7f912299a6195dcb62026b5d61a53e4957f1529c9b29f5",
    "sha256": null
   }
- ]
+ ],
+ "tree_tops": {
+  "file": "tree_tops_32.jpg",
+  "cell_px": 32,
+  "cols": 128,
+  "span_per_crown_diameter": 1.3,
+  "trees": 20802,
+  "source": "USDA NAIP 2023-09-18 (public domain), unpainted, north up",
+  "what": "cell i (row-major, COLS per row) = top-down picture of tree i of trees.csv"
+ }
 }

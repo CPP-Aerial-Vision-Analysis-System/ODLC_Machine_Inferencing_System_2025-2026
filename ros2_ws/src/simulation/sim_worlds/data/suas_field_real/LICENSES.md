@@ -9,6 +9,7 @@ sim_worlds/realfield/pack.py; the full explanation is docs/simulation/WORLDS.md.
 |---|---|---|---|
 | height_1m.png, canopy_1m.png, trees.csv (heights) | USGS 3DEP lidar, project OK_Woodward_FEMA_R6_Lidar_2016_D17 (flown 2017-02-10) | public domain | U.S. Geological Survey, 3D Elevation Program |
 | colour_*.jpg, class_detail_0p25m.png, trees.csv (positions) | USDA NAIP 2023-09-18, 0.3 m | public domain | USDA Farm Production and Conservation Business Center, NAIP |
+| tree_tops_32.jpg, trees.csv (crown_rgb) | USDA NAIP 2023-09-18, 0.3 m: a 32 x 32 pixel top-down picture of every tree's crown, cut from the unpainted photo | public domain | USDA Farm Production and Conservation Business Center, NAIP |
 | trees.csv (new-tree heights) | Meta / WRI High Resolution Canopy Height Maps v2 | CC-BY 4.0 | Meta and World Resources Institute |
 | trees.csv (cedar / deciduous) | OKMaps Aerial 2025 leaf-off photo, used only as a yes/no mask, the photo itself is not in this folder | state data, no fee | Oklahoma Office of Geographic Information |
 | colour_*.jpg (grass colour) | Copernicus Sentinel-2 (season grade numbers only) | free and open | Contains modified Copernicus Sentinel data 2023, 2026 |

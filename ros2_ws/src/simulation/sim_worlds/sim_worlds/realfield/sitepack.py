@@ -103,13 +103,25 @@ class SitePack:
         if 'trees' not in self._cache:
             out = []
             with open(self.path(self.meta['files']['trees']), encoding='utf-8') as f:
-                for row in csv.DictReader(f):
+                for i, row in enumerate(csv.DictReader(f)):
                     for k in ('x', 'y', 'ground_navd88', 'height_m', 'crown_diam_m'):
                         row[k] = float(row[k])
                     row['forest'] = int(row['forest'])
+                    row['index'] = i                          # row number = cell number in the tree-tops picture
                     out.append(row)
             self._cache['trees'] = out
         return self._cache['trees']
+
+    def tree_tops(self):
+        """The top-down crown pictures (tree_tops.py): (RGB uint8 array, cell_px, cols, span) or None when the pack has
+        none. Cell i (row-major, `cols` per row) is the picture of trees()[i]; it shows span x the crown diameter."""
+        e = self.meta.get('tree_tops')
+        if not e or not os.path.isfile(self.path(e['file'])):
+            return None
+        if 'tree_tops' not in self._cache:
+            self._cache['tree_tops'] = (_load_image(self.path(e['file'])), int(e['cell_px']), int(e['cols']),
+                                        float(e['span_per_crown_diameter']))
+        return self._cache['tree_tops']
 
     def features(self):
         """features.json as a dict (buildings, water, streams, runways, taxiways, roads, pipelines)."""

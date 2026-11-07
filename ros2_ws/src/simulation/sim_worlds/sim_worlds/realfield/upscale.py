@@ -24,6 +24,7 @@ import time
 import numpy as np
 
 SCALE = 4
+MARGIN_M = 100.0                      #: the picture covers the detail box plus this many metres on every side
 FILE = 'colour_detail_x4.jpg'
 META = 'colour_detail_x4.json'
 WEIGHTS = os.path.join(os.path.expanduser('~'), '.astra_sim', 'models', 'RealESRGAN_x4plus.pth')
@@ -60,7 +61,10 @@ def make(pack, folder=None, log=print, tile=256):
     if not os.path.isfile(WEIGHTS):
         raise SystemExit(f'[upscale] ERROR: weights not found: {WEIGHTS}. Fix: bash simulation/setup/upscale_env.sh')
     near = pack.raster('colour_near')
+    nb = pack.meta['near_box']
     x0, y0, x1, y1 = pack.meta['detail_box']
+    x0, y0, x1, y1 = (max(x0 - MARGIN_M, nb[0]), max(y0 - MARGIN_M, nb[1]), min(x1 + MARGIN_M, nb[2]),
+                      min(y1 + MARGIN_M, nb[3]))                  # the detail box + 100 m: the tiles around it too
     c0, r0 = int((x0 - near.x0) / near.res), int((near.y1 - y1) / near.res)
     c1, r1 = int(np.ceil((x1 - near.x0) / near.res)), int(np.ceil((near.y1 - y0) / near.res))
     src = np.asarray(near.data[r0:r1, c0:c1], dtype=np.uint8)

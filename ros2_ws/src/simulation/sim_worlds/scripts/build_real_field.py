@@ -81,6 +81,10 @@ def main(argv=None):
     p.add_argument('--pack', default=None, help='site pack folder (default: <package>/data/suas_field_real)')
     p.add_argument('--dest', default=None, help='folder for the picture (default ~/.astra_sim/world_data/suas_field_real/upscaled)')
 
+    p = sub.add_parser('treetops', help='maintainers: cut the real top-down crown pictures of every tree out of the photo')
+    p.add_argument('--data', default=None, help='data folder (default $ASTRA_WORLD_DATA or ~/.astra_sim/world_data)')
+    p.add_argument('--out-dir', default=None, help='package folder whose data/suas_field_real is updated')
+
     p = sub.add_parser('world', help='stage 4: site pack -> world SDF, config, truth and missions')
     p.add_argument('--seed', type=int, default=None, help='layout seed of targets and debris (default 2026)')
     p.add_argument('--assets', choices=('fuel', 'primitive'), default='fuel',
@@ -125,6 +129,11 @@ def main(argv=None):
         from sim_worlds.realfield import upscale
         from sim_worlds.realfield.sitepack import SitePack
         upscale.make(SitePack(args.pack), args.dest, log=log)
+    elif args.cmd == 'treetops':
+        from sim_worlds.realfield import prepare, tree_tops
+        data = prepare.data_dirs(args.data)
+        prepared = data[2]                                  # (root, raw, prepared)
+        tree_tops.make(os.path.join(os.path.abspath(args.out_dir or pkg), 'data', 'suas_field_real'), prepared, log=log)
     elif args.cmd == 'world':
         from sim_worlds.realfield import world_build
         world_build.run(os.path.abspath(args.out_dir or pkg), pack_dir=args.pack, seed=args.seed,
