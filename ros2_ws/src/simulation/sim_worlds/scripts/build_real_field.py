@@ -72,7 +72,14 @@ def main(argv=None):
                    help='hd = 3.2 cm/px ground pictures in the search areas (default); standard = 6.4 cm/px, '
                         'half the graphics memory there')
     p.add_argument('--if-needed', action='store_true', help='do nothing when the models are already up to date')
+    p.add_argument('--upscale', choices=('auto', 'on', 'off'), default='auto',
+                   help='paint the search-area ground from the AI-upscaled picture: auto = if one exists (default), '
+                        'on = require it, off = never')
     p.add_argument('--pack', default=None, help='site pack folder (default: <package>/data/suas_field_real)')
+
+    p = sub.add_parser('upscale', help='optional: make the sharper (AI x4) ground picture of the search areas (GPU)')
+    p.add_argument('--pack', default=None, help='site pack folder (default: <package>/data/suas_field_real)')
+    p.add_argument('--dest', default=None, help='folder for the picture (default ~/.astra_sim/world_data/suas_field_real/upscaled)')
 
     p = sub.add_parser('world', help='stage 4: site pack -> world SDF, config, truth and missions')
     p.add_argument('--seed', type=int, default=None, help='layout seed of targets and debris (default 2026)')
@@ -112,7 +119,12 @@ def main(argv=None):
     elif args.cmd == 'assets':
         from sim_worlds.realfield import assets_build
         out = assets_build.resolve_out(args.out, args.install, pkg)
-        assets_build.run(out, pack_dir=args.pack, quality=args.quality, if_needed=args.if_needed, log=log)
+        assets_build.run(out, pack_dir=args.pack, quality=args.quality, if_needed=args.if_needed, log=log,
+                         upscale=args.upscale)
+    elif args.cmd == 'upscale':
+        from sim_worlds.realfield import upscale
+        from sim_worlds.realfield.sitepack import SitePack
+        upscale.make(SitePack(args.pack), args.dest, log=log)
     elif args.cmd == 'world':
         from sim_worlds.realfield import world_build
         world_build.run(os.path.abspath(args.out_dir or pkg), pack_dir=args.pack, seed=args.seed,

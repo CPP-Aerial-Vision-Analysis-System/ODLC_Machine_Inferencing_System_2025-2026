@@ -143,9 +143,12 @@ def tile_picture(pack, t, px, micro, colour_override=None):
     rgb = None
     if colour_override is not None:
         rgb = colour_override(t, px)
+    sharpened = rgb is not None                    # an upscaled picture already carries fine detail
     if rgb is None:
         rgb = sample_colour(pack, t['x0'], t['y0'], t['x1'], t['y1'], px)
     if not micro:
         return rgb
     m = micro_modulation(pack, t['x0'], t['y0'], t['x1'], t['y1'], px)
+    if sharpened:
+        m = np.power(m, 0.5)                       # half the CC0 brightness detail: no double texture on top of the AI's
     return np.clip(np.round(rgb.astype(np.float32) * m[..., None]), 0, 255).astype(np.uint8)

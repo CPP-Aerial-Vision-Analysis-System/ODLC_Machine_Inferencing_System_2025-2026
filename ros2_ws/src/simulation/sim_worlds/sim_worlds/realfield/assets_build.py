@@ -63,16 +63,16 @@ def resolve_out(out, install, pkg):
     return os.path.join(pkg, 'models')
 
 
-def fingerprint(pack_dir, quality):
+def fingerprint(pack_dir, quality, upscale_sig=''):
     """A short hash of everything the models depend on: the pack's pack.json, the quality, this stage's
     version and the source files of the geometry helpers."""
     h = hashlib.sha256()
-    h.update(f'{VERSION}:{quality}'.encode())
+    h.update(f'{VERSION}:{quality}:{upscale_sig}'.encode())
     pack_json = os.path.join(pack_dir or '', 'pack.json')
     if os.path.isfile(pack_json):
         h.update(open(pack_json, 'rb').read())
     here = os.path.dirname(os.path.abspath(__file__))
-    for name in ('assets_build.py', 'terrain.py', 'texture.py', 'trees.py', 'structures.py', 'glb.py', 'rtin.py', 'site.py'):
+    for name in ('assets_build.py', 'terrain.py', 'texture.py', 'trees.py', 'structures.py', 'glb.py', 'rtin.py', 'site.py', 'upscale.py'):
         p = os.path.join(here, name)
         if os.path.isfile(p):
             h.update(open(p, 'rb').read())
@@ -145,7 +145,8 @@ def _near_blocks(tiles):
 # the three models
 # ------------------------------------------------------------------------------------------------------------
 
-def build_ground(pack, out, tiles, quality, log):
+def build_ground(pack, out, tiles, quality, log, override=None):
+    """override: optional texture colour_override (the upscaled picture, see upscale.py)."""
     m = _mkdirs(out, 'rf_ground')
     visuals, tris, pic_bytes, pics = [], 0, 0, 0
     t0 = time.time()
@@ -154,7 +155,7 @@ def build_ground(pack, out, tiles, quality, log):
         px = kind['tex_px_hd'] if quality == 'hd' else kind['tex_px']
         prim, surface_tris, _all_tris = terrain.build_tile(pack, t, px)
         glb.write_glb(os.path.join(m, 'meshes', f"{t['name']}.glb"), [prim])
-        pic = texture.tile_picture(pack, t, px, kind['micro'])
+        pic = texture.tile_picture(pack, t, px, kind['micro'], colour_override=override)
         pic_bytes += _save_image(os.path.join(m, 'textures', f"{t['name']}.jpg"), pic)
         pics += 1
         tris += surface_tris
@@ -234,12 +235,21 @@ def build_buildings(pack, out, log):
 # entry point
 # ------------------------------------------------------------------------------------------------------------
 
-def run(out, pack_dir=None, quality='hd', if_needed=False, log=print):
-    """Build rf_ground, rf_trees and rf_buildings into the models folder `out`. Returns the manifest dict."""
+def run(out, pack_dir=None, quality='hd', if_needed=False, log=print, upscale='auto'):
+    """Build rf_ground, rf_trees and rf_buildings into the models folder `out`. Returns the manifest dict.
+    upscale: 'auto' = paint the search-area ground from the AI-upscaled picture when one exists (upscale.py), 'off' =
+    never, 'on' = require it."""
     if quality not in ('hd', 'standard'):
         raise SystemExit(f"[assets] ERROR: unknown quality '{quality}'. Fix: use hd or standard.")
     pack = SitePack(pack_dir)
-    fp = fingerprint(pack.folder, quality)
+    from sim_worlds.realfield import upscale as up
+    if upscale not in ('auto', 'on', 'off'):
+        raise SystemExit(f"[assets] ERROR: unknown upscale '{upscale}'. Fix: use auto, on or off.")
+    if upscale == 'on' and not up.available():
+        raise SystemExit('[assets] ERROR: --upscale on but no upscaled picture exists. Fix: python3 scripts/build_real_field.py '
+                         'upscale (needs the upscaler environment, simulation/setup/upscale_env.sh)')
+    usig = '' if upscale == 'off' else up.signature()
+    fp = fingerprint(pack.folder, quality, usig)
     os.makedirs(out, exist_ok=True)
     if if_needed and _up_to_date(out, fp):
         log(f'[assets] the models in {out} are up to date (fingerprint {fp}): nothing to do')
@@ -251,7 +261,8 @@ def run(out, pack_dir=None, quality='hd', if_needed=False, log=print):
     log('  %d terrain tiles (%s)' % (len(tiles), per_kind))
     manifest = {'purpose': 'what sim_worlds/realfield/assets_build.py made; fingerprint = inputs hash for --if-needed',
                 'version': VERSION, 'quality': quality, 'fingerprint': fp,
-                'ground': build_ground(pack, out, tiles, quality, log),
+                'upscaled_ground': bool(usig),
+                'ground': build_ground(pack, out, tiles, quality, log, up.colour_override() if usig else None),
                 'trees': build_trees(pack, out, tiles, log),
                 'buildings': build_buildings(pack, out, log)}
     manifest['seconds'] = round(time.time() - t0, 1)

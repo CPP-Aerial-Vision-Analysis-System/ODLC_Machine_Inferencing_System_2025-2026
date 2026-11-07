@@ -4,7 +4,7 @@ rem  Start for Mission Planner.bat  --  double-click: set up the whole run, then
 rem
 rem  PURPOSE: the competition procedure in the simulator. Starts everything inside the Ubuntu-22.04 WSL
 rem  distro, from the Linux-side repo copy ~/ODLC_Machine_Inferencing_System_2025-2026 (last build):
-rem      bash simulation/scripts/demo.sh runway --manual
+rem      bash simulation/scripts/demo.sh <world> --manual     (world = first argument, default runway)
 rem  That is Gazebo, RViz, the demo panel, ArduCopter SITL, the SIYI camera emulator, the team's real flight
 rem  stack (MAVROS, video_cam, new_od, the photo trigger, waypoint_manager, main_controller) and the MAVLink
 rem  copy for Mission Planner on Windows (UDP 14550). Then it WAITS: nothing is uploaded, armed or started
@@ -15,6 +15,9 @@ rem  This window stays open at the end.
 rem ===========================================================================
 setlocal
 title ASTRA - Fly it from Mission Planner
+rem  The world is the first argument (Start for Mission Planner.bat suas_field_real); default runway.
+set "WORLD=%~1"
+if "%WORLD%"=="" set "WORLD=runway"
 for %%I in ("%~dp0..\..") do set "ASTRA_WINDOWS_REPO=%%~fI"
 set "WSLENV=ASTRA_WINDOWS_REPO/u:%WSLENV%"
 
@@ -24,9 +27,9 @@ echo   ----------------------------------------------------------------
 echo   Starting the simulator and the team's flight code (1-3 minutes). Then it is YOUR turn:
 echo   the exact Mission Planner steps appear below when everything is ready.
 echo   The mission file to load in Mission Planner (FLIGHT PLAN, then LOAD WP FILE):
-echo     %ASTRA_WINDOWS_REPO%\ros2_ws\src\simulation\sim_worlds\missions\runway_survey.waypoints
+echo     %ASTRA_WINDOWS_REPO%\ros2_ws\src\simulation\sim_worlds\missions\%WORLD%_survey.waypoints
 echo.
-wsl.exe -d Ubuntu-22.04 -- bash -lc "cd ~/ODLC_Machine_Inferencing_System_2025-2026 || { echo 'No Linux copy of the repo yet: double-click Rebuild.bat first.'; exit 1; }; bash simulation/scripts/demo.sh runway --manual"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd ~/ODLC_Machine_Inferencing_System_2025-2026 || { echo 'No Linux copy of the repo yet: double-click Rebuild.bat first.'; exit 1; }; bash simulation/scripts/demo.sh %WORLD% --manual"
 set "RC=%ERRORLEVEL%"
 echo.
 if not "%RC%"=="0" goto failed

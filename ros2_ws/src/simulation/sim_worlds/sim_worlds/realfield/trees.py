@@ -274,6 +274,31 @@ def build_tree_blocks(pack, home, near_blocks, seed=2026):
     return out, tones, atlas
 
 
+def _neighbour_max(a):
+    """Maximum of the 8 neighbours of every cell (edges repeat). numpy only."""
+    p = np.pad(a, 1, mode='edge')
+    out = a.copy()
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if dr or dc:
+                out = np.maximum(out, p[1 + dr:1 + dr + a.shape[0], 1 + dc:1 + dc + a.shape[1]])
+    return out
+
+
+def _taper_edges(C, ring_fractions=(0.6, 0.3)):
+    """Give the closed forest a SLOPING edge: the cells just outside it get 60 % and then 30 % of the canopy
+    height next to them (instead of a vertical wall from the full height to the ground, which rendered as dark
+    cracks). A real forest edge is crown after crown stepping down; a two-step skirt is the same at a 3 m grid."""
+    C = C.copy()
+    inside = C > 0.5
+    for frac in ring_fractions:
+        nb = _neighbour_max(np.where(inside, C, 0.0))
+        ring = (~inside) & (nb > 0.5)
+        C = np.where(ring, np.maximum(nb * frac, 0.6), C)
+        inside = inside | ring
+    return C
+
+
 def build_canopy_block(pack, blk):
     """Canopy sheet of the closed forest in one block: (prim, texture RGB) or (None, None) without forest."""
     bx0 = site.EXTENT[0] + blk[0] * site.BLOCK_M
@@ -285,6 +310,7 @@ def build_canopy_block(pack, blk):
     C = pack.raster('canopy').sample(X, Y)
     if (C > 0.5).sum() < 4:
         return None, None
+    C = _taper_edges(C)
     Z = pack.ground_z(X, Y)
     top = Z + C
     act = (C[:-1, :-1] > 0.5) & (C[1:, :-1] > 0.5) & (C[:-1, 1:] > 0.5) & (C[1:, 1:] > 0.5)
