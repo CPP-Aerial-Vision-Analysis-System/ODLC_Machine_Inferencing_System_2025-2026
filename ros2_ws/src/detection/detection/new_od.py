@@ -55,6 +55,7 @@ from detection.detection_processor import run_sahi_detection
 from detection.batched_inference import run_batched_detection
 from detection.annotation import annotate_frame # save_top_matches_crop
 from detection.geotag import parse_latlon_from_name
+from detection.size_filter import apply_size_filter, ground_sample_distance
 
 DEFAULT_CONFIDENCE = 0.25
 DEFAULT_SLICE = 640
@@ -92,6 +93,11 @@ class SAHIObjectDetectionNode(Node):
         self.declare_parameter('camera_feed_path', '')
         self.declare_parameter('detection_results_path', '')
         self.declare_parameter('use_batched_inference', True)
+        # Physical size filter (detection/size_filter.py): drop boxes whose real size cannot be a person / tent. Off by default.
+        self.declare_parameter('physical_size_filter', os.environ.get('ASTRA_PHYSICAL_SIZE_FILTER', '0') == '1')
+        self.declare_parameter('ground_height_m', 0.0)
+        self.declare_parameter('person_size_m', [0.3, 3.0])
+        self.declare_parameter('tent_size_m', [1.0, 4.5])
         self.declare_parameter('batch_size', 2)
 
         self.model_path = self.get_parameter('model_path').value
@@ -113,6 +119,10 @@ class SAHIObjectDetectionNode(Node):
         self.max_aspect_ratio = self.get_parameter('max_aspect_ratio').value
         self.enable_gpu_memory_cleanup = self.get_parameter('enable_gpu_memory_cleanup').value
         self.use_batched_inference = self.get_parameter('use_batched_inference').value
+        self.physical_size_filter = bool(self.get_parameter('physical_size_filter').value)
+        self.ground_height_m = float(self.get_parameter('ground_height_m').value)
+        self.size_limits = {'person': tuple(self.get_parameter('person_size_m').value),
+                            'tent': tuple(self.get_parameter('tent_size_m').value)}
         self.batch_size = self.get_parameter('batch_size').value
 
         self._validate_parameters() # check if the params are right
@@ -399,6 +409,12 @@ class SAHIObjectDetectionNode(Node):
         if self.use_batched_inference:
             detect_kwargs['batch_size'] = self.batch_size
         detections = detect_fn(**detect_kwargs)
+        if self.physical_size_filter:
+            gsd = ground_sample_distance(image_path, w, self.ground_height_m)
+            detections, dropped = apply_size_filter(detections, gsd, self.size_limits)
+            if dropped:
+                self.get_logger().info(f"Size filter: dropped {len(dropped)} box(es) too big or too small for a person/tent "
+                                       f"({gsd * 100:.1f} cm per pixel)")
 
         elapsed = time.time() - start
 

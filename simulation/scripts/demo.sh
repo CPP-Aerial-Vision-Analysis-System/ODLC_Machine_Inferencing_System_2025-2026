@@ -661,6 +661,7 @@ say "STEP 1/6  Starting the simulator (Gazebo, SITL, camera emulator$([ "$HEADLE
 setsid ros2 launch sim_bringup sim.launch.py "${SIM_ARGS[@]}" > >(stamp_lines >> "$RUN_DIR/sim.log") 2>&1 < /dev/null &
 SIM_PG=$!
 info "log: $RUN_DIR/sim.log"
+[ "$HEADLESS" = 0 ] && { astra_check_gazebo_window || true; }     # the Gazebo window opens every time (and says so if it did not)
 [ "$HEADLESS" = 0 ] && info "Windows: Gazebo (3D view follows the drone, live camera top-right) and RViz$([ "$PANEL" = 1 ] && echo ", and the demo panel"). Mission Planner: camera picture at http://127.0.0.1:8081/pov.mjpg"
 
 say "STEP 2/6  Waiting for the autopilot (GPS + EKF + pre-arm checks; the first ~30-60 s are normal settling)"

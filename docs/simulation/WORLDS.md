@@ -214,10 +214,41 @@ of every real crown and the forest canopy, and never on the three real poles. Ev
 height under it. The sun is the sun of the aerial photo (15 September, 11:00 local), so photo shadows and Gazebo
 shadows point the same way.
 
-### The optional sharper ground (AI upscale)
+### Will another PC build exactly this world? (`verify`)
 
-The aerial photo has 25 cm pixels; the drone camera sees 2 to 3 cm per pixel. `upscale` runs Real-ESRGAN x4plus
-(BSD-3 licence, GPU, about 25 s) over the search areas and the pad and stores the result in
+| Part | Same on every PC? |
+|---|---|
+| World file, config, truth (hiker, tent, props, poses), missions, survey heights | **Exact**: committed, and `verify` regenerates them and compares text |
+| Terrain, tree, canopy and building geometry | **Exact** to 1 mm (vertex and triangle counts and a hash of the rounded positions are compared with `data/suas_field_real/reference_geometry.json`) |
+| Ground and crown picture colours | Same to within 3 levels on average per picture (checked) |
+| Fine texture the AI adds to the ground (grass blades) | **Close, not bit-identical**: GPU, driver and PyTorch version change individual pixels, not shapes or colours. It must exist (`upscaled_ground` is checked): the standard build makes it |
+| What Gazebo draws on screen | Depends on the graphics driver and GPU; the world it draws is the same |
+| Fuel models (people, vehicles, bushes, tent) | Pinned versions, downloaded the same way |
+
+Run `python3 scripts/build_real_field.py verify` after the build: it prints PASS/FAIL lines and ends with "this PC builds the same world
+as the reference PC". After a deliberate change of the models, a maintainer re-records the reference with
+`verify --write-reference` and commits `reference_geometry.json`.
+
+### Inspect the terrain in Blender (a declared dependency)
+
+Blender 5.x (tested 5.2.3) must be installed on Windows (`winget install --id BlenderFoundation.Blender -e`); `03_build.sh` reports whether it
+is found. It is not needed to build or fly the world; it is the inspection tool:
+
+```bash
+python3 scripts/build_real_field.py blender --check               # where is Blender, which version (also looks for the Windows install from WSL)
+python3 scripts/build_real_field.py blender --out ~/rf_blend      # suas_field_real.blend + PNG renders of 7 views
+python3 scripts/build_real_field.py blender --only search_boundary_1_nadir50 --samples 128 --out ~/rf_blend
+```
+
+It opens the same `.glb` meshes and pictures Gazebo loads, lights them with the photo's sun and renders on the GPU (Cycles, OptiX/CUDA). Open
+`suas_field_real.blend` in Blender to fly around. The views are the drone's own (50 m above the ground over each search boundary and the pad),
+an oblique and a low view, and an overview. Compare them with Mission Planner screenshots in `D:\suas_scratch\terrain_ref\`. Lighting numbers
+were tuned by eye (`sun=`, `sky=`, `suncol=` options of `scripts/blender_real_field.py`); Gazebo, not Blender, is what the detector sees.
+
+### The sharper ground (AI upscale; part of the standard build)
+
+The aerial photo has 25 cm pixels; the drone camera sees 2 to 3 cm per pixel. `03_build.sh` runs `upscale --if-needed` (Real-ESRGAN x4plus
+BSD-3 licence, GPU, about 45 s once) over the search areas, the pad and 100 m around them, and stores the result in
 `~/.astra_sim/world_data/suas_field_real/upscaled/` (never in git). `assets` paints the ground tiles from it when it
 exists (`--upscale off` ignores it). The AI invents plausible fine texture (grass blades, slab cracks); it adds no
 objects. Because invented texture could trigger a detector, compare the false-alarm counts of two flights (with and

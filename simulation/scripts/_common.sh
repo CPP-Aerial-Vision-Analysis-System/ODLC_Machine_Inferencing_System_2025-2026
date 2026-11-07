@@ -35,6 +35,21 @@ astra_open_mission_planner() {
   fi
 }
 
+# astra_check_gazebo_window : the Gazebo window (the 3D world view) is part of every run. Waits up to 90 s for it to appear (the launch
+# reopens a crashed window by itself, see sim.launch.py) and says LOUDLY if it never does. Needs a display (WSLg) and xwininfo.
+astra_check_gazebo_window() {
+  command -v xwininfo >/dev/null 2>&1 || return 0
+  local i
+  for i in $(seq 1 45); do
+    if DISPLAY="${DISPLAY:-:0}" xwininfo -root -tree 2>/dev/null | grep -qi 'gazebo'; then ok "the Gazebo window (3D world view) is open"; return 0; fi
+    sleep 2
+  done
+  warn "the Gazebo window (3D world view) did not open within 90 s. Likely cause: its graphics context failed (the log has 'Failed to create" \
+       "OpenGL context'). Consequence: you see no 3D view (RViz and Mission Planner still work). Fix: from Windows PowerShell run" \
+       "wsl --shutdown, update the NVIDIA driver, start again; details: docs/simulation/TROUBLESHOOTING.md"
+  return 1
+}
+
 astra_usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$1"; }
 
 # Every warning and error names the program it comes from, e.g. " XX [demo] ERROR: ...", so a teammate who finds it

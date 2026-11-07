@@ -107,17 +107,23 @@ do not allow it).
 
 ## Why Blender (and what it is NOT used for)
 
+Blender 5.x (tested 5.2.3) is a **declared dependency** of the real-terrain world: the README lists it, `03_build.sh` reports whether it is
+found, and `build_real_field.py blender` is the supported way to use it. It is not needed to *build* or *fly* the world (that is numpy +
+Pillow), only to look at it.
+
 Blender is the *authoring and inspection* tool: it reads the same generated meshes and pictures Gazebo loads, lights them
 with the real sun, and renders views so people can judge and compare the terrain with Mission Planner screenshots without
 starting the whole simulator. Gazebo, not Blender, is what the detector sees in a flight. (The separate SUAS 2027 training
 generator, [SUAS_2027.md](SUAS_2027.md), also uses Blender; that is independent of the 2026 field.)
 
-## Why the optional AI upscale (and why it is optional)
+## Why the AI upscale is part of the standard build (and how we know two PCs match)
 
 The aerial photo has 25 cm pixels; the camera sees 2 to 3 cm per pixel, so the plain photo looks smeared. Real-ESRGAN invents
-plausible fine texture (grass blades, slab cracks), which makes the ground look like a camera image. Because invented texture
-could change what a detector does, it is **optional**, kept outside git, and has to be checked by comparing false-alarm counts of
-two flights before it is trusted.
+plausible fine texture (grass blades, slab cracks), which makes the ground look like a camera image. because invented texture
+could change what a detector does, it is kept outside git (the picture is 10,000 x 10,600 px) and rebuilt by every PC, and its effect has to be
+watched by comparing false-alarm counts between flights. It is in the standard build because a PC without it would fly over softer
+ground than the reference PC, and then results would not be comparable. `build_real_field.py verify` proves that a PC builds the same
+world: exact for targets, plans and geometry, same colours, and the AI texture present (its individual pixels may differ by GPU).
 
 ## Why one heavy job at a time (the locks)
 
@@ -128,7 +134,9 @@ factor drop and results become unreproducible. Heavy jobs take `/mnt/wsl/astra_h
 ## Why the simulator always shows its windows
 
 Gazebo, RViz and Mission Planner are opened visibly on purpose: a person watching a run notices what a log line does not
-(a drone flying into a tree line, the camera pointing wrong). `--headless` exists only for tests and servers with no screen.
+(a drone flying into a tree line, the camera pointing wrong). So the Gazebo 3D window opens every time and is reopened if its process crashes at
+start (it did in 2 of 3 real-terrain flights on 2026-11-07), and `demo.sh` warns loudly if it never appears. `--headless` exists only for tests and
+containers with no screen.
 
 ## What was removed on purpose
 

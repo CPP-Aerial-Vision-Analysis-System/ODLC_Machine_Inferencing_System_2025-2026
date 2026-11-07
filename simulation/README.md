@@ -36,9 +36,9 @@ bash simulation/scripts/demo.sh suas_field_real            # automatic: search S
 bash simulation/scripts/demo.sh suas_field_real --manual   # Mission Planner: connect UDP 14550, ASTRA tab, PLAN > Load WP file
 ```
 
-Heights there are derived from the real ground (58.7 m / 55.8 m above the pad). Optional sharper ground: run
-`bash simulation/setup/upscale_env.sh` once, then the two commands in
-[WORLDS](../docs/simulation/WORLDS.md#the-optional-sharper-ground-ai-upscale).
+Heights there are derived from the real ground (58.7 m / 55.8 m above the pad). The AI-sharper ground is made by `03_build.sh`; `python3 scripts/build_real_field.py verify` proves your PC builds the same world as the
+reference PC, and `... blender` opens it in Blender (see
+[WORLDS](../docs/simulation/WORLDS.md#will-another-pc-build-exactly-this-world-verify)).
 
 Keep one simulator, full build, Docker build or large world-generation job running at a time. Stop the
 simulator before rebuilding. A headless run still renders camera images and needs graphics support;

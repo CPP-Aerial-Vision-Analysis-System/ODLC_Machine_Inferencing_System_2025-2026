@@ -57,7 +57,7 @@ import yaml
 from ament_index_python.packages import PackageNotFoundError, get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (DeclareLaunchArgument, EmitEvent, ExecuteProcess, IncludeLaunchDescription, LogInfo,
-                            OpaqueFunction, RegisterEventHandler, SetEnvironmentVariable)
+                            OpaqueFunction, RegisterEventHandler, SetEnvironmentVariable, TimerAction)
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -440,11 +440,25 @@ def _launch_setup(context):
             say('Gazebo window extra environment (gui_env): ' + ', '.join(f'{k}={v}' for k, v in extra_env.items()))
         if bad_env:
             say(f'gui_env: ignored {", ".join(bad_env)} (write NAME=value, items separated by commas)')
-        window = ExecuteProcess(cmd=gui_cmd, name='gz_gui', output='screen', additional_env=window_env)
-        actions.append(window)
-        actions.append(RegisterEventHandler(OnProcessExit(target_action=window, on_exit=[
-            LogInfo(msg='[sim] the Gazebo window was closed; the simulation keeps running '
-                        '(stop everything with Ctrl+C or simulation/scripts/stop_sim.sh)')])))
+        # The Gazebo window must ALWAYS be there. Its process sometimes crashes at start on WSL2 ("Failed to create OpenGL context",
+        # the graphics device was removed while the server and RViz were also starting): a crash (exit code not 0) opens it
+        # again, up to 4 tries; closing it by hand (exit 0) is respected and the simulation keeps running.
+        def window_actions(attempt):
+            window = ExecuteProcess(cmd=gui_cmd, name='gz_gui', output='screen', additional_env=window_env)
+
+            def on_exit(event, _context):
+                rc = getattr(event, 'returncode', 0)
+                if rc in (0, None):
+                    return [LogInfo(msg='[sim] the Gazebo window was closed; the simulation keeps running '
+                                        '(stop everything with Ctrl+C or simulation/scripts/stop_sim.sh)')]
+                if attempt < 4:
+                    return [LogInfo(msg=f'[sim] the Gazebo window crashed (exit {rc}); opening it again in 4 s (try {attempt + 1} of 4)'),
+                            TimerAction(period=4.0, actions=window_actions(attempt + 1))]
+                return [LogInfo(msg=f'[sim] ERROR: the Gazebo window crashed {attempt} times in a row (exit {rc}). The simulation keeps '
+                                    'running but you have no 3D view. Fix: read the gz_gui lines above (OpenGL / graphics driver), '
+                                    'run  wsl --shutdown  from Windows PowerShell, update the NVIDIA driver, then start again')]
+            return [window, RegisterEventHandler(OnProcessExit(target_action=window, on_exit=on_exit))]
+        actions.extend(window_actions(1))
         if gui_camera == 'window':
             # The live camera in its OWN Gazebo program, with no 3D view in it. In a same-seconds measurement
             # (2026-10-31, docs/simulation/TROUBLESHOOTING.md) such a window kept showing the camera while the main

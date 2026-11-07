@@ -116,14 +116,17 @@ Everything else about the simulator: [`simulation/README.md`](simulation/README.
 
 > **What changed (2026-11-07):** the old flat `suas_field` world is **deleted** (use `suas_field_real`; the small `runway`
 > test world stays); **Mission Planner always opens** (`--no-windows-gcs` and the profile field `network.windows_gcs` are gone);
-> the real-terrain world exists end to end, with an optional AI-sharper ground. If an old note of yours says
+> the real-terrain world exists end to end, with an AI-sharper ground made by the standard build, a `verify` command that proves a PC builds the same world, and Blender as a declared dependency. If an old note of yours says
 > `demo.sh suas_field`, use `demo.sh suas_field_real`.
 
 ### What you need (the reference PC)
 
 Windows 11 + WSL2 with the `Ubuntu-22.04` distro, an NVIDIA GPU with a current Windows driver (reference: RTX 4060 Laptop,
 8 GB), about 25 GB free disk, internet for the first build, and **Mission Planner installed on Windows** (see
-[MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md) for the install and the ASTRA plugin). Details and the reasons:
+[MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md) for the install and the ASTRA plugin). **Blender 5.x** (tested 5.2.3) is the
+tool that opens the terrain for inspection (Step 4); install it with `bash simulation/setup/install_blender.sh` (or PowerShell:
+`winget install --id BlenderFoundation.Blender -e`). *Blender is not needed to compile or fly the world* - the world compiles from numpy +
+Pillow on any PC, with or without Blender; `03_build.sh` only reports whether Blender is found. Details and the reasons:
 [WHY_THESE_CHOICES.md](docs/simulation/WHY_THESE_CHOICES.md#the-reference-pc-what-the-same-result-means).
 
 ### Step 1 - one-time setup (about 30-60 minutes, mostly downloads)
@@ -135,18 +138,33 @@ sudo bash simulation/setup/01_install_humble.sh        # ROS 2 Humble, Gazebo Ha
 bash simulation/setup/02_setup_ardupilot.sh            # ArduCopter SITL 4.6.3
 bash simulation/setup/03_build.sh --workers 4          # copies the repo to ~/ODLC_Machine_Inferencing_System_2025-2026,
                                                        # builds it, downloads the Gazebo models and the detector weights,
-                                                       # and MAKES THE REAL-TERRAIN MODELS (about 1 minute)
+                                                       # and MAKES THE REAL-TERRAIN WORLD: the AI-sharper ground picture
+                                                       # (own Python env, GPU) and the Gazebo models, then verifies them
+                                                       # (about 8 minutes the first time, then nothing)
 ```
 
 Every later change: edit on Windows, run `03_build.sh` again (it overwrites the Linux copy; never edit the copy).
-Optional sharper ground (needs the GPU; about 5 minutes once):
+The AI-sharper ground is part of this build on purpose: without it the ground is softer than on the reference PC. If the build
+warns that the sharpener could not be set up (no GPU / no PyTorch with CUDA), fix that and run `bash simulation/setup/upscale_env.sh`,
+then `03_build.sh` again.
+
+#### Compiling the world by hand (what `03_build.sh` does for the real field; required before the first flight)
+
+The real-terrain world is *compiled* from the committed data pack (`ros2_ws/src/simulation/sim_worlds/data/suas_field_real/`) into Gazebo
+models that are not in git (about 150 MB: terrain tiles, ground pictures, trees, buildings). `03_build.sh` does all of this; to redo only the
+world (after changing the generator, or if the models are missing), from the package folder in the Linux copy:
 
 ```bash
-bash simulation/setup/upscale_env.sh                                              # the upscaler, in its own venv
 cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/simulation/sim_worlds
-~/.astra_sim/upscale_venv/bin/python scripts/build_real_field.py upscale          # about 25-45 s
-python3 scripts/build_real_field.py assets --install                              # paint the ground from it (about 2 min)
+~/.astra_sim/upscale_venv/bin/python scripts/build_real_field.py upscale --if-needed   # the sharper ground picture (GPU, about 1 minute once)
+python3 scripts/build_real_field.py assets --install                                   # compile the models (about 2 minutes)
+python3 scripts/build_real_field.py world                                              # regenerate worlds/config/truth/missions (seconds; same seed = same world)
+python3 scripts/build_real_field.py check                                              # expect "all checks passed"
+python3 scripts/build_real_field.py verify                                             # expect "this PC builds the same world as the reference PC"
 ```
+
+No Blender is involved in any of these commands. If `assets` says the models are up to date, nothing is rebuilt; `rm -r` the `rf_*` folders
+in `ros2_ws/install/sim_worlds/share/sim_worlds/models/` to force a rebuild.
 
 ### Step 2 - fly it (automatic search of Search Boundary 1)
 
@@ -191,11 +209,37 @@ cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/simulation/sim_worlds
 python3 scripts/build_real_field.py check                    # offline: expect "all checks passed" (about 25 PASS lines)
 ros2 run sim_worlds check_world.py suas_field_real --seconds 20   # Gazebo: expect RESULT: PASS, real-time factor about 1.0, 0 [Err]
 python3 -m pytest -q -p no:cacheprovider test                # the package tests
+python3 scripts/build_real_field.py verify                   # expect "this PC builds the same world as the reference PC"
+python3 scripts/build_real_field.py blender --check           # expect "found: ... version 5.2.x"
+python3 scripts/build_real_field.py blender --out ~/rf_blend  # a .blend of the terrain + 7 PNG renders (about 2 minutes)
 ```
+
+`verify` is the proof that your PC builds the same world as ours: it regenerates the world files and compares them with the committed
+ones, compares the geometry of every generated mesh (counts and a hash of the positions to 1 mm) and the average colour of every ground
+and crown picture with the reference, and checks that the ground was made from the sharper picture. Targets, flight plans, terrain
+shapes and colours are **exact**; the AI-generated fine grass texture and Gazebo's pixels (graphics driver) can differ slightly.
+The `.blend` can be opened in Blender and flown around in; the renders are the drone's view over each search boundary and the pad.
 
 If Mission Planner's map and the camera picture seem to disagree: the terrain is placed within 1-2 m of the real
 site (measured), the usual cause is the 0.3-1.7 s delay of the position the map and the photo tags use, plus the map being
 another imagery date; see [WORLDS.md](docs/simulation/WORLDS.md#why-the-drone-icon-in-mission-planner-can-seem-to-be-somewhere-else-than-the-camera-picture).
+
+### Step 5 - connect your image detection model
+
+The simulator flies with generic COCO weights (`yolo26m.pt`) as a stand-in; **they were not trained for hikers or tents, which is why they
+box trees** (measured: [docs/simulation/DETECTION.md](docs/simulation/DETECTION.md)). To test the team's own trained weights:
+
+```bash
+mkdir -p ~/.astra_sim/models && cp "/mnt/d/<where it is>/my_detector.pt" ~/.astra_sim/models/        # 1. a folder without spaces, not the repo
+python3 -m sim_plugins.model_check ~/.astra_sim/models/my_detector.pt --load                       # 2. expect OK lines and "classes the team code uses: ..."
+bash simulation/scripts/demo.sh suas_field_real --model ~/.astra_sim/models/my_detector.pt         # 3. fly with it; the score report shows precision/recall
+```
+
+The team code only acts on the class names `person`, `mannequin`, `doll` (people) and `umbrella`, `kite` (tents). A class literally called
+`tent` is ignored: export it as `umbrella` or extend `CLASS_MAP` in `ros2_ws/src/detection/detection/detection_processor.py` (then retest on the
+real drone). Other detector programs, TensorRT engines (Jetson only), going back to the stock weights and reading what the model did:
+[DETECTION.md](docs/simulation/DETECTION.md) and [SWAPPING.md](docs/simulation/SWAPPING.md). An optional, off-by-default size check that drops boxes
+too big to be a hiker or tent: `ASTRA_PHYSICAL_SIZE_FILTER=1 bash simulation/scripts/demo.sh suas_field_real`.
 
 ### The small test world and stopping
 

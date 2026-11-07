@@ -51,8 +51,31 @@ def signature(folder=None):
     return f'up4:{os.path.getsize(p)}:{int(os.path.getmtime(p))}'
 
 
-def make(pack, folder=None, log=print, tile=256):
-    """Upscale the pack's near-colour picture over its detail box x4 with Real-ESRGAN and save it into `folder`."""
+def fingerprint(pack):
+    """Short hash of what the picture depends on: the pack's pack.json, the scale, the margin and the model file's size."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(os.path.join(pack.folder, 'pack.json'), 'rb') as f:
+        h.update(f.read())
+    h.update(f'{SCALE}:{MARGIN_M}:{os.path.getsize(WEIGHTS) if os.path.isfile(WEIGHTS) else 0}'.encode())
+    return h.hexdigest()[:16]
+
+
+def up_to_date(pack, folder=None):
+    """True when the upscaled picture in `folder` was made from this pack and this model."""
+    folder = folder or default_dir()
+    if not available(folder):
+        return False
+    with open(os.path.join(folder, META), encoding='utf-8') as f:
+        return json.load(f).get('fingerprint') == fingerprint(pack)
+
+
+def make(pack, folder=None, log=print, tile=256, if_needed=False):
+    """Upscale the pack's near-colour picture over its detail box x4 with Real-ESRGAN and save it into `folder`.
+    if_needed: do nothing when a picture made from this pack already exists."""
+    if if_needed and up_to_date(pack, folder):
+        log('[upscale] the sharper ground picture is up to date: nothing to do')
+        return None
     import torch                                                   # noqa: WPS433 (only the maker needs them)
     from basicsr.archs.rrdbnet_arch import RRDBNet
     from PIL import Image
@@ -80,7 +103,8 @@ def make(pack, folder=None, log=print, tile=256):
     Image.fromarray(out).save(os.path.join(folder, FILE), quality=95, subsampling=0)
     meta = {'purpose': 'Real-ESRGAN x4plus upscale of the colour_near picture over the detail box (see upscale.py)',
             'model': 'RealESRGAN_x4plus', 'scale': SCALE, 'x0': near.x0 + c0 * near.res, 'y1': near.y1 - r0 * near.res,
-            'res': near.res / SCALE, 'width': out.shape[1], 'height': out.shape[0], 'seconds': round(time.time() - t0, 1)}
+            'res': near.res / SCALE, 'width': out.shape[1], 'height': out.shape[0], 'seconds': round(time.time() - t0, 1),
+            'fingerprint': fingerprint(pack)}
     with open(os.path.join(folder, META), 'w', encoding='utf-8') as f:
         json.dump(meta, f, indent=1)
     log(f'[upscale] done in {meta["seconds"]} s: {os.path.join(folder, FILE)} ({out.shape[1]} x {out.shape[0]} px, '

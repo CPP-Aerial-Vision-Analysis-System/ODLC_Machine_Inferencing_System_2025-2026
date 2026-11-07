@@ -152,16 +152,36 @@ if [ "$MODELS" = 1 ]; then
      && [ -d "$RF_SRC/data/suas_field_real" ]; then
     RF_LOG="$ASTRA_SIM_HOME/logs/real_field_assets_$(date +%Y%m%d-%H%M%S).log"
     mkdir -p "$ASTRA_SIM_HOME/logs"
+    # the AI-sharper ground picture (every PC must have it, or its ground is softer than the reference PC's): its own small
+    # Python environment (upscale_env.sh), then the picture (about 1 minute once); a failure only warns
+    UP_PY="$HOME/.astra_sim/upscale_venv/bin/python"
+    if [ ! -x "$UP_PY" ]; then
+      info "making the picture sharpener (simulation/setup/upscale_env.sh; once, about 5 minutes)"
+      bash "$DEST/simulation/setup/upscale_env.sh" >> "$RF_LOG" 2>&1 \
+        || warn "the picture sharpener could not be set up (see $RF_LOG). Consequence: the real-terrain ground is softer than on the" \
+                "reference PC and 'build_real_field.py verify' will say so. Fix: bash simulation/setup/upscale_env.sh (needs internet and a PyTorch with CUDA)"
+    fi
+    if [ -x "$UP_PY" ]; then
+      ( cd "$RF_SRC" && nice -n 10 timeout 1800 "$UP_PY" scripts/build_real_field.py upscale --if-needed ) >> "$RF_LOG" 2>&1 \
+        || warn "the sharper ground picture could not be made (see $RF_LOG); the ground will be softer than on the reference PC"
+    fi
     info "real-terrain world: making / checking its Gazebo models (build_real_field.py assets; log $RF_LOG)"
     if ( set +u; source /opt/ros/humble/setup.bash && source "$DEST/ros2_ws/install/setup.bash" \
            && cd "$RF_SRC" && nice -n 10 timeout 1800 python3 scripts/build_real_field.py assets --install --if-needed ) \
          > "$RF_LOG" 2>&1; then
       tail -1 "$RF_LOG" | sed 's/^/    /'
+      ( set +u; source /opt/ros/humble/setup.bash && source "$DEST/ros2_ws/install/setup.bash" && cd "$RF_SRC" \
+          && python3 scripts/build_real_field.py verify ) 2>&1 | grep -E 'FAIL|verify\]' | sed 's/^/    /' \
+        || true
     else
       warn "the real-terrain world's models could not be made. Likely cause: numpy or Pillow missing for python3, or" \
            "too little disk space. Consequence: only the world suas_field_real is affected (runway and suas_field" \
            "do not need them). Fix: read the end of $RF_LOG, then build again"
     fi
+  fi
+  # Blender: a dependency for INSPECTING the terrain (build_real_field.py blender); not needed to build or fly. Only reported here.
+  if [ -f "$RF_SRC/scripts/build_real_field.py" ]; then
+    ( cd "$RF_SRC" && python3 scripts/build_real_field.py blender --check ) 2>&1 | sed 's/^/    /' || true
   fi
   MODEL_DIR="$ASTRA_SIM_HOME/models"
   mkdir -p "$MODEL_DIR" "$HOME/.config"

@@ -80,10 +80,26 @@ def main(argv=None):
     p = sub.add_parser('upscale', help='optional: make the sharper (AI x4) ground picture of the search areas (GPU)')
     p.add_argument('--pack', default=None, help='site pack folder (default: <package>/data/suas_field_real)')
     p.add_argument('--dest', default=None, help='folder for the picture (default ~/.astra_sim/world_data/suas_field_real/upscaled)')
+    p.add_argument('--if-needed', action='store_true', help='do nothing when the picture already matches the pack')
 
     p = sub.add_parser('treetops', help='maintainers: cut the real top-down crown pictures of every tree out of the photo')
     p.add_argument('--data', default=None, help='data folder (default $ASTRA_WORLD_DATA or ~/.astra_sim/world_data)')
     p.add_argument('--out-dir', default=None, help='package folder whose data/suas_field_real is updated')
+
+    p = sub.add_parser('verify', help='is the world on this PC the same as on the reference PC? (PASS/FAIL list)')
+    p.add_argument('--models', default=None, help='models folder (default: <package>/models, then the install)')
+    p.add_argument('--pack', default=None, help='site pack folder (default: <package>/data/suas_field_real)')
+    p.add_argument('--write-reference', action='store_true', help='maintainers: record this PC as the reference')
+
+    p = sub.add_parser('blender', help='inspect the terrain in Blender (a .blend you can open, and test renders)')
+    p.add_argument('--models', default=None, help='models folder (default: <package>/models, then the install)')
+    p.add_argument('--out', default='real_field_blender', help='folder for the .blend, views.json and the PNG renders')
+    p.add_argument('--blender', default=None, help='path to blender (default: $BLENDER_EXE, PATH, the Windows install via WSL)')
+    p.add_argument('--only', default=None, help='comma list of views to render (default all)')
+    p.add_argument('--samples', type=int, default=48, help='render quality (Cycles samples)')
+    p.add_argument('--no-render', action='store_true', help='only write the .blend')
+    p.add_argument('--audit', action='store_true', help='render every audited section of the terrain from 4 angles (top, south, west, eye level) + contact sheets')
+    p.add_argument('--check', action='store_true', help='only look for Blender and print where it is')
 
     p = sub.add_parser('world', help='stage 4: site pack -> world SDF, config, truth and missions')
     p.add_argument('--seed', type=int, default=None, help='layout seed of targets and debris (default 2026)')
@@ -128,12 +144,29 @@ def main(argv=None):
     elif args.cmd == 'upscale':
         from sim_worlds.realfield import upscale
         from sim_worlds.realfield.sitepack import SitePack
-        upscale.make(SitePack(args.pack), args.dest, log=log)
+        upscale.make(SitePack(args.pack), args.dest, log=log, if_needed=args.if_needed)
     elif args.cmd == 'treetops':
         from sim_worlds.realfield import prepare, tree_tops
         data = prepare.data_dirs(args.data)
         prepared = data[2]                                  # (root, raw, prepared)
         tree_tops.make(os.path.join(os.path.abspath(args.out_dir or pkg), 'data', 'suas_field_real'), prepared, log=log)
+    elif args.cmd == 'verify':
+        from sim_worlds.realfield import checks, verify
+        models = checks._find_models(pkg, args.models)
+        if args.write_reference:
+            verify.write_reference(pkg, models, log=log)
+        else:
+            return verify.run(pkg, models, pack_dir=args.pack, log=log)
+    elif args.cmd == 'blender':
+        from sim_worlds.realfield import blender_tools, checks
+        exe = blender_tools.find_blender(args.blender)
+        if args.check:
+            return blender_tools.report(exe, log=log)
+        if exe is None:
+            blender_tools.report(None, log=log)
+            return 1
+        blender_tools.run(checks._find_models(pkg, args.models), os.path.abspath(args.out), exe, only=args.only,
+                          samples=args.samples, no_render=args.no_render, log=log, audit=args.audit)
     elif args.cmd == 'world':
         from sim_worlds.realfield import world_build
         world_build.run(os.path.abspath(args.out_dir or pkg), pack_dir=args.pack, seed=args.seed,
