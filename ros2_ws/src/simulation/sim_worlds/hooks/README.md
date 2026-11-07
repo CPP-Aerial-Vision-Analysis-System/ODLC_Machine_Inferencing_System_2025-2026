@@ -1,3 +1,4 @@
+<!-- PURPOSE: explain the environment hook in this folder (it tells Gazebo where the world models are), because the .dsv file format cannot hold comments. -->
 # hooks/
 
 `sim_worlds.dsv.in` is an **environment hook**: when you `source install/setup.bash`, it adds

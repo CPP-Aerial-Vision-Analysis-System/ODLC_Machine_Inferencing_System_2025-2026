@@ -15,6 +15,9 @@ ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
   scripts/build_runway.py
   scripts/build_suas_field.py
+  scripts/build_suas_2027.py
+  scripts/blender_suas_2027.py
+  scripts/check_suas_2027.py
   scripts/make_mission.py
   scripts/world_info.py
   scripts/render_preview.py

@@ -1,4 +1,11 @@
+<!-- PURPOSE: explain the two working simulated fields (runway, suas_field), their search missions and answer keys (truth files), and the tools that build and check them. The user guide, including the unfinished real-terrain field suas_field_real, is docs/simulation/WORLDS.md. -->
 # sim_worlds: the simulated fields for the SUAS search demo
+
+**2027 training addition:** see [SUAS_2027.md](../../../../docs/simulation/SUAS_2027.md) for the opt-in
+`scripts/build_suas_2027.py` Blender generator. It creates an external coastal-terrain bundle, mannequins
+with shirt/pants colors and nearby suitcases, landing-zone candidates and repeatable perception stressors.
+`sim_worlds.challenge2027.evaluate` measures local report diagnostics; the existing 2026 scorer and team
+flight behavior remain unchanged. Blender is an offline asset tool, not a runtime dependency.
 
 This package holds the **places the simulated drone flies over**: two Gazebo Harmonic worlds, the **search
 mission** for each one (a file Mission Planner and MAVProxy can load), and a **truth file** that says where the
@@ -164,7 +171,9 @@ because Mission Planner does not allow them; this table is their documentation.
 
 ---
 
-## Survey maths (ARCHITECTURE.md section 8)
+## Survey maths
+
+(The same rules in plain words: [WORLDS.md, "Survey geometry"](../../../../docs/simulation/WORLDS.md#survey-geometry).)
 
 Camera straight down, nose (and gimbal, follow mode) along the lane, 2560 x 1440 photos, 81 deg lens:
 `footprint width = 2 h tan(40.5 deg) = 1.708 h` across the lane, `height = width x 1440/2560` along it.
