@@ -51,8 +51,9 @@ def _ring_surface(profile_z, profile_r, segs, rng, lump):
     rings = len(profile_z)
     ph = np.linspace(0, 2 * math.pi, segs + 1)
     coarse = _smooth_noise(rng, rings, segs + 1, 3, 4)               # big lobes (a branch, a clump)
+    mid = _smooth_noise(rng, rings, segs + 1, 6, 10)                  # leaf clumps
     fine = rng.random((rings, segs + 1))                              # leaf-cluster bumps
-    noise = 1.0 + lump * (0.65 * (coarse - 0.5) + 0.35 * (fine - 0.5)) * 2.0
+    noise = 1.0 + lump * (0.5 * (coarse - 0.5) + 0.3 * (mid - 0.5) + 0.2 * (fine - 0.5)) * 2.0
     noise[:, -1] = noise[:, 0]
     R = np.asarray(profile_r)[:, None] * noise
     Z = np.repeat(np.asarray(profile_z)[:, None], segs + 1, axis=1)
@@ -96,18 +97,18 @@ def crown_shape(kind, detail, seed):
     """Unit crown (x, y within +-0.5 = crown diameter 1, z 0..1 = tree height 1). detail: 'near' or 'far'."""
     rng = np.random.default_rng(seed)
     if kind == 'cedar':
-        rings, segs = (9, 12) if detail == 'near' else (4, 6)
+        rings, segs = (11, 16) if detail == 'near' else (4, 6)
         zn = np.linspace(0.0, 1.0, rings)
         z = 0.06 + 0.94 * zn
         r = 0.5 * np.power(np.clip(1.0 - zn, 0.0, 1.0), 0.85) * (0.88 + 0.12 * np.sin(np.pi * np.clip(zn * 1.6, 0, 1)))
         r[-1] = 0.0
         return _ring_surface(z, r, segs, rng, 0.30)
-    rings, segs = (11, 16) if detail == 'near' else (5, 6)
+    rings, segs = (12, 18) if detail == 'near' else (5, 6)
     th = np.linspace(0.0, math.pi, rings)
     z = 0.62 + 0.38 * np.cos(th)                                   # crown from 0.24 to 1.0 of the height
     r = 0.5 * np.sin(th)
     r[0] = r[-1] = 0.0
-    return _ring_surface(z, r, segs, rng, 0.42)
+    return _ring_surface(z, r, segs, rng, 0.58)
 
 
 def trunk_shape(kind, segs=6):
@@ -252,7 +253,7 @@ def _top_down_uv(ts, crown_positions, crown_normals, tops):
     return np.concatenate(UV).astype(np.float32), _leaf_detail(pic)
 
 
-def _leaf_detail(pic, factor=2, amount=0.11, seed=11):
+def _leaf_detail(pic, factor=2, amount=0.17, seed=11):
     """The crown pictures are 25 cm per photo pixel, so a crown has only ~30 pixels across: smooth. Double the size and
     multiply in leaf-clump noise (two scales) whose average is 1, so the real colours of each crown stay what they are
     on average and only the fine structure (leaf clumps, small gaps) is added. numpy + Pillow."""
@@ -261,7 +262,7 @@ def _leaf_detail(pic, factor=2, amount=0.11, seed=11):
     big = np.asarray(Image.fromarray(pic).resize((w * factor, h * factor), Image.BICUBIC), dtype=np.float32)
     rng = np.random.default_rng(seed)
     n = np.zeros((h * factor, w * factor), dtype=np.float32)
-    for grid, amp in ((0.5, 0.6), (0.2, 0.4)):                            # lumps about 2 and 0.8 photo pixels wide
+    for grid, amp in ((0.6, 0.5), (0.3, 0.3), (0.15, 0.2)):               # lumps about 1.7, 3 and 6 picture pixels wide
         gh, gw = max(int(h * factor * grid), 4), max(int(w * factor * grid), 4)
         small = rng.random((gh, gw)).astype(np.float32)
         n += amp * np.asarray(Image.fromarray(small).resize((w * factor, h * factor), Image.BICUBIC))
