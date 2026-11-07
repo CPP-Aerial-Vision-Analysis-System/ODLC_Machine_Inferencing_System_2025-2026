@@ -1,0 +1,96 @@
+# End-to-end tests of the diagnostic CLI and bounded NVIDIA-tool execution.
+# No CUDA device, Python interpreter, root permissions, or network is required.
+file(MAKE_DIRECTORY "${TEST_DIR}/tools")
+
+function(expect_run label expected)
+  execute_process(COMMAND "${PROGRAM}" ${ARGN}
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 10)
+  if(NOT "${result}" STREQUAL "${expected}")
+    message(FATAL_ERROR "${label}: expected exit ${expected}, got ${result}\n${output}\n${error}")
+  endif()
+  set(LAST_OUTPUT "${output}" PARENT_SCOPE)
+endfunction()
+
+expect_run(help 0 --help)
+if(NOT LAST_OUTPUT MATCHES "Usage: check_gpu")
+  message(FATAL_ERROR "Help is missing usage")
+endif()
+expect_run(unknown_argument 2 --unknown-argument)
+expect_run(missing_timeout 2 --tool-timeout-ms)
+expect_run(invalid_timeout 2 --tool-timeout-ms 1)
+expect_run(non_integer_timeout 2 --tool-timeout-ms 50x)
+expect_run(negative_timeout 2 --tool-timeout-ms -1)
+expect_run(overflow_timeout 2 --tool-timeout-ms 999999999999999999999999)
+expect_run(report 0 --skip-benchmark --skip-system-tools)
+foreach(fragment "SYSTEM INFORMATION" "C++ BUILD ENVIRONMENT" "CUDA DEVICES AND MEMORY"
+    "NVIDIA SYSTEM TOOLS" "PYTHON FRAMEWORKS" "MODEL INFERENCE" "ENVIRONMENT VARIABLES"
+    "SUMMARY" "Model inference is not tested" "Benchmark skipped by request")
+  string(FIND "${LAST_OUTPUT}" "${fragment}" index)
+  if(index EQUAL -1)
+    message(FATAL_ERROR "Report missing '${fragment}':\n${LAST_OUTPUT}")
+  endif()
+endforeach()
+
+if(LAST_OUTPUT MATCHES "CUDA device access NOT VERIFIED")
+  expect_run(require_unavailable_gpu 1 --skip-benchmark --skip-system-tools --require-gpu)
+else()
+  expect_run(require_available_gpu 0 --skip-benchmark --skip-system-tools --require-gpu)
+endif()
+
+expect_run(benchmark 0 --skip-system-tools)
+if(NOT LAST_OUTPUT MATCHES "CPU FP32 1000x1000 matmul, mean of 3:")
+  message(FATAL_ERROR "CPU benchmark missing")
+endif()
+if(LAST_OUTPUT MATCHES "CUDA support compiled in: NO")
+  if(NOT LAST_OUTPUT MATCHES "GPU benchmark skipped:")
+    message(FATAL_ERROR "CPU build must skip the GPU benchmark")
+  endif()
+endif()
+file(WRITE "${TEST_DIR}/cpu-report.txt" "${LAST_OUTPUT}")
+
+function(tool_script name contents)
+  file(WRITE "${TEST_DIR}/tools/${name}" "#!/bin/sh\n${contents}\n")
+  execute_process(COMMAND chmod +x "${TEST_DIR}/tools/${name}" RESULT_VARIABLE result)
+  if(NOT result EQUAL 0)
+    message(FATAL_ERROR "Cannot make fake tool executable")
+  endif()
+endfunction()
+
+function(run_fake_tools label)
+  execute_process(COMMAND "${CMAKE_COMMAND}" -E env "PATH=${TEST_DIR}/tools"
+    "${PROGRAM}" --skip-benchmark --tool-timeout-ms 80
+    RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 4)
+  if(NOT "${result}" STREQUAL "0")
+    message(FATAL_ERROR "${label}: ${result}\n${output}\n${error}")
+  endif()
+  set(LAST_OUTPUT "${output}" PARENT_SCOPE)
+endfunction()
+
+tool_script(nvidia-smi "printf 'FAKE_NVIDIA_OUTPUT\\n'")
+tool_script(jetson_clocks "printf 'FAKE_JETSON_FAILURE\\n'; exit 9")
+run_fake_tools(tool_success_and_failure)
+foreach(fragment "nvidia-smi: exit 0" "FAKE_NVIDIA_OUTPUT" "jetson_clocks: exit 9" "FAKE_JETSON_FAILURE")
+  string(FIND "${LAST_OUTPUT}" "${fragment}" index)
+  if(index EQUAL -1)
+    message(FATAL_ERROR "Tool report missing ${fragment}")
+  endif()
+endforeach()
+
+tool_script(nvidia-smi "/bin/sleep 10")
+tool_script(jetson_clocks "while :; do printf 'NOISY_OUTPUT'; done")
+run_fake_tools(tool_timeouts)
+if(NOT LAST_OUTPUT MATCHES "nvidia-smi: timed out after 80 ms" OR
+   NOT LAST_OUTPUT MATCHES "jetson_clocks: timed out after 80 ms")
+  message(FATAL_ERROR "Subprocess timeout or noisy-output handling failed")
+endif()
+string(LENGTH "${LAST_OUTPUT}" output_length)
+if(output_length GREATER 40000)
+  message(FATAL_ERROR "Subprocess output was not capped")
+endif()
+
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env "PATH=${TEST_DIR}/nonexistent"
+  "${PROGRAM}" --skip-benchmark RESULT_VARIABLE result OUTPUT_VARIABLE output TIMEOUT 4)
+if(NOT "${result}" STREQUAL "0" OR NOT output MATCHES "nvidia-smi: unavailable:")
+  message(FATAL_ERROR "Missing NVIDIA tools were not handled")
+endif()
+message(STATUS "PASS: CLI, report, CPU benchmark, GPU requirement, tool exit codes, missing tools, timeouts, and bounded output")

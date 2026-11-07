@@ -1,4 +1,12 @@
-# Annotation: first C++ migration step
+# Incremental C++ migration: annotation and GPU diagnostics
+
+`src/check_gpu.cpp` is now also available as the standalone `check_gpu` executable.
+It reports native CUDA access and system information and includes an optional
+CPU/cuBLAS benchmark. See [GPU diagnostic build instructions and section-by-section
+walkthrough](CHECK_GPU.md). It does not inspect Python package installations
+or verify model inference. CMake 3.17+ is required; CUDA is optional.
+
+The annotation library is described below.
 
 This standalone C++17/OpenCV library ports `detection/annotation.py`. It draws
 existing predictions; it does not load a model or run inference. The Python ROS
