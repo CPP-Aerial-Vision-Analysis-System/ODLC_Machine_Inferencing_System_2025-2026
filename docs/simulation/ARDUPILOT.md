@@ -10,6 +10,8 @@ See [the architecture](ARCHITECTURE.md) for MAVProxy/MAVROS wiring.
 Commands below run from the Linux checkout after `source simulation/setup/sim_env.sh`. Stop the
 current simulator before changing firmware or rebuilding. Every alternate configuration still needs
 its own full mission and score report; the available examples do not imply runtime certification.
+The step-by-step version (one command per swap, how to know it worked, how to go back, common errors) is
+[SWAPPING.md](SWAPPING.md#swap-1-the-autopilot-ardupilot-sitl).
 
 ## Use the default
 
@@ -86,6 +88,14 @@ airframe/motor tuning and protected payload-servo settings. It keeps mission set
 Read the plan/launch summary for kept, removed and unreadable lines. Preserve the original file locally;
 do not commit a raw aircraft parameter dump.
 
+An **unreadable line stops the start** (the plan, `--dry-run` and the launch all refuse): a line that is not
+`NAME,VALUE` / `NAME VALUE` / the QGroundControl format, a value that is not a number, or a value longer than
+32 characters. The message names up to five line numbers with the reason for each, because a bad line usually
+means the wrong file (a mission, a log) and silently skipping it would drop settings you expect. A file with no
+parameter lines at all is refused too. The cleaned copy SITL reads (`~/.astra_sim/generated/params/`) keeps
+every line far below 90 characters: ArduPilot reads defaults files in 100-byte pieces and silently breaks longer
+lines (the same rule as `sim_models/config/astra_sitl.parm`).
+
 Profiles expose `autopilot.param_files`, `param_filter` and `param_keep`. `param_filter: none` bypasses
 the filter; `param_keep` exempts particular names. Those are deliberate expert overrides and can prevent
 the simulated Iris from arming or flying. Do not copy simulator failsafe/servo defaults onto hardware.
@@ -110,6 +120,23 @@ Both machines must agree on model, instance, frame and home. External mode start
 
 This setup is for a JSON-compatible autopilot simulation. A physical Pixhawk requires a separate HIL
 design; selecting `external` alone does not turn the Gazebo model into supported HIL hardware.
+
+## Which ArduPilot really ran
+
+Every `demo.sh` run writes `<run folder>/run_meta/autopilot.json` (by `python3 -m sim_plugins.run_meta autopilot`,
+right after the autopilot is ready):
+
+| Key | What it holds |
+|---|---|
+| `reported` | what the autopilot ITSELF said: `firmware`, `version` (e.g. `4.6.3`), `git`, `banner`, `frame`, `source` (its boot banner `AP: ArduCopter V4.6.3 (3fc7011a)` as MAVProxy logged it in `sim.log`; else AUTOPILOT_VERSION) |
+| `autopilot_version` | the MAVLink `AUTOPILOT_VERSION` answer (`version`, `type` official/beta/dev + `type_raw`, `git`), asked once on the ground-station port. The installed 4.6.3 SITL answers `type` beta (128) although its banner says V4.6.3: compare runs by `version` + `git` |
+| `binary` | the program that ran: `path`, `size_bytes`, `sha256`, `compiled_version` (the version text inside it) |
+| `process` | the running SITL: `pid`, `cmdline`, `instance`, `home`, `wipe`, `defaults` (every parameter file with its SHA-256) |
+| `kind`, `run_dir`, `profile`, `notes` | `sitl` / `external`, SITL's state folder, the profile, and anything that did not match (e.g. a folder named 4.7.1 holding a 4.6.3 program) |
+
+```bash
+R=$(ls -td ~/.astra_sim/runs/*/ | head -1); python3 -m json.tool "$R"run_meta/autopilot.json | head -30
+```
 
 ## Prove a configuration
 

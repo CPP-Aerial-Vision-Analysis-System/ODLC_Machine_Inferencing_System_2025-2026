@@ -18,15 +18,22 @@
 #                wsl -d Ubuntu-22.04 -u root bash /path/to/simulation/setup/camera_ip_alias.sh
 #  Undo:         sudo bash camera_ip_alias.sh --remove
 #  Options:      --no-boot  only add the address now (no service)
+#  Exit codes:   0 = done, 1 = failed (the reason and the fix are printed), 2 = the command was typed wrong.
 # =============================================================================
 set -eo pipefail
+case "${1:-}" in
+  -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
+  ''|--remove|--no-boot) ;;
+  *) echo "[camera_ip_alias] ERROR: unknown option \"$1\". Fix: the options are --remove and --no-boot (bash \"$0\" --help)" >&2; exit 2 ;;
+esac
 IP="${ASTRA_CAMERA_IP:-192.168.144.25}"
 UNIT=/etc/systemd/system/astra-camera-ip.service
 say() { printf '\033[1;36m==> %s\033[0m\n' "$*"; }
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "This changes the PC's network settings, so it needs admin power."
-  echo "Run it like this:   sudo bash $0      (or from Windows: wsl -d Ubuntu-22.04 -u root bash <this file>)"
+  echo "[camera_ip_alias] ERROR: this changes the PC's network settings, so it needs admin rights." >&2
+  echo "    Likely cause: it was started without sudo." >&2
+  echo "    Fix: sudo bash \"$0\"      (no Ubuntu password? from Windows PowerShell: wsl -d Ubuntu-22.04 -u root bash \"$(readlink -f "$0")\")" >&2
   exit 1
 fi
 
@@ -42,7 +49,9 @@ say "Adding the camera address $IP to the loopback device (lo)"
 if ip -4 addr show dev lo | grep -q "inet $IP/"; then
   echo "    already there."
 else
-  ip addr add "$IP/32" dev lo
+  ip addr add "$IP/32" dev lo || { echo "[camera_ip_alias] ERROR: could not add $IP to the loopback device. Likely cause:" \
+    "this environment does not allow network changes (some containers). Fix: run it where you have admin rights, or" \
+    "start the container with --cap-add NET_ADMIN" >&2; exit 1; }
   echo "    added."
 fi
 

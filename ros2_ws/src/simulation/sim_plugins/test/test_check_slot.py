@@ -268,3 +268,63 @@ def test_parser_rejects_unknown_slot():
         cs.build_parser().parse_args(['--slot', 'network'])
     args = cs.build_parser().parse_args(['--slot', 'detector', '--take-photo', '--timeout', '5'])
     assert args.take_photo and args.timeout == 5.0
+
+
+# ---- team_stack (the whole Jetson code; docs/simulation/SWAPPING.md) --------------------------------------
+
+def jetson_graph(**changes):
+    """A graph with the whole team stack running (MAVROS + the 6 team nodes)."""
+    st = 'mavros_msgs/msg/StatusText'
+    g = dict(
+        nodes=['mavros', 'waypoint_manager', 'gps_mavros_service_node', 'mission_camera_trigger', 'siyi', 'new_od',
+               'main_controller'],
+        pubs={'/mavros/state': [EP('mavros', 'mavros_msgs/msg/State', 'reliable')],
+              '/mavros/statustext/send': [EP('main_controller', st)],
+              '/image_detection': [EP('new_od', IR, 'reliable')]},
+        subs={'/mavros/statustext/recv': [EP('mission_camera_trigger', st), EP('waypoint_manager', st)],
+              '/mavros/mission/waypoints': [EP('waypoint_manager', 'mavros_msgs/msg/WaypointList')],
+              '/camera/trigger': [EP('siyi', 'std_msgs/msg/Bool')]},
+        servers={'waypoint_manager': {'/addWaypoint': ['interfaces/srv/AddWaypoint']},
+                 'mavros': {'/mavros/set_mode': ['mavros_msgs/srv/SetMode'],
+                            '/mavros/cmd/command': ['mavros_msgs/srv/CommandLong'],
+                            '/mavros/mission/pull': ['mavros_msgs/srv/WaypointPull']}},
+        clients={},
+    )
+    g.update(changes)
+    return FakeGraph(**g)
+
+
+def test_the_team_stack_passes():
+    r = cs.evaluate(jetson_graph(), 'team_stack')
+    assert not r.failed, texts(r)
+    assert 'node main_controller is running' in texts(r)
+
+
+def test_a_missing_team_node_fails_with_the_fix():
+    g = jetson_graph(nodes=['mavros', 'waypoint_manager', 'siyi', 'new_od', 'main_controller'])
+    r = cs.evaluate(g, 'team_stack')
+    assert r.failed and 'gps_mavros_service_node' in texts(r) and 'SWAPPING.md' in texts(r)
+
+
+def test_a_replaced_node_is_skipped_and_its_replacement_required():
+    nodes = ['mavros', 'waypoint_manager', 'gps_mavros_service_node', 'mission_camera_trigger', 'siyi',
+             'my_detector', 'main_controller']
+    g = jetson_graph(nodes=nodes, pubs={'/mavros/state': [EP('mavros', 'mavros_msgs/msg/State')],
+                                        '/mavros/statustext/send': [EP('siyi', 'mavros_msgs/msg/StatusText')],
+                                        '/image_detection': [EP('my_detector', IR, 'reliable')]})
+    assert cs.evaluate(g, 'team_stack').failed                         # new_od is missing
+    r = cs.evaluate(g, 'team_stack', skip_nodes=['new_od'], add_nodes=['my_detector'])
+    assert not r.failed, texts(r)
+    assert cs.evaluate(g, 'team_stack', skip_nodes=['new_od'], add_nodes=['other_det']).failed
+
+
+def test_a_best_effort_detector_fails_the_team_stack():
+    g = jetson_graph(pubs={'/mavros/state': [EP('mavros', 'mavros_msgs/msg/State')],
+                           '/mavros/statustext/send': [EP('siyi', 'mavros_msgs/msg/StatusText')],
+                           '/image_detection': [EP('new_od', IR, 'best_effort')]})
+    assert cs.evaluate(g, 'team_stack').failed
+
+
+def test_check_slot_parser_knows_team_stack_options():
+    args = cs.build_parser().parse_args(['--slot', 'team_stack', '--skip-node', 'new_od', '--add-node', 'x'])
+    assert args.slot == 'team_stack' and args.skip_node == ['new_od'] and args.add_node == ['x']

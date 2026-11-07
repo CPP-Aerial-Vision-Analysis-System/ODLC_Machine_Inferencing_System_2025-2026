@@ -10,9 +10,9 @@ selects laptop model settings and can replace a component through a [profile](PL
 ```mermaid
 flowchart LR
   Gazebo[Gazebo physics and camera] <-->|JSON UDP 9002| SITL[ArduCopter SITL]
-  SITL <-->|TCP 5760| Proxy[MAVProxy]
-  Proxy <-->|UDP 14552| MAVROS
-  Proxy <-->|GCS link| GCS[Mission Planner or mission_tool]
+  SITL <-->|TCP 5760 serial0| Proxy[MAVProxy]
+  SITL <-->|TCP 5763 serial2, like TELEM2| MAVROS
+  Proxy <-->|UDP 14550| GCS[Mission Planner + ASTRA plugin, or mission_tool]
   MAVROS <--> Brain[Team mission nodes]
   Brain -->|camera trigger| Driver[Team video_cam]
   Driver <-->|SIYI UDP and HTTP| Emulator[siyi_emulator]
@@ -20,9 +20,16 @@ flowchart LR
   Driver --> Photos[Photo and JSON sidecar]
   Photos --> Detector[Team or custom detector]
   Detector -->|ImageResult| Brain
-  Gazebo --> Score[Panel and score recorder]
+  Gazebo -->|live camera| POV[pov_server, HTTP 8081]
+  POV -->|MJPEG picture in the HUD| GCS
+  Gazebo --> Score[Score recorder]
   Brain --> Score
 ```
+
+MAVROS connects straight to SITL's **SERIAL2** (TCP 5763), the way the real Jetson is wired to the Pixhawk's
+TELEM2 port. That is why ArduPilot forwards the team code's status texts ("Detected tent", "Aim ...",
+"Servo 13 -> 1400") to every ground station, including Mission Planner and its ASTRA plugin (since commit
+`6d90c07`; before it MAVROS used MAVProxy's UDP 14552 output and those texts never reached Mission Planner).
 
 ## Processes and source ownership
 
@@ -32,7 +39,8 @@ flowchart LR
 | Drone and payloads | `ros2_ws/src/simulation/sim_models/` | Iris/gimbal/cameras, SITL defaults, payload detach and landing events |
 | Generated worlds | `ros2_ws/src/simulation/sim_worlds/` | World/config/mission/truth generation and validation |
 | Camera emulator | `ros2_ws/src/simulation/siyi_emulator/` | SIYI SDK + media API, triggered Gazebo photos and camera state |
-| Panel and scoring | `ros2_ws/src/simulation/sim_demo/` | Operator display, run evidence, truth detector, score report, reset logic |
+| Scoring, camera stream, old panel | `ros2_ws/src/simulation/sim_demo/` | Run evidence, score report, truth detector, reset logic, the `pov_server` camera stream for Mission Planner, and the old Qt panel (off in `demo.sh` unless `--panel`) |
+| Ground station | Mission Planner on Windows + `simulation/windows/mission_planner_plugin/astra_gcs.cs` | The operator's screen: ASTRA tab, drone camera in the HUD, map markers; see [MISSION_PLANNER](MISSION_PLANNER.md) |
 | Profiles and contracts | `ros2_ws/src/simulation/sim_plugins/` | Resolve settings, wire replacements and check their interfaces |
 | Example adapters | `ros2_ws/src/simulation/sim_plugin_examples/` | Copyable detector and listener templates |
 | Human entry scripts | `simulation/scripts/`, `simulation/setup/` | Install/build/run/stop recipes around the packages |
@@ -45,10 +53,12 @@ The drone itself uses `launcher.sh`; `TRACKER_CMD` selects the simulation launch
 
 1. `demo.sh` resolves settings, archives old photos and starts `sim.launch.py` in a recorded session.
 2. Gazebo loads the world and spawns the drone. The ArduPilot plugin is ready before SITL starts.
-3. SITL and MAVProxy connect; the bridge, emulator and score recorder start. GUI tools are optional.
+3. SITL and MAVProxy connect; the bridge, emulator, score recorder and the `pov_server` camera stream
+   start. The Gazebo and RViz windows are optional (`--headless` skips them); the old panel needs `--panel`.
 4. `mission_tool` waits for GPS/EKF/pre-arm readiness and uploads the survey.
-5. `launcher.sh sim` starts MAVROS and `team_stack.launch.py`. `stack_check` waits for the team nodes,
-   mission indices and detector readiness. There is one startup retry if the stack fails readiness.
+5. `launcher.sh sim` starts MAVROS (`FCU_URL=tcp://127.0.0.1:5763`, SITL SERIAL2) and `team_stack.launch.py`.
+   `stack_check` waits for the team nodes, mission indices and detector readiness. There is one startup
+   retry if the stack fails readiness.
 6. The demo arms and starts AUTO. `phase_monitor` records progress until the vehicle lands.
 7. The recorder writes Markdown/JSON scores. The demo copies photos and detections into the run folder,
    then stops its processes, unless `--keep` or manual mode keeps the session open.
@@ -73,8 +83,8 @@ servos 13/11, and commands RTL. The real-airframe calibration and terrain limits
 
 | Interface | Type or protocol | Producer → consumer |
 |---|---|---|
-| `/camera/trigger` | `std_msgs/msg/Bool`, true | trigger/panel → video_cam |
-| `/camera/command` | `std_msgs/msg/String` | trigger/panel → video_cam |
+| `/camera/trigger` | `std_msgs/msg/Bool`, true | trigger, ASTRA tab TAKE PHOTO (`mp_actions.sh`), old panel → video_cam |
+| `/camera/command` | `std_msgs/msg/String` | trigger, ASTRA tab CAMERA DOWN/FORWARD (`mp_actions.sh`), old panel → video_cam |
 | Camera control | SIYI SDK UDP `192.168.144.25:37260` | video_cam → emulator |
 | Camera media | HTTP `192.168.144.25:82` | video_cam → emulator |
 | Photo directory | `ros2_ws/src/video_cam/mapping_photos/` | video_cam → detector/controller |
@@ -99,10 +109,14 @@ including empty results. Do not run competing detectors or mission brains in one
 | UDP `9002 + 10*I` | Gazebo plugin ↔ SITL JSON physics |
 | UDP `127.0.0.1:14550` | Ground tools inside Linux; one listener |
 | UDP `127.0.0.1:14552` | MAVProxy's MAVROS output: used only for an external autopilot or an explicit `udp://:14552@localhost:14552` |
-| UDP `127.0.0.1:14553` | Panel mission commands |
+| UDP `127.0.0.1:14553` | The old demo panel's mission buttons (the panel opens only with `demo.sh --panel`) |
+| UDP `127.0.0.1:14555` (+10 per `--sitl-instance`) | `demo.sh`'s flight recorder (`sim_demo flight_recorder`, listen only; START OVER runs get one too): its own MAVProxy output (`extra_outs`), writes the run's CSV files live ([LOGS_AND_DATA](LOGS_AND_DATA.md)); `--recorder-port P` / `--no-recorder` |
 | UDP Windows host `14550` | Mission Planner under WSL NAT |
+| TCP `127.0.0.1:8081` (HTTP) | `pov_server`: the drone camera as an MJPEG stream for Mission Planner's HUD |
 
 `I` is the SITL instance, normally 0. Mirrored WSL networking uses Windows port 14551 by default.
+The drone camera picture for Mission Planner comes from `pov_server` at `http://127.0.0.1:8081/pov.mjpg`
+(launch arguments `pov_server:=false`, `pov_port:=8082`); details in [MISSION_PLANNER](MISSION_PLANNER.md).
 `ROS_DOMAIN_ID` must match between simulator and team stack. `GZ_PARTITION=astra_sim` keeps Gazebo
 traffic in one partition. Derive endpoints with `sim_bringup/sim_paths.py`, rather than duplicating them.
 
@@ -119,7 +133,9 @@ SITL, use [ARDUPILOT](ARDUPILOT.md). For geometry, terrain, missions and answer 
 
 Before changing code, identify its hardware-facing defaults and tests. Build through `03_build.sh`,
 run the affected package tests, then run a headless mission if interfaces or runtime behavior changed.
-Use one heavy job at a time. Update the matching guide, `AGENTS.md` and `docs/HANDOFF.md` with evidence.
+Use one heavy job at a time. Update the matching guide, `AGENTS.md` and `docs/HANDOFF.md` with evidence;
+a new, moved or renamed doc also gets its line in the [documentation index](../README.md), and
+`python3 simulation/scripts/check_docs.py` then checks every doc link, script name and index line.
 
 ## Evidence and limits
 

@@ -14,6 +14,8 @@ update it in the same change as the code it describes.
 **Start here:** the current status, the uncommitted work and the ordered task list are in
 [`docs/HANDOFF.md`](docs/HANDOFF.md). If `LOCAL_NOTES.md` exists at the repo root, read it too
 (machine-specific notes for the owner's laptop; never committed).
+**Every doc** in the repo is listed in the documentation index [`docs/README.md`](docs/README.md) (where it is,
+what it is for, who it is for); keep it true (rule 13 in section 6).
 
 Status date: **2026-10-24**. **WIP** = work in progress, verify in the code before relying on it.
 Commands below run **inside Ubuntu 22.04** (native, or the WSL2 distro `Ubuntu-22.04` on Windows) unless
@@ -29,6 +31,14 @@ Linux-side copy that `simulation/setup/03_build.sh` makes (section 5).
   **192.168.144.25** (SIYI SDK on UDP 37260, HTTP media API on port 82); **MAVROS** links ROS 2 and ArduPilot.
 - A **Gazebo Harmonic digital twin** (ArduCopter SITL 4.6.3 + a SIYI camera emulator at the real camera
   address) runs the team's code **unchanged** (`./launcher.sh sim`) and scores each simulated mission.
+- **2027 preparation (2026-11-07):** the supplied *SUAS 2027 Primer & Task Ideas* expands reconnaissance to
+  mapping, hiker shirt/pants/suitcase colors and helicopter landing-zone selection, with one hiker delivery.
+  `sim_worlds/challenge2027/` and `scripts/build_suas_2027.py` generate separate Blender/Gazebo training
+  bundles. See `docs/simulation/SUAS_2027.md`: preliminary brief versus local assumptions, generation,
+  diagnostics and pending integration. The current team controller/scorer still implement the 2026 mission.
+- **Operator UI (owner reconfirmed 2026-11-07): Mission Planner + ASTRA plugin.** Keep the legacy Python/Qt
+  panel off (`demo.sh --no-panel`, `start_sim.sh ... panel:=false`); use `mission_planner.sh start`.
+  ArduCopter remains the autopilot. Older panel descriptions below are reference, not the current workflow.
 
 ## 2. Repo map
 
@@ -43,7 +53,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 |---|---|---|
 | `launcher.sh` | THE entry point on the Jetson: `./launcher.sh` (hw) or `./launcher.sh sim`; sources Humble + `ros2_ws/install`, starts MAVROS, then `$TRACKER_CMD` (default `ros2 launch main tracker.launch.xml`) | FLOWN (the sim only added the `TRACKER_CMD` env override) |
 | `ros2_ws/src/` | colcon workspace sources: team packages + `simulation/` packages (tables below) | |
-| `simulation/` | the simulator's human side: `README.md`, `setup/` (install, build, env), `scripts/` (demo, start/stop, mission, photo), `profiles/` (plug-in profiles), `docker/` (container helpers), `windows/` (double-click `.bat` launchers) | SIM; `profiles/`, `docker/`, `windows/` WIP |
+| `simulation/` | the simulator's human side: `README.md`, `setup/` (install, build, env), `scripts/` (demo, start/stop, mission, photo), `profiles/` (plug-in profiles), `docker/` (container helpers), `windows/` (double-click `.bat` launchers), `jetson/` (Jetson in the loop: `jetson.sh` + `lib/` + `image/` = the team stack in the container `astra-hil` on the Jetson or the virtual Jetson; `pc/` = the simulator end of `demo.sh --jetson usb\|ssh\|virtual`; guides in `docs/jetson/`) | SIM; `profiles/`, `docker/`, `windows/` WIP; `jetson/` WIP (virtual Jetson flown 2026-10-31, real board not yet) |
 | `docker/` | `Dockerfile` (targets `dev`, `sitl`, `sim`), headless `compose.sim.yml` + GPU, Linux, WSLg and DRI add-ons, `requirements-dev.txt`, `requirements-ml.txt` | `dev` = team dev container; compose + `sim` additions WIP |
 | `.devcontainer/` | `devcontainer.json` (VS Code, image target `dev`), `sim/devcontainer.json` (image `astra-sim`) | dev: used; sim: WIP |
 | `.github/workflows/` | `lint-and-format.yml` (`ruff check ros2_ws/src` = the only CI gate that can fail; format check advisory), `ros2-build.yml` (colcon build/test, `continue-on-error`), `validation.yml` (manual placeholder) | CI |
@@ -85,7 +95,7 @@ October 2026 fixes that are verified only in the simulator (not yet flown); **SI
 | `siyi_emulator` (ament_python) | `siyi_emulator`, `siyi_client` | SIM | pretends to be the SIYI camera at 192.168.144.25 |
 | `sim_bringup` (ament_python) | `wait_then_exec`, `gz_follow`, `odom_tf`, `mission_tool`, `phase_monitor`, `stack_check`, `photo_trigger` | SIM | `launch/sim.launch.py` (the simulator), `launch/team_stack.launch.py` (team stack wrapper), `sim_bringup/sim_paths.py` (every path/port answer; CLI `python3 -m sim_bringup.sim_paths ...`) |
 | `sim_demo` (ament_python) | `demo_panel`, `truth_detector`, `demo_markers`, `score_run` | SIM (+ `run_reset.py` WIP) | what you watch + the score report; `run_reset.py` = START OVER |
-| `sim_plugins` (ament_python) | `profile_tool`, `check_slot` | WIP | plug-and-play profiles, slot contracts, conformance checker |
+| `sim_plugins` (ament_python) | `profile_tool`, `check_slot`, `model_check`, `run_meta` | WIP | plug-and-play profiles, slot contracts, conformance checker, model check, "what really ran" records, `scripts/team_overlay.sh` |
 | `sim_plugin_examples/{example_detector,example_listener}` (ament_python) | `example_detector`, `example_listener` | WIP | copy-and-rename templates |
 
 ## 3. How the real system works
@@ -260,6 +270,7 @@ always empty (`~/.astra_sim/truth_mode_empty_feed`). Arguments: `detector real|t
 | Ground station / scripts | UDP `127.0.0.1:14550` | `mission_tool` (`--url udpin:127.0.0.1:14550`), or one GCS inside Ubuntu |
 | Old MAVROS door | UDP `127.0.0.1:14552` (MAVProxy output) | MAVROS only for an external autopilot, or with `FCU_URL=udp://:14552@localhost:14552` (then the team's texts never reach Mission Planner) |
 | Demo panel buttons | UDP `127.0.0.1:14553` | `demo_panel` |
+| Flight recorder (listen only) | UDP `127.0.0.1:14555` (+10 per `--sitl-instance`; MAVProxy output added by `demo.sh` as `extra_outs`) | `sim_demo flight_recorder`: live `<run>/csv/*.csv` (`--recorder-port P`, `--no-recorder`; docs/simulation/LOGS_AND_DATA.md) |
 | Windows GCS (WSL only) | UDP `<default gateway>:14550` (NAT) or `127.0.0.1:14551` (mirrored networking) | Mission Planner / QGC on Windows; off: `windows_gcs:=false` / `--no-windows-gcs`; elsewhere: `windows_gcs_addr:=HOST:PORT` |
 | SIYI camera | `192.168.144.25` UDP 37260 + TCP 82 | video_cam -> siyi_emulator (browse `http://192.168.144.25:82/`) |
 | Gazebo transport | `GZ_PARTITION=astra_sim`, `GZ_IP=127.0.0.1` (set by `sim_env.sh`) | keeps other Gazebos out |
@@ -310,6 +321,7 @@ panel_port:=14563` with `GZ_PARTITION=other`, then `FCU_URL=tcp://127.0.0.1:5773
 | `suas_field` | `build_suas_field.py` seed 2026: SUAS 2026 field (Skyway Range, Oklahoma), Search Boundaries 1 and 2, each 1 hiker + 1 tent + distractors | `suas_field_survey.waypoints` (SB1, 50 m) + `suas_field_sb2_survey.waypoints` |
 | `standin` | ardupilot_gazebo's runway, no targets | needs `--mission FILE` |
 | `suas_field_real` | **WIP**: real terrain (USGS 3DEP lidar, NAIP 2023, OSM, CC0 textures); generator + site pack only, no world/config/mission/truth yet | `docs/simulation/WORLDS.md` (being written) |
+| external `suas2027_<case>_<seed>` | Opt-in fictional coastal terrain, mannequin clothing/suitcase, clutter, six landing candidates; Blender offline assets and separate local diagnostics | External config/mission; 2027 autonomous mission, mapping and official score unimplemented; `docs/simulation/SUAS_2027.md` |
 
 `config/<world>.yaml`: `world_name`, `world_file`, `home "lat,lon,alt_msl,heading"` (SITL `--home`; MUST equal
 the world's `<spherical_coordinates>`; both worlds: `36.2143000,-96.0068000,210.0,0`), `spawn` (yaw 1.5708 =
@@ -346,20 +358,39 @@ targets found, best confidence, location error, **drop error** (payload resting 
 per-photo precision/recall, false alarms, time line. The **AIM ERROR** column =
 main_controller's `Aim <class> <lat>,<lon>` STATUSTEXT vs truth (`sim_demo/scoring.py`, `test/test_score_aim.py`).
 
+Logs and CSV (docs/simulation/LOGS_AND_DATA.md): `demo.log` (the demo window from the first check on), `sim.log` and
+`team_stack.log` carry a date and time on EVERY line (demo.sh's `stamp_lines`), `flight_recorder.log`,
+`csv/` (`telemetry`, `events`, `phases` written LIVE by `sim_demo flight_recorder` from MAVLink on UDP 14555, so it
+also works with the team stack on the Jetson or on a radio; `photos`, `detections`, `targets_and_drops` completed by
+`csv_export` at the end), `run_summary.md` / `.json` (what ran, result, phase times, every warning/error with
+file:line, shutdown lines apart; written at the landing and refreshed after the simulator stopped; partial if the run
+died) and one row per run in `~/.astra_sim/runs/runs_index.csv`. START OVER: demo.sh ends its run's records at the
+hand-over; the START OVER run's own recorder and summary need the run_reset.py hook (`sim_demo run_records`). Older
+runs: `ros2 run sim_demo export_csv DIR`. Browse: `bash simulation/scripts/logs.sh list|summary|errors|tail|csv|bundle`.
+
 ### 4.8 Plug-and-play profiles and slots (WIP)
 
 - Slots: `world`, `autopilot`, `camera`, `detector`, `mission_brain`, `extras` (+ `network`, `run` settings).
   A profile is YAML in `simulation/profiles/NAME.yaml` (or any path) holding only the lines that differ
   from `default.yaml`; `extends:` and `--set key=value` merge more. Shipped: `default`, `truth_detector`,
   `example_detector`, `example_listener`, `ardupilot_version` (4.7.1), `ardupilot_source`,
-  `real_drone_params` (+ `params/example_real_drone.param`), `external_autopilot`, `docker_split`.
+  `real_drone_params` (+ `params/example_real_drone.param`), `external_autopilot`, `docker_split`,
+  `custom_model` (other YOLO weights), `team_fork` (another checkout of the team code), `lattice_mock`.
+- Swaps (guide `docs/simulation/SWAPPING.md`): `demo.sh --model FILE` (= `detector.model_path`; checked by
+  `sim_plugins.model_check` and LOADED once before the flight, exit 3 = unusable), `--team-repo DIR` (=
+  `run.team_repo`: that checkout's `./launcher.sh sim` runs, `TRACKER_CMD` goes through
+  `sim_plugins/scripts/team_overlay.sh` so its team packages win over the simulator's copies; its own photo folder
+  is used), `--sitl-version/--sitl-source/--sitl-bin/--param-file` (4.9). Every demo.sh run writes
+  `<run>/run_meta/{autopilot,detector,team_stack}.json` (`sim_plugins.run_meta`, schema `astra.run_meta.<what>.v1`):
+  the ArduCopter version the autopilot itself reported (boot banner + AUTOPILOT_VERSION), the model file (name,
+  size, SHA-256, load test), the team-code checkout (git commit via `$ASTRA_SOURCE_REPO` for the Linux copy).
 - Use: `demo.sh --profile NAME|FILE [--set K=V] [--dry-run]`, `start_sim.sh --profile ...`, launch arg
   `profile:=`. With no plug-in option every script and launch file runs exactly as before (sim_plugins is
   not even imported). A custom detector / brain runs instead of `new_od` / `main_controller.py` through a
   filtered copy of `tracker.launch.xml` (`sim_plugins/tracker_filter.py`).
 - Tools: `python3 -m sim_plugins.profile_tool list | validate [--check] | plan --profile X --check | resolve |
   contract --slot detector [--markdown] | shell --for demo|start_sim`; `ros2 run sim_plugins check_slot
-  --slot detector|mission_brain|camera|autopilot|world|extras [--take-photo]` checks a running component
+  --slot detector|mission_brain|team_stack|camera|autopilot|world|extras [--take-photo]` checks a running component
   against `sim_plugins/contracts.py`. Guide: `docs/simulation/PLUGINS.md`; generated references are checked by tests.
 
 ### 4.9 Pluggable ArduPilot (WIP)
@@ -468,6 +499,9 @@ cd ~/ODLC_Machine_Inferencing_System_2025-2026 && source simulation/setup/sim_en
 bash $S/fly_mission.sh runway [--watch]      # upload + MAVROS re-read, wait for settling, arm, AUTO
 bash $S/take_photo.sh [--direct]             # one photo (team topic, or straight to the emulator)
 bash $S/upload_mission.sh [world|file]   bash $S/status.sh   bash $S/stop_sim.sh [--all]
+bash $S/astra.sh help|demo|manual|keep|sim|stop|over|mission|photo|status|logs|mp|build|check-ros|jetson  # front door
+bash $S/mission.sh check|load|fly|make|list FILE|WORLD  # mission plans: sim_demo mission_check (pure Python, exit 0
+                                                     # ok, 1 errors, 2 usage, 3 unusable file) before every upload
 bash $S/start_over.sh [--fly]            bash $S/mission_planner.sh start|stop|status   # exit 0 running, 3 not
 ros2 launch sim_bringup sim.launch.py --show-args   # world, camera_model, gui/rviz/panel, detector, sitl_instance,
                                                     # gcs/mavros/panel_port, windows_gcs, emulator, model, x/y/z/yaw ...
@@ -478,8 +512,11 @@ ros2 launch sim_bringup sim.launch.py --show-args   # world, camera_model, gui/r
 #   sim_vehicle.py -v ArduCopter --no-rebuild --out=udp:127.0.0.1:14552     then: ./launcher.sh sim
 ```
 
-Every script in `simulation/scripts/` (and `03_build.sh`, `fetch_sitl.sh`, the user-facing
-`simulation/docker/*.sh`) prints its header with `--help`. `stop_sim.sh` stops only processes carrying this user's
+Every script in `simulation/scripts/` (and every `simulation/setup/*.sh`, the user-facing
+`simulation/docker/*.sh`) prints its header with `--help`. Errors and warnings are tagged `[<script>] ERROR:` /
+`WARNING:` and say what failed, the likely cause and the fix (`_common.sh` `die` / `warn` / `die_usage`); exit 1 =
+failed, 2 = typed wrong; all are listed in `docs/simulation/ERRORS.md`, all commands in `docs/simulation/COMMANDS.md`.
+`stop_sim.sh` stops only processes carrying this user's
 `ASTRA_SIM_SESSION` tag (never other simulations). Mission Planner (Windows): connection UDP, port 14550
 (or TCP 127.0.0.1:5762); only watch during demo.sh, `Read` is fine, `Write`/mode changes take over.
 
@@ -560,6 +597,11 @@ overrides `~/.astra_sim`. Docker: `~/.astra_docker`.
     (`aro`, `jarrod-gazebo-sim`, ...). Never run `killnode`, `comms/system_controller.py`, `siyi_wipe_sd` or the
     `sd_format` camera command on a development machine.
 12. Never make the simulator run faster than real time (`SIM_SPEEDUP 1`): the team code sleeps on the wall clock.
+13. **Documentation.** `docs/README.md` indexes every Markdown file. When you add, move or rename a doc, or
+    change a command, script, option, port or topic a doc names, update those docs (and this file) and the
+    index in the same change, then run `python3 simulation/scripts/check_docs.py` (exit 0 = OK; the test
+    `sim_plugins/test/test_docs_index.py` runs it too). Planned docs go under "Being written" in the index;
+    third-party or private Markdown goes on the checker's `NOT_INDEXED` allow-list with a reason.
 
 ## 7. Common tasks (recipes)
 
@@ -644,6 +686,18 @@ Test the pure module, not the node; fakes over real processes.
 
 ## 9. Status and known issues (2026-10-24)
 
+**2026-11-07 / 2027 training preparation:** new external Blender scene generator and offline report
+diagnostics; `docs/simulation/SUAS_2027.md` traces the supplied primer (pp6/13-18) and labels engineering
+assumptions. Target-free, low-contrast, occluded and low-sun cases use repeatable seeds. No team flight code
+changed. WSL build, 103 world tests, full Ruff, docs and Blender geometry checks pass. Baseline: 207,344
+triangles; visible Gazebo check renders three cameras, median RTF 0.9994, no errors, three terrain-drop
+probes within 0.01 mm. Evidence in `docs/HANDOFF.md`; this is a scene check, without SITL/detector or full
+2027 mission acceptance. Do not use the 2026 truth detector/scorer as proof of color/occlusion/LZ performance.
+First visible flight `20261107-092830_suas2027_baseline_2027`: native Mission Planner/ASTRA verified, RTL and
+landed (10:50); hiker aim 2.22 m, 258/258 distinct photos processed, but 315 captures, 157 false tent boxes
+and an extra drop. Hiker bottle kept rolling (later 132 m away at 2 m/s); legacy 2.2 m "drop error" is
+release-position fallback, NOT final accuracy. Full evidence/follow-ups in HANDOFF; 2027 acceptance fails.
+
 **Finished and verified**
 - Task 0/1 review: 19 packages built, 932 functional tests passed, Ruff and shell syntax clean.
   New run `20261024-100602_runway`: real YOLO, 2/2 targets, 94/94 photos, no dropped triggers,
@@ -691,6 +745,7 @@ Test the pure module, not the node; fakes over real processes.
 
 | Topic | File |
 |---|---|
+| Every doc in the repo, grouped, with what it is for and who it is for | `docs/README.md` (the documentation index; checker `simulation/scripts/check_docs.py`) |
 | Simulator: run, what you see, Mission Planner, ports, scripts, troubleshooting | `simulation/README.md` |
 | Architecture, plug-ins/models, SITL, Docker, terrain, operator flow and troubleshooting | `docs/simulation/` (index in `simulation/README.md`) |
 | Profiles | `simulation/profiles/README.md`, `default.yaml` (every key explained) |
@@ -700,4 +755,5 @@ Test the pure module, not the node; fakes over real processes.
 | Detector | `ros2_ws/src/detection/detection/README.md` |
 | Simulator packages | `README.md` in `sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`, `sim_plugins`, `sim_plugin_examples` (+ each example) |
 | Dev container, Docker targets | `README.md` (root), `docker/Dockerfile` header, `docker/compose.sim.yml` header |
+| Anduril Lattice bridge (handed to the team 2026-10-31; do not change it unasked) | `docs/lattice/HANDOFF.md` (start here), `docs/lattice/README.md`, `ros2_ws/src/lattice_bridge/README.md` |
 | Every script's options | `bash <script> --help` (prints its header), or read the header of the scripts without `--help` (`01_install_humble.sh`, `02_setup_ardupilot.sh`, `camera_ip_alias.sh`, `sim_env.sh`) |

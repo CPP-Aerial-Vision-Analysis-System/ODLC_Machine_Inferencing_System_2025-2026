@@ -21,6 +21,11 @@ The repo's comparison-only rule avoids depending on content redistribution right
 4. Keep simulator measurements tied to its source CRS, elevation datum and truth data. A visual match
    to Google's globe does not establish survey accuracy or correct AGL altitude.
 
+Quickest check during a run: Mission Planner's map (DATA screen) already shows the simulated drone, its
+mission and the ASTRA plugin's markers (red = hiker target, orange = tent target, green = where a payload was
+released) over the map imagery Mission Planner is set to use; see [MISSION_PLANNER](MISSION_PLANNER.md). That
+is live imagery from a map provider too, so the same rule applies: look and compare, never copy it into the repo.
+
 Google Earth and the simulator may use imagery from different dates and different terrain processing.
 Use the comparison to identify questions, then resolve geometry/elevation through the licensed source
 data rather than extracting Google's pixels or meshes.

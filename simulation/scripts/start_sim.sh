@@ -32,6 +32,8 @@
 #  ~/.astra_sim/photo_archive/<time>/ (new_od would process them again). --keep-photos leaves them.
 #  Windows that open: Gazebo (3D view following the drone + live camera), RViz, the demo panel.
 #  To stop: Ctrl+C here (or bash stop_sim.sh). The log is in ~/.astra_sim/logs/.
+#  Exit codes: 0 = started (and, in the foreground, stopped again normally), 1 = failed (the reason and the fix are
+#              printed), 2 = the command was typed wrong. Every message: docs/simulation/ERRORS.md ("start_sim").
 # =============================================================================
 set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
@@ -58,16 +60,16 @@ for a in "$@"; do
     --keep-photos) KEEP_PHOTOS=1 ;;
     --no-camera-ip) CAMERA_IP_STEP=0 ;;
     --no-windows-gcs) EXTRA+=("windows_gcs:=false") ;;
-    --profile) NEXT=profile; PLUGIN=1 ;;
-    --set) NEXT=set; PLUGIN=1 ;;
+    --profile) NEXT="profile"; PLUGIN=1 ;;
+    --set) NEXT="set"; PLUGIN=1 ;;
     --dry-run) DRY=1 ;;
     *:=*) EXTRA+=("$a") ;;
-    -*) die "unknown option $a (see --help)" ;;
-    *) if [ "$FIRST" = 1 ]; then WORLD="$a"; FIRST=0; else die "unexpected argument \"$a\" (settings look like name:=value)"; fi ;;
+    -*) die_usage "unknown option \"$a\"" ;;
+    *) if [ "$FIRST" = 1 ]; then WORLD="$a"; FIRST=0; else die_usage "unexpected argument \"$a\" (the world comes first and only once; settings look like name:=value, e.g. camera_model:=a8mini)"; fi ;;
   esac
 done
-[ -z "$NEXT" ] || die "--$NEXT needs a value (see --help)"
-for s in "${SETS[@]}"; do [[ "$s" == *=* ]] || die "--set needs KEY=VALUE, got \"$s\" (for example --set camera.model=a8mini)"; done
+[ -z "$NEXT" ] || die_usage "--$NEXT needs a value (e.g. --profile truth_detector, --set camera.model=a8mini)"
+for s in "${SETS[@]}"; do [[ "$s" == *=* ]] || die_usage "--set needs KEY=VALUE, got \"$s\" (for example --set camera.model=a8mini)"; done
 
 astra_load_env
 astra_require_built
@@ -85,7 +87,9 @@ if [ "$PLUGIN" = 1 ]; then
   [ "$FIRST" = 1 ] || PT_ARGS+=(--set "world.name=$WORLD")
   [ "$DRY" = 0 ] || PT_ARGS+=(--no-write)
   PLUGIN_VARS="$(python3 -m sim_plugins.profile_tool "${PT_ARGS[@]}")" \
-    || die "the plug-in profile cannot be used (the reasons are above; sim_plugins not built? run setup/03_build.sh)"
+    || die "the plug-in profile cannot be used (profile_tool printed the reasons above).
+    Likely cause: a typo in the profile name or a setting, a file the profile names is missing, or sim_plugins is not built.
+    Fix: check it with  python3 -m sim_plugins.profile_tool plan${PROFILE:+ --profile $PROFILE} --check   (not built: bash \"$ASTRA_SETUP_DIR/03_build.sh\")"
   eval "$PLUGIN_VARS"
   for a in "${PLUGIN_SIM_ARGS[@]}"; do
     case "$a" in camera_ip:=*) PLUGIN_CAMERA_IP="${a#camera_ip:=}" ;; esac
@@ -95,8 +99,11 @@ fi
 
 case "$WORLD" in
   runway|suas_field|standin) ;;
-  *.sdf|*.yaml|*.yml) [ -f "$WORLD" ] || die "world file not found: $WORLD"; WORLD="$(readlink -f "$WORLD")" ;;
-  *) warn "\"$WORLD\" is not one of runway / suas_field; trying it as a world name from sim_worlds/config" ;;
+  *.sdf|*.yaml|*.yml) [ -f "$WORLD" ] || die "the world file \"$WORLD\" does not exist.
+    Likely cause: a typo in the path, or a path relative to another folder.
+    Fix: check it with  ls \"$WORLD\"  or use a world name: runway, suas_field"; WORLD="$(readlink -f "$WORLD")" ;;
+  *) warn "\"$WORLD\" is not one of runway / suas_field; trying it as a world name from sim_worlds/config." \
+          "Consequence: if there is no such world, the launch stops with an error in the log. Fix: check the spelling" ;;
 esac
 
 emulator_on=1
@@ -128,7 +135,8 @@ fi
 # A simulator that is still running would block the ports: stop ours first.
 if [ -s "$ASTRA_STATE_DIR/session" ] && [ -n "$(astra_session_pids "$(cat "$ASTRA_STATE_DIR/session")")" ]; then
   say "A simulator from before is still running: stopping it first"
-  bash "$ASTRA_SCRIPTS_DIR/stop_sim.sh" --quiet || warn "something from the old run is still alive (see above)"
+  bash "$ASTRA_SCRIPTS_DIR/stop_sim.sh" --quiet || warn "something from the old run is still alive (see above). Consequence: ports" \
+    "may be busy and the new start can fail. Fix: bash \"$ASTRA_SCRIPTS_DIR/stop_sim.sh\" --all, then start again"
 fi
 
 astra_mem_check
@@ -136,7 +144,8 @@ if [ "$KEEP_PHOTOS" = 0 ]; then
   astra_archive_photos "$(python3 -m sim_bringup.sim_paths photo-dir 2>/dev/null)"
 fi
 if [ "$CAMERA_IP_STEP" = 1 ] && [ "$emulator_on" = 1 ]; then
-  astra_ensure_camera_ip "${PLUGIN_CAMERA_IP:-$ASTRA_CAMERA_IP}" || warn "continuing without the camera address: video_cam will not reach the camera emulator"
+  astra_ensure_camera_ip "${PLUGIN_CAMERA_IP:-$ASTRA_CAMERA_IP}" || warn "continuing without the camera address. Consequence: the" \
+    "team's video_cam will not reach the camera emulator (no photos). Fix: the two commands printed just above"
 fi
 
 astra_new_session sim

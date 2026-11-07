@@ -77,3 +77,45 @@ def test_output_names_do_not_clash():
     a = params.output_name('/a/drone.param')
     b = params.output_name('/b/drone.param')
     assert a != b and a.startswith('drone_') and b.startswith('drone_')
+
+
+# ---- bad files stop the start, with the lines to fix (report_errors) ------------------------------------
+
+def test_bad_line_reasons_are_plain_words():
+    assert 'no value' in params.bad_line_reason('BROKEN_LINE')
+    assert 'not an ArduPilot parameter name' in params.bad_line_reason('this-is-not,1')
+    assert 'not a number' in params.bad_line_reason('WPNAV_SPEED,fast')
+    assert 'characters' in params.bad_line_reason('WPNAV_SPEED,' + '1' * 40)
+
+
+def test_a_too_long_value_is_an_unreadable_line():
+    # ArduPilot reads defaults files in 100-byte pieces: the SITL copy must keep every line under 90 characters
+    lines, bad = params.parse_param_text('WPNAV_SPEED,' + '5' * 40 + '\nRTL_ALT,3000\n')
+    assert [p.name for p in lines] == ['RTL_ALT'] and [b[0] for b in bad] == [1]
+
+
+def test_report_errors_name_the_lines_and_the_fix(tmp_path):
+    src = tmp_path / 'drone.param'
+    src.write_text('WPNAV_SPEED,500\nthis is a sentence\nRTL_ALT,lots\n', encoding='utf-8')
+    report = params.prepare_param_file(str(src), None, write=False)
+    errors = params.report_errors(report)
+    assert len(errors) == 1
+    assert 'line 2' in errors[0] and 'line 3' in errors[0] and 'Fix:' in errors[0] and 'Mission Planner' in errors[0]
+
+
+def test_report_errors_for_a_file_without_parameters(tmp_path):
+    src = tmp_path / 'empty.param'
+    src.write_text('# only a comment\n\n', encoding='utf-8')
+    errors = params.report_errors(params.prepare_param_file(str(src), None, write=False))
+    assert errors and 'no NAME,VALUE lines' in errors[0]
+
+
+def test_the_example_file_has_no_errors():
+    assert params.report_errors(params.prepare_param_file(str(EXAMPLE), None, write=False)) == []
+
+
+def test_every_written_sitl_line_is_short(tmp_path):
+    src = tmp_path / 'long.param'
+    src.write_text('ABCDEFGHIJKLMNOP,' + '1.' + '2' * 29 + '\n', encoding='utf-8')     # 16-char name, 32-char value
+    report = params.prepare_param_file(str(src), tmp_path / 'out', mode='none')
+    assert report.output and all(len(line) < 90 for line in Path(report.output).read_text().splitlines())

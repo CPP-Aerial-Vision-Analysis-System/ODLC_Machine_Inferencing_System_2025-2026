@@ -1,0 +1,17 @@
+# custom_model.yaml -- PURPOSE: EXAMPLE - fly the demo with YOUR OWN YOLO weights in the team's real detector
+# (detection/new_od), for example a model the team fine-tuned on mannequins and tents. Only the weights file
+# changes: new_od, main_controller and everything else stay the team's code. Copy this file, change model_path
+# to your file (inside Ubuntu, a folder WITHOUT spaces), and run:
+#     bash simulation/scripts/demo.sh --profile my_model.yaml
+# Same without a file:  bash simulation/scripts/demo.sh --model ~/.astra_sim/models/my_detector.pt
+# Before anything starts demo.sh checks the file (exists, really PyTorch, not a TensorRT .engine on a PC without
+# TensorRT), LOADS it once and writes its name, size and SHA-256 into <run>/run_meta/detector.json.
+# Check it alone:  python3 -m sim_plugins.model_check ~/.astra_sim/models/my_detector.pt --load
+# Guide: docs/simulation/SWAPPING.md (swap 3: detection models).
+profile: 1
+name: custom_model
+description: EXAMPLE - the team's new_od with other YOLO weights (change model_path to your .pt file)
+detector:
+  kind: team                                   # the team's own detector node (new_od)
+  model_path: ~/.astra_sim/models/my_detector.pt   # YOUR weights: .pt on the PC (.engine only on the Jetson)
+  batched: false                               # true only with a TensorRT .engine (the Jetson)

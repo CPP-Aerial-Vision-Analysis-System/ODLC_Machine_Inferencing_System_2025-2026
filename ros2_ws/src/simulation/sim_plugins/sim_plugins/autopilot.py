@@ -385,21 +385,26 @@ def plan_autopilot(s: AutopilotSettings, params_out_dir: Optional[Path] = None, 
         plan.how = f'the program you gave ({cand})'
         if cand.is_file() and os.access(cand, os.X_OK):
             plan.binary = str(cand)
+        elif cand.is_file():
+            plan.errors.append(f'arducopter program not found or not executable: {cand} exists but may not be run. '
+                               f'Fix: chmod +x {cand}')
         else:
-            plan.errors.append(f'arducopter program not found or not executable: {cand} '
-                               '(chmod +x it, or check the path)')
+            plan.errors.append(f'arducopter program not found or not executable: {cand} does not exist. Likely '
+                               'cause: a typo in the path, or the file is still on Windows. Fix: check it with '
+                               f'ls -l {cand} (a source build puts it in <tree>/build/sitl/bin/arducopter)')
     elif s.source_dir:
         tree = Path(paths.expand(s.source_dir))
         cand = source_binary(str(tree))
         plan.how = f'ArduPilot source tree {tree}'
         plan.params_dir = str(source_params_dir(str(tree)))
         if not tree.is_dir():
-            plan.errors.append(f'ArduPilot source tree not found: {tree}')
+            plan.errors.append(f'ArduPilot source tree not found: {tree}. Fix: clone it first: git clone '
+                               f'--recurse-submodules https://github.com/ArduPilot/ardupilot.git {tree}')
         elif cand.is_file() and os.access(cand, os.X_OK):
             plan.binary = str(cand)
         else:
-            plan.errors.append(f'{tree} has no built SITL ({cand} missing). Build it once: cd {tree} && '
-                               './waf configure --board sitl && ./waf copter')
+            plan.errors.append(f'{tree} has no built SITL ({cand} missing): the tree is not built yet. Build it once: '
+                               f'cd {tree} && ./waf configure --board sitl && ./waf copter')
     elif s.version:
         vdir = version_dir(s.version)
         cand = vdir / 'arducopter'
@@ -408,8 +413,10 @@ def plan_autopilot(s: AutopilotSettings, params_out_dir: Optional[Path] = None, 
         if cand.is_file() and os.access(cand, os.X_OK):
             plan.binary = str(cand)
         else:
-            plan.errors.append(f'ArduCopter {s.version} is not downloaded ({cand} missing). Get it with: '
-                               f'bash simulation/setup/fetch_sitl.sh {s.version}')
+            plan.errors.append(f'ArduCopter {s.version} is not downloaded ({cand} missing): that version was never '
+                               f'fetched on this computer. Get it with (needs internet): '
+                               f'bash simulation/setup/fetch_sitl.sh {s.version}   '
+                               '(see what exists: bash simulation/setup/fetch_sitl.sh --list)')
     else:
         found = (binary_finder or default_binary)()
         plan.how = 'the installed default ($ARDUPILOT_SITL_BIN, ~/sitl/arducopter, /opt/ardupilot)'
@@ -421,16 +428,24 @@ def plan_autopilot(s: AutopilotSettings, params_out_dir: Optional[Path] = None, 
     if plan.binary:
         plan.version = read_binary_version(plan.binary)
         if not is_elf(plan.binary):
-            plan.notes.append(f'{plan.binary} does not look like a Linux program (no ELF header)')
+            plan.notes.append(f'{plan.binary} does not look like a Linux program (no ELF header): if it is a wrapper '
+                              'script that is fine, otherwise SITL will not start (a Windows .exe cannot run here)')
+        want = s.version if (s.version and s.version[:1].isdigit()) else ''
+        if want and plan.version and not plan.version.startswith(want):
+            plan.notes.append(f'the folder says ArduCopter {want}, but the program says {plan.version}: the run '
+                              'records the version the autopilot reports (run_meta/autopilot.json)')
     out_dir = Path(params_out_dir) if params_out_dir else paths.generated_dir() / 'params'
     for src in s.param_files:
         if not Path(src).is_file():
-            plan.errors.append(f'parameter file not found: {src}')
+            plan.errors.append(f'parameter file not found: {src}. Likely cause: a typo, or a relative path (a path '
+                               'in a profile starts at the profile\'s folder; on the command line at the current '
+                               'folder). Fix: ls -l the file, then give its full path')
             continue
         report = params_mod.prepare_param_file(src, out_dir, s.param_filter, s.param_keep, write=write_params)
         plan.param_reports.append(report)
         plan.notes.append(report.summary())
         plan.notes += [f'{Path(src).name}: {w}' for w in report.warnings]
+        plan.errors += params_mod.report_errors(report)
     return plan
 
 

@@ -14,7 +14,8 @@
 #                bash stop_sim.sh --all           stop every tagged simulator process of this user
 #                bash stop_sim.sh --session ID    stop one session
 #                bash stop_sim.sh --quiet         fewer messages
-#  Exit code: 0 = nothing left running, 1 = something survived (its pid is printed).
+#  Exit codes: 0 = nothing left running, 1 = something survived (its pid and the fix are printed),
+#              2 = the command was typed wrong. Every message: docs/simulation/ERRORS.md ("stop_sim").
 # =============================================================================
 set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
@@ -25,10 +26,10 @@ TARGET=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --all) TARGET="*" ;;
-    --session) shift; TARGET="${1:-}" ;;
+    --session) shift; [ -n "${1:-}" ] || die_usage "--session needs a session id (bash status.sh shows it)"; TARGET="$1" ;;
     --quiet|-q) QUIET=1 ;;
     -h|--help) astra_usage "$0"; exit 0 ;;
-    *) die "unknown option $1 (use --all, --session ID, --quiet)" ;;
+    *) die_usage "unknown option \"$1\" (the options are --all, --session ID, --quiet)" ;;
   esac
   shift
 done
@@ -90,6 +91,8 @@ if [ ${#FINAL[@]} -eq 0 ]; then
   log "The simulator is stopped."
   exit 0
 fi
-warn "${#FINAL[@]} process(es) are still running:"
-for p in "${FINAL[@]}"; do warn "  $p  $(astra_cmd_of "$p")"; done
+warn "${#FINAL[@]} simulator process(es) did not stop. Likely cause: a program stuck in the graphics driver or a disk" \
+     "wait. Consequence: its ports stay busy and the next start may fail."
+for p in "${FINAL[@]}"; do warn_more "pid $p  $(astra_cmd_of "$p")"; done
+warn_more "Fix: run  bash \"$ASTRA_SCRIPTS_DIR/stop_sim.sh\" --all  again; if it stays:  kill -9 ${FINAL[*]}"
 exit 1

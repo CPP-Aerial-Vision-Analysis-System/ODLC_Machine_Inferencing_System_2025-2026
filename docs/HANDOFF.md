@@ -1,31 +1,130 @@
 <!--
 docs/HANDOFF.md -- PURPOSE: the hand-over file for whoever continues this work next (a teammate, or an AI coding
 assistant such as Codex or Claude Code). It says exactly where every part of the Gazebo digital twin stands on
-2026-10-24, what was verified and committed, and the ordered task list with "done when" checks. Read AGENTS.md
-first (how the repo works), then this file (what to do next). Update the status lines here as tasks finish.
+2026-10-24 (section 0 adds the work committed up to 2026-10-31 and what is in progress), what was verified and
+committed, and the ordered task list with "done when" checks. Read AGENTS.md first (how the repo works), then
+this file (what to do next). Update the status lines here as tasks finish.
 -->
 
 # Hand-over: where the simulator work stands and what to do next
 
-Status date: **2026-10-24**. Local branch `gazebo-sim` tracks **`origin/jarrod-gazebo-sim`**.
+Status date: **2026-10-24**, with the later additions (to 2026-10-31) in section 0. Local branch `gazebo-sim`
+tracks **`origin/jarrod-gazebo-sim`**.
 The review commits are local; no push was requested. There is **no pull request, on purpose**: do not open one, do not
 merge into `aro` or `main`, and push to `jarrod-gazebo-sim` only when the owner asks.
 
 Read in this order: `AGENTS.md` (how everything works) -> this file -> `LOCAL_NOTES.md` if it exists
-(machine-specific notes, never committed) -> the README of the package you are changing.
+(machine-specific notes, never committed) -> the README of the package you are changing. Every doc of the
+repo is listed in the documentation index [`docs/README.md`](README.md).
+
+## 0. Since the 2026-10-24 status (committed work up to 2026-10-31)
+
+### 2026-11-07: SUAS 2027 terrain and perception preparation (current request)
+
+The owner's latest request prioritizes realistic environments and tests using newly available Blender
+and the supplied *SUAS 2027 Primer & Task Ideas*. Read [SUAS_2027.md](simulation/SUAS_2027.md) for source-page
+traceability, unconfirmed competition details, generation commands and test cases. Existing uncommitted
+Jetson, documentation, code-map and plug-in work was preserved.
+
+Added separate `sim_worlds/challenge2027/` recipe/packaging/evaluator modules and the Blender generator:
+10-acre synthetic coastal search area, rolling collision terrain, articulated colored mannequins and
+suitcases, bystanders/clutter, harbor props and six competing landing candidates. Five seeded cases:
+baseline, occluded, low contrast, low sun and no target. Generated assets stay outside Git. Public task
+geometry is separated from private target/validity truth. 2026 flight defaults and truth validation remain
+unchanged. LZ dimensions/slope and all candidate validity labels are local training assumptions.
+
+Verified 2026-11-07: prescribed WSL `03_build.sh --packages sim_worlds --workers 4 --no-models` passed;
+`sim_worlds` **103 tests passed**, including 41 new recipe/evaluator/packaging regressions; full
+`ruff check ros2_ws/src` clean; docs checker passes (72 Markdown files). The existing SciPy/numpy
+compatibility warning remains. Blender 5.2.3 smoke checks pass for all four human poses, clothing materials
+and terrain vertex normals. Fixed two discovered export issues: deferred transforms inflated a boot;
+missing OBJ normals crashed Harmonic/DART before physics. Both now have Blender regressions.
+
+Baseline `suas2027_baseline_2027` generated: **207,344 triangles**, 10.0028-acre search, survey 57 m above
+home with at least 50.5266 m terrain clearance. Inspected Blender overview/detail/50 m previews and actual
+Gazebo overview/detail/50 m camera images. Visible isolated Gazebo check: 10.065 simulated seconds,
+21.65 s wall time including load, median real-time factor **0.9994**, no server errors; origin/clearing/
+sloping-ground drop probes agree with the collision surface to less than **0.01 mm** at their final poses
+(the slope sphere rolls downhill). Evidence: external bundle `checks/gazebo_check.json`, logs and images;
+these numerical results are scene-only, without SITL or a running detector. Generated files and local
+automation are outside Git. This slice is **uncommitted**; existing unrelated work remains uncommitted too.
+
+Preparation slice **verified**: build and world tests pass; baseline Blender export and aerial/detail
+previews inspected; meshes/materials load in visible Gazebo; terrain drop probes agree with the exported
+surface; docs checker passes. These do not establish model accuracy or autonomous mission completion.
+Next: actual camera/model benchmark on held-out seeds; mapping/official report format; terrain-aware LZ
+proposals and 2027 mission orchestration; delivery retardant/AGL/telemetry tests. Keep the 2026 baseline.
+
+#### First visible 2027-world flight, with Mission Planner (2026-11-07)
+
+Run `20261107-092830_suas2027_baseline_2027`: full WSL build **20 packages**, 103 world tests pass;
+unchanged team stack, real YOLO26m on CUDA, ArduCopter 4.6.3. Took off, surveyed five lanes, processed the
+remaining images in a 22 s hold, released both legacy payloads, returned and landed; **10:50** from arming.
+No controller traceback/restart. All simulator processes and the passive observer stopped; an initially
+reported leftover process had exited when checked again. Mission Planner remains open for the operator.
+The private shell runner logged exit 127 **after** the flight (`ue: command not found`): changing its panel
+flag while Bash was reading that active file shifted the subsequent read position. Raw stderr is retained;
+the mission's own run summary records landed/exit 0. This is a harness bookkeeping fault, not evidence of
+an autopilot crash; do not describe the wrapper itself as a clean pass or edit an active runner again.
+
+The owner reconfirmed that **Mission Planner + ASTRA plugin replaces the Python/Qt demo panel**. The test
+initially passed `--panel` by mistake; closed only that owned panel cleanly during flight and opened the
+documented ground station. Verified ASTRA tab selected, live telemetry/camera, target coordinates, both
+release cards and Return phase. Future test command uses `--no-panel`; direct scene launches need
+`panel:=false`. This was an automatic MAVLink-driven test observed in Mission Planner, not a manual
+Mission Planner upload/arm acceptance test.
+
+| Check | Measured result / limitation |
+|---|---|
+| Hiker recognition/aim | Legacy score finds 1/1 hiker, confidence **0.907**, chosen aim **2.22 m** from truth. The per-photo score uses coarse class/footprint matching, not instance-level validation. |
+| Hard negatives / mission behavior | **157 false tent boxes**, no tent target in this world; a 0.85-confidence false tent caused an extra drop about 190.7 m from the hiker. The 2026 brain is not a one-payload 2027 mission. |
+| Image accounting | **315** successful camera captures / emulator events, zero queue-full drops, but **258 distinct files**, all 258 processed. Investigate repeated GPS filenames/timing; do not describe 258/258 as proof that all 315 captures survived separately. |
+| Actual delivery | Hiker bottle released/detached, but never confirmed resting. A later physical sample showed ground contact, **131.98 m from the hiker and moving 2.00 m/s**. It rolls on the sloped ground. **The report's 2.2 m drop value is release-position fallback, NOT final delivery accuracy.** |
+| Actual terrain clearance at release | Passive world-odometry observer: hiker **45.846 m AGL**, false tent **45.559 m AGL**, compared with the primer's 45.72 m floor. These use the drone model origin, not a real-aircraft altitude certification. |
+| Timing / warnings | Observed sim/wall-time ratio approximately **0.744** over the observer interval (full stack, not the scene-only 0.9994 check). Twelve MAVROS time-synchronizer reset errors were logged; controller stayed alive. Mission Planner's plugin reports a status-subscription retry warning, while fallback updates populated the cards. |
+
+Evidence stays in the private run folder: `score_report.md`, `run_summary.md`, `run_data.json`, CSV/logs,
+`terrain_observer.jsonl`, `person_payload_pose_samples.json`, `suas2027_flight_diagnostics.json`; native
+Mission Planner screenshot and copied summary artifacts are kept outside Git. **Flight completed; 2027
+mission/delivery acceptance did not pass.** Next decisions: one-target mission behavior and hard-negative
+model validation; a realistic retarded payload with terrain contact/rolling; distinguish release versus
+resting-delivery results in scoring; image filename accounting and sufficient AGL margin. No fixes to the
+team flight code were made in this test.
+
+### Work recorded through 2026-10-31
+
+| Commit | What changed | Evidence recorded |
+|---|---|---|
+| `94ccf0b` | Task 2 (below) is **committed**: the three real-drone safety fixes in the team code | the tests and runs listed under "Task 2" |
+| `2c9a75e` ... `df3b660` | Anduril Lattice bridge (package `lattice_bridge`, pretend local Lattice, `lattice_mock` profile) | [`docs/lattice/README.md`](lattice/README.md), [`docs/lattice/BRIDGE.md`](lattice/BRIDGE.md) |
+| `4eb462a` | `pov_server`: the drone camera as an MJPEG stream at `http://127.0.0.1:8081/pov.mjpg`, started by `sim.launch.py` | unit tests (no live run in that commit) |
+| `83c2ae4` | `demo.sh`: the old Qt demo panel is **off by default** (`--panel` brings it back); Mission Planner is the ground station | |
+| `593bb96` | Mission Planner **ASTRA plugin** (`simulation/windows/mission_planner_plugin/astra_gcs.cs`): ASTRA tab, camera in the HUD, map markers | camera shown in the HUD for a whole demo flight |
+| `6d90c07` | MAVROS talks to SITL **SERIAL2 (TCP 5763)** by default, wired like the real Jetson on the Pixhawk's TELEM2, so ArduPilot forwards the team's status texts to every ground station | run `20261031-092448_runway`: phases, detections, targets and both drops shown in Mission Planner; drops 1.0 m and 1.1 m |
+| `0ddda83` | ASTRA plugin 1.1: keeps the ASTRA tab first, turns its sentence amber after 10 s without telemetry, retries the status-text subscription | compiles against Mission Planner 1.3.83 (`check_mp_plugin.ps1`); not yet watched in a flight in that commit |
+| `f139036` | **Lattice handed to the team**: the owner stopped the AI-assisted Lattice work; the team continues from [`docs/lattice/HANDOFF.md`](lattice/HANDOFF.md) | the proof results recorded in that hand-over note |
+
+Work in progress on 2026-10-31 (not committed; the lead reviews and commits each part separately): the
+documentation index [`docs/README.md`](README.md) with its checker `simulation/scripts/check_docs.py` (and the
+test `sim_plugins/test/test_docs_index.py`); the **Jetson-in-the-loop** kit (the team code on the real Jetson
+Orin Nano, the simulator on the laptop; the laptop reaches the Jetson over the USB-C cable or over plain SSH on
+Ethernet or Wi-Fi); swapping one twin piece for the real one; run logs and CSV files; one list of commands and
+errors; the Docker doctor; the Gazebo camera window; the code map. Their guides are
+listed under "Being written" in the index until they exist. The tables in sections 1-3 below are the
+2026-10-24 record and were not re-run.
 
 ## 1. State right now
 
 | Part | State | Evidence |
 |---|---|---|
 | Full search demo (runway world, shared team stack, real YOLO) | **Works** | 2026-10-24 run `20261024-100602_runway`: 2/2 targets; 94/94 photos processed; 94 triggers served, none dropped; tent/hiker drops 0.32/0.54 m, aim errors 0.30/0.57 m; 288.3 s flight, landed; no controller failure/traceback, all processes stopped |
-| Four team-code bug fixes (commit `81a7950`) + Task 2 real-drone hardening (uncommitted) | **Done in the sim, not flown on the real drone** | 3 review findings fixed with before/after tests; robustness and no-helper upload shown in the simulator; 2 demos 2/2 (drops 1.1/0.5 and 0.6/1.0 m); 6 open hardware/design decisions (Task 2 section below) |
+| Four team-code bug fixes (commit `81a7950`) + Task 2 real-drone hardening (commit `94ccf0b`) | **Done in the sim, not flown on the real drone** | 3 review findings fixed with before/after tests; robustness and no-helper upload shown in the simulator; 2 demos 2/2 (drops 1.1/0.5 and 0.6/1.0 m); 6 open hardware/design decisions (Task 2 section below) |
 | Simulator core (sim_models, sim_worlds runway/suas_field, siyi_emulator, sim_bringup, sim_demo, Mission Planner buttons) | **Works** | unit tests green |
 | Plug-and-play slots + pluggable ArduPilot | **Unit-tested; runtime WIP** | sim_plugins 219, example_detector 10 and example_listener 3 pass; generated PLUGINS reference current; alternate profiles/SITL not flown |
 | Docker (sim container + Jetson stand-in) | **WIP** | Docker Engine installed in the WSL distro, compose files parse, **images never built or run** |
 | Real-terrain world `suas_field_real` | **WIP** | generator + site pack; 18 synthetic preparation regressions added (62 world tests pass); **no world/config/mission/truth yet**, missing build stages and numerical gaps documented in WORLDS |
 | START OVER + Mission Planner manual mode | **Unit-tested; runtime WIP** | sim_demo 234 pass; reset progress/ownership/verified-landing and run-handover safeguards reviewed; reset/manual flows **not flown** |
-| `docs/simulation/` (human docs) | **Written; clean-machine acceptance pending** | 9 guides plus front-door README, model-testing/setup commands and generated reference; relative links, script paths, CLI help and profile validation checked |
+| `docs/simulation/` (human docs) | **Written; clean-machine acceptance pending** | 9 guides plus front-door README, model-testing/setup commands and generated reference; relative links, script paths, CLI help and profile validation checked. Since 2026-10-31 every doc is listed in `docs/README.md` and `simulation/scripts/check_docs.py` checks the index, links and script names |
 | `AGENTS.md` / `CLAUDE.md` | **Reviewed guide; quiz pending** | refreshed code/status/test counts; 30-question closed-book quiz remains Task 8 |
 
 ### Task 0/1 review and verification
@@ -38,10 +137,10 @@ test area assumption with boundary tests. Added ROS numeric-parameter tests and 
 
 Section 3 validation: **19 packages built; 932 functional tests passed**, Ruff clean, shell syntax clean.
 The full real-detector run is recorded above. Docs commands/links were checked, and nine profiles validate.
-Raw run data and local automation remain outside Git. Task 2 is done (below, uncommitted); subsequent work
+Raw run data and local automation remain outside Git. Task 2 is done (below, committed in `94ccf0b`); subsequent work
 runs **in series** at the owner's request, with one heavy job at a time, and simulator runs are VISIBLE.
 
-### Task 2: team code made safe for the real drone (2026-10-24; UNCOMMITTED, for the lead's review)
+### Task 2: team code made safe for the real drone (2026-10-24; committed in `94ccf0b`)
 
 **Three fixes**, each with tests that fail on the committed code (the new tests run against a copy of `HEAD`:
 52 failures, and 2 test modules cannot even import) and pass after the fix:
@@ -153,7 +252,7 @@ Each task: what to do, then **Done when**. Rules for all tasks are in section 4.
    Done when: `git status` is clean, every package's tests pass, one commit per area, each message saying
    what was verified.
 2. **Team-code fixes: finish and review for the real drone.**
-   Status: **DONE in the simulator (uncommitted, for review)**: the three review findings (mission-pull
+   Status: **DONE in the simulator (committed in `94ccf0b`)**: the three review findings (mission-pull
    deadline, never-ending processing hold, NaN/inf rejection) are fixed with before/after tests, (a)-(c) are
    recorded in "Task 2" above, and what needs the real hardware or a design choice is listed there as open
    decisions D1-D6 (sloped ground, gimbal attitude/roll, photo orientation, metadata age, upload
@@ -173,7 +272,8 @@ Each task: what to do, then **Done when**. Rules for all tasks are in section 4.
    In the simulator: full run -> `start_over.sh --fly` -> a second FULL run (both payloads re-attached and
    dropped again, new run folder and score report); start over while airborne (lands safely first); the
    manual flow (`demo.sh --manual`, upload/arm/AUTO from a separate MAVLink client or Mission Planner) with no
-   re-read helper; the panel START OVER button; read every `simulation/windows/*.bat` for quoting.
+   re-read helper; the START OVER button (the ASTRA tab's in Mission Planner, and the old panel's with
+   `--panel`); read every `simulation/windows/*.bat` for quoting.
    Done when: all three flows pass with run-folder evidence; never kills processes it did not start.
 4. **Plug-and-play: docs + validate in the simulator.**
    Status: docs and unit checks done; all profile/SITL runtime acceptance checks remain.
@@ -203,8 +303,8 @@ Each task: what to do, then **Done when**. Rules for all tasks are in section 4.
    `./launcher.sh sim` unchanged), a short GUI check through WSLg. Write `docs/simulation/DOCKER.md` starting
    with a copy-paste **"Run it on another PC"** guide: Windows + WSL2 (Docker Engine in WSL, or Docker Desktop),
    native Linux with and without an NVIDIA GPU (CPU fallback), `git clone -b jarrod-gazebo-sim ...`, build OR
-   copy pre-built images with new `simulation/docker/export_images.sh` / `import_images.sh` (docker save/load +
-   checksum), run, "it works if you see...", troubleshooting; optional ghcr.io publishing as instructions only.
+   copy pre-built images with two new scripts still to be written in `simulation/docker/`, `export_images.sh`
+   and `import_images.sh` (docker save/load + checksum), run, "it works if you see...", troubleshooting; optional ghcr.io publishing as instructions only.
    Portability test: from a clean copy (`git ls-files -co --exclude-standard | rsync --files-from=- ...` into a
    temp folder) follow only the guide; one run without the GPU; export -> rmi -> import round trip.
    Done when: the containerised demo runs from a clean copy following only the guide.
@@ -229,7 +329,7 @@ Optional later: an "Open in Google Maps" button in the demo panel (no key needed
 bash "<repo>/simulation/setup/03_build.sh" --workers 4        # mirror to ~/ODLC_Machine_Inferencing_System_2025-2026 and build
 cd ~/ODLC_Machine_Inferencing_System_2025-2026 && source simulation/setup/sim_env.sh
 cd ros2_ws/src/<package> && python3 -m pytest -q test --ignore=test/test_flake8.py --ignore=test/test_pep257.py --ignore=test/test_copyright.py
-bash simulation/scripts/demo.sh runway --headless           # ~6 min; score report in ~/.astra_sim/runs/<date>_runway/score_report.md
+bash simulation/scripts/demo.sh runway                      # VISIBLE (owner's rule), ~6 min; score report in ~/.astra_sim/runs/<date>-<time>_runway/score_report.md
 bash simulation/scripts/stop_sim.sh                         # always stop what you start
 ```
 
@@ -240,7 +340,8 @@ packages; the simulator counts are from Task 0/1, unchanged code).
 For sim_models exclude `test/acceptance`, siyi_emulator `test/e2e`, sim_demo `test/ros_e2e`; these are
 separate integration jobs. Use `QT_QPA_PLATFORM=offscreen` for panel tests. Docker helper tests run with
 `python3 -m pytest -q simulation/docker/test` from the repo root. Also run `ruff check ros2_ws/src`,
-`bash -n` on changed shell scripts, and `python3 -m sim_plugins.profile_tool docs --check`.
+`bash -n` on changed shell scripts, `python3 -m sim_plugins.profile_tool docs --check`, and, when you touched
+any doc, command, script name or port, `python3 simulation/scripts/check_docs.py` (the documentation index).
 
 ## 4. Rules (do not break these)
 

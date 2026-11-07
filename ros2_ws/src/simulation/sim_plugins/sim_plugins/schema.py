@@ -168,6 +168,9 @@ SCHEMA: Dict[str, Any] = {
         'team_stack': Field('local', 'choice', choices=('local', 'external'),
                             help='local = demo.sh starts ./launcher.sh sim | external = the team stack runs '
                                  'somewhere else (another container/PC); demo.sh only waits for it'),
+        'team_repo': Field('', 'path', help='which copy of the team\'s Jetson code demo.sh runs: "" = the simulator\'s '
+                                            'own Linux copy; or the folder of another checkout (a teammate\'s fork '
+                                            'or branch) with launcher.sh and a built ros2_ws (demo.sh --team-repo)'),
     },
 }
 

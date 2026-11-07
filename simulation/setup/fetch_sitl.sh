@@ -33,9 +33,10 @@ set -o pipefail
 say()  { printf '\033[1;36m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
 ok()   { printf '\033[1;32m OK %s\033[0m\n' "$*"; }
-warn() { printf '\033[1;33m !! %s\033[0m\n' "$*" >&2; }
-fail() { printf '\033[1;31m XX %s\033[0m\n' "$*" >&2; exit 1; }
-usage_error() { printf '\033[1;31m XX %s\033[0m\n' "$*" >&2; echo "    (see: bash $0 --help)" >&2; exit 2; }
+# Every warning and error is tagged [fetch_sitl] and says what failed, why and the fix (docs/simulation/ERRORS.md).
+warn() { printf '\033[1;33m !! [fetch_sitl] WARNING: %s\033[0m\n' "$*" >&2; }
+fail() { printf '\033[1;31m XX [fetch_sitl] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+usage_error() { printf '\033[1;31m XX [fetch_sitl] ERROR: %s\033[0m\n' "$*" >&2; echo "    Fix: see the options with  bash \"$0\" --help" >&2; exit 2; }
 
 FIRMWARE="https://firmware.ardupilot.org/Copter"
 BOARD="SITL_x86_64_linux_gnu"
@@ -62,13 +63,14 @@ done
 # ---- --list: what the firmware server offers ---------------------------------------------------------
 if [ "$LIST" = 1 ]; then
   say "ArduCopter versions on $FIRMWARE (stable-X.Y.Z = a release; also: stable, beta, latest)"
-  page="$(curl -fsSL --max-time 30 "$FIRMWARE/")" || fail "could not read $FIRMWARE/ (internet?)"
+  page="$(curl -fsSL --max-time 30 "$FIRMWARE/")" || fail "could not read the list of versions at $FIRMWARE/.
+    Likely cause: no internet, or the firmware server is down. Fix: check with  curl -I $FIRMWARE/  and try again later"
   printf '%s\n' "$page" | grep -oE '(stable|beta)-[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.-]*' | sort -u -V | sed 's/^/    /'
   exit 0
 fi
 
 # ---- the version name --------------------------------------------------------------------------------
-[ -n "$VERSION" ] || usage_error "which version? e.g.  bash $0 4.7.1   (or stable, beta, latest)"
+[ -n "$VERSION" ] || usage_error "which version? e.g.  bash \"$0\" 4.7.1   (or stable, beta, latest)"
 case "$VERSION" in Copter-*|copter-*|ArduCopter-*|V[0-9]*|v[0-9]*) VERSION="${VERSION#*[-Vv]}" ;; esac
 [[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,31}$ ]] || usage_error "\"$VERSION\" is not a version name like 4.7.1, stable, beta or latest"
 VERSIONS_DIR="${ASTRA_SITL_VERSIONS:-$HOME/sitl/versions}"
@@ -111,17 +113,22 @@ if [ -x "$DEST/arducopter" ] && [ "$FORCE" = 0 ]; then
   info "(--force downloads it again)"
   exit 0
 fi
-command -v curl > /dev/null || fail "curl is missing: sudo apt install curl"
+command -v curl > /dev/null || fail "the download program curl is not installed.
+    Likely cause: setup step 1 (01_install_humble.sh) has not run. Fix: sudo apt-get install -y curl"
 
 # Everything goes into a temporary folder first, so a failed download never leaves half a version behind.
-mkdir -p "$(dirname "$DEST")" || fail "cannot create $(dirname "$DEST")"
-TMP="$(mktemp -d "$(dirname "$DEST")/.fetch_${VERSION}_XXXXXX")" || fail "cannot create a temporary folder"
+mkdir -p "$(dirname "$DEST")" || fail "cannot create the folder $(dirname "$DEST").
+    Likely cause: no write permission there, or the disk is full. Fix: check with  df -h ~  or give another --dest"
+TMP="$(mktemp -d "$(dirname "$DEST")/.fetch_${VERSION}_XXXXXX")" || fail "cannot create a temporary folder in $(dirname "$DEST").
+    Likely cause: no write permission there, or the disk is full. Fix: check with  df -h ~  or give another --dest"
 trap 'rm -rf "$TMP"' EXIT
 
 FROM=""
 if [ -n "$FROM_FILE" ]; then
-  [ -f "$FROM_FILE" ] || fail "file not found: $FROM_FILE"
-  cp "$FROM_FILE" "$TMP/arducopter" || fail "cannot copy $FROM_FILE"
+  [ -f "$FROM_FILE" ] || fail "the file \"$FROM_FILE\" (--from-file) does not exist.
+    Likely cause: a typo, or the ArduPilot build did not finish. Fix: check it with  ls -l \"$FROM_FILE\""
+  cp "$FROM_FILE" "$TMP/arducopter" || fail "cannot copy $FROM_FILE.
+    Likely cause: no read permission, or the disk is full. Fix: check with  ls -l \"$FROM_FILE\"  and  df -h ~"
   FROM="$(readlink -f "$FROM_FILE")"
 else
   for u in "${CANDIDATES[@]}"; do
@@ -129,15 +136,19 @@ else
     if curl -fL --retry 2 --connect-timeout 20 --max-time 600 -o "$TMP/arducopter" "$u"; then FROM="$u"; break; fi
   done
   [ -n "$FROM" ] || fail "ArduCopter $VERSION was not found on the firmware server (tried: ${CANDIDATES[*]}).
-    See which versions exist with:  bash $0 --list"
+    Likely cause: a version that does not exist, or no internet.
+    Fix: see which versions exist with:  bash \"$0\" --list"
 fi
 
 # Is it really a Linux program, and which version is compiled into it?
 MAGIC="$(head -c 4 "$TMP/arducopter" | od -An -tx1 | tr -d ' \n')"
-[ "$MAGIC" = "7f454c46" ] || fail "the downloaded file is not a Linux program (no ELF header): $FROM"
+[ "$MAGIC" = "7f454c46" ] || fail "the downloaded file is not a Linux program (no ELF header): $FROM.
+    Likely cause: the server sent an error page, or --from-file names the wrong file.
+    Fix: try again (bash \"$0\" $VERSION --force), or check the file you gave with  file FILE"
 chmod +x "$TMP/arducopter"
 VER_LINE="$(grep -a -o -m1 -E 'ArduCopter V[0-9]+\.[0-9]+\.[0-9]+[^ ]* \([0-9a-f]+\)' "$TMP/arducopter" | head -1)"
-if [ -n "$VER_LINE" ]; then ok "program: $VER_LINE"; else warn "could not read the version inside the program"; fi
+if [ -n "$VER_LINE" ]; then ok "program: $VER_LINE"; else warn "could not read the version inside the program." \
+  "Consequence: SOURCE.txt says version unknown; the program may still work. Fix: none needed, or try another version"; fi
 
 # Parameter files of the same version.
 if [[ "$PARAMS_REF" == "("* ]]; then
@@ -159,9 +170,11 @@ for f in "${PARAM_FILES[@]}"; do
   if [ "$got" = 0 ]; then
     if [ -f "$HOME/sitl/$f" ]; then
       cp "$HOME/sitl/$f" "$TMP/$f"; PARAMS_FROM="${PARAMS_FROM:+$PARAMS_FROM, }$f@~/sitl (4.6.3 copy)"
-      warn "$f could not be downloaded: using the copy from ~/sitl (made for 4.6.3)"
+      warn "$f could not be downloaded (no internet, or the tag has no such file): using the copy from ~/sitl." \
+           "Consequence: those defaults were made for 4.6.3; usually fine. Fix: run again with internet, or --params-ref TAG"
     else
-      warn "$f could not be downloaded: the simulator will look for it in ~/sitl when SITL starts"
+      warn "$f could not be downloaded (no internet, or the tag has no such file). Consequence: the simulator looks" \
+           "for it in ~/sitl when SITL starts. Fix: run again with internet, or run setup/02_setup_ardupilot.sh"
     fi
   fi
 done
@@ -178,7 +191,8 @@ SHA="$(sha256sum "$TMP/arducopter" | cut -d' ' -f1)"
 
 # Swap the new folder into place (the old one, with --force, is removed only after the new one is complete).
 if [ -d "$DEST" ]; then rm -rf "$DEST.old" && mv "$DEST" "$DEST.old"; fi
-mv "$TMP" "$DEST" || fail "cannot move the download to $DEST"
+mv "$TMP" "$DEST" || fail "cannot move the download to $DEST.
+    Likely cause: no write permission, or a program still uses the old folder. Fix: stop the simulator and try again"
 trap - EXIT
 rm -rf "$DEST.old"
 ok "installed: $DEST"

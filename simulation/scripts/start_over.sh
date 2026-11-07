@@ -32,6 +32,8 @@
 #                                       the demo panel's button uses this
 #  It takes about 2-3 minutes (mostly the autopilot's normal settling time and the team stack's start).
 #  Log: ~/.astra_sim/logs/start_over_<time>.log      New run: ~/.astra_sim/runs/<time>_<world>/
+#  Exit codes: 0 = ready (or flying with --fly), 1 = failed (the reason and the fix are printed), 2 = the command
+#              was typed wrong. Every message: docs/simulation/ERRORS.md ("start_over").
 # =============================================================================
 set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
@@ -43,26 +45,33 @@ while [ $# -gt 0 ]; do
     -h|--help) astra_usage "$0"; exit 0 ;;
     --fly) FLY=1; PASS+=(--fly) ;;
     --follow) FOLLOW=1 ;;
-    --world) shift; WORLD="${1:?--world needs a world name}"; PASS+=(--world "$WORLD") ;;
-    --mission) shift; [ -f "${1:-}" ] || die "mission file not found: ${1:-}"; PASS+=(--mission "$(readlink -f "$1")") ;;
-    --land) shift; case "${1:-}" in land|rtl) PASS+=(--land "$1") ;; *) die "--land must be land or rtl" ;; esac ;;
-    --land-timeout) shift; case "${1:-}" in ''|*[!0-9]*) die "--land-timeout needs seconds" ;; esac; PASS+=(--land-timeout "$1") ;;
+    --world) shift; [ -n "${1:-}" ] || die_usage "--world needs a world name (runway or suas_field)"; WORLD="$1"; PASS+=(--world "$WORLD") ;;
+    --mission) shift; [ -f "${1:-}" ] || die "the mission file \"${1:-}\" does not exist.
+    Likely cause: a typo in the path (or no file name after --mission).
+    Fix: check it with  ls \"${1:-}\"  ; see the mission files with  bash \"$ASTRA_SCRIPTS_DIR/mission.sh\" list"
+               PASS+=(--mission "$(readlink -f "$1")") ;;
+    --land) shift; case "${1:-}" in land|rtl) PASS+=(--land "$1") ;; *) die_usage "--land must be land or rtl, not \"${1:-}\"" ;; esac ;;
+    --land-timeout) shift; case "${1:-}" in ''|*[!0-9]*) die_usage "--land-timeout needs whole seconds, e.g. --land-timeout 300" ;; esac; PASS+=(--land-timeout "$1") ;;
     --no-team-stack) PASS+=(--no-team-stack) ;;
     --no-fresh) FRESH=0 ;;
-    *) die "unknown option $1 (see --help)" ;;
+    *) die_usage "unknown option \"$1\"" ;;
   esac
   shift
 done
 
 astra_load_env
 astra_require_built
-ros2 pkg prefix sim_demo >/dev/null 2>&1 || die "sim_demo is not built (it holds start over). Run setup/03_build.sh."
+ros2 pkg prefix sim_demo >/dev/null 2>&1 || die "the package sim_demo is not built (START OVER lives in it).
+    Likely cause: the last build failed in sim_demo or did not run.
+    Fix: bash \"$ASTRA_SETUP_DIR/03_build.sh\"   then run this again"
 
 # No simulator? Then "start over" simply means "start": a fresh demo, kept open (not with --no-fresh: the
 # demo panel's button must never start a second simulator from inside the first one).
 start_fresh() {
   local w="${WORLD:-runway}"
-  [ "$FRESH" = 1 ] || die "No simulator is running, so there is nothing to start over (start one with demo.sh)."
+  [ "$FRESH" = 1 ] || die "no simulator is running, so there is nothing to start over.
+    Likely cause: it was stopped, or it was never started (--no-fresh does not start a new one).
+    Fix: start one with  bash \"$ASTRA_SCRIPTS_DIR/demo.sh\" ${WORLD:-runway} --keep   (or --manual)"
   say "No simulator is running, so there is nothing to start over: starting a fresh demo ($w) instead"
   if [ "$FLY" = 1 ]; then
     exec bash "$ASTRA_SCRIPTS_DIR/demo.sh" "$w" --keep
@@ -86,7 +95,9 @@ RC=${PIPESTATUS[0]}
 case "$RC" in
   0) ;;
   3) start_fresh ;;
-  *) die "START OVER did not finish (the reason is above; full log: $LOG)" ;;
+  *) die "START OVER did not finish (run_reset printed the reason above; full log: $LOG).
+    Likely cause: the drone did not land in time, the autopilot did not restart, or the team stack did not get ready.
+    Fix: read the last lines of the log; to start clean:  bash \"$ASTRA_SCRIPTS_DIR/stop_sim.sh\"  then  bash \"$ASTRA_SCRIPTS_DIR/demo.sh\" ${WORLD:-runway}" ;;
 esac
 
 RUN_DIR="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("run_dir", ""))' \

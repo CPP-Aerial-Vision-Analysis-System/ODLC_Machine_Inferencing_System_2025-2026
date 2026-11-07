@@ -29,7 +29,7 @@ def read(rel):
 
 def test_every_contract_is_complete():
     assert set(contracts.CONTRACTS) == {'autopilot', 'camera', 'detector', 'mission_brain', 'world', 'extras',
-                                        'network'}
+                                        'network', 'team_stack'}
     for c in contracts.CONTRACTS.values():
         assert c.title and c.default and c.alternatives and c.summary
         for t in c.topics:

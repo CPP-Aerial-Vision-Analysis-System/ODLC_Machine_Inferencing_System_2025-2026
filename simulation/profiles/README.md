@@ -1,3 +1,4 @@
+<!-- PURPOSE: list the shipped plug-in profiles (what each one changes) and show how to use and check one; the full guides are docs/simulation/SWAPPING.md and PLUGINS.md. -->
 # simulation/profiles: plug-in profiles
 
 A **profile** is a small YAML file that says which piece fills each **slot** of the simulator
@@ -17,6 +18,8 @@ today (`default.yaml` writes every setting out).
 | `real_drone_params.yaml` | the real drone's Mission Planner `.param` file on top (`params/example_real_drone.param` is only an example) |
 | `external_autopilot.yaml` | EXAMPLE: the autopilot runs on another computer / container |
 | `docker_split.yaml` | EXAMPLE: the team stack runs in another container (network settings) |
+| `custom_model.yaml` | EXAMPLE: the team's `new_od` with other YOLO weights (= `demo.sh --model FILE`; change `model_path`) |
+| `team_fork.yaml` | EXAMPLE: another checkout of the team's Jetson code, e.g. a teammate's fork (= `demo.sh --team-repo DIR`; change `team_repo`) |
 
 Use one:
 
@@ -33,6 +36,8 @@ python3 -m sim_plugins.profile_tool list
 python3 -m sim_plugins.profile_tool plan --profile example_detector --check
 ```
 
+One command per swap (ArduPilot, the Jetson code, the detection model), how to know it worked and how to go
+back: [docs/simulation/SWAPPING.md](../../docs/simulation/SWAPPING.md).
 The whole story (every slot's contract, every key, the templates, the checker, FAQ):
 [docs/simulation/PLUGINS.md](../../docs/simulation/PLUGINS.md). The autopilot slot in depth:
 [docs/simulation/ARDUPILOT.md](../../docs/simulation/ARDUPILOT.md).

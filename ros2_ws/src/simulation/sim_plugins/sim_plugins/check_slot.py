@@ -10,6 +10,7 @@ it must serve or call, and, when a sample message arrives, whether its fields ma
     ros2 run sim_plugins check_slot --slot camera  [--camera-ip 192.168.144.25]
     ros2 run sim_plugins check_slot --slot autopilot | world
     ros2 run sim_plugins check_slot --slot extras --node my_logger
+    ros2 run sim_plugins check_slot --slot team_stack [--skip-node new_od --add-node my_det]   # the whole Jetson code
 Options: --node NAME (which node is the component; default: found by itself), --timeout S (default 60: how
 long to wait for the graph and for a sample), --no-sample, --take-photo (detector: press the team's shutter
 /camera/trigger once so a photo, and so a detection message, happens), --photo-dir DIR.
@@ -438,9 +439,30 @@ def check_odometry(msg, report: Report) -> None:
 # One slot, start to end (graph part; samples are passed in)
 # ---------------------------------------------------------------------------------------------
 
+def check_team_stack(graph: Graph, c: contracts.SlotContract, report: Report, skip: Sequence[str] = (),
+                     add: Sequence[str] = ()) -> None:
+    """The whole Jetson code: every node of the contract runs (minus --skip-node, plus --add-node, like
+    stack_check), and the two doors exist with the right types (any node may provide each topic / service)."""
+    running = set(graph.node_names())
+    wanted = [n for n in c.node_names if n not in set(skip)] + [n for n in add if n not in c.node_names]
+    missing = [n for n in wanted if n not in running]
+    for n in wanted:
+        if n in running:
+            report.add('ok', f'node {n} is running')
+    if missing:
+        report.add('fail', f'not running: {", ".join(missing)}',
+                   'is ./launcher.sh sim running, and did a node die? (see team_stack.log). A node with another name '
+                   'needs a profile with a custom slot and node_name (docs/simulation/SWAPPING.md)')
+    check_topics(graph, c, '', report)
+    check_services(graph, c, '', report)
+
+
 def evaluate(graph: Graph, slot: str, node: str = '', sample=None, sample_wanted: bool = False,
-             photo_dir: str = '', camera_probe: Optional[Callable[[], List[Finding]]] = None) -> Report:
-    """All checks of one slot on a graph (plus an optional sample message and camera probe results)."""
+             photo_dir: str = '', camera_probe: Optional[Callable[[], List[Finding]]] = None,
+             skip_nodes: Sequence[str] = (), add_nodes: Sequence[str] = ()) -> Report:
+    """All checks of one slot on a graph (plus an optional sample message and camera probe results).
+
+    skip_nodes / add_nodes: team_stack only (nodes a plug-in profile replaced / added, like stack_check)."""
     report = Report(slot=slot)
     c = contracts.contract(slot)
     if slot == 'extras':
@@ -453,6 +475,9 @@ def evaluate(graph: Graph, slot: str, node: str = '', sample=None, sample_wanted
             return report
         report.node = node
         check_extras(graph, node, report)
+        return report
+    if slot == 'team_stack':
+        check_team_stack(graph, c, report, skip=skip_nodes, add=add_nodes)
         return report
 
     component = ''
@@ -550,6 +575,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help='detector: publish /camera/trigger once (the team\'s shutter) so a photo happens')
     parser.add_argument('--photo-dir', default=None, help='the team photo folder (default: found like sim_paths)')
     parser.add_argument('--camera-ip', default='192.168.144.25', help='camera: the address to probe')
+    parser.add_argument('--skip-node', action='append', default=[], metavar='NAME',
+                        help='team_stack: a team node a plug-in replaced (repeatable, like stack_check)')
+    parser.add_argument('--add-node', action='append', default=[], metavar='NAME',
+                        help='team_stack: a plug-in node that must run too (repeatable, like stack_check)')
     return parser
 
 
@@ -580,7 +609,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rclpy.spin_once(node, timeout_sec=0.25)
         if time.monotonic() < t_min:
             continue
-        report = evaluate(graph, args.slot, args.node)
+        report = evaluate(graph, args.slot, args.node, skip_nodes=args.skip_node, add_nodes=args.add_node)
         if not report.failed or time.monotonic() > deadline - (0 if args.no_sample else args.timeout / 3):
             break
         time.sleep(0.5)
@@ -616,7 +645,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sample = got[0] if got else None
     probe = (lambda: camera_findings(args.camera_ip)) if args.slot == 'camera' else None
     report = evaluate(graph, args.slot, args.node, sample=sample, sample_wanted=want_sample,
-                      photo_dir=photo_dir, camera_probe=probe)
+                      photo_dir=photo_dir, camera_probe=probe, skip_nodes=args.skip_node, add_nodes=args.add_node)
     print(report.render(), flush=True)
     node.destroy_node()
     if rclpy.ok():

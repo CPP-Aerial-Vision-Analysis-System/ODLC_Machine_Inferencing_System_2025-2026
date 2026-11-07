@@ -10,6 +10,7 @@ sim_plugins/test/test_plan.py -- PURPOSE: prove that a profile turns into exactl
 
 import ast
 import re
+import shlex
 from pathlib import Path
 
 import pytest
@@ -261,9 +262,71 @@ def test_shell_vars_render_is_quoted():
 
 @pytest.mark.parametrize('name', ['default', 'truth_detector', 'example_detector', 'example_listener',
                                   'ardupilot_version', 'ardupilot_source', 'external_autopilot',
-                                  'real_drone_params', 'docker_split'])
+                                  'real_drone_params', 'docker_split', 'custom_model', 'team_fork'])
 def test_every_profile_renders_a_plan(sim_home, name):
     rp = resolve(name)
     assert plan.render_summary(rp).startswith(f'PROFILE {name}')
     plan.demo_vars(rp, '/gen/p.yaml').render()
     plan.start_sim_vars(rp, (), '/gen/p.yaml').render()
+
+
+# ---- the three swaps (docs/simulation/SWAPPING.md) -----------------------------------------------------------
+
+ZIP_HEAD = b'PK' + bytes([3, 4]) + bytes(60)          # how a torch >= 1.6 .pt file starts (zip)
+
+
+def test_other_weights_reach_new_od_and_are_checked(sim_home, fake_arducopter, tmp_path):
+    prog = fake_arducopter(tmp_path / 'arducopter', '4.6.3')
+    model = tmp_path / 'my_detector.pt'
+    model.write_bytes(ZIP_HEAD)
+    rp = resolve('default', f'detector.model_path={model}')
+    sv = plan.demo_vars(rp)
+    assert sv.scalars['MODEL_OVERRIDE'] == str(model)
+    assert f'model_path:={model}' in sv.arrays['PLUGIN_TEAM_ARGS']
+    assert plan.check_environment(rp, binary_finder=lambda: str(prog))['errors'] == []
+    missing = resolve('default', f'detector.model_path={tmp_path / "nope.pt"}')
+    errors = plan.check_environment(missing, binary_finder=lambda: str(prog))['errors']
+    assert any(e.startswith('detector model:') and 'does not exist' in e for e in errors)
+    html = tmp_path / 'page.pt'
+    html.write_bytes(b'<html>')
+    errors = plan.check_environment(resolve('default', f'detector.model_path={html}'),
+                                    binary_finder=lambda: str(prog))['errors']
+    assert any('web page' in e for e in errors)
+
+
+def test_custom_model_example_profile(sim_home):
+    rp = resolve('custom_model')
+    assert rp.get('detector.kind') == 'team' and rp.get('detector.model_path').endswith('my_detector.pt')
+    assert 'my_detector.pt' in plan.detector_text(rp)
+
+
+def test_team_repo_reaches_demo_sh_and_the_hint(sim_home, tmp_path):
+    rp = resolve('default', f'run.team_repo={tmp_path / "astra_fork"}')
+    assert plan.demo_vars(rp).scalars['TEAM_REPO'] == str(tmp_path / 'astra_fork')
+    hint = plan.team_stack_hint(rp)
+    assert hint.startswith(f'cd {shlex.quote(str(tmp_path / "astra_fork"))} && FCU_URL=')
+    assert 'team_overlay.sh --sim-ws ' in hint and '/ros2_ws -- ros2 launch sim_bringup team_stack.launch.py' in hint
+    want = ('bash /w/src/simulation/sim_plugins/scripts/team_overlay.sh --sim-ws /w --team-ws /home/me/fork/ros2_ws '
+            '-- ros2 launch x')
+    assert plan.overlay_tracker('ros2 launch x', '/home/me/fork/', '/w') == want
+    assert 'another checkout of the team code' in plan.render_summary(rp)
+    assert plan.demo_vars(resolve('default')).scalars['TEAM_REPO'] == ''
+
+
+def test_team_repo_is_checked_before_the_start(sim_home, fake_arducopter, tmp_path):
+    prog = fake_arducopter(tmp_path / 'arducopter', '4.6.3')
+    env = plan.check_environment(resolve('default', f'run.team_repo={tmp_path / "missing"}'),
+                                 binary_finder=lambda: str(prog))
+    assert any(e.startswith('team code:') and 'git clone' in e for e in env['errors'])
+    env = plan.check_environment(resolve('default', f'run.team_repo={tmp_path / "missing"}', 'run.team_stack=external'),
+                                 binary_finder=lambda: str(prog))
+    assert env['errors'] == [] and any('is not used' in w for w in env['warnings'])
+
+
+def test_demo_sh_knows_the_swap_options():
+    text = DEMO_SH.read_text(encoding='utf-8')
+    for needle in ('--model)', 'detector.model_path=', '--team-repo)', 'run.team_repo=', 'team_overlay.sh',
+                   'autopilot --out', 'run_meta/detector.json', 'run_meta/team_stack.json',
+                   'PHOTO_DIR="$TEAM_DIR/ros2_ws/src/video_cam/mapping_photos"', 'photo_dir:=$PHOTO_DIR',
+                   'cd "$TEAM_DIR" && TRACKER_CMD='):
+        assert needle in text, needle

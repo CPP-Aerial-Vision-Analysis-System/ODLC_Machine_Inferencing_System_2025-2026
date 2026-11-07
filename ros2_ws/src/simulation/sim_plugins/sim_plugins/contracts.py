@@ -81,7 +81,9 @@ DETECTOR = SlotContract(
     slot='detector',
     title='Detector (finds the hiker and the tent in the photos)',
     default='team: detection/new_od (YOLO26m on 640 px tiles), started by main/launch/tracker.launch.xml',
-    alternatives='truth (sim_demo truth_detector, the answer key) | custom (your detector: replaces new_od)',
+    alternatives='other weights for new_od (detector.model_path / demo.sh --model FILE: checked and loaded before '
+                 'the flight) | truth (sim_demo truth_detector, the answer key) | custom (your detector: replaces '
+                 'new_od)',
     summary='Reads every new photo that video_cam saves in the team photo folder and publishes ONE '
             'interfaces/ImageResult per photo on /image_detection. main_controller uses those messages to '
             'choose where to drop.',
@@ -230,7 +232,8 @@ AUTOPILOT = SlotContract(
     title='Autopilot (the Pixhawk firmware: ArduCopter)',
     default='ArduCopter SITL 4.6.3 (~/sitl/arducopter) + copter.parm, gazebo-iris.parm, astra_sitl.parm',
     alternatives='another version (fetch_sitl.sh), a source build (/opt/ardupilot), extra parameter files, '
-                 'or external (another container / PC)',
+                 'or external (another container / PC); every run records the version the autopilot reports in '
+                 '<run>/run_meta/autopilot.json',
     summary='Flies the drone in Gazebo through the ArduPilot plugin\'s JSON physics link and talks MAVLink to '
             'MAVProxy, which copies it to MAVROS (the team stack), our scripts and the demo panel.',
     topics=(
@@ -240,9 +243,14 @@ AUTOPILOT = SlotContract(
     ports=(
         PortRule('UDP 9002+10*I (Gazebo computer)', 'talks to',
                  'JSON physics link: the drone\'s ArduPilotPlugin listens (lock-step); SITL sends servo outputs'),
-        PortRule('TCP 5760+10*I', 'listens', 'SITL serial0: MAVProxy connects here (5762/5763+10*I are spare)'),
+        PortRule('TCP 5760+10*I', 'listens', 'SITL serial0: MAVProxy connects here (5762+10*I = SERIAL1, spare: a '
+                                             'second ground station)'),
+        PortRule('TCP 5763+10*I', 'listens', 'SITL SERIAL2: the team\'s MAVROS connects here, wired like the real '
+                                             'Jetson on the Pixhawk\'s TELEM2 (an external autopilot: MAVROS uses '
+                                             'MAVProxy\'s udp 14552 output instead)'),
         PortRule('UDP 127.0.0.1:14550 / 14552 / 14553', 'talks to',
-                 'MAVProxy outputs: ground station + our scripts / MAVROS / demo panel (+ Windows ground station)'),
+                 'MAVProxy outputs: ground station + our scripts / old MAVROS door / demo panel (+ Windows ground '
+                 'station)'),
     ),
     rules=(
         'Behave like ArduCopter: modes GUIDED, AUTO and RTL; MISSION_ITEM_REACHED; the text '
@@ -318,8 +326,78 @@ NETWORK = SlotContract(
     ),
 )
 
+#: The whole Jetson code as ONE swappable piece (a teammate's fork, another branch, this year's code). Its node
+#: names are stack_check's TEAM_NODES plus MAVROS; its texts are the ones sim_bringup/phase_monitor.py and
+#: sim_demo/phases.py parse (AGENTS.md section 7). check_slot --slot team_stack checks a running stack against it,
+#: team_repo.py checks a checkout on disk before the run.
+TEAM_STACK = SlotContract(
+    slot='team_stack',
+    title='Team stack (the Jetson code as a whole: ./launcher.sh sim + tracker.launch.xml)',
+    default='the simulator\'s own Linux copy of the team repo (~/ODLC_Machine_Inferencing_System_2025-2026), '
+            'started by demo.sh as ./launcher.sh sim',
+    alternatives='another checkout (a teammate\'s fork or branch, this year\'s code): run.team_repo / demo.sh '
+                 '--team-repo DIR | external (run.team_stack: external: the Jetson container, or the real Jetson '
+                 'Orin Nano reached over USB-C or plain SSH) | one node replaced: detector / mission_brain custom',
+    summary='Everything the real Jetson Orin Nano runs. It touches the world ONLY through two doors: MAVLink (MAVROS '
+            'topics and services) and the SIYI camera protocol at 192.168.144.25. Any checkout that keeps these doors, '
+            'the node names and the status texts below runs in the simulator unchanged.',
+    node_names=('mavros', 'waypoint_manager', 'gps_mavros_service_node', 'mission_camera_trigger', 'siyi', 'new_od',
+                'main_controller'),
+    topics=(
+        TopicRule('/mavros/state', 'mavros_msgs/msg/State', 'publish', 'any', True,
+                  'MAVROS (fcu_url from FCU_URL): connected must become true'),
+        TopicRule('/mavros/statustext/recv', 'mavros_msgs/msg/StatusText', 'subscribe', 'any', True,
+                  'mission_camera_trigger + waypoint_manager: "Mission: N DigiCamCtrl" starts the photos, '
+                  '"Flight plan received" = new mission'),
+        TopicRule('/mavros/statustext/send', 'mavros_msgs/msg/StatusText', 'publish', 'any', True,
+                  'the team texts the simulator parses (rules below); at most 50 characters'),
+        TopicRule('/mavros/mission/waypoints', 'mavros_msgs/msg/WaypointList', 'subscribe', 'any', True,
+                  'waypoint_manager + main_controller read the mission'),
+        TopicRule('/camera/trigger', 'std_msgs/msg/Bool', 'subscribe', 'any', True,
+                  'siyi (video_cam): one photo per message (mission_camera_trigger sends 1 per second)'),
+        TopicRule('/image_detection', 'interfaces/msg/ImageResult', 'publish', 'reliable', True,
+                  'new_od -> main_controller, RELIABLE depth 10 (see the detector contract)'),
+    ),
+    services=(
+        ServiceRule('/addWaypoint', 'interfaces/srv/AddWaypoint', 'server', True,
+                    'waypoint_manager inserts the target waypoints for main_controller'),
+        ServiceRule('/mavros/set_mode', 'mavros_msgs/srv/SetMode', 'server', True, 'MAVROS: GUIDED / AUTO / RTL'),
+        ServiceRule('/mavros/cmd/command', 'mavros_msgs/srv/CommandLong', 'server', True,
+                    'MAVROS: DO_SET_SERVO (183) for the drops'),
+        ServiceRule('/mavros/mission/pull', 'mavros_msgs/srv/WaypointPull', 'server', True,
+                    'MAVROS: the scripts and waypoint_manager re-read the mission'),
+    ),
+    files=(
+        FileRule('<checkout>/launcher.sh', 'reads', 'must honour TRACKER_CMD and FCU_URL (the simulator\'s only hook)'),
+        FileRule('<checkout>/ros2_ws/install/', 'reads', 'built with colcon: main, video_cam, detection, mapping, '
+                                                         'waypoint_mavros, gps_ros2, wp_sender, interfaces'),
+        FileRule('<checkout>/ros2_ws/src/main/launch/tracker.launch.xml', 'reads',
+                 'the flight launch; team_stack.launch.py includes it unchanged'),
+        FileRule(f'{PHOTO_DIR}/', 'writes', 'video_cam saves "<lat> , <lon>.jpg" + .json sidecar; new_od and '
+                                            'main_controller read them (<ws> = the checkout\'s ros2_ws)'),
+    ),
+    ports=(
+        PortRule('MAVLink: FCU_URL (sim: tcp://127.0.0.1:5763 = SITL SERIAL2; drone: /dev/ttyUSB0:115200)', 'talks to',
+                 'MAVROS only; the team nodes use MAVROS topics and services, never MAVLink directly'),
+        PortRule('UDP 192.168.144.25:37260 + TCP 192.168.144.25:82', 'talks to',
+                 'video_cam: SIYI SDK + HTTP media API (see the camera contract)'),
+    ),
+    rules=(
+        'Keep the node names: stack_check waits for waypoint_manager, gps_mavros_service_node, mission_camera_trigger, '
+        'siyi, new_od and main_controller (a renamed node needs a profile with a custom slot and node_name).',
+        'Keep the status texts the simulator parses: "Camera trigger STARTED", "SUCCESS: Captured <res> image #N", '
+        '"Zoom set to Xx", "Detected <class>", "Reached last WP" / "Holding to finish", "Targets: tent@N -> person@M. '
+        'Diverting.", "Resumed AUTO -> WP N", "Over <class>", "Servo C -> PWM", "RTL".',
+        'Keep the photo folder and file names: <ws>/src/video_cam/mapping_photos/"<lat:.6f> , <lon:.6f>.jpg".',
+        'Never arm, take off or upload the survey (the ground station does); never put simulator names (/sim/..., '
+        '~/.astra_sim) into team packages.',
+        'Built for ROS 2 Humble with the same interfaces package (ImageResult, AddWaypoint): Humble does not check '
+        'message versions, so a changed message breaks silently.',
+    ),
+)
+
 CONTRACTS: Dict[str, SlotContract] = {c.slot: c for c in (AUTOPILOT, CAMERA, DETECTOR, MISSION_BRAIN, WORLD,
-                                                           EXTRAS, NETWORK)}
+                                                           EXTRAS, NETWORK, TEAM_STACK)}
 
 
 def contract(slot: str) -> SlotContract:

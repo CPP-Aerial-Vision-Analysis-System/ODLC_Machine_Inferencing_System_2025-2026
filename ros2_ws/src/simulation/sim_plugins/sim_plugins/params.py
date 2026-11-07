@@ -33,6 +33,12 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 NAME_RE = re.compile(r'^[A-Z][A-Z0-9_]{0,15}$')
 
+#: The longest value accepted (a float written by Mission Planner has ~10-20 characters). With a name of at most
+#: 16 characters every line of the SITL defaults file stays far below 90 characters (ArduPilot reads defaults
+#: files in 100-byte pieces and silently breaks longer lines: see sim_models/config/astra_sitl.parm).
+MAX_VALUE_CHARS = 32
+MAX_LINE_CHARS = 89
+
 #: (regular expression, reason) of the parameter groups the safe filter drops. Checked in order.
 DROP_RULES: List[Tuple[str, str]] = [
     # -- the simulator's own settings (sim_models/config/astra_sitl.parm and the Gazebo model) --------
@@ -124,11 +130,49 @@ def parse_param_text(text: str) -> Tuple[List[ParamLine], List[Tuple[int, str]]]
                 continue
             name, value = parts[0].strip(), parts[1].strip()
         name = name.upper()
-        if not NAME_RE.match(name) or not _is_number(value):
+        if not NAME_RE.match(name) or not _is_number(value) or len(value) > MAX_VALUE_CHARS:
             bad.append((number, raw.strip()))
             continue
         found[name] = ParamLine(name, value, number)
     return list(found.values()), bad
+
+
+def bad_line_reason(text: str) -> str:
+    """Why one unreadable line is unreadable (plain words, for the error message)."""
+    line = text.split('#', 1)[0].strip()
+    parts = re.split(r'[,\s=]+', line)
+    if len(parts) < 2:
+        return 'no value after the name (want NAME,VALUE)'
+    name, value = parts[0].upper(), parts[1]
+    if not NAME_RE.match(name):
+        return f'"{parts[0][:20]}" is not an ArduPilot parameter name (1-16 capital letters, digits, _)'
+    if not _is_number(value):
+        return f'the value "{value[:20]}" is not a number'
+    if len(value) > MAX_VALUE_CHARS:
+        return f'the value has {len(value)} characters (at most {MAX_VALUE_CHARS})'
+    return 'not "NAME,VALUE"'
+
+
+def report_errors(report: 'ParamFileReport', show: int = 5) -> List[str]:
+    """The problems of one prepared parameter file that must STOP the start, each with the fix.
+
+    A Mission Planner / QGroundControl file never has unreadable lines, so a bad line means a wrong or damaged
+    file (a mission .waypoints file, a log, a hand edit with a typo). Loading it anyway would silently drop
+    settings the person expects, so the start stops and says exactly which lines to fix.
+    """
+    name = Path(report.source).name
+    errors: List[str] = []
+    if report.bad:
+        shown = '; '.join(f'line {n}: "{text[:60]}" ({bad_line_reason(text)})' for n, text in report.bad[:show])
+        more = f' (and {len(report.bad) - show} more)' if len(report.bad) > show else ''
+        errors.append(f'parameter file {name} has {len(report.bad)} unreadable line(s): {shown}{more}. Why: every '
+                      'line must be NAME,VALUE (Mission Planner) or NAME VALUE; a bad line usually means the wrong '
+                      f'file. Fix: correct or delete those lines (or put # in front of them) in {report.source}, or '
+                      'save the file again from Mission Planner (CONFIG > Full Parameter List > Save to file)')
+    if not report.kept and not report.bad and not report.dropped:
+        errors.append(f'parameter file {name} contains no NAME,VALUE lines at all. Likely cause: the wrong file. '
+                      'Fix: save the parameters from Mission Planner (CONFIG > Full Parameter List > Save to file)')
+    return errors
 
 
 def drop_reason(name: str, mode: str = 'safe', keep: Iterable[str] = ()) -> str:
@@ -175,6 +219,9 @@ def sitl_defaults_text(lines: Sequence[ParamLine], source: str) -> str:
               f'#   {Path(source).name[:70]}',
               '# One "NAME VALUE" per line. Rewritten at every start: edit the original file instead.']
     body = [f'{p.name} {p.value}' for p in lines]
+    too_long = [line for line in header + body if len(line) > MAX_LINE_CHARS]
+    if too_long:                                       # cannot happen with parse_param_text's limits: guard anyway
+        raise ValueError(f'SITL defaults line longer than {MAX_LINE_CHARS} characters: {too_long[0][:40]}...')
     return '\n'.join(header + body) + '\n'
 
 

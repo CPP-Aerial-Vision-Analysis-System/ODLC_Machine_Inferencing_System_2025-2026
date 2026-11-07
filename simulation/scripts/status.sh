@@ -12,12 +12,13 @@
 #  It only looks; it never starts or stops anything.
 #
 #  HOW TO RUN:   bash status.sh            (add --no-mavlink to skip step 5)
+#  Exit codes:   0 = the report was printed (read it: it shows what is missing), 2 = the command was typed wrong.
 # =============================================================================
 set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 MAVLINK=1
-case "${1:-}" in -h|--help) astra_usage "$0"; exit 0 ;; --no-mavlink) MAVLINK=0 ;; esac
+case "${1:-}" in -h|--help) astra_usage "$0"; exit 0 ;; --no-mavlink) MAVLINK=0 ;; '') ;; *) die_usage "unknown option \"$1\" (the only option is --no-mavlink)" ;; esac
 astra_load_env
 
 say "1. Session"
@@ -64,7 +65,10 @@ info "UDP 37260 (camera SDK):         $(port_state 37260 "$UDP")"
 info "TCP 82 (camera media server):   $(port_state 82 "$TCP")"
 
 say "4. Camera address and emulator"
-if astra_camera_ip_ok; then ok "$ASTRA_CAMERA_IP exists on this PC"; else warn "$ASTRA_CAMERA_IP is missing (run setup/camera_ip_alias.sh)"; fi
+if astra_camera_ip_ok; then ok "$ASTRA_CAMERA_IP exists on this PC"; else
+  warn "the camera address $ASTRA_CAMERA_IP is missing on this PC. Consequence: the team's video_cam cannot reach the camera" \
+       "emulator (no photos). Fix: sudo bash \"$ASTRA_SETUP_DIR/camera_ip_alias.sh\"  (demo.sh and start_sim.sh also add it)"
+fi
 if command -v curl >/dev/null 2>&1; then
   ans=$(curl -s -m 3 "http://$ASTRA_CAMERA_IP:82/cgi-bin/media.cgi/api/v1/getdirectories?media_type=0" 2>/dev/null)
   if [ -n "$ans" ]; then ok "camera media server answers: $(printf '%s' "$ans" | cut -c1-100)"; else info "camera media server: no answer"; fi

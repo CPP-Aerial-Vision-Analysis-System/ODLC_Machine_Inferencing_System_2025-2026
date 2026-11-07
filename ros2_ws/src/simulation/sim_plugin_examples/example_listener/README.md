@@ -1,3 +1,4 @@
+<!-- PURPOSE: explain the template "extra" program (it only listens and logs a flight summary, so it can never disturb the mission), how to copy it into your own logger or monitor, and how to run it next to the simulator. -->
 # example_listener: a template "extra" you copy
 
 An **extra** is anything you want running next to the simulation that is not one of the fixed slots: a

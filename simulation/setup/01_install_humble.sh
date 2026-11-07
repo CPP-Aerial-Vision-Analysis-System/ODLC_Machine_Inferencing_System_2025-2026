@@ -20,23 +20,34 @@
 #  Safe to run again: it skips what is already installed. If the internet drops
 #  halfway, run it again and it continues.
 #  NEXT STEP:    bash 02_setup_ardupilot.sh      (WITHOUT sudo), then bash 03_build.sh
+#  Exit codes:   0 = done, 1 = a step failed (which one, why and the fix are printed). docs/simulation/ERRORS.md
 # =============================================================================
 set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
+case "${1:-}" in -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;; esac
+STEP="start"
+# Any command that fails (set -e) says which step it was and what to do, instead of stopping silently.
+# shellcheck disable=SC2154  # (rc is set inside the trap text itself)
+trap 'rc=$?; [ $rc -eq 0 ] || printf "\033[1;31m XX [01_install_humble] ERROR: the step \"%s\" failed (exit %s; the reason is above).\n    Likely cause: no internet, a software source that did not answer, or apt busy with another install.\n    Fix: check the internet and run it again (it continues where it stopped):  sudo bash \"%s\"\033[0m\n" "$STEP" "$rc" "$0" >&2' EXIT
 
 # If Ubuntu is updating itself in the background, wait up to 10 minutes for it
 # instead of failing with "Unable to acquire the dpkg frontend lock".
 apt-get() { command apt-get -o DPkg::Lock::Timeout=600 "$@"; }
-say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
+say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; STEP="$*"; }
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "This script installs software, so it needs admin power."
-  echo "Run it like this:   sudo bash $0"
+  trap - EXIT
+  echo "[01_install_humble] ERROR: this script installs software, so it needs admin rights." >&2
+  echo "    Likely cause: it was started without sudo." >&2
+  echo "    Fix: sudo bash \"$0\"     (no Ubuntu password? from Windows PowerShell: wsl -d Ubuntu-22.04 -u root bash \"$(readlink -f "$0")\")" >&2
   exit 1
 fi
 . /etc/os-release
 if [ "${VERSION_CODENAME:-}" != "jammy" ]; then
-  echo "ASTRA needs Ubuntu 22.04 (codename jammy), like the Jetson. You have: ${PRETTY_NAME:-unknown}."
+  trap - EXIT
+  echo "[01_install_humble] ERROR: ASTRA needs Ubuntu 22.04 (codename jammy), like the Jetson. You have: ${PRETTY_NAME:-unknown}." >&2
+  echo "    Likely cause: another Ubuntu version or WSL distro; ROS 2 Humble is built for 22.04 only." >&2
+  echo "    Fix: install the Ubuntu-22.04 distro (Windows PowerShell: wsl --install -d Ubuntu-22.04) and run this there" >&2
   exit 1
 fi
 
@@ -53,7 +64,10 @@ if ! dpkg -s ros2-apt-source >/dev/null 2>&1; then
   ROS_APT_SOURCE_VERSION=$(curl -fsSL https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest \
     | grep -F '"tag_name"' | awk -F'"' '{print $4}')
   if [ -z "${ROS_APT_SOURCE_VERSION}" ]; then
-    echo "Could not ask GitHub for the newest ros2-apt-source version (internet or rate limit). Try again in a minute."
+    trap - EXIT
+    echo "[01_install_humble] ERROR: could not ask GitHub for the newest ros2-apt-source version." >&2
+    echo "    Likely cause: no internet, or GitHub's limit of 60 questions per hour from this address." >&2
+    echo "    Fix: wait a minute (an hour on a shared network) and run it again:  sudo bash \"$0\"" >&2
     exit 1
   fi
   curl -fsSL -o /tmp/ros2-apt-source.deb \
@@ -79,7 +93,7 @@ say "[5/8] Gazebo Harmonic + the ROS <-> Gazebo bridge built for Harmonic"
 # ros-humble-ros-gzharmonic replaces ros-humble-ros-gz (the Fortress version); never install both.
 apt-get install -y gz-harmonic ros-humble-ros-gzharmonic
 # Python access to Gazebo's message system (used by the SIYI camera emulator and test tools).
-apt-get install -y python3-gz-transport13 python3-gz-msgs10 || echo "WARNING: Gazebo Python bindings not found under these names."
+apt-get install -y python3-gz-transport13 python3-gz-msgs10 || echo "[01_install_humble] WARNING: the Gazebo Python bindings (python3-gz-transport13, python3-gz-msgs10) were not found. Consequence: only Python tools that talk to Gazebo directly stop working. Fix: run this again later; check with  apt-cache policy python3-gz-transport13" >&2
 
 say "[6/8] MAVROS (ROS 2 <-> ArduPilot) + the geoid files it needs for GPS heights"
 # MAVROS is currently missing from the main ROS apt repo for Humble, so (exactly like
@@ -132,7 +146,7 @@ if [ -f "${REPO_DOCKER_DIR}/requirements-dev.txt" ]; then
   python3 -m pip install --index-url https://download.pytorch.org/whl/cu126 torch==2.8.0 torchvision==0.23.0
   python3 -m pip install -r "${REPO_DOCKER_DIR}/requirements-ml.txt"
 else
-  echo "WARNING: docker/requirements-*.txt not found next to this script; skipping the Python ML stack."
+  echo "[01_install_humble] WARNING: docker/requirements-*.txt not found next to this script, so the Python ML stack (torch, ultralytics) was skipped. Likely cause: the script was copied out of the repo. Consequence: the team's real detector cannot run. Fix: run it from the repo: sudo bash simulation/setup/01_install_humble.sh" >&2
 fi
 
 say "[8/8] Graphics card settings for WSL2, simulator networking, rosdep"
@@ -161,7 +175,7 @@ sysctl -p /etc/sysctl.d/60-astra-sim.conf || true
 # The team's camera code talks to 192.168.144.25 (the real camera's address): give this PC that
 # address on the loopback device, now and at every start (a small systemd service).
 if [ -f "$(dirname "${BASH_SOURCE[0]}")/camera_ip_alias.sh" ]; then
-  bash "$(dirname "${BASH_SOURCE[0]}")/camera_ip_alias.sh" || echo "WARNING: could not add the camera address (see above)"
+  bash "$(dirname "${BASH_SOURCE[0]}")/camera_ip_alias.sh" || echo "[01_install_humble] WARNING: could not add the camera address 192.168.144.25 (the reason is above). Consequence: video_cam cannot reach the camera emulator until it exists. Fix: sudo bash simulation/setup/camera_ip_alias.sh (demo.sh also tries)" >&2
 fi
 # Ultralytics (the team's detector) wants a settings folder in the user's home.
 if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
@@ -169,6 +183,7 @@ if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
 fi
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then rosdep init || true; fi
 
+trap - EXIT
 say "ALL DONE: ROS 2 Humble + Gazebo Harmonic + MAVROS are installed."
 echo "Check:  source /opt/ros/humble/setup.bash && gz sim --versions && ros2 pkg prefix mavros"
 echo "Next step:  bash 02_setup_ardupilot.sh   (WITHOUT sudo)"

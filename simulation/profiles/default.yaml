@@ -78,3 +78,4 @@ run:
   headless: false              # true = no windows
   timeout_min: 30              # demo.sh gives up after this many minutes
   team_stack: local            # local = demo.sh starts ./launcher.sh sim | external = it runs elsewhere
+  team_repo: ""                # "" = the simulator's own copy of the team code; or another checkout (a fork)

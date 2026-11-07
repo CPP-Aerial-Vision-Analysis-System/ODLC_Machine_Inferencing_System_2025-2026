@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import autopilot as ap_mod
-from . import paths
+from . import model_check, paths
+from . import team_repo as team_repo_mod
 from .profiles import ResolvedProfile, dump_resolved
 
 #: Default value of every sim.launch.py argument a profile can set. MUST equal sim.launch.py's ARGUMENTS
@@ -250,6 +251,7 @@ def demo_vars(rp: ResolvedProfile, resolved_file: str = '', summary: str = '') -
     sc['FCU_URL_OVERRIDE'] = net['fcu_url'] or (default_fcu_url(net['mavros_port'], 'external')
                                                 if d['autopilot']['kind'] == 'external' else '')
     sc['TEAM_STACK_WHERE'] = d['run']['team_stack']
+    sc['TEAM_REPO'] = d['run']['team_repo']          # "" = demo.sh's own copy of the team code ($ASTRA_REPO)
     sc['NEED_DETECTOR'] = '1' if need_detector(rp) else '0'
     sc['CAMERA_KIND'] = d['camera']['kind']
     sc['CAMERA_IP'] = net['camera_ip']
@@ -310,7 +312,36 @@ def team_stack_hint(rp: ResolvedProfile, resolved_file: str = '') -> str:
     args = ([] if kind == 'team' else [f'detector:={DETECTOR_LAUNCH_VALUE[kind]}']) + team_launch_args(rp, resolved_file)
     fcu = rp.get('network.fcu_url') or default_fcu_url(rp.get('network.mavros_port'), rp.get('autopilot.kind'),
                                                        rp.get('autopilot.instance'))
-    return f'FCU_URL={fcu} TRACKER_CMD="{" ".join([TEAM_STACK_LAUNCH] + args)}" ./launcher.sh sim'
+    # run.team_repo: another checkout of the team code runs ITS launcher.sh (go into that folder first), and
+    # team_overlay.sh adds the simulator's sim_bringup under that checkout's packages (what demo.sh does too).
+    repo = rp.get('run.team_repo') or ''
+    tracker = ' '.join([TEAM_STACK_LAUNCH] + args)
+    if repo:
+        tracker = overlay_tracker(tracker, repo)
+    where = f'cd {shlex.quote(repo)} && ' if repo else ''
+    return f'{where}FCU_URL={fcu} TRACKER_CMD="{tracker}" ./launcher.sh sim'
+
+
+def sim_workspace() -> str:
+    """The simulator's own ros2_ws (the one with sim_bringup): $ASTRA_REPO/ros2_ws when demo.sh / _common.sh set
+    it, else the workspace this file sits in (a --symlink-install build points back into src/), else the Linux
+    copy simulation/setup/03_build.sh makes."""
+    env = os.environ.get('ASTRA_REPO', '')
+    if env and Path(env, 'ros2_ws').is_dir():
+        return str(Path(env) / 'ros2_ws')
+    here = Path(__file__).resolve()
+    if len(here.parents) > 4 and (here.parents[4] / 'src').is_dir() and here.parents[3].name == 'src':
+        return str(here.parents[4])
+    return '~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws'
+
+
+def overlay_tracker(tracker: str, team_repo: str, sim_ws: str = '') -> str:
+    """TRACKER_CMD for ANOTHER checkout of the team code (run.team_repo): the same command, started through
+    sim_plugins/scripts/team_overlay.sh, which sources the simulator's workspace first and the checkout's LAST
+    (its team packages win; sim_bringup comes from the simulator). demo.sh builds the same string."""
+    ws = sim_ws or sim_workspace()
+    script = f'{ws}/src/simulation/sim_plugins/scripts/team_overlay.sh'
+    return f'bash {script} --sim-ws {ws} --team-ws {team_repo.rstrip("/")}/ros2_ws -- {tracker}'
 
 
 # ---------------------------------------------------------------------------------------------
@@ -402,7 +433,9 @@ def summary_lines(rp: ResolvedProfile, env: Optional[Dict] = None) -> List[Tuple
                              f'{net["camera_ip"]}{" (listens on " + net["camera_bind"] + ")" if net["camera_bind"] else ""}'))
     fcu = net['fcu_url'] or default_fcu_url(net['mavros_port'], d['autopilot']['kind'], inst)
     where = d['run']['team_stack']
-    lines.append(('team stack', f'{"local: ./launcher.sh sim" if where == "local" else "external (started elsewhere; demo.sh only waits for it)"}'
+    repo = d['run'].get('team_repo') or ''
+    local = f'local: {repo}/launcher.sh sim (another checkout of the team code)' if repo else 'local: ./launcher.sh sim'
+    lines.append(('team stack', f'{local if where == "local" else "external (started elsewhere; demo.sh only waits for it)"}'
                                 f', MAVROS fcu_url {fcu}'))
     return lines
 
@@ -513,7 +546,22 @@ def check_environment(rp: ResolvedProfile, share_finder=None, prefix_finder=None
     mission = rp.get('world.mission')
     if mission and not Path(mission).is_file():
         errors.append(f'mission file not found: {mission}')
+    notes = list(apl.notes)
     model = rp.get('detector.model_path')
-    if rp.get('detector.kind') == 'team' and model and not Path(model).is_file():
-        errors.append(f'detector weights not found: {model}')
-    return {'errors': errors, 'warnings': warnings, 'notes': list(apl.notes), 'autopilot_plan': apl}
+    if rp.get('detector.kind') == 'team' and model:
+        # The quick model check (no PyTorch): exists, format, a .pt that really is PyTorch, an .engine without
+        # TensorRT here ... (demo.sh also LOADS it once before the flight: model_check --load).
+        mrep = model_check.quick_check(model, compute_hash=False)
+        errors += [f'detector model: {e}' for e in mrep.errors]
+        warnings += [f'detector model: {w}' for w in mrep.warnings]
+    repo = rp.get('run.team_repo')
+    if repo:
+        if rp.get('run.team_stack') == 'external':
+            warnings.append(f'run.team_repo {repo} is not used: run.team_stack is external (start that checkout\'s '
+                            './launcher.sh sim yourself, where it runs)')
+        else:
+            t_errors, t_warnings, t_notes = team_repo_mod.check(repo)
+            errors += [f'team code: {e}' for e in t_errors]
+            warnings += [f'team code: {w}' for w in t_warnings]
+            notes += t_notes
+    return {'errors': errors, 'warnings': warnings, 'notes': notes, 'autopilot_plan': apl}

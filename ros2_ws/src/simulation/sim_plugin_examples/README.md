@@ -1,3 +1,4 @@
+<!-- PURPOSE: introduce the two copy-and-rename template packages (a detector and a listening "extra"), say which simulator slot each fills and how to try it. The full guide is docs/simulation/PLUGINS.md. -->
 # sim_plugin_examples: templates to plug your own code into the simulator
 
 Two small, heavily commented ROS 2 packages to **copy** when you want to replace or add a piece of the

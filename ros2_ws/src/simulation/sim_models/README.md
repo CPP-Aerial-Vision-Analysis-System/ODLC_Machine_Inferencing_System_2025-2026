@@ -1,3 +1,4 @@
+<!-- PURPOSE: explain the simulated ASTRA drone (Iris airframe, SIYI A8 mini gimbal camera, the two droppable payloads, the extra SITL settings): what each file is, which topics and settings it offers, and how to test it. -->
 # sim_models: the simulated ASTRA drone
 
 This package is the **drone** of the ASTRA Gazebo simulator. It holds:

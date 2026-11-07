@@ -646,6 +646,15 @@ def cross_checks(data: Dict[str, Any], problems: List[Problem]) -> None:
     if ' ' in model:
         problems.append(Problem('detector.model_path', f'"{model}" contains a space: ./launcher.sh cannot pass it '
                                 'to the team stack', 'move the weights to a folder without spaces'))
+    if model and data['detector']['kind'] != 'team':
+        problems.append(Problem('detector.model_path', f'is ignored because detector.kind is '
+                                f'"{data["detector"]["kind"]}" (only the team\'s new_od loads weights)',
+                                'use detector.kind: team (demo.sh --detector real) to fly these weights',
+                                severity='warning'))
+    repo = data['run']['team_repo']
+    if ' ' in repo:
+        problems.append(Problem('run.team_repo', f'"{repo}" contains a space: colcon and ./launcher.sh do not work '
+                                'there', 'put the checkout in your Linux home, e.g. ~/astra_fork'))
     if data['run']['team_stack'] == 'external':
         team_side = [s for s in ('detector', 'mission_brain') if data[s]['kind'] == 'custom']
         team_side += [e['name'] for e in data['extras'] if e['start_with'] == 'team_stack']

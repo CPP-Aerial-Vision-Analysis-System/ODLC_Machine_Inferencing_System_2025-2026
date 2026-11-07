@@ -13,6 +13,7 @@
 #  The normal build (bash simulation/setup/03_build.sh) loads ROS itself and stops with a clear message if it is
 #  missing; use that instead of typing colcon by hand, or load ROS first (the line this script prints).
 # =============================================================================
+case "${1:-}" in -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;; esac
 fails=0
 ok()   { printf '  [ OK ]  %s\n' "$*"; }
 bad()  { printf '  [FAIL]  %s\n' "$*"; fails=$((fails + 1)); }

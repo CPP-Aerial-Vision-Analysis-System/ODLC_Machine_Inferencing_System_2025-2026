@@ -13,6 +13,7 @@
 #  HOW TO RUN:   bash take_photo.sh               (simulator running, start_sim.sh or demo.sh)
 #                bash take_photo.sh --direct      (skip the team code, talk to the camera emulator)
 #  Options are passed to photo_trigger: --timeout SECONDS, --camera-ip ADDRESS, --photo-dir DIR.
+#  Exit codes: 0 = a photo was saved (its path is printed), 1 = no photo (photo_trigger says why), 2 = typed wrong.
 # =============================================================================
 set -o pipefail
 # shellcheck source-path=SCRIPTDIR source=_common.sh
@@ -20,5 +21,6 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_common.sh"
 case "${1:-}" in -h|--help) astra_usage "$0"; exit 0 ;; esac
 astra_load_env
 astra_require_built
+astra_require_sim_running
 say "Taking a photo with the simulated camera"
 ros2 run sim_bringup photo_trigger "$@"

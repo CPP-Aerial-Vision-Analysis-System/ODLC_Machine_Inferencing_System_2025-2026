@@ -7,7 +7,9 @@ It installs the Python modules in sim_plugins/ and the README, and creates the c
     profile_tool   read, check and explain a plug-in profile (simulation/profiles/*.yaml):
                    validate, plan, resolve, list, contract (used by demo.sh and start_sim.sh)
     check_slot     look at the LIVE ROS graph and say whether the component in a slot (detector,
-                   mission_brain, camera, autopilot, world) keeps that slot's contract; exit 0/1
+                   mission_brain, team_stack, camera, autopilot, world) keeps that slot's contract; exit 0/1
+    model_check    check a detector weights file before a flight (exists, format, loads, classes); exit 0/1
+    run_meta       write <run>/run_meta/{autopilot,detector,team_stack}.json: which pieces really ran
 """
 from setuptools import find_packages, setup
 
@@ -32,6 +34,8 @@ setup(
         'console_scripts': [
             'profile_tool = sim_plugins.profile_tool:main',
             'check_slot = sim_plugins.check_slot:main',
+            'model_check = sim_plugins.model_check:main',
+            'run_meta = sim_plugins.run_meta:main',
         ],
     },
 )

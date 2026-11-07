@@ -45,12 +45,12 @@ def test_defaults_are_todays_values():
     assert d['detector']['kind'] == 'team' and d['mission_brain']['kind'] == 'team'
     assert (d['network']['gcs_port'], d['network']['mavros_port'], d['network']['panel_port']) == (14550, 14552, 14553)
     assert d['network']['camera_ip'] == '192.168.144.25'
-    assert d['run'] == {'headless': False, 'timeout_min': 30, 'team_stack': 'local'}
+    assert d['run'] == {'headless': False, 'timeout_min': 30, 'team_stack': 'local', 'team_repo': ''}
 
 
 @pytest.mark.parametrize('name', ['default', 'truth_detector', 'example_detector', 'example_listener',
                                   'ardupilot_version', 'ardupilot_source', 'external_autopilot',
-                                  'real_drone_params', 'docker_split'])
+                                  'real_drone_params', 'docker_split', 'custom_model', 'team_fork'])
 def test_every_example_profile_loads(sim_home, profiles_dir, name):
     rp = profiles.resolve(name, profiles_dir=profiles_dir)
     assert rp.name == name
@@ -291,3 +291,23 @@ def test_schema_lookup_and_keys():
     keys = dict(schema.all_keys())
     assert 'autopilot.external.mavlink' in keys and 'network.mavros_out' in keys
     assert all(f.help for f in keys.values())        # every key is documented
+
+
+# ---- the swap settings (docs/simulation/SWAPPING.md) -----------------------------------------------------
+
+def test_swap_example_profiles(sim_home, profiles_dir):
+    model = profiles.resolve('custom_model', profiles_dir=profiles_dir)
+    assert model.get('detector.kind') == 'team' and model.get('detector.model_path').endswith('my_detector.pt')
+    fork = profiles.resolve('team_fork', profiles_dir=profiles_dir)
+    assert fork.get('run.team_repo').endswith('astra_fork') and fork.get('run.team_stack') == 'local'
+
+
+def test_team_repo_with_a_space_is_refused(sim_home):
+    with pytest.raises(ProfileError) as exc:
+        profiles.resolve(None, sets=['run.team_repo=/home/me/my fork'])
+    assert any(p.where == 'run.team_repo' and 'space' in p.text() for p in errors_of(exc.value))
+
+
+def test_model_path_without_the_team_detector_is_a_warning(sim_home):
+    rp = profiles.resolve(None, sets=['detector.kind=truth', 'detector.model_path=/tmp/m.pt'])
+    assert any(w.where == 'detector.model_path' and 'ignored' in w.text() for w in rp.warnings)

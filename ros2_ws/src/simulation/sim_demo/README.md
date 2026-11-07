@@ -1,8 +1,13 @@
-<!-- Purpose: explain the simulation panel, repeat-run controls, detector stand-in and mission score,
-including their interfaces and the unit checks used before flying the simulator. -->
+<!-- Purpose: explain the simulation panel (off in demo.sh by default), repeat-run controls, detector stand-in,
+mission score and the camera stream for Mission Planner (pov_server), including their interfaces and the unit
+checks used before flying the simulator. -->
 # sim_demo: what you WATCH during a simulated search
 
-`sim_demo` is the part of the ASTRA simulator that people look at. It has four programs:
+`sim_demo` is the part of the ASTRA simulator that people look at. Since October 2026 the operator watches
+the flight in **Mission Planner with the ASTRA plugin** (see
+[docs/simulation/MISSION_PLANNER.md](../../../../docs/simulation/MISSION_PLANNER.md)); this package feeds it the
+drone camera picture through `pov_server` (section "Camera picture for Mission Planner" below), and
+`demo.sh` no longer opens the Qt `demo_panel` unless you add `--panel`. The four programs below still work:
 
 | Program | What it does, in one sentence |
 |---|---|
@@ -35,7 +40,15 @@ ros2 run sim_demo truth_detector --ros-args -p world:=suas_field
 ros2 run sim_demo demo_markers --ros-args -p world:=runway -p frame_id:=world
 ros2 run sim_demo score_run --ros-args -p world:=runway -p run_dir:=/tmp/my_run
 ros2 run sim_demo score_run --rescore /tmp/my_run           # score a recorded run again, no ROS needed
+ros2 run sim_demo mission_check field.waypoints             # explain + check a mission file (also .plan), no ROS needed
 ```
+
+`mission_check` (pure Python, also `python3 sim_demo/mission_check.py FILE` on any laptop, for real-drone files
+too) prints every item, the team-code indices (photos start, `buffer_wp`, hold, RTL), the lane speed and every
+problem with its fix; exit 0 = flyable, 1 = errors, 2 = bad command line, 3 = not a usable mission file,
+4 = the checker itself failed (a bug: report it with the file).
+`simulation/scripts/mission.sh check|load|fly` runs it before every upload ([COMMANDS](../../../../docs/simulation/COMMANDS.md#mission-plans),
+[ERRORS](../../../../docs/simulation/ERRORS.md#mission_check-the-mission-checker)).
 
 ## The demo panel
 
@@ -84,7 +97,7 @@ From top to bottom:
    | **OPEN MISSION PLANNER** | (Windows laptop only) starts Mission Planner, the team's ground-station program on Windows, so you can watch the simulated drone in it. It stays open when the panel closes. If it is already open, nothing happens (the panel says so). |
    | **CLOSE MISSION PLANNER** | asks Mission Planner to close, like clicking its X. If it is still open 5 s later, it is forced closed. Safe during a flight: the simulated autopilot has no ground-station failsafe. |
    | **● Mission Planner: running** (right of the CONTROLS title) | green = Mission Planner is open; grey = `not running` (or `not installed` / `not on Windows`); amber = `opening ...` / `closing ...`. It is checked every 2 s. |
-   | **In Mission Planner: UDP -> CONNECT -> port 14550** | what to click in Mission Planner once it is open (step by step: `simulation/README.md`, "Watch it in Mission Planner"). |
+   | **In Mission Planner: UDP -> CONNECT -> port 14550** | what to click in Mission Planner once it is open (step by step: [docs/simulation/MISSION_PLANNER.md](../../../../docs/simulation/MISSION_PLANNER.md)). |
    | status line (bottom of the card) | what the last button press did, in words (also written into the event log). |
 
    A Mission Planner button is grey when it cannot do anything right now: OPEN while Mission
@@ -279,6 +292,7 @@ All parameters with comments: [config/demo_params.yaml](config/demo_params.yaml)
 | `photos.py` | photo folder rule, `"<lat> , <lon>.jpg"` names (same rules as `detection/geotag.py`), folder watcher | no |
 | `world_info.py` | reads world config + answer key (forgiving about the format) | no |
 | `mission_file.py` | reads `.waypoints`, finds takeoff, camera start, lanes, hold point, RTL (same index rules as the team code) | no |
+| `mission_check.py` | `mission_check`: reads `.waypoints` / QGroundControl `.plan`, explains every item, checks the team-code shape and the SUAS 150-400 ft rule, converts `.plan` to `.waypoints` | no |
 | `detections.py` | `ImageResult` <-> simple records; "what main_controller picks" | no |
 | `phases.py` | mission phase state machine from status texts, mode, reached waypoints | no |
 | `pose_history.py`, `zoom.py`, `photo_info.py`, `photo_geometry.py` | where the camera was / pointed / zoomed for each photo | no |

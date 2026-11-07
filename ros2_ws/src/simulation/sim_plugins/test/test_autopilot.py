@@ -196,3 +196,37 @@ def test_non_executable_binary_is_refused(sim_home, tmp_path):
     prog.write_bytes(b'\x7fELF')
     prog.chmod(0o644)
     assert ap.plan_autopilot(settings(f'autopilot.binary={prog}')).errors
+
+
+# ---- clear errors for the swaps (docs/simulation/SWAPPING.md) -------------------------------------------
+
+def test_a_param_file_with_bad_lines_stops_the_plan(sim_home, fake_arducopter, tmp_path):
+    binary = fake_arducopter(sim_home['sitl'] / 'arducopter', '4.6.3')
+    bad = tmp_path / 'drone.param'
+    bad.write_text('WPNAV_SPEED,500\nnot a parameter line\n', encoding='utf-8')
+    s = ap.AutopilotSettings(binary=str(binary), param_files=[str(bad)])
+    plan = ap.plan_autopilot(s, params_out_dir=tmp_path / 'out', write_params=False)
+    assert any('unreadable line' in e and 'line 2' in e for e in plan.errors)
+
+
+def test_missing_version_says_how_to_fetch_it(sim_home):
+    plan = ap.plan_autopilot(ap.AutopilotSettings(version='4.7.1'), write_params=False)
+    assert plan.errors and 'fetch_sitl.sh 4.7.1' in plan.errors[0] and 'never fetched' in plan.errors[0]
+
+
+def test_wrong_binary_path_and_not_executable(sim_home, tmp_path):
+    plan = ap.plan_autopilot(ap.AutopilotSettings(binary=str(tmp_path / 'nope')), write_params=False)
+    assert plan.errors and 'does not exist' in plan.errors[0] and 'ls -l' in plan.errors[0]
+
+
+def test_unbuilt_source_tree_says_how_to_build(sim_home, tmp_path):
+    tree = tmp_path / 'ardupilot'
+    tree.mkdir()
+    plan = ap.plan_autopilot(ap.AutopilotSettings(source_dir=str(tree)), write_params=False)
+    assert plan.errors and 'not built yet' in plan.errors[0] and './waf copter' in plan.errors[0]
+
+
+def test_version_folder_with_another_program_inside_is_noted(sim_home, fake_arducopter):
+    fake_arducopter(sim_home['versions'] / '4.7.1' / 'arducopter', '4.6.3')
+    plan = ap.plan_autopilot(ap.AutopilotSettings(version='4.7.1'), write_params=False)
+    assert not plan.errors and any('the program says 4.6.3' in n for n in plan.notes)

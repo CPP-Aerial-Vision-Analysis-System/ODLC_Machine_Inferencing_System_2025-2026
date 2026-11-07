@@ -1,0 +1,18 @@
+# team_fork.yaml -- PURPOSE: EXAMPLE - fly the demo with ANOTHER COPY of the team's Jetson code: a teammate's fork,
+# another branch, or this year's code, instead of the simulator's own copy. demo.sh goes into that folder and
+# starts ITS ./launcher.sh sim, exactly like the real Jetson Orin Nano does (MAVROS + tracker.launch.xml), and
+# sim_plugins' team_overlay.sh makes that checkout's team packages win over the simulator's copies.
+# The checkout must keep the "two doors" (MAVROS topics and services, the SIYI camera protocol), the six node
+# names and the status texts the simulator watches (python3 -m sim_plugins.profile_tool contract --slot team_stack).
+# Get it ready (inside Ubuntu, a folder WITHOUT spaces):
+#     git clone -b <branch> <fork URL> ~/astra_fork
+#     source /opt/ros/humble/setup.bash && cd ~/astra_fork/ros2_ws && colcon build --symlink-install \
+#         --packages-ignore ultralytics_ros
+# Then:   bash simulation/scripts/demo.sh --profile team_fork.yaml       (after changing team_repo below)
+# Same without a file:  bash simulation/scripts/demo.sh --team-repo ~/astra_fork
+# Guide: docs/simulation/SWAPPING.md (swap 2: the Jetson code).
+profile: 1
+name: team_fork
+description: EXAMPLE - another checkout of the team's Jetson code (change team_repo to your folder)
+run:
+  team_repo: ~/astra_fork                      # a folder with launcher.sh and a built ros2_ws

@@ -8,6 +8,11 @@ the README, and creates the four commands teammates run with `ros2 run sim_demo 
     demo_markers    RViz markers (search area, targets, detections, footprints, track, drops)
     score_run       records a run and writes a Markdown + JSON score report
     pov_server      the camera picture as an MJPEG web stream, for Mission Planner (http://127.0.0.1:8081/pov.mjpg)
+    mission_check   explains a mission file (.waypoints / .plan) in plain words and checks the team code can fly it
+    flight_recorder listens to MAVLink only and writes a run's CSV files live (telemetry, events, phases, drops)
+    export_csv      writes the CSV files of any run folder (also older runs) from its JSON files
+    run_summary     run_summary.md/.json of a run, the runs_index.csv table, and the helpers behind logs.sh
+    run_records     starts / stops / finishes a run's records (recorder + CSV + summary), also for START OVER runs
 """
 from glob import glob
 
@@ -40,6 +45,11 @@ setup(
             'demo_markers = sim_demo.demo_markers:main',
             'score_run = sim_demo.score_run:main',
             'pov_server = sim_demo.pov_server:main',
+            'mission_check = sim_demo.mission_check:main',
+            'flight_recorder = sim_demo.flight_recorder:main',
+            'export_csv = sim_demo.csv_export:main',
+            'run_summary = sim_demo.run_summary:main',
+            'run_records = sim_demo.run_records:main',
         ],
     },
 )

@@ -7,6 +7,10 @@ Start with the latest run's `sim.log` and `team_stack.log` under `~/.astra_sim/r
 resolved settings, processes, network endpoints and ROS nodes without opening the ground-tools UDP
 port. Use a sourced Ubuntu terminal in the Linux checkout.
 
+Every error message names its command in brackets (`XX [demo] ERROR: ...`) and says what failed, the
+likely cause and the exact fix. [ERRORS](ERRORS.md) lists every message by command with its meaning and fix;
+[COMMANDS](COMMANDS.md) lists every command (`bash simulation/scripts/astra.sh help`) with copy-paste examples.
+
 For a controlled retry, stop your recorded session with `bash simulation/scripts/stop_sim.sh`, stop
 any launcher you started by hand in its own terminal, and rerun the original command. Closing Gazebo's
 window alone leaves its server running. Use one heavy simulator/build/Docker/generator job at a time;

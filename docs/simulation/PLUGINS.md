@@ -7,6 +7,10 @@ It changes only simulator wiring: the team's flight launch remains the reference
 detector or mission brain filters a generated copy of that launch file. The team's original file is
 kept intact. Profiles and templates are still being validated; see [the handoff](../HANDOFF.md).
 
+**Just want to swap something?** [SWAPPING.md](SWAPPING.md) gives one copy-paste command per swap (another
+ArduCopter, the real drone's parameters, another copy of the Jetson code, other YOLO weights, another
+detector), how to know it worked, and how to go back. This page is the reference behind it.
+
 Run these commands from the Linux checkout after [building the simulator](../../simulation/README.md)
 and sourcing `simulation/setup/sim_env.sh`:
 
@@ -54,15 +58,20 @@ parameter files and split-container wiring. See [ARDUPILOT.md](ARDUPILOT.md) for
 ## Test new recognition weights
 
 The shortest path for an Ultralytics model compatible with the team's SAHI pipeline is to supply its
-weights. Keep them in local model storage outside this public repo:
+weights. Keep them in local model storage outside this public repo, check them, then fly them:
 
 ```bash
 source simulation/setup/sim_env.sh
-export ASTRA_DETECTOR_MODEL="$HOME/.astra_sim/models/my_detector.pt"
-bash simulation/scripts/demo.sh runway --headless
+python3 -m sim_plugins.model_check ~/.astra_sim/models/my_detector.pt --load
+bash simulation/scripts/demo.sh runway --model ~/.astra_sim/models/my_detector.pt
 ```
 
-This changes the laptop wrapper's model path for that process environment. For a saved experiment:
+`--model FILE` is the same as `--set detector.model_path=FILE`. Before anything starts, demo.sh checks the
+file (it exists, it really is PyTorch, it is not a TensorRT `.engine` on a PC without TensorRT), loads it once
+(GPU or CPU, with the measured time per tile) and writes its name, size and SHA-256 into
+`<run>/run_meta/detector.json`. `export ASTRA_DETECTOR_MODEL=FILE` still works too (it changes the default
+model path for that shell). For a saved experiment
+([custom_model.yaml](../../simulation/profiles/custom_model.yaml) is a ready example):
 
 ```yaml
 # PURPOSE: test locally installed recognition weights through the team's existing detector.
@@ -242,6 +251,7 @@ A profile only needs the keys it changes. The dotted name (for example `camera.m
 | `run.headless` | `false` | `true` or `false` | true = no windows (Gazebo, RViz, demo panel) |
 | `run.timeout_min` | `30` | a whole number 1..1440 | demo.sh gives up after this long |
 | `run.team_stack` | `local` | one of `local`, `external` | local = demo.sh starts ./launcher.sh sim \| external = the team stack runs somewhere else (another container/PC); demo.sh only waits for it |
+| `run.team_repo` | `""` | a file path (a relative path starts at the profile's folder) | which copy of the team's Jetson code demo.sh runs: "" = the simulator's own Linux copy; or the folder of another checkout (a teammate's fork or branch) with launcher.sh and a built ros2_ws (demo.sh --team-repo) |
 
 #### Entry keys
 
@@ -273,7 +283,7 @@ the panel and scoring tools, while the required interfaces let the selected comp
 
 **Default:** team: detection/new_od (YOLO26m on 640 px tiles), started by main/launch/tracker.launch.xml
 
-**Alternatives:** truth (sim_demo truth_detector, the answer key) | custom (your detector: replaces new_od)
+**Alternatives:** other weights for new_od (detector.model_path / demo.sh --model FILE: checked and loaded before the flight) | truth (sim_demo truth_detector, the answer key) | custom (your detector: replaces new_od)
 
 Reads every new photo that video_cam saves in the team photo folder and publishes ONE interfaces/ImageResult per photo on /image_detection. main_controller uses those messages to choose where to drop.
 
@@ -350,6 +360,54 @@ Rules:
 5. Phase monitor texts (optional): "Reached last WP ...", "All N images processed ..." or "Processing timeout ...", "Targets: ...", "No valid targets ...", "Over tent|person ...", "Servo 13 -> 1400", "RTL".
 6. Run ONE mission brain at a time (two would fight over the flight mode).
 
+<a id="team_stack"></a>
+
+### Team stack (the Jetson code as a whole: ./launcher.sh sim + tracker.launch.xml)
+
+**Default:** the simulator's own Linux copy of the team repo (~/ODLC_Machine_Inferencing_System_2025-2026), started by demo.sh as ./launcher.sh sim
+
+**Alternatives:** another checkout (a teammate's fork or branch, this year's code): run.team_repo / demo.sh --team-repo DIR | external (run.team_stack: external: the Jetson container, or the real Jetson Orin Nano reached over USB-C or plain SSH) | one node replaced: detector / mission_brain custom
+
+Everything the real Jetson Orin Nano runs. It touches the world ONLY through two doors: MAVLink (MAVROS topics and services) and the SIYI camera protocol at 192.168.144.25. Any checkout that keeps these doors, the node names and the status texts below runs in the simulator unchanged.
+
+Node name the stack waits for: `mavros`, `waypoint_manager`, `gps_mavros_service_node`, `mission_camera_trigger`, `siyi`, `new_od`, `main_controller` (a custom component says its own with `node_name`).
+
+| Topic | Type | The component ... | QoS | Required | Notes |
+|---|---|---|---|---|---|
+| `/mavros/state` | `mavros_msgs/msg/State` | publishes | any | yes | MAVROS (fcu_url from FCU_URL): connected must become true |
+| `/mavros/statustext/recv` | `mavros_msgs/msg/StatusText` | subscribes to | any | yes | mission_camera_trigger + waypoint_manager: "Mission: N DigiCamCtrl" starts the photos, "Flight plan received" = new mission |
+| `/mavros/statustext/send` | `mavros_msgs/msg/StatusText` | publishes | any | yes | the team texts the simulator parses (rules below); at most 50 characters |
+| `/mavros/mission/waypoints` | `mavros_msgs/msg/WaypointList` | subscribes to | any | yes | waypoint_manager + main_controller read the mission |
+| `/camera/trigger` | `std_msgs/msg/Bool` | subscribes to | any | yes | siyi (video_cam): one photo per message (mission_camera_trigger sends 1 per second) |
+| `/image_detection` | `interfaces/msg/ImageResult` | publishes | reliable | yes | new_od -> main_controller, RELIABLE depth 10 (see the detector contract) |
+
+| Service | Type | The component is the ... | Required | Notes |
+|---|---|---|---|---|
+| `/addWaypoint` | `interfaces/srv/AddWaypoint` | server | yes | waypoint_manager inserts the target waypoints for main_controller |
+| `/mavros/set_mode` | `mavros_msgs/srv/SetMode` | server | yes | MAVROS: GUIDED / AUTO / RTL |
+| `/mavros/cmd/command` | `mavros_msgs/srv/CommandLong` | server | yes | MAVROS: DO_SET_SERVO (183) for the drops |
+| `/mavros/mission/pull` | `mavros_msgs/srv/WaypointPull` | server | yes | MAVROS: the scripts and waypoint_manager re-read the mission |
+
+| File / folder | The component ... | Notes |
+|---|---|---|
+| `<checkout>/launcher.sh` | reads | must honour TRACKER_CMD and FCU_URL (the simulator's only hook) |
+| `<checkout>/ros2_ws/install/` | reads | built with colcon: main, video_cam, detection, mapping, waypoint_mavros, gps_ros2, wp_sender, interfaces |
+| `<checkout>/ros2_ws/src/main/launch/tracker.launch.xml` | reads | the flight launch; team_stack.launch.py includes it unchanged |
+| `<ws>/src/video_cam/mapping_photos/` | writes | video_cam saves "<lat> , <lon>.jpg" + .json sidecar; new_od and main_controller read them (<ws> = the checkout's ros2_ws) |
+
+| Network | The component ... | Notes |
+|---|---|---|
+| `MAVLink: FCU_URL (sim: tcp://127.0.0.1:5763 = SITL SERIAL2; drone: /dev/ttyUSB0:115200)` | talks to | MAVROS only; the team nodes use MAVROS topics and services, never MAVLink directly |
+| `UDP 192.168.144.25:37260 + TCP 192.168.144.25:82` | talks to | video_cam: SIYI SDK + HTTP media API (see the camera contract) |
+
+Rules:
+
+1. Keep the node names: stack_check waits for waypoint_manager, gps_mavros_service_node, mission_camera_trigger, siyi, new_od and main_controller (a renamed node needs a profile with a custom slot and node_name).
+2. Keep the status texts the simulator parses: "Camera trigger STARTED", "SUCCESS: Captured <res> image #N", "Zoom set to Xx", "Detected <class>", "Reached last WP" / "Holding to finish", "Targets: tent@N -> person@M. Diverting.", "Resumed AUTO -> WP N", "Over <class>", "Servo C -> PWM", "RTL".
+3. Keep the photo folder and file names: <ws>/src/video_cam/mapping_photos/"<lat:.6f> , <lon:.6f>.jpg".
+4. Never arm, take off or upload the survey (the ground station does); never put simulator names (/sim/..., ~/.astra_sim) into team packages.
+5. Built for ROS 2 Humble with the same interfaces package (ImageResult, AddWaypoint): Humble does not check message versions, so a changed message breaks silently.
+
 <a id="camera"></a>
 
 ### Camera (the SIYI gimbal camera on the drone's network)
@@ -387,7 +445,7 @@ Rules:
 
 **Default:** ArduCopter SITL 4.6.3 (~/sitl/arducopter) + copter.parm, gazebo-iris.parm, astra_sitl.parm
 
-**Alternatives:** another version (fetch_sitl.sh), a source build (/opt/ardupilot), extra parameter files, or external (another container / PC)
+**Alternatives:** another version (fetch_sitl.sh), a source build (/opt/ardupilot), extra parameter files, or external (another container / PC); every run records the version the autopilot reports in <run>/run_meta/autopilot.json
 
 Flies the drone in Gazebo through the ArduPilot plugin's JSON physics link and talks MAVLink to MAVProxy, which copies it to MAVROS (the team stack), our scripts and the demo panel.
 
@@ -398,8 +456,9 @@ Flies the drone in Gazebo through the ArduPilot plugin's JSON physics link and t
 | Network | The component ... | Notes |
 |---|---|---|
 | `UDP 9002+10*I (Gazebo computer)` | talks to | JSON physics link: the drone's ArduPilotPlugin listens (lock-step); SITL sends servo outputs |
-| `TCP 5760+10*I` | listens | SITL serial0: MAVProxy connects here (5762/5763+10*I are spare) |
-| `UDP 127.0.0.1:14550 / 14552 / 14553` | talks to | MAVProxy outputs: ground station + our scripts / MAVROS / demo panel (+ Windows ground station) |
+| `TCP 5760+10*I` | listens | SITL serial0: MAVProxy connects here (5762+10*I = SERIAL1, spare: a second ground station) |
+| `TCP 5763+10*I` | listens | SITL SERIAL2: the team's MAVROS connects here, wired like the real Jetson on the Pixhawk's TELEM2 (an external autopilot: MAVROS uses MAVProxy's udp 14552 output instead) |
+| `UDP 127.0.0.1:14550 / 14552 / 14553` | talks to | MAVProxy outputs: ground station + our scripts / old MAVROS door / demo panel (+ Windows ground station) |
 
 Rules:
 

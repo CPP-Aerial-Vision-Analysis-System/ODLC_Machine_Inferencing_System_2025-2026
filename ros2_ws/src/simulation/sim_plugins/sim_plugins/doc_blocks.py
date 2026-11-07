@@ -28,7 +28,7 @@ from . import contracts, schema
 BLOCKS = ('reference', 'contracts')
 
 #: The slots in the order the contracts are shown (the ones teammates replace most often first).
-CONTRACT_ORDER = ('detector', 'mission_brain', 'camera', 'autopilot', 'world', 'extras', 'network')
+CONTRACT_ORDER = ('detector', 'mission_brain', 'team_stack', 'camera', 'autopilot', 'world', 'extras', 'network')
 
 #: Plain words for each kind of value (schema.Field.kind).
 KIND_WORDS = {

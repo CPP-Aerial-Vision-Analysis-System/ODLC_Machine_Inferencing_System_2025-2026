@@ -45,7 +45,9 @@ if [ -f /opt/ros/humble/setup.bash ]; then
   # shellcheck disable=SC1091
   source /opt/ros/humble/setup.bash
 else
-  echo "[sim_env] ROS 2 Humble is not installed (/opt/ros/humble). Run simulation/setup/01_install_humble.sh first."
+  echo "[sim_env] WARNING: ROS 2 Humble is not installed (/opt/ros/humble/setup.bash is missing). Likely cause: setup" \
+       "step 1 has not run on this PC. Consequence: no ros2 command and no simulator script works in this terminal." \
+       "Fix: sudo bash \"$_astra_setup_dir/01_install_humble.sh\"" >&2
 fi
 if [ -f "$ASTRA_REPO/ros2_ws/install/setup.bash" ]; then
   # shellcheck disable=SC1091

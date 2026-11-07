@@ -1,3 +1,4 @@
+<!-- PURPOSE: explain the template detector (what it reads, what it must publish on /image_detection so main_controller accepts it), how to copy and rename it into your own detector, and how to test it. -->
 # example_detector: a template detector you copy
 
 A tiny detector that does on the outside **exactly** what the team's `detection/new_od` does, so the

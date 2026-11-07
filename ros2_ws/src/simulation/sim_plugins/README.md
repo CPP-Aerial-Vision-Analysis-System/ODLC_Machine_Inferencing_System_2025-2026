@@ -6,9 +6,10 @@
 camera, the detector, the mission brain, the world, extra programs) with a small YAML **profile**, and
 then **check** that the new piece talks exactly like the one it replaces.
 
-The user guide is [docs/simulation/PLUGINS.md](../../../../docs/simulation/PLUGINS.md) (and
-[ARDUPILOT.md](../../../../docs/simulation/ARDUPILOT.md) for the autopilot). This page is for people who
-change `sim_plugins` itself.
+The user guides are [docs/simulation/SWAPPING.md](../../../../docs/simulation/SWAPPING.md) (one command per
+swap: ArduPilot, the Jetson code, the detection model), [docs/simulation/PLUGINS.md](../../../../docs/simulation/PLUGINS.md)
+(every slot and key) and [ARDUPILOT.md](../../../../docs/simulation/ARDUPILOT.md) for the autopilot. This page is
+for people who change `sim_plugins` itself.
 
 ## Commands
 
@@ -21,6 +22,10 @@ ros2 run sim_plugins profile_tool contract [--slot detector] [--markdown]
 ros2 run sim_plugins profile_tool shell --for demo|start_sim ...        # used by demo.sh / start_sim.sh
 ros2 run sim_plugins profile_tool docs --check | --write                # the generated parts of PLUGINS.md
 ros2 run sim_plugins check_slot --slot detector|mission_brain|camera|autopilot|world|extras [--node N]
+ros2 run sim_plugins check_slot --slot team_stack [--skip-node new_od --add-node my_det]   # the whole Jetson code
+ros2 run sim_plugins model_check FILE.pt [--load] [--device auto|cpu|cuda:0] [--json OUT]  # exit 0 ok, 3 unusable
+ros2 run sim_plugins run_meta autopilot|detector|team-stack --out <run>/run_meta/X.json ...  # what really ran
+bash scripts/team_overlay.sh --sim-ws SIM_WS --team-ws FORK_WS -- COMMAND   # demo.sh --team-repo's wrapper
 ```
 
 **Changed `schema.py` or `contracts.py`?** Run `python3 -m sim_plugins.profile_tool docs --write`: it rewrites
@@ -44,6 +49,10 @@ Every `ros2 run sim_plugins profile_tool ...` also works as `python3 -m sim_plug
 | `launch_support.py` | profile entries -> launch actions (used by `sim.launch.py` and `team_stack.launch.py`) | launch |
 | `check_slot.py` | the conformance checker over a `Graph` (live `RosGraph`, or `FakeGraph` in tests) | rclpy (main only) |
 | `doc_blocks.py` | the generated parts of `docs/simulation/PLUGINS.md` (profile reference, contract tables) | no |
+| `model_check.py` | a detector weights file before a flight: exists, format, really PyTorch, `.engine` without TensorRT, SHA-256; `--load` loads it (GPU/CPU, ms per tile, class names vs the team's CLASS_MAP) | no (`--load`: torch + ultralytics) |
+| `run_meta.py` | writes `<run>/run_meta/{autopilot,detector,team_stack}.json` (schema `astra.run_meta.<what>.v1`): the ArduCopter version the autopilot reported, the model file, the Jetson code checkout | no (pymavlink optional) |
+| `team_repo.py` | checks another checkout of the team code (`run.team_repo`, `demo.sh --team-repo`): launcher hooks, build, node names, status texts | no |
+| `scripts/team_overlay.sh` | started as `TRACKER_CMD` inside that checkout's `launcher.sh`: simulator workspace first, the checkout's workspace last (its team packages win), then the command | bash + ROS |
 | `profile_tool.py` | the command line | no |
 
 The rule that keeps today's behaviour: **only settings that differ from the defaults produce
