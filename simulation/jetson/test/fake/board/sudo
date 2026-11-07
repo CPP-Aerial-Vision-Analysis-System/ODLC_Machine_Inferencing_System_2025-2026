@@ -1,0 +1,5 @@
+#!/bin/bash
+# test/fake/board/sudo -- PURPOSE: the Jetson's sudo in the kit's tests: like a team account WITHOUT passwordless sudo
+# ("sudo -n" fails at once). The kit must work, and say what needs sudo, in that case.
+echo "sudo: a password is required" >&2
+exit 1

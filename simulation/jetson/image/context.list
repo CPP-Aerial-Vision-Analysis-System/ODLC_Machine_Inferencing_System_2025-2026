@@ -1,0 +1,31 @@
+# context.list -- PURPOSE: which repo files go INTO the Jetson-in-the-loop image (layer 3, image/Dockerfile).
+# `jetson.sh image build` copies each listed path (relative to the repo root) into the build context, so the image
+# is self-contained: putting the container on the Jetson is all it takes (no repo checkout, no colcon on the board).
+# Lines starting with "- " are rsync exclude patterns applied to every copy. Edit this file to add a package.
+# Never copied: model files (*.pt *.onnx *.engine: an engine belongs to ONE board and ONE TensorRT version, and
+# the force-committed ros2_ws/src/yolo26m.engine was built on another board), photos, build outputs, git data.
+launcher.sh
+scripts/humanize.sh
+ros2_ws/src/main
+ros2_ws/src/video_cam
+ros2_ws/src/detection
+ros2_ws/src/mapping
+ros2_ws/src/waypoint_mavros
+ros2_ws/src/wp_sender
+ros2_ws/src/gps_ros2
+ros2_ws/src/interfaces
+ros2_ws/src/simulation/sim_bringup
+- *.pt
+- *.onnx
+- *.engine
+- *.bak
+- *.bak2
+- __pycache__
+- .pytest_cache
+- build/
+- install/
+- log/
+- .git
+- mapping_photos/*
+- detection_results_sahi/*
+- camera_feed/*

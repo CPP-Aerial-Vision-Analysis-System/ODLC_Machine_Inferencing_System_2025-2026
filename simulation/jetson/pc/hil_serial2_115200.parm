@@ -1,0 +1,10 @@
+# hil_serial2_115200.parm -- PURPOSE: make SITL's SERIAL2 (the Pixhawk's TELEM2, where the Jetson is plugged in) as
+# slow as the real 115200-baud serial cable, for  demo.sh --jetson ... --jetson-baud 115200  (HIL_DESIGN.md 12.1
+# item 2). ArduCopter 4.6.3 SITL limits each telemetry port to its SERIALn_BAUD when SIM_BAUDLIMIT_EN is 1
+# (libraries/SITL/SITL.cpp, default 0). The limit applies to EVERY port, so SERIAL0 (MAVProxy -> Mission Planner,
+# mission_tool, the flight recorder) is set to 921600 to keep the ground side as fast as today.
+# demo.sh adds this file through autopilot.param_files and keeps these names through autopilot.param_keep (the safe
+# parameter filter drops SIM_* and SERIAL* lines from other files on purpose).
+SIM_BAUDLIMIT_EN 1
+SERIAL0_BAUD 921
+SERIAL2_BAUD 115

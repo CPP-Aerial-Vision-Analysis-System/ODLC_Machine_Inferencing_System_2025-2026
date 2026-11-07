@@ -1,0 +1,5 @@
+#!/bin/bash
+# test/fake/board/tegrastats -- PURPOSE: the Jetson's load monitor in the kit's tests; GPU load from $FAKE_GPU (default 0).
+for _ in 1 2 3; do
+  echo "10-31-2026 12:00:00 RAM 3200/7620MB (lfb 4x4MB) CPU [20%@1728,10%@1728] GR3D_FREQ ${FAKE_GPU:-0}% cpu@48C"
+done

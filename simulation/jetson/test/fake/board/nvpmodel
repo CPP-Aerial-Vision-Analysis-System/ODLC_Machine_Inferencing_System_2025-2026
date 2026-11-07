@@ -1,0 +1,5 @@
+#!/bin/bash
+# test/fake/board/nvpmodel -- PURPOSE: the Jetson's power-mode tool in the kit's tests (read-only query only).
+[ "$1" = -q ] || { echo "fake nvpmodel: only -q is answered (the kit never changes the mode)" >&2; exit 1; }
+echo "NV Power Mode: MAXN_SUPER"
+echo "2"

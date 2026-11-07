@@ -1,0 +1,10 @@
+# jetson_virtual.yaml -- PURPOSE: the "virtual Jetson": the SAME team-stack container as on the real Jetson (its x86
+# build, astra-hil:virtual), started the SAME way, but on this PC with the Docker Engine inside WSL and the PC's GPU.
+# It tests everything of a Jetson-in-the-loop flight except the cable, the arm64 build and the Jetson GPU, with no
+# board connected (docs/jetson/HIL_DESIGN.md section 12). The link is a local stand-in (hil_relay.py pc-local) that
+# makes the same socket files SSH would make, so the container cannot tell the difference.
+# Use it:  bash simulation/scripts/demo.sh runway --jetson virtual      (picks this profile by itself)
+profile: 1
+name: jetson_virtual
+description: the virtual Jetson - the team-stack container on this PC (demo.sh --jetson virtual)
+extends: jetson_usb

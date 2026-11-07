@@ -1,0 +1,68 @@
+# tap_topics.txt -- PURPOSE: the ONE list of what the "ROS tap" copies from the team stack on the Jetson (inside the
+# container astra-hil) to the simulator PC, one way, read-only (docs/jetson/HIL_DESIGN.md section 7). The PC's score
+# report (score_run) and live phase view (phase_monitor) are ROS programs that must stay on the PC, so they need these
+# topics; nothing is ever sent back into the Jetson's ROS graph. To copy one more topic, add one line here.
+#
+# Format: one "topic type" pair per line ("#" starts a comment). Sections:
+#   [common]  MAVROS state, position and status texts: needed with every camera pipeline
+#   [new]     the team's NEW video pipeline (zr10_ros2 + zr10_stream + the yolo26 detector; the field default)
+#   [legacy]  last year's photo pipeline (video_cam "siyi" + new_od): kept as the labelled "legacy (2025)" option
+#   [nodes]   the team node names whose presence the PC mirrors as empty nodes /jetson/<name> (one per line), so
+#             phase_monitor's "main_controller is NOT RUNNING" warning keeps working through the tap
+# The container's entrypoint passes the parts of the pipeline that runs (ros_tap.py send --parts common,new).
+# Never add raw or annotated video (/zr10/image_raw, /detection/annotated, /image_raw): ~2.7 MB per frame.
+# Each topic's QoS is copied from its publisher, so the PC side matches it the way it does today.
+
+[common]
+/mavros/state                        mavros_msgs/msg/State
+/mavros/extended_state               mavros_msgs/msg/ExtendedState
+/mavros/global_position/global       sensor_msgs/msg/NavSatFix
+/mavros/global_position/rel_alt      std_msgs/msg/Float64
+/mavros/global_position/compass_hdg  std_msgs/msg/Float64
+/mavros/vfr_hud                      mavros_msgs/msg/VfrHud
+/mavros/local_position/pose          geometry_msgs/msg/PoseStamped
+/mavros/mission/reached              mavros_msgs/msg/WaypointReached
+/mavros/mission/waypoints            mavros_msgs/msg/WaypointList
+/mavros/statustext/recv              mavros_msgs/msg/StatusText
+/mavros/statustext/send              mavros_msgs/msg/StatusText
+
+[new]
+# the twin's new-pipeline detector (docs/simulation/VIDEO_PIPELINE.md section 14 item 4: the team's yolo26 detector
+# run with -p detections_topic:=/yolo26/detections) and, with the PROPOSALS on (not adopted by the team), the
+# adapter's /image_detection for main_controller, so score_run and phase_monitor work as today
+/yolo26/detections                   vision_msgs/msg/Detection2DArray
+/image_detection                     interfaces/msg/ImageResult
+# the team's astra_live_detection (live_node.py lines 59-61; relative names in the root namespace). VIDEO_PIPELINE.md
+# says no field program publishes these; they stay because the package is in the team's sources: a topic nobody
+# publishes is simply never copied
+/detection/results                   vision_msgs/msg/Detection2DArray
+/detection/info                      std_msgs/msg/String
+# zr10_node's command inputs (zr10_node.cpp: "zoom_direction" Int8, "gimbal_speed" Vector3); small, for the
+# operator view and scoring. zr10_node publishes no status topic of its own (source snapshot 2026-10-31 11:51).
+/zoom_direction                      std_msgs/msg/Int8
+/gimbal_speed                        geometry_msgs/msg/Vector3
+
+[legacy]
+/image_detection                     interfaces/msg/ImageResult
+/camera/command                      std_msgs/msg/String
+/camera/status                       std_msgs/msg/String
+/camera/disk_free_mb                 std_msgs/msg/Float64
+
+[nodes]
+# stack_check's TEAM_NODES (legacy tracker.launch.xml) + MAVROS
+waypoint_manager
+main_controller
+siyi
+mission_camera_trigger
+new_od
+gps_mavros_service_node
+mavros
+# the new pipeline (node names in the team's sources: zr10_node.cpp Node("zr10_camera"), stream_node.py
+# 'zr10_stream', live_node.py 'astra_live_detection', the C++ detector Node("detector_node"))
+zr10_camera
+zr10_stream
+astra_live_detection
+detector_node
+# the twin's PROPOSAL nodes (VIDEO_PIPELINE.md section 14 item 4; not adopted by the team)
+gimbal_pointing
+detection_adapter

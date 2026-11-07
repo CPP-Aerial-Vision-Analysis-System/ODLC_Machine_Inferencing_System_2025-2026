@@ -1,0 +1,22 @@
+# jetson_usb.yaml -- PURPOSE: the simulator side of a "Jetson in the loop" flight over the USB-C cable: the team's
+# flight software (MAVROS + the team nodes + the detector on the Jetson GPU) runs in the container astra-hil ON the
+# real Jetson Orin Nano, and this PC runs Gazebo, ArduCopter SITL, MAVProxy, the camera emulator and Mission Planner.
+#   * run.team_stack external: demo.sh never starts ./launcher.sh on this PC. SITL's SERIAL2 (TCP 5763, the
+#     Pixhawk's TELEM2 port where the real Jetson is plugged in) serves ONE client: the Jetson, through the link.
+#   * network.fcu_url: what MAVROS uses INSIDE the container (the relay there passes it to SITL SERIAL2 through SSH).
+#     It is the same URL the simulator's own MAVROS uses on this PC, so the team code needs no change.
+#   * Everything about the link (address, login, forwards, photos) is demo.sh's --jetson options and
+#     simulation/jetson/pc/link.sh, not this file: the simulator side is the same for every link.
+# Use it:  bash simulation/scripts/demo.sh runway --jetson usb        (picks this profile by itself)
+# Guide:   docs/jetson/LINK.md (the link) and docs/jetson/HIL_DESIGN.md (the design)
+profile: 1
+name: jetson_usb
+description: Jetson in the loop over the USB-C cable (the team stack runs on the Jetson Orin Nano; demo.sh --jetson usb)
+detector:
+  kind: team                           # the team's detector, on the Jetson (a PC detector could not reach it)
+camera:
+  model: zr10                          # the ZR10's real 2K photo size (the camera the team code drives)
+network:
+  fcu_url: "tcp://127.0.0.1:5763"      # MAVROS inside the container (unchanged team URL)
+run:
+  team_stack: external                 # demo.sh starts it on the Jetson (jetson.sh start), never here

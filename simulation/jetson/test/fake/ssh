@@ -1,0 +1,50 @@
+#!/bin/bash
+# test/fake/ssh -- PURPOSE: a stand-in for "ssh" in the kit's tests (test_jetson_cli.sh), so the whole jetson.sh
+# check / setup / deploy / start path runs WITHOUT a Jetson. It understands what the kit sends:
+#   ssh -S SOCK -O check|exit DEST          -> "logged in?" = the file $FAKE_STATE/logged_in exists
+#   ssh -S SOCK -O forward|cancel -R/-L ... -> REAL forwards through test/fake/fake_forward.py (so check row 12 tests
+#                                              bytes for real); $FAKE_STATE/forward_fail makes it refuse like sshd
+#   ssh [options] DEST "COMMAND"            -> runs COMMAND here with bash, as if on the board: HOME=$FAKE_HOME, the
+#                                              fake board tools first on PATH (docker, nvpmodel, tegrastats, sudo),
+#                                              FACTS_ROOT=$FAKE_ROOT (fake /etc, /proc/device-tree, /sys), FACTS_PROC
+# Every call is logged to $FAKE_STATE/ssh.log.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+op=""; specs=(); args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -O) op="$2"; shift 2 ;;
+    -R|-L) specs+=("$1" "$2"); shift 2 ;;
+    -o|-p|-S|-i|-l|-F|-E|-b|-c|-m|-J|-W|-w) shift 2 ;;
+    -t|-T|-N|-f|-M|-q|-v|-n|-A|-x|-C|-4|-6|-tt) shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+dest="${args[0]:-}"; cmd="${args[*]:1}"
+echo "op=${op:-run} dest=$dest specs=${specs[*]} cmd=${cmd:0:200}" >> "$FAKE_STATE/ssh.log"
+case "$op" in
+  check)
+    [ -f "$FAKE_STATE/logged_in" ] && { echo "Master running (pid=$$)" >&2; exit 0; }
+    echo "Control socket connect: No such file or directory" >&2; exit 255 ;;
+  exit) rm -f "$FAKE_STATE/logged_in"; echo "Exit request sent." >&2; exit 0 ;;
+  forward|cancel)
+    [ -f "$FAKE_STATE/logged_in" ] || exit 255
+    i=0
+    while [ $i -lt ${#specs[@]} ]; do
+      kind="${specs[$i]}"; spec="${specs[$((i+1))]}"; i=$((i+2))
+      key=$(printf '%s' "$kind$spec" | md5sum | cut -c1-12)
+      if [ "$op" = forward ]; then
+        if [ -f "$FAKE_STATE/forward_fail" ]; then echo "mux_client_forward: forwarding request failed: Port forwarding failed" >&2; exit 255; fi
+        python3 "$HERE/fake_forward.py" "$kind" "$spec" > "$FAKE_STATE/fwd_$key.log" 2>&1 &
+        echo $! > "$FAKE_STATE/fwd_$key.pid"
+        for _ in $(seq 1 30); do grep -q READY "$FAKE_STATE/fwd_$key.log" 2>/dev/null && break; sleep 0.1; done
+        grep -q READY "$FAKE_STATE/fwd_$key.log" || { cat "$FAKE_STATE/fwd_$key.log" >&2; exit 255; }
+      else
+        [ -f "$FAKE_STATE/fwd_$key.pid" ] && kill "$(cat "$FAKE_STATE/fwd_$key.pid")" 2>/dev/null
+        rm -f "$FAKE_STATE/fwd_$key.pid"
+      fi
+    done
+    exit 0 ;;
+esac
+[ -f "$FAKE_STATE/logged_in" ] || { echo "Permission denied (publickey,password)." >&2; exit 255; }
+cd "$FAKE_HOME" || exit 1
+HOME="$FAKE_HOME" PATH="$HERE/board:$PATH" FACTS_ROOT="$FAKE_ROOT" FACTS_PROC="${FAKE_PROC:-/proc}" bash -c "$cmd"

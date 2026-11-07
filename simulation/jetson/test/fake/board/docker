@@ -1,0 +1,69 @@
+#!/bin/bash
+# test/fake/board/docker -- PURPOSE: the Jetson's "docker" in the kit's tests. Answers the questions remote_facts.sh
+# and jetson.sh ask, from files in $FAKE_STATE: docker_none (no access without a password), no_nvidia (no NVIDIA
+# runtime), image (astra-hil image present; its content = the git sha label), image_code / image_trt (the image's
+# org.astra.code_sha / org.astra.tensorrt labels), running (our container runs). Also used as THIS PC's docker in the
+# virtual-link tests (PATH=test/fake/board:...).
+# "run" / "pull" / "exec" ... are logged to $FAKE_STATE/docker.log; "run -d ... sim" writes relay.status LISTEN=yes in
+# the mounted /data/runs/<run id>/ like the real entrypoint; "exec ... /opt/astra/in_stack.sh CMD" runs CMD here.
+S="$FAKE_STATE"
+echo "docker $*" >> "$S/docker.log"
+[ -f "$S/docker_none" ] && { echo "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock" >&2; exit 1; }
+fmt=""; prev=""
+for a in "$@"; do [ "$prev" = "-f" ] || [ "$prev" = "--format" ] && fmt="$a"; prev="$a"; done
+case "$1" in
+  version) echo "28.5.1" ;;
+  info)
+    case "$fmt" in
+      *Runtimes*) if [ -f "$S/no_nvidia" ]; then echo "runc "; else echo "nvidia runc "; fi ;;
+      *DefaultRuntime*) echo runc ;;
+      *DockerRootDir*) echo /var/lib/docker ;;
+      *OperatingSystem*) echo "Ubuntu 22.04.5 LTS" ;;
+      *) echo "fake docker info" ;;
+    esac ;;
+  ps|stats|images) : ;;
+  image)
+    shift
+    case "$1" in
+      inspect)
+        [ -f "$S/image" ] || { echo "Error: No such image" >&2; exit 1; }
+        case "$fmt" in
+          *git_sha*) cat "$S/image" ;; *built*) echo 2026-10-31T12:00:00Z ;;
+          *code_sha*) cat "$S/image_code" 2>/dev/null ;;          # the code fingerprint label (empty: an old image)
+          *tensorrt*) cat "$S/image_trt" 2>/dev/null ;;           # yes / no / empty
+          *) echo sha256:fake0123 ;;
+        esac ;;
+      prune) : ;;
+    esac ;;
+  inspect)
+    [ -f "$S/running" ] || { echo "Error: No such object" >&2; exit 1; }
+    case "$fmt" in
+      *State.Status*) echo running ;;
+      *State.Running*) echo true ;;
+      *org.astra.owner*) echo hil ;;
+      *run_id*) cat "$S/running" ;;
+      *StartedAt*) date -u +%Y-%m-%dT%H:%M:%SZ ;;
+      *) echo "{}" ;;
+    esac ;;
+  run)
+    args="$*"
+    case "$args" in
+      *" selftest"*) echo " OK   image: fake"; echo "TRT=10.3.0.30"; echo "SELFTEST=ok" ;;
+      *" warmup"*) echo "[warmup] done" ;;
+      *" -d "*)
+        rid=$(printf '%s\n' "$@" | sed -n 's/^ASTRA_RUN_ID=//p' | head -1)
+        runs=""; prev=""
+        for a in "$@"; do [ "$prev" = "-v" ] && case "$a" in *:/data/runs) runs="${a%:/data/runs}" ;; esac; prev="$a"; done
+        if [ -n "$runs" ] && [ -n "$rid" ]; then mkdir -p "$runs/$rid" && printf 'LISTEN=yes\nMAV=down\n' > "$runs/$rid/relay.status"; fi
+        echo "${rid:-x}" > "$S/running"; echo "fakecontainer0123" ;;
+    esac ;;
+  exec)
+    [ -f "$S/running" ] || { echo "Error: No such container" >&2; exit 1; }
+    shift; while [ $# -gt 0 ] && [ "$1" != /opt/astra/in_stack.sh ]; do shift; done
+    shift; [ $# -gt 0 ] && exec "$@" ;;
+  stop|rm) [ "$1" = rm ] && rm -f "$S/running"; : ;;
+  logs) echo "[entrypoint] fake log" ;;
+  pull|tag|rmi|load|push) : ;;
+  *) : ;;
+esac
+exit 0

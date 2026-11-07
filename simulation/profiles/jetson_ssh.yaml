@@ -1,0 +1,9 @@
+# jetson_ssh.yaml -- PURPOSE: the simulator side of a "Jetson in the loop" flight WITHOUT the USB cable: the Jetson is
+# reached at any address this PC can SSH to (an Ethernet cable, Wi-Fi, the lab LAN, Tailscale). The simulator side is
+# exactly the same as over USB (jetson_usb.yaml); only the address differs, and that is demo.sh's --jetson-host.
+# Use it:  bash simulation/scripts/demo.sh runway --jetson ssh --jetson-host jetson.local   (picks this profile itself)
+# Guide:   docs/jetson/LINK.md ("No USB cable: Ethernet, Wi-Fi, LAN")
+profile: 1
+name: jetson_ssh
+description: Jetson in the loop over plain SSH (Ethernet / Wi-Fi / LAN / Tailscale; demo.sh --jetson ssh --jetson-host HOST)
+extends: jetson_usb
