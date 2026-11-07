@@ -77,14 +77,21 @@ def prepare(image, info, camera):
 
 
 class Pipeline:
-    def __init__(self, archive, camera='ZR10', interval=1.0, stale_after=5.0, clock=time.monotonic):
+    def __init__(self, archive=None, camera='ZR10', interval=1.0, stale_after=5.0, clock=time.monotonic, recent_limit=60, preview_fps=5.0):
         self.archive, self.camera, self.interval = archive, camera, interval
+        self.recent_limit = recent_limit
+        self.preview_fps = preview_fps
+        self.controls = None
         self.stale_after, self.clock = stale_after, clock
         self.condition = threading.Condition()
         self.raw = OrderedDict()
         self.infos = OrderedDict()
         self.pending = None
         self.latest = None
+        self.result_history = OrderedDict()
+        self.preview_jpeg = None
+        self.preview_sequence = 0
+        self.last_preview_encode = 0.0
         self.sequence = 0
         self.last_input = None
         self.last_result = None
@@ -101,14 +108,38 @@ class Pipeline:
 
     def raw_frame(self, image, stamp):
         key = self.key(stamp)
+        now = self.clock()
+        preview = None
         with self.condition:
             self.last_input = self.clock()
             self.raw[key] = image
+            if now - self.last_preview_encode >= 1.0 / max(1.0, self.preview_fps):
+                self.last_preview_encode = now
+                preview = image.copy()
             while len(self.raw) > 24:
                 self.raw.popitem(last=False)
             if key in self.infos:
                 self.pending = (image, self.infos.pop(key))
                 self.condition.notify_all()
+        if preview is not None:
+            preview.thumbnail((960, 540), Image.LANCZOS)
+            jpeg = encode(preview, 76)
+            with self.condition:
+                self.preview_jpeg = jpeg
+                self.preview_sequence += 1
+                self.condition.notify_all()
+
+    def wait_preview(self, after, timeout=2.0):
+        with self.condition:
+            self.condition.wait_for(lambda: self.preview_sequence > after or self.stop.is_set(), timeout=timeout)
+            if self.preview_sequence <= after:
+                return None, after
+            return self.preview_jpeg, self.preview_sequence
+
+    def result_for(self, sequence=None):
+        with self.condition:
+            result = self.latest if sequence is None else self.result_history.get(int(sequence))
+            return result[0] if result else None
 
     def detection(self, info):
         key = self.key(info['stamp'])
@@ -122,7 +153,8 @@ class Pipeline:
                     self.infos.popitem(last=False)
 
     def start(self):
-        for target in (self._process, self._capture):
+        targets = [self._process] + ([self._capture] if self.archive is not None else [])
+        for target in targets:
             thread = threading.Thread(target=target, daemon=True)
             thread.start()
             self.threads.append(thread)
@@ -142,6 +174,9 @@ class Pipeline:
                     self.latest = result
                     self.last_result = self.clock()
                     self.sequence += 1
+                    self.result_history[self.sequence] = result
+                    while len(self.result_history) > 24:
+                        self.result_history.popitem(last=False)
                     self.source_error = ''
                     self.condition.notify_all()
             except Exception as exc:
@@ -151,7 +186,7 @@ class Pipeline:
         with self.condition:
             result = self.latest
             fresh = self.last_result is not None and self.clock() - self.last_result < self.stale_after
-        if result and fresh and result[2]['frame_key'] != self.last_saved_key:
+        if self.archive is not None and result and fresh and result[2]['frame_key'] != self.last_saved_key:
             try:
                 self.archive.save(*result)
                 self.last_saved_key = result[2]['frame_key']
@@ -181,7 +216,7 @@ class Pipeline:
                 state = 'detection_stale' if input_age < self.stale_after else 'disconnected'
             metadata = self.latest[2] if self.latest else None
             return dict(state=state, input_age_sec=input_age, result_age_sec=result_age,
-                        sequence=self.sequence, metadata=metadata, capture_interval=self.interval,
+                        sequence=self.sequence, metadata=metadata, capture_interval=self.interval, preview_fps=self.preview_fps,
                         last_saved=self.last_saved, error=self.error, source_error=self.source_error)
 
     def close(self):
@@ -225,7 +260,7 @@ def demo_source(pipeline):
         pipeline.stop.wait(.2)
 
 
-def ros_source(pipeline, image_topic, info_topic):
+def ros_source(pipeline, image_topic, info_topic, enable_controller=False):
     import rclpy
     from rclpy.node import Node
     from rclpy.qos import qos_profile_sensor_data
@@ -252,12 +287,17 @@ def ros_source(pipeline, image_topic, info_topic):
         except Exception as exc:
             pipeline.source_error = f'Detection message rejected: {exc}'
 
+    from .controls import ControlBridge
+    pipeline.controls = ControlBridge(node, enable_controller)
     subscriptions = [node.create_subscription(RosImage, image_topic, raw, qos_profile_sensor_data),
                      node.create_subscription(String, info_topic, info, 10)]
     try:
         while not pipeline.stop.is_set() and rclpy.ok():
-            rclpy.spin_once(node, timeout_sec=.2)
+            rclpy.spin_once(node, timeout_sec=.1)
+            pipeline.controls.poll()
+            pipeline.controls.watchdog()
     finally:
+        pipeline.controls.stop()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

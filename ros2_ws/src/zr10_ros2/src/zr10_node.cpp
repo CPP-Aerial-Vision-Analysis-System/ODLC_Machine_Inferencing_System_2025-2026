@@ -4,6 +4,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <std_msgs/msg/int8.hpp>
+#include <std_msgs/msg/float32.hpp>
+#include <sensor_msgs/msg/region_of_interest.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <curl/curl.h>
 #include <algorithm>
@@ -27,6 +29,7 @@ public:
       declare_parameter<std::string>("camera_ip", "192.168.144.25"),
       declare_parameter<int>("camera_port", 37260)) {
     dry_run_ = declare_parameter<bool>("dry_run", true);
+    declare_parameter<int>("controller_api_version", 2);
     RCLCPP_WARN(get_logger(), "ZR10 dry_run=%s; %s", dry_run_ ? "true" : "false",
       dry_run_ ? "camera commands will NOT be sent" : "LIVE camera commands enabled");
     // Single-threaded executor serializes ROS callbacks to the UDP driver.
@@ -68,6 +71,35 @@ public:
         } else RCLCPP_ERROR(get_logger(), "Failed to send zoom command");
       });
 
+    focus_sub_ = create_subscription<std_msgs::msg::Int8>(
+      "focus_direction", rclcpp::QoS(10), [this](std_msgs::msg::Int8::SharedPtr msg) {
+        if (msg->data < -1 || msg->data > 1) {
+          RCLCPP_WARN(get_logger(), "focus_direction must be -1, 0, or 1");
+          return;
+        }
+        if (dry_run_ || camera_.manualFocus(msg->data)) {
+          focus_active_ = msg->data != 0;
+          focus_last_ = std::chrono::steady_clock::now();
+        } else RCLCPP_ERROR(get_logger(), "Failed to send manual focus command");
+      });
+
+    zoom_absolute_sub_ = create_subscription<std_msgs::msg::Float32>(
+      "absolute_zoom", rclcpp::QoS(10), [this](std_msgs::msg::Float32::SharedPtr msg) {
+        if (!std::isfinite(msg->data) || msg->data < 1.0f || msg->data > 30.0f) {
+          RCLCPP_WARN(get_logger(), "absolute_zoom must be between 1x and 30x");
+          return;
+        }
+        if (!(dry_run_ || camera_.setZoom(msg->data)))
+          RCLCPP_ERROR(get_logger(), "Failed to send absolute zoom command");
+      });
+
+    autofocus_point_sub_ = create_subscription<sensor_msgs::msg::RegionOfInterest>(
+      "autofocus_point", rclcpp::QoS(10), [this](sensor_msgs::msg::RegionOfInterest::SharedPtr msg) {
+        if (msg->x_offset > 65535 || msg->y_offset > 65535) return;
+        if (!(dry_run_ || camera_.autoFocus(static_cast<uint16_t>(msg->x_offset), static_cast<uint16_t>(msg->y_offset))))
+          RCLCPP_ERROR(get_logger(), "Failed to send point autofocus command");
+      });
+
     gimbal_sub_ = create_subscription<geometry_msgs::msg::Vector3>(
       "gimbal_speed", rclcpp::QoS(10), [this](geometry_msgs::msg::Vector3::SharedPtr msg) {
         // x = yaw, y = pitch; values are speed commands, not angles.
@@ -97,6 +129,10 @@ public:
           RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
             "Zoom watchdog stop send failed; will retry");
         }
+      }
+      if (focus_active_ && now - focus_last_ > motion_timeout_) {
+        if (dry_run_ || camera_.manualFocus(0)) focus_active_ = false;
+        else RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000, "Focus watchdog stop send failed; will retry");
       }
       if (gimbal_active_ && now - gimbal_last_ > motion_timeout_) {
         if (dry_run_ || camera_.stopGimbal()) {
@@ -132,6 +168,7 @@ public:
     if (!dry_run_) {
       camera_.stopZoom();
       camera_.stopGimbal();
+      camera_.manualFocus(0);
     }
   }
 
@@ -140,11 +177,14 @@ private:
   bool dry_run_{true};
   std::vector<rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr> services_;
   rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr zoom_sub_;
+  rclcpp::Subscription<std_msgs::msg::Int8>::SharedPtr focus_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr zoom_absolute_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::RegionOfInterest>::SharedPtr autofocus_point_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr gimbal_sub_;
   rclcpp::TimerBase::SharedPtr watchdog_;
   std::chrono::duration<double> motion_timeout_{0.5};
-  std::chrono::steady_clock::time_point zoom_last_{}, gimbal_last_{};
-  bool zoom_active_{false}, gimbal_active_{false};
+  std::chrono::steady_clock::time_point zoom_last_{}, gimbal_last_{}, focus_last_{};
+  bool zoom_active_{false}, gimbal_active_{false}, focus_active_{false};
   std::atomic<bool> media_stop_{false};
   std::thread media_thread_;
   bool curl_initialized_{false};

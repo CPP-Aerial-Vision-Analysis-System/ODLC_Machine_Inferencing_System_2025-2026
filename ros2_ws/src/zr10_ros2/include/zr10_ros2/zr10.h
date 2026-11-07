@@ -16,7 +16,9 @@ public:
     ~ZR10();
 
     bool takePhoto();
-    bool autoFocus();
+    bool autoFocus(uint16_t x = 960, uint16_t y = 540);
+    bool manualFocus(int8_t direction);
+    bool setZoom(double zoom);
 
     bool zoomIn();
     bool zoomOut();

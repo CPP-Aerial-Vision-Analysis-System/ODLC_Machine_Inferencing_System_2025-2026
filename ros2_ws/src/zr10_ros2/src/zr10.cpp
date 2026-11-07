@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <cmath>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -273,12 +274,29 @@ bool ZR10::takePhoto()
 }
 
 
-bool ZR10::autoFocus()
+bool ZR10::autoFocus(uint16_t x, uint16_t y)
 {
-    return sendCommand(
-        0x04,
-        {0x01}
-    );
+    return sendCommand(0x04, {
+        0x01,
+        static_cast<uint8_t>(x & 0xFF), static_cast<uint8_t>((x >> 8) & 0xFF),
+        static_cast<uint8_t>(y & 0xFF), static_cast<uint8_t>((y >> 8) & 0xFF)
+    });
+}
+
+bool ZR10::manualFocus(int8_t direction)
+{
+    if (direction < -1 || direction > 1) return false;
+    return sendCommand(0x06, {static_cast<uint8_t>(direction)});
+}
+
+bool ZR10::setZoom(double zoom)
+{
+    if (!std::isfinite(zoom) || zoom < 1.0 || zoom > 30.0) return false;
+    auto whole = static_cast<int>(std::floor(zoom));
+    auto fraction = static_cast<int>(std::lround((zoom - whole) * 10.0));
+    if (fraction >= 10) { ++whole; fraction = 0; }
+    if (whole > 30) return false;
+    return sendCommand(0x0F, {static_cast<uint8_t>(whole), static_cast<uint8_t>(fraction)});
 }
 
 
