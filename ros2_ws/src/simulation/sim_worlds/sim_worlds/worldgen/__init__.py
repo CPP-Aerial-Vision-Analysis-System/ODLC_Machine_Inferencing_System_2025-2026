@@ -1,6 +1,6 @@
 """
 sim_worlds/worldgen -- PURPOSE: the building blocks the world generators (scripts/build_runway.py and
-scripts/build_suas_field.py) use to write Gazebo worlds. Needs numpy and Pillow (only to RE-GENERATE worlds).
+realfield/world_build.py) use to write Gazebo worlds. Needs numpy and Pillow (only to RE-GENERATE worlds).
 
   sdf.py         turn "parts" (one shape + colour, or one mesh) into SDF <model> text; rotation helpers
   assets.py      the realistic Gazebo Fuel models we use (pinned versions, exact placement, bounding boxes)

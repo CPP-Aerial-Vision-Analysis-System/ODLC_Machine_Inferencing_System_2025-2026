@@ -181,7 +181,7 @@ The settings you will touch first:
 | `--source mavlink\|replay\|ros` | where the facts come from |
 | `--sink rest\|jsonl\|mock` | where they go (`jsonl` writes a file and is the safe default) |
 | `--connection udpin:127.0.0.1:14554` | which MAVLink port to listen on (**one program per port**) |
-| `--area-config world:runway` | which world's search areas to draw (`world:suas_field` has a flight boundary) |
+| `--area-config world:runway` | which world's search areas to draw (`world:suas_field_real` has a flight boundary; the bridge's test fixtures still hold a frozen copy of the deleted flat world's numbers under the name `suas_field`) |
 | `--geoid-undulation -30` | height correction for the field. **Without it the drone is drawn about 30 m too high or low**; the bridge warns loudly |
 | `--stale-after 10` | seconds of radio silence before the drone stops being refreshed |
 | `--mission-id` / `--mission-label` | the name inside every id, so a later flight never overwrites an earlier one |
@@ -308,7 +308,7 @@ main_controller's real `locate_detection`):
   simulator's "radio" is a local TCP port: no delay, no loss);
 * one complete run only: the fault tests of section 6 step 4 (pretend Lattice down, slow, answering 500 during a
   flight) were not run in Gazebo (they are unit-tested with real sockets);
-* only the runway world (one search area, no flight boundary); `suas_field` was not flown with the bridge;
+* only the runway world (one search area, no flight boundary); `suas_field_real` was not flown with the bridge;
 * the ROS source (`--source ros`) has still not run against a live MAVROS;
 * during a `lattice_mock` demo Mission Planner gets none of the team's texts (MAVROS behind MAVProxy, see "Mission
   Planner during this demo"), so the bridge and the ASTRA Mission Planner plugin have never shown the targets

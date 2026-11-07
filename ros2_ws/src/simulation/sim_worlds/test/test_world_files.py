@@ -16,7 +16,7 @@ from sim_worlds import planner, truth as truthmod
 from sim_worlds.world_config import available_worlds, load_world_config
 from sim_worlds.worldgen import assets
 
-WORLDS = ('runway', 'suas_field')
+WORLDS = ('runway', 'suas_field_real')
 CONTRACT_SYSTEMS = ('gz::sim::systems::Physics', 'gz::sim::systems::UserCommands',
                     'gz::sim::systems::SceneBroadcaster', 'gz::sim::systems::Sensors', 'gz::sim::systems::Imu',
                     'gz::sim::systems::NavSat')
@@ -80,9 +80,10 @@ def test_world_sdf_contract(pkg_dir, name):
 @pytest.mark.parametrize('name', WORLDS)
 def test_world_uris_resolve(pkg_dir, name):
     cfg, text, root = _world(pkg_dir, name)
+    generated = ('rf_ground', 'rf_trees', 'rf_buildings')          # the real field's models: made by build_real_field.py assets, not committed
     for uri in set(re.findall(r'model://([^<\s"]+)', text)):
         path = os.path.join(pkg_dir, 'models', uri)
-        assert os.path.exists(path) or os.path.isdir(path), f'model://{uri} not in models/'
+        assert uri.split('/')[0] in generated or os.path.exists(path) or os.path.isdir(path), f'model://{uri} not in models/'
     known = {(m.owner.lower(), m.name.lower(), m.version) for m in assets.all_fuel_models()}
     for owner, name_, ver in set(re.findall(r'https://fuel\.gazebosim\.org/1\.0/([^/]+)/models/([^/]+)/(\d+)/files/', text)):
         assert (owner, name_, int(ver)) in known, f'unpinned/unknown Fuel model {owner}/{name_}/{ver}'
@@ -117,12 +118,12 @@ def test_runway_target_distances(pkg_dir):
     assert math.hypot(h['x'] - tent['x'], h['y'] - tent['y']) >= 30.0
 
 
-def test_suas_field_targets_and_rules(pkg_dir):
-    t = truthmod.load_truth(load_world_config('suas_field', share=pkg_dir).truth)
+def test_real_field_targets_and_rules(pkg_dir):
+    t = truthmod.load_truth(load_world_config('suas_field_real', share=pkg_dir).truth)
     assert len(truthmod.targets(t, 'person')) == 2 and len(truthmod.targets(t, 'tent')) == 2
     poses = [e['pose'] for e in truthmod.targets(t, 'person')]
     assert len(set(poses)) == 2, 'the two hikers should not share a pose'
-    assert t['altitude_rule_agl_m'] == {'min': 45.7, 'max': 121.9}
+    assert t['altitude_rule_agl_m'] == {'min': 45.72, 'max': 121.92}      # exactly 150 ft and 400 ft
     assert len(t['flight_boundary']['latlon']) == 11
     people = [e for e in t['distractors'] if e['class'] == 'person' and str(e['area']).startswith('search_boundary')]
     assert people, 'each search boundary has some standing people (distractors)'

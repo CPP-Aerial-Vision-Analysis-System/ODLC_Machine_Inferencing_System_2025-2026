@@ -8,7 +8,7 @@ is [`simulation/README.md`](../../../../simulation/README.md).
 
 ```bash
 ros2 launch sim_bringup sim.launch.py                       # runway world, Gazebo window + RViz + demo panel
-ros2 launch sim_bringup sim.launch.py world:=suas_field camera_model:=a8mini
+ros2 launch sim_bringup sim.launch.py world:=suas_field_real camera_model:=a8mini
 ros2 launch sim_bringup sim.launch.py gui:=false rviz:=false panel:=false   # headless (no windows)
 ros2 launch sim_bringup sim.launch.py --show-args           # every argument with its default
 ```
@@ -37,7 +37,7 @@ The team's own flight stack is **not** started here: run `./launcher.sh sim`, or
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `world` | `runway` | `runway`, `suas_field` (any `sim_worlds/config/<name>.yaml`), a path to an `.sdf`, or a world config `.yaml` |
+| `world` | `runway` | `runway`, `suas_field_real` (any `sim_worlds/config/<name>.yaml`), a path to an `.sdf`, or a world config `.yaml` |
 | `camera_model` | `zr10` | `zr10` = 2K photos 2560x1440 (last year's default) / `a8mini` = 4K photos 3840x2160 |
 | `gui` / `rviz` / `panel` | `true` | the three windows |
 | `headless_rendering` | `false` | render cameras with EGL and no display (servers, CI) |
@@ -53,8 +53,8 @@ The team's own flight stack is **not** started here: run `./launcher.sh sim`, or
 | `emulator` / `camera_ip` | `true` / `192.168.144.25` | SIYI camera emulator and the address it pretends to be |
 | `payload` / `bridge` | `true` | payload release node / ROS bridge |
 | `follow` / `follow_offset` | `true` / `-12,0,6` | Gazebo chase camera and its offset (metres behind/left/above) |
-| `gui_config` | `""` | Gazebo window layout: `""` = the world's own `<gui>` if it has one (runway and suas_field do), else ours (`config/gazebo_gui.config`); `astra` = ours; `default` = Gazebo's; or a file |
-| `gui_camera` | `panel` | where Gazebo shows the live camera: `panel` = inside the main window (as before); `window` = its own small Gazebo window (`config/gazebo_camera_window.config`) next to the main window, which keeps its usual layout minus the camera panel (the world's own `<gui>` for runway/suas_field, copied without the panel into `~/.astra_sim/generated/gazebo_gui_without_camera.config`; `config/gazebo_gui_no_camera.config` for our layout; a `gui_config` file loses its camera panels the same way); `off` = no camera in Gazebo. Something to try if the panel flashes to old "outside" pictures ([details](../../../../docs/simulation/TROUBLESHOOTING.md#the-camera-panel-in-the-gazebo-window-flashes)). demo.sh: `--launch-arg gui_camera:=window` |
+| `gui_config` | `""` | Gazebo window layout: `""` = the world's own `<gui>` if it has one (runway and suas_field_real do), else ours (`config/gazebo_gui.config`); `astra` = ours; `default` = Gazebo's; or a file |
+| `gui_camera` | `panel` | where Gazebo shows the live camera: `panel` = inside the main window (as before); `window` = its own small Gazebo window (`config/gazebo_camera_window.config`) next to the main window, which keeps its usual layout minus the camera panel (the world's own `<gui>` for runway/suas_field_real, copied without the panel into `~/.astra_sim/generated/gazebo_gui_without_camera.config`; `config/gazebo_gui_no_camera.config` for our layout; a `gui_config` file loses its camera panels the same way); `off` = no camera in Gazebo. Something to try if the panel flashes to old "outside" pictures ([details](../../../../docs/simulation/TROUBLESHOOTING.md#the-camera-panel-in-the-gazebo-window-flashes)). demo.sh: `--launch-arg gui_camera:=window` |
 | `gui_env` | `""` | extra environment for the Gazebo window(s) only, `NAME=value,NAME2=value`, for graphics troubleshooting (e.g. `QSG_RENDER_LOOP=basic` = Qt draws on its main thread; it does NOT cure the flashing camera panel); demo.sh: `--launch-arg gui_env:=...` |
 | `gz_verbosity` | `1` | Gazebo console verbosity 0-4 |
 | `model` | `""` | another drone file (`.sdf` or `.sdf.xacro`) |

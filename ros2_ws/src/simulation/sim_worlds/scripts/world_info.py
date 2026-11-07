@@ -10,7 +10,7 @@ usage:
                                            spawn_y | spawn_z | spawn_yaw | mission | truth | share | models
 Examples (from a shell):
   HOME_ARG=$(ros2 run sim_worlds world_info.py runway home)        # -> 36.2143000,-96.0068000,210.0,0
-  WORLD=$(ros2 run sim_worlds world_info.py suas_field world_file)
+  WORLD=$(ros2 run sim_worlds world_info.py suas_field_real world_file)
 """
 
 import argparse

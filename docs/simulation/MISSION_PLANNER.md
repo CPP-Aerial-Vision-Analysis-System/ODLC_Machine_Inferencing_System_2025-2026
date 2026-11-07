@@ -192,7 +192,7 @@ there too. Reset logs are under `~/.astra_sim/logs/start_over_<time>.log`.
 ## Connection problems
 
 Read the launch's `[sim] Windows ground station` line: NAT host addresses change after WSL restarts.
-`--no-windows-gcs` disables that output. Override it with
+Mission Planner always opens with the simulator and this output cannot be turned off. Redirect it with
 `demo.sh runway --windows-gcs HOST:PORT` or `start_sim.sh runway windows_gcs_addr:=HOST:PORT`.
 Allow Mission Planner's UDP traffic through Windows Firewall if it is blocked; keep the rule scoped
 to the appropriate trusted network. Verify another Mission Planner/QGroundControl instance is not

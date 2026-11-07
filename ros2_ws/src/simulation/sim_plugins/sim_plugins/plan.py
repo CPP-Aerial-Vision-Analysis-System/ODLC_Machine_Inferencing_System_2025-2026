@@ -129,7 +129,7 @@ def sim_args_full(rp: ResolvedProfile) -> 'OrderedDict[str, str]':
     args['gcs_port'] = str(net['gcs_port'])
     args['mavros_port'] = str(net['mavros_port'])
     args['panel_port'] = str(net['panel_port'])
-    args['windows_gcs'] = 'true' if net['windows_gcs'] else 'false'
+    args['windows_gcs'] = 'true'                      # Mission Planner always gets its MAVLink copy
     args['windows_gcs_addr'] = net['windows_gcs_addr']
     args['camera_max_zoom'] = zoom_to_max_zoom(cam['zoom'])
     headless = bool(d['run']['headless'])
@@ -242,7 +242,7 @@ def demo_vars(rp: ResolvedProfile, resolved_file: str = '', summary: str = '') -
     sc['GCS_PORT'] = str(net['gcs_port'])
     sc['MAVROS_PORT'] = str(net['mavros_port'])
     sc['PANEL_PORT'] = str(net['panel_port'])
-    sc['WINDOWS_GCS'] = 'true' if net['windows_gcs'] else 'false'
+    sc['WINDOWS_GCS'] = 'true'
     sc['WINDOWS_GCS_ADDR'] = net['windows_gcs_addr']
     sc['MISSION_OVERRIDE'] = d['world']['mission']
     sc['MODEL_OVERRIDE'] = d['detector']['model_path'] if d['detector']['kind'] == 'team' else ''
@@ -427,8 +427,7 @@ def summary_lines(rp: ResolvedProfile, env: Optional[Dict] = None) -> List[Tuple
             f'MAVROS {net["mavros_out"] or "udp:127.0.0.1:%d" % net["mavros_port"]}',
             f'demo panel udp:127.0.0.1:{net["panel_port"]}']
     outs += [f'extra {o}' for o in net['extra_outs']]
-    if net['windows_gcs']:
-        outs.append(f'Windows ground station {net["windows_gcs_addr"] or "(automatic inside WSL)"}')
+    outs.append(f'Mission Planner (Windows) {net["windows_gcs_addr"] or "(automatic inside WSL)"}')   # always
     lines.append(('network', f'MAVProxy <- {master}; -> {", ".join(outs)}; camera emulator on '
                              f'{net["camera_ip"]}{" (listens on " + net["camera_bind"] + ")" if net["camera_bind"] else ""}'))
     fcu = net['fcu_url'] or default_fcu_url(net['mavros_port'], d['autopilot']['kind'], inst)

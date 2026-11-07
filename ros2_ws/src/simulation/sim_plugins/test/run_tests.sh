@@ -58,7 +58,7 @@ step "5. the default plan equals today's commands (dry runs)"
 # Only the numbered command lines are compared; the run folder's time stamp is blanked out.
 commands() { grep -E '^    [0-9]\. ' | sed -E 's#/runs/[0-9-]+_#/runs/STAMP_#'; }
 if [ "${ASTRA_WS_BUILT:-no}" = yes ] && ros2 pkg prefix sim_bringup > /dev/null 2>&1; then
-  for world in runway suas_field; do
+  for world in runway suas_field_real; do
     a="$(bash "$REPO/simulation/scripts/demo.sh" "$world" --dry-run 2>/dev/null | commands)"
     b="$(bash "$REPO/simulation/scripts/demo.sh" "$world" --dry-run --profile default 2>/dev/null | commands)"
     check "demo.sh $world: --profile default == no profile" test -n "$a" -a "$a" = "$b"

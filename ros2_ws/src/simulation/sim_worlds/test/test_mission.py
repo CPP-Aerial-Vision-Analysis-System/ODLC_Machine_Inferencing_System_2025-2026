@@ -106,7 +106,7 @@ def test_shape_checker_catches_mistakes():
     assert any('below' in p for p in mission.check_team_shape(items2, alt_min=45.7))
 
 
-@pytest.mark.parametrize('world,alt,band', [('runway', 30.0, (20.0, 40.0)), ('suas_field', 50.0, (45.7, 121.9))])
+@pytest.mark.parametrize('world,alt,band', [('runway', 30.0, (20.0, 40.0)), ('suas_field_real', 58.7, (45.7, 121.9))])
 def test_committed_missions(pkg_dir, world, alt, band):
     cfg = load_world_config(world, share=pkg_dir)
     items = mission.read_waypoints(cfg.mission)
@@ -137,9 +137,9 @@ def test_committed_missions(pkg_dir, world, alt, band):
 
 
 def test_extra_mission_sb2(pkg_dir):
-    p = os.path.join(pkg_dir, 'missions', 'suas_field_sb2_survey.waypoints')
+    p = os.path.join(pkg_dir, 'missions', 'suas_field_real_sb2_survey.waypoints')
     items = mission.read_waypoints(p)
-    assert mission.check_team_shape(items, 45.7, 121.9) == []
+    assert mission.check_team_shape(items, 45.7, 121.9) == []          # SB2 flies at 55.8 m above the pad
 
 
 def test_path_length_positive():

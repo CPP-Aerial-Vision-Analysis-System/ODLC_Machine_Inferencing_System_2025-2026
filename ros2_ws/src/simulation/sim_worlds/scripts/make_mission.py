@@ -11,7 +11,7 @@ plans a lawn-mower survey for a 2560 x 1440 photo camera with the A8 mini's 81 d
 Examples:
   make_mission.py runway                         # rewrite missions/runway_survey.waypoints from the config
   make_mission.py runway --altitude 35 --out /tmp/runway_35m.waypoints
-  make_mission.py suas_field --area search_boundary_2 --out /tmp/sb2.waypoints
+  make_mission.py suas_field_real --area search_boundary_2 --out /tmp/sb2.waypoints
   make_mission.py --check missions/runway_survey.waypoints     # only print and check an existing file
 """
 
@@ -42,7 +42,7 @@ def check_file(path, alt_min=None, alt_max=None, home=None):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('world', nargs='?', help='world name (runway, suas_field) or a config YAML path')
+    ap.add_argument('world', nargs='?', help='world name (runway, suas_field_real) or a config YAML path')
     ap.add_argument('--check', metavar='FILE', help='only read, print and check this .waypoints file')
     ap.add_argument('--area', help='search area name (default: the config survey area)')
     ap.add_argument('--altitude', type=float, help='survey altitude above home [m]')

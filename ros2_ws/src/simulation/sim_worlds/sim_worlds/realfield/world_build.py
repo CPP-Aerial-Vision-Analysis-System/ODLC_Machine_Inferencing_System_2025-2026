@@ -7,7 +7,7 @@ sim_worlds/realfield/world_build.py -- PURPOSE: stage 4 of the real-terrain pipe
   truth/suas_field_real.yaml                 where the hiker, the tent and every distractor REALLY are (scoring)
   missions/suas_field_real_survey.waypoints  contract mission over Search Boundary 1   (+ _sb2_ for Search Boundary 2)
 
-How it differs from the flat procedural field (scripts/build_suas_field.py):
+How it differs from the small flat test world (scripts/build_runway.py):
   * the ground is the real lidar terrain (model "rf_ground", made by stage 3), so EVERY object is set on the real
     ground height, not on z = 0, and the targets are only placed where the ground is open, level and not water;
   * the trees come from the lidar/photo tree list (model "rf_trees"), so no tree is invented here; the hiker and
@@ -254,6 +254,7 @@ def run(out_dir, pack_dir=None, seed=None, asset_mode='fuel', hiker_poses=None, 
                      description='SUAS 2026 field on REAL terrain (lidar + NAIP aerial photo): 2 search boundaries, '
                                  'each with one hiker and one tent')
     b.sun_direction = site.SUN_DIRECTION_ENU
+    b.generator_script = 'sim_worlds/realfield/world_build.py (scripts/build_real_field.py world)'
     b.gui_camera = world.look_at((-55.0, 45.0, ground.z(0, 0) + 42.0), (60.0, -70.0, ground.z(60.0, -70.0)))
     for name in ('rf_ground', 'rf_trees', 'rf_buildings'):
         b.add_include(name, f'model://{name}', (0.0, 0.0, 0.0))

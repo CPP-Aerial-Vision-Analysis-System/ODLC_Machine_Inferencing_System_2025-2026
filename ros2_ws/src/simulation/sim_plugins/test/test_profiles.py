@@ -112,8 +112,8 @@ def test_lists_are_replaced_not_appended(sim_home, tmp_path):
 
 
 def test_world_shorthand_and_paths(sim_home, tmp_path):
-    write(tmp_path / 'w.yaml', 'world: suas_field\n')
-    assert profiles.resolve(str(tmp_path / 'w.yaml')).get('world.name') == 'suas_field'
+    write(tmp_path / 'w.yaml', 'world: suas_field_real\n')
+    assert profiles.resolve(str(tmp_path / 'w.yaml')).get('world.name') == 'suas_field_real'
     write(tmp_path / 'sub' / 'p.yaml', 'world: {name: ../worlds/my.sdf, mission: m.waypoints}\n')
     rp = profiles.resolve(str(tmp_path / 'sub' / 'p.yaml'))
     assert Path(rp.get('world.name')) == (tmp_path / 'worlds' / 'my.sdf')

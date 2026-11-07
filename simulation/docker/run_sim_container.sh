@@ -15,7 +15,7 @@
 #                                                                   everything of simulation/README.md works
 #                                                                   (repo at /ODLC_Machine_Inferencing_System_2025-2026)
 #      bash simulation/docker/run_sim_container.sh --demo runway   build if needed, then the full search demo
-#      bash simulation/docker/run_sim_container.sh --demo suas_field --detector truth --camera a8mini
+#      bash simulation/docker/run_sim_container.sh --demo suas_field_real --detector truth --camera a8mini
 #      bash simulation/docker/run_sim_container.sh -- gz sim --versions      run one command and leave
 #  Options (before --demo / --):
 #      --headless     no windows                 --no-gpu       no CUDA
@@ -91,10 +91,10 @@ case "$MODE" in
     # demo.sh inside a container would send the Mission Planner copy to the container's gateway (this Ubuntu),
     # not to Windows: give it the Windows host unless an option about it was given.
     want_gcs=1
-    for a in "${PASS[@]}"; do case "$a" in --windows-gcs|--no-windows-gcs) want_gcs=0 ;; esac; done
+    for a in "${PASS[@]}"; do case "$a" in --windows-gcs) want_gcs=0 ;; esac; done
     if [ "$want_gcs" = 1 ]; then
       gcs="$(astra_windows_gcs)"
-      if [ -n "$gcs" ]; then PASS+=(--windows-gcs "$gcs"); else PASS+=(--no-windows-gcs); fi
+      [ -z "$gcs" ] || PASS+=(--windows-gcs "$gcs")      # (no Windows host found: demo.sh warns that Mission Planner must be opened by hand)
     fi
     [ "$DISPLAY_MODE" = none ] && PASS+=(--headless)
     say "One-container simulator: demo.sh ${PASS[*]}"

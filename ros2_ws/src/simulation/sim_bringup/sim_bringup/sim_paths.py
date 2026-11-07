@@ -289,7 +289,7 @@ class WorldConfig:
     """Everything the launch file needs to know about one world.
 
     Attributes:
-      name        short name ('runway', 'suas_field', or the file stem of a custom .sdf)
+      name        short name ('runway', 'suas_field_real', or the file stem of a custom .sdf)
       world_file  absolute path of the Gazebo world (.sdf), '' if it could not be found
       home        SITL --home string "lat,lon,alt_msl_m,heading_deg" (must match the world's
                   <spherical_coordinates> so SITL's GPS and the Gazebo picture agree)
@@ -400,7 +400,7 @@ def load_world_config(world: str, worlds_share: Optional[str]) -> WorldConfig:
     """Turn the launch argument world:= into a WorldConfig.
 
     Args:
-      world:        'runway', 'suas_field' (any name that has sim_worlds/config/<name>.yaml),
+      world:        'runway', 'suas_field_real' (any name that has sim_worlds/config/<name>.yaml),
                     a path to a world .sdf, or a path to a world config .yaml.
       worlds_share: the installed share folder of sim_worlds, or None when sim_worlds is not built.
     Returns a WorldConfig; problems are written into .notes (never raises for a missing file, so the
@@ -504,7 +504,7 @@ def standin_world_config(ardupilot_gazebo_dir: Optional[str], out_dir: Path) -> 
     out.write_text(text, encoding='utf-8')
     cfg.world_file = str(out)
     cfg.notes.append('STAND-IN world: ardupilot_gazebo iris_runway (no targets, no mission). '
-                     'Build sim_worlds for the real runway / suas_field worlds.')
+                     'Build sim_worlds for the real runway / suas_field_real worlds.')
     return cfg
 
 
@@ -869,7 +869,7 @@ def detector_model_path() -> str:
 # ---------------------------------------------------------------------------------------------
 # Small command line, so shell scripts can ask the same questions:
 #   python3 -m sim_bringup.sim_paths world runway mission     -> path of the runway survey mission
-#   python3 -m sim_bringup.sim_paths world suas_field truth   -> path of the truth file
+#   python3 -m sim_bringup.sim_paths world suas_field_real truth   -> path of the truth file
 #   python3 -m sim_bringup.sim_paths photo-dir | model-path | sim-home | sitl-ports 0
 # Prints the answer (empty line when unknown) and exits 0; exits 2 on bad usage.
 # ---------------------------------------------------------------------------------------------

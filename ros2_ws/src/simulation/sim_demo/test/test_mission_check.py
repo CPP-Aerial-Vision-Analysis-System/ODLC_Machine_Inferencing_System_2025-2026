@@ -68,8 +68,8 @@ def write(tmp_path, name, text, newline='\n'):
 
 # ---- the shipped missions and the fixture ---------------------------------------------------------------------
 
-@pytest.mark.parametrize('name', ['runway_survey.waypoints', 'suas_field_survey.waypoints',
-                                  'suas_field_sb2_survey.waypoints'])
+@pytest.mark.parametrize('name', ['runway_survey.waypoints', 'suas_field_real_survey.waypoints',
+                                  'suas_field_real_sb2_survey.waypoints'])
 def test_shipped_missions_are_flyable(name):
     items, kind, renumbered = mc.load_mission(os.path.join(MISSIONS, name))
     rep = check(items, kind=kind, home=HOME, renumbered=renumbered)
@@ -89,8 +89,8 @@ def test_runway_altitude_is_below_the_suas_band_only_a_warning():
     assert mc.main([os.path.join(MISSIONS, 'runway_survey.waypoints'), '--strict', '--quiet']) == 1
 
 
-def test_suas_field_mission_has_no_warnings():
-    assert mc.main([os.path.join(MISSIONS, 'suas_field_survey.waypoints'), '--strict', '--quiet']) == 0
+def test_real_field_mission_has_no_warnings():
+    assert mc.main([os.path.join(MISSIONS, 'suas_field_real_survey.waypoints'), '--strict', '--quiet']) == 0
 
 
 def test_fixture_with_digicam_right_after_takeoff_is_ok_with_a_note():

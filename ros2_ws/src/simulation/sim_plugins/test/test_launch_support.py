@@ -18,11 +18,11 @@ EXAMPLES = Path(__file__).resolve().parents[2] / 'sim_plugin_examples'
 
 
 def test_apply_profile_args_never_overrides_typed_values():
-    cfg = {'world': 'suas_field', 'camera_model': 'zr10', 'detector': 'real', 'other': 'x'}
+    cfg = {'world': 'suas_field_real', 'camera_model': 'zr10', 'detector': 'real', 'other': 'x'}
     defaults = {'world': 'runway', 'camera_model': 'zr10', 'detector': 'real'}
     changed = ls.apply_profile_args(cfg, defaults, {'world': 'runway', 'camera_model': 'a8mini',
                                                      'detector': 'real', 'unknown': 'y'})
-    assert cfg == {'world': 'suas_field', 'camera_model': 'a8mini', 'detector': 'real', 'other': 'x'}
+    assert cfg == {'world': 'suas_field_real', 'camera_model': 'a8mini', 'detector': 'real', 'other': 'x'}
     assert changed == [('camera_model', 'zr10', 'a8mini')]
 
 

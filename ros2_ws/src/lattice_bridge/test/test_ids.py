@@ -16,7 +16,7 @@ PLUS_2 = timezone(timedelta(hours=2))
 def test_mission_id_with_and_without_label():
     assert ids.make_mission_id(NOW, 'runway') == 'runway20261024t153000z'
     assert ids.make_mission_id(NOW) == 'm20261024t153000z'
-    assert ids.make_mission_id(NOW, 'suas_field') == 'suasfield20261024t153000z'
+    assert ids.make_mission_id(NOW, 'suas_field_real') == 'suasfieldrea20261024t153000z'
 
 
 def test_mission_id_cleans_the_label():

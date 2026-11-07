@@ -40,7 +40,7 @@ def share_dir():
 
 
 def available_worlds(share=None):
-    """Names of every world that has a config file, e.g. ['runway', 'suas_field']."""
+    """Names of every world that has a config file, e.g. ['runway', 'suas_field_real']."""
     share = share or share_dir()
     return sorted(os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(share, 'config', '*.yaml')))
 
@@ -76,7 +76,7 @@ class WorldConfig:
 def load_world_config(world, share=None):
     """Load a world config.
 
-    world: a world name ('runway', 'suas_field') or a path to a YAML file. share: optional share folder
+    world: a world name ('runway', 'suas_field_real') or a path to a YAML file. share: optional share folder
     (default: share_dir()). Returns a WorldConfig. Raises FileNotFoundError / ValueError with a clear message.
     """
     share = share or share_dir()

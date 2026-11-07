@@ -14,7 +14,7 @@ ament_python_install_package(${PROJECT_NAME})
 # command-line tools:  ros2 run sim_worlds make_mission.py runway
 install(PROGRAMS
   scripts/build_runway.py
-  scripts/build_suas_field.py
+  scripts/build_real_field.py
   scripts/build_suas_2027.py
   scripts/blender_suas_2027.py
   scripts/check_suas_2027.py

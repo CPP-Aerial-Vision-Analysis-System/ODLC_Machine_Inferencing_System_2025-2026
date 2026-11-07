@@ -6,7 +6,7 @@ sim_bringup/test/test_gui_configs.py -- PURPOSE: check the Gazebo window layouts
   * The main layout without the camera panel is our normal layout with ONLY the camera panel taken out (so the
     two files cannot drift apart unnoticed).
   * sim_paths.layout_without_camera_panels, which the launch uses for gui_camera:=window/off when the window would
-    otherwise use the WORLD's own layout (runway.sdf and suas_field.sdf have a <gui> section) or a gui_config file,
+    otherwise use the WORLD's own layout (runway.sdf and suas_field_real.sdf have a <gui> section) or a gui_config file,
     keeps every other panel and setting (start view, light, follow-camera numbers) and removes only the camera.
 """
 
@@ -61,7 +61,7 @@ def test_the_main_layout_without_camera_is_the_normal_one_minus_the_camera_panel
     assert removed == 1 and plugins(parse_layout(generated)) == without
 
 
-@pytest.mark.parametrize('world', ['runway.sdf', 'suas_field.sdf'])
+@pytest.mark.parametrize('world', ['runway.sdf', 'suas_field_real.sdf'])
 def test_a_world_layout_loses_only_its_camera_panel(world):
     # the demo worlds bring their own <gui>; gui_camera:=window must keep it and drop only the camera panel
     path = WORLDS / world

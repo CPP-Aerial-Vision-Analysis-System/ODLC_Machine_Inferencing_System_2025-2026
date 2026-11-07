@@ -36,7 +36,7 @@ Each program also works alone, for example:
 
 ```bash
 ros2 run sim_demo demo_panel --ros-args -p world:=runway
-ros2 run sim_demo truth_detector --ros-args -p world:=suas_field
+ros2 run sim_demo truth_detector --ros-args -p world:=suas_field_real
 ros2 run sim_demo demo_markers --ros-args -p world:=runway -p frame_id:=world
 ros2 run sim_demo score_run --ros-args -p world:=runway -p run_dir:=/tmp/my_run
 ros2 run sim_demo score_run --rescore /tmp/my_run           # score a recorded run again, no ROS needed

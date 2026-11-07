@@ -34,14 +34,14 @@ def _runway_box():
 
 
 def _suas_boundary_2():
-    spec = [s for s in world_areas.search_areas(DATA['suas_field']['config']) if s.name == 'search_boundary_2'][0]
+    spec = [s for s in world_areas.search_areas(DATA['suas_field_real']['config']) if s.name == 'search_boundary_2'][0]
     return build_area_geo(f'astra-{MISSION}-area-search-boundary-2', 'Search boundary 2', spec.corners_latlon,
                           source_update_time=NOW - timedelta(minutes=2), now=NOW, expiry_time=EXPIRY_AREA,
                           description=spec.note)
 
 
 def _suas_flight_boundary():
-    spec = world_areas.flight_boundary(DATA['suas_field']['truth'])
+    spec = world_areas.flight_boundary(DATA['suas_field_real']['truth'])
     return build_area_geo(f'astra-{MISSION}-area-flight-boundary', 'Flight boundary', spec.corners_latlon,
                           source_update_time=NOW - timedelta(minutes=2), now=NOW, expiry_time=EXPIRY_AREA,
                           geo_type=spec.geo_type, description=spec.note)

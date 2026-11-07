@@ -26,47 +26,46 @@ runway:
       - [36.21560256, -96.0071897]
     flight_boundary: null
     altitude_rule_agl_m: null
-suas_field:
+suas_field_real:
   config:
-    home: 36.2143000,-96.0068000,210.0,0
+    home: 36.2147411,-96.0067230,210.2,0
     search_areas:
     - name: search_boundary_1
-      note: one hiker + one tent among debris, vehicles, bushes and people
-      center: [243.756, -202.099]
-      size: [262.077, 147.497]
+      note: one hiker + one tent among debris, vehicles, bushes and people (real terrain)
+      center: [237.129, -250.403]
+      size: [262.395, 147.038]
       yaw: 0.0
     - name: search_boundary_2
-      note: one hiker + one tent among debris, vehicles, bushes and people
-      center: [299.931, 36.958]
-      size: [258.928, 148.277]
+      note: one hiker + one tent among debris, vehicles, bushes and people (real terrain)
+      center: [293.368, -12.101]
+      size: [258.113, 148.452]
       yaw: 1.5708
   truth:
-    home: {lat: 36.2143, lon: -96.0068, alt_msl: 210.0, heading: 0.0}
+    home: {lat: 36.2147411, lon: -96.006723, alt_msl: 210.2, heading: 0.0}
     targets:
-    - {id: sb1_tent, class: tent, lat: 36.21274445, lon: -96.00373946, area: search_boundary_1}
-    - {id: sb1_hiker, class: person, lat: 36.21225326, lon: -96.00449964, area: search_boundary_1}
-    - {id: sb2_tent, class: tent, lat: 36.21503276, lon: -96.00395324, area: search_boundary_2}
-    - {id: sb2_hiker, class: person, lat: 36.21467711, lon: -96.0028323, area: search_boundary_2}
+    - {id: sb1_tent, class: tent, lat: 36.21292178, lon: -96.00289011, area: search_boundary_1}
+    - {id: sb1_hiker, class: person, lat: 36.21250739, lon: -96.00343334, area: search_boundary_1}
+    - {id: sb2_tent, class: tent, lat: 36.21493236, lon: -96.00391027, area: search_boundary_2}
+    - {id: sb2_hiker, class: person, lat: 36.21402486, lon: -96.00341856, area: search_boundary_2}
     person_decoys:
-    - {id: flightline_person_1, lat: 36.215323, lon: -96.00659006}
-    - {id: flightline_person_2, lat: 36.21425271, lon: -96.00701838}
-    - {id: sb1_person_1, lat: 36.21294992, lon: -96.00490415}
-    - {id: sb1_person_2, lat: 36.21303961, lon: -96.00452212}
-    - {id: sb2_person_1, lat: 36.21426341, lon: -96.00308502}
-    - {id: sb2_person_2, lat: 36.21422847, lon: -96.00394122}
+    - {id: flightline_person_1, lat: 36.2147701, lon: -96.00654945}
+    - {id: flightline_person_2, lat: 36.2141328, lon: -96.00682874}
+    - {id: sb1_person_1, lat: 36.21224402, lon: -96.00426515}
+    - {id: sb1_person_2, lat: 36.21286, lon: -96.00302668}
+    - {id: sb2_person_1, lat: 36.21526411, lon: -96.003027}
     search_areas:
     - name: search_boundary_1
       corners_latlon:
-      - [36.211822, -96.005545]
-      - [36.211822, -96.00262704]
-      - [36.213147, -96.002627]
-      - [36.213147, -96.00554499]
+      - [36.21183124, -96.00554355]
+      - [36.21183124, -96.00262204]
+      - [36.21315211, -96.00262201]
+      - [36.21315211, -96.00554354]
     - name: search_boundary_2
       corners_latlon:
-      - [36.213469, -96.00263506]
-      - [36.215795, -96.002635]
-      - [36.215795, -96.00428596]
-      - [36.213469, -96.004286]
+      - [36.21347305, -96.00263014]
+      - [36.21579174, -96.00263008]
+      - [36.21579174, -96.004283]
+      - [36.21347305, -96.00428303]
     flight_boundary:
       latlon:
       - [36.2193143935478, -96.00171089172362]
@@ -80,4 +79,4 @@ suas_field:
       - [36.2128051052733, -96.00916743278502]
       - [36.2106063669373, -96.0092425346375]
       - [36.2106583063506, -96.0017323493958]
-    altitude_rule_agl_m: {min: 45.7, max: 121.9}
+    altitude_rule_agl_m: {min: 45.72, max: 121.92}

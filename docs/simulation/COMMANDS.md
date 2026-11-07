@@ -72,7 +72,7 @@ Only **one** simulator runs at a time on a PC. A new one stops the old one first
 
 ```bash
 bash simulation/scripts/astra.sh demo                      # runway world, about 6-8 minutes, closes by itself
-bash simulation/scripts/astra.sh demo suas_field           # the SUAS 2026 field (longer)
+bash simulation/scripts/astra.sh demo suas_field_real           # the SUAS 2026 field on real terrain (longer)
 bash simulation/scripts/astra.sh demo runway --detector truth   # the answer-key detector instead of the team model
 bash simulation/scripts/astra.sh demo runway --camera a8mini    # A8 mini profile, 4K photos
 bash simulation/scripts/astra.sh demo runway --headless         # no windows (tests, servers)
@@ -98,7 +98,7 @@ second Ubuntu terminal with the mission commands below. It stays open after the 
 
 ```bash
 bash simulation/scripts/astra.sh keep                      # automatic, stays open after the landing
-bash simulation/scripts/astra.sh demo suas_field --keep    # another world, kept open
+bash simulation/scripts/astra.sh demo suas_field_real --keep    # another world, kept open
 bash simulation/scripts/astra.sh demo runway --profile truth_detector              # a plug-in profile
 bash simulation/scripts/astra.sh demo runway --profile truth_detector --dry-run    # print the plan, start nothing
 bash simulation/scripts/astra.sh demo runway --mission ~/.astra_sim/missions/my.waypoints   # another mission
@@ -205,7 +205,7 @@ press Arm and Auto there ([MISSION_PLANNER](MISSION_PLANNER.md)).
 
 ```bash
 bash simulation/scripts/astra.sh mission make runway --altitude 50          # 50 m = 164 ft, inside the SUAS band
-bash simulation/scripts/astra.sh mission make suas_field --speed 6 --out ~/.astra_sim/missions/field_6ms.waypoints
+bash simulation/scripts/astra.sh mission make suas_field_real --speed 6 --out ~/.astra_sim/missions/field_6ms.waypoints
 bash simulation/scripts/astra.sh mission list                               # the files you can load
 ```
 

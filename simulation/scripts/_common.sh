@@ -21,6 +21,20 @@ if [ "${ASTRA_TRACE:-0}" = 1 ] && [ -f "$ASTRA_SCRIPTS_DIR/../codemap/trace/astr
   source "$ASTRA_SCRIPTS_DIR/../codemap/trace/astra_trace.sh" || true; fi
 
 # Print a script's built-in help = its header comment (line 2 up to the first line that is not a comment).
+# astra_open_mission_planner : Mission Planner (the ground station, a Windows program) opens EVERY time the simulator starts;
+# there is no switch to turn that off, so every PC that runs the simulator shows the same thing. It is started through WSL
+# interop by mission_planner.sh (nothing happens if it is already open). Where Windows is not reachable (a plain Linux
+# PC, a container) it says so loudly and tells you how to connect from another computer; the run itself goes on.
+astra_open_mission_planner() {
+  say "Opening Mission Planner (it opens every time the simulator starts)"
+  if ! bash "$ASTRA_SCRIPTS_DIR/mission_planner.sh" start; then
+    warn "Mission Planner could not be opened from here. Likely cause: this is not WSL on Windows, or Mission Planner is not" \
+         "installed. Consequence: you have to open it yourself, otherwise nobody sees the map, the HUD and the camera picture." \
+         "Fix: install it (docs/simulation/MISSION_PLANNER.md), open it on the Windows PC, connection type UDP, port 14550," \
+         "or MISSION_PLANNER_EXE=<path to MissionPlanner.exe> bash simulation/scripts/mission_planner.sh start"
+  fi
+}
+
 astra_usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$1"; }
 
 # Every warning and error names the program it comes from, e.g. " XX [demo] ERROR: ...", so a teammate who finds it

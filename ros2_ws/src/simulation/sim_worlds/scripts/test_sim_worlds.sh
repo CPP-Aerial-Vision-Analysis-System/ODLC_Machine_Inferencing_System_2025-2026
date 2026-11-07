@@ -26,7 +26,7 @@ else
 fi
 
 step "2. mission files"
-for w in runway suas_field; do
+for w in runway suas_field_real; do
   python3 "$TOOLS/make_mission.py" "$w" --check "$PKG/missions/${w}_survey.waypoints" > /tmp/sim_worlds_mission_$w.txt 2>&1
   rc=$?; tail -3 /tmp/sim_worlds_mission_$w.txt; result $rc "mission $w"
 done
@@ -37,7 +37,7 @@ bash "$TOOLS/fetch_models.sh" --check | tail -1 || echo "(warning only: run fetc
 if [ "$QUICK" -eq 1 ] || ! command -v gz >/dev/null 2>&1; then
   echo; echo "(skipping the headless world loads: --quick or no gz command)"
 else
-  for w in runway suas_field; do
+  for w in runway suas_field_real; do
     step "4. headless load of $w"
     timeout 300 python3 "$TOOLS/check_world.py" "$w" --seconds 10; result $? "world $w"
   done

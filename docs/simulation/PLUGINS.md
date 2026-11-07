@@ -176,7 +176,7 @@ A profile only needs the keys it changes. The dotted name (for example `camera.m
 
 | Key | Default | Accepts | What it does |
 |---|---|---|---|
-| `world.name` | `runway` | text | runway \| suas_field \| suas_field_real (when built) \| any name with sim_worlds/config/<name>.yaml \| a path to a .sdf or a world .yaml |
+| `world.name` | `runway` | text | runway \| suas_field_real \| any name with sim_worlds/config/<name>.yaml \| a path to a .sdf or a world .yaml |
 | `world.mission` | `""` | a file path (a relative path starts at the profile's folder) | another survey mission (.waypoints) instead of the world's own |
 
 #### `autopilot`
@@ -238,8 +238,7 @@ A profile only needs the keys it changes. The dotted name (for example `camera.m
 | `network.gcs_out` | `""` | a MAVProxy output: `udp:HOST:PORT` (or `udpout:`, `udpbcast:`, `tcp:`, `tcpin:`) | "" = udp:127.0.0.1:<gcs_port>; or another MAVProxy output. Careful: demo.sh / upload_mission.sh / fly_mission.sh listen on udp 127.0.0.1:<gcs_port>; to ADD a ground station use extra_outs |
 | `network.mavros_out` | `""` | a MAVProxy output: `udp:HOST:PORT` (or `udpout:`, `udpbcast:`, `tcp:`, `tcpin:`) | "" = udp:127.0.0.1:<mavros_port>; e.g. udp:172.18.0.3:14552 = a MAVROS in another container |
 | `network.extra_outs` | `[]` | a list of MAVProxy outputs, e.g. `[udp:192.168.1.20:14550]` | more MAVProxy outputs, e.g. [udp:192.168.1.20:14550] |
-| `network.windows_gcs` | `true` | `true` or `false` | inside WSL also send MAVLink to Mission Planner on Windows |
-| `network.windows_gcs_addr` | `""` | `HOST` or `HOST:PORT` | "" = automatic; HOST or HOST:PORT = send it there |
+| `network.windows_gcs_addr` | `""` | `HOST` or `HOST:PORT` | Mission Planner ALWAYS opens and gets a copy; "" = automatic address; HOST or HOST:PORT = send it there |
 | `network.camera_ip` | `192.168.144.25` | an IPv4 address (`0.0.0.0` = every address of this computer) | the address the camera emulator pretends to be |
 | `network.camera_bind` | `""` | an IPv4 address (`0.0.0.0` = every address of this computer) | "" = camera_ip if this computer has it, else 127.0.0.1; 0.0.0.0 = listen on every address (containers) |
 | `network.fcu_url` | `""` | text | "" = local SITL: tcp://127.0.0.1:<5763 + 10 x instance> (SITL SERIAL2, wired like the real Jetson on TELEM2); external autopilot: udp://:<mavros_port>@localhost:<mavros_port>; MAVROS's fcu_url for ./launcher.sh sim (demo.sh) |
@@ -474,7 +473,7 @@ Rules:
 
 **Default:** runway (sim_worlds/config/runway.yaml)
 
-**Alternatives:** suas_field | suas_field_real (real terrain; being built) | any .sdf + config .yaml
+**Alternatives:** suas_field_real (real terrain) | any .sdf + config .yaml
 
 A Gazebo world plus one config file that tells the bringup where the world file, the SITL home, the spawn pose, the survey mission and the answer key (truth) are.
 

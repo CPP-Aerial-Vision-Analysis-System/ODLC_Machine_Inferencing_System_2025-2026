@@ -11,7 +11,7 @@ It loads the world with `gz sim -s -r` in its own partition (sim_worlds/gzrun.py
      latitude/longitude: the origin must equal config/<world>.yaml `home` (= SITL --home), and each target its
      truth-file lat_wgs84/lon_wgs84 (the ArduPilot-convention lat/lon is printed too: ~1 m apart at most).
 
-usage:  check_world.py runway | suas_field | path/to/world.sdf  [--seconds 12] [--log DIR] [--json FILE]
+usage:  check_world.py runway | suas_field_real | path/to/world.sdf  [--seconds 12] [--log DIR] [--json FILE]
 exit code 0 = all checks passed.
 """
 
@@ -54,7 +54,7 @@ def latlon_error_m(lat, lon, lat0, lon0):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('world', help='world name (runway, suas_field) or a .sdf path')
+    ap.add_argument('world', help='world name (runway, suas_field_real) or a .sdf path')
     ap.add_argument('--seconds', type=float, default=12.0, help='simulated seconds to run (default 12)')
     ap.add_argument('--timeout', type=float, default=180.0, help='wall-clock limit in seconds (default 180)')
     ap.add_argument('--log', default=None, help='folder for the gz server log (default: temp folder)')

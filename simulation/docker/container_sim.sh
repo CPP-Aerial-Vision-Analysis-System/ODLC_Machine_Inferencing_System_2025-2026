@@ -26,7 +26,7 @@
 #  Stop: Ctrl+C in compose_up.sh's window, or compose_down.sh (this script passes the stop on, writes the score).
 #
 #  Settings (environment variables; docker/compose.sim.yml fills them from compose_up.sh's options):
-#    ASTRA_SIM_WORLD      runway (default) | suas_field | a world file path inside the container
+#    ASTRA_SIM_WORLD      runway (default) | suas_field_real | a world file path inside the container
 #    ASTRA_CAMERA         zr10 (default, 2K photos) | a8mini (4K photos)
 #    ASTRA_DETECTOR       real (default: the team's new_od in the jetson container) | truth (answer-key stand-in)
 #    ASTRA_SIM_OPTIONS    extra start_sim.sh options, e.g. "--headless"

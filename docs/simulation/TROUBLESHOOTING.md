@@ -132,7 +132,7 @@ crashed. The same-seconds row above replaces it.)
 bash simulation/scripts/demo.sh runway --launch-arg gui_camera:=window
 ```
 
-The main Gazebo window keeps its usual layout (for runway and suas_field: the world's own layout) without the
+The main Gazebo window keeps its usual layout (for runway and suas_field_real: the world's own layout) without the
 camera panel, and a second small window, "Drone camera (live)", shows the camera; drag it where you like.
 `gui_camera:=off` leaves the camera out of Gazebo (RViz and Mission Planner still show it). `gui_camera:=panel`
 (the default) is the old single window. What has been checked: the camera-only window stayed right for a whole

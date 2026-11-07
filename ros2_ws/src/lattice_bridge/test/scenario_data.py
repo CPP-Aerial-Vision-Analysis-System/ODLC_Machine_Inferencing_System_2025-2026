@@ -1,7 +1,7 @@
 """
 lattice_bridge/test/scenario_data.py -- PURPOSE: the real simulator worlds as test data. The clustering and
 area tests are most convincing when they use the TRUE positions of the hiker, the tent, the decoy people and
-the search areas of the two worlds (runway, suas_field). Those live in
+the search areas of the two worlds (runway, suas_field_real). Those live in
 ros2_ws/src/simulation/sim_worlds/{config,truth}/*.yaml, which only exist inside the full repo, but this
 package's tests must also run from a clean overlay that contains nothing else. So the few numbers that are
 needed are copied into data/scenario_truth.yaml (committed), and a freshness test compares that copy with the
@@ -23,7 +23,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / 'data' / 'scenario_truth.yaml'
-WORLDS = ('runway', 'suas_field')
+WORLDS = ('runway', 'suas_field_real')
 HEADER = (
     '# data/scenario_truth.yaml -- PURPOSE: the true target, decoy and area positions of the simulator worlds,\n'
     '# copied from ros2_ws/src/simulation/sim_worlds/{config,truth}/*.yaml so the lattice_bridge tests run\n'

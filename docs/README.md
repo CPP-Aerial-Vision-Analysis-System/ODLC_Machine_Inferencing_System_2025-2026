@@ -124,7 +124,8 @@ The docs checker is `simulation/scripts/check_docs.py` (see [Keeping the docs up
 | Doc | What it is for | Who it is for |
 |---|---|---|
 | [`docs/simulation/SUAS_2027.md`](simulation/SUAS_2027.md) | The supplied 2027 primer mapped to separate Blender/Gazebo training cases, private truth, local diagnostics, generation commands and remaining acceptance work. | terrain, simulator and ML developers |
-| [`docs/simulation/WORLDS.md`](simulation/WORLDS.md) | The simulated fields (`runway`, `suas_field`, the unfinished real-terrain `suas_field_real`), the rules every world must follow, how to regenerate them, and the terrain data and its licences. | developers changing worlds or missions |
+| [`docs/simulation/WHY_THESE_CHOICES.md`](simulation/WHY_THESE_CHOICES.md) | Why each tool is used (WSL2, ROS 2 Humble, Docker, Gazebo, ArduPilot SITL, MAVROS, Mission Planner that always opens, real terrain, Blender, AI upscale, mesh physics, locks), the reference PC, and what was deliberately removed. | everyone, before changing a tool or a rule |
+| [`docs/simulation/WORLDS.md`](simulation/WORLDS.md) | The simulated fields (`runway` and the real-terrain `suas_field_real`), the rules every world must follow, how to run, regenerate and check them, the accuracy measurements, and the terrain data and its licences. | developers changing worlds or missions |
 | [`docs/simulation/GOOGLE_EARTH.md`](simulation/GOOGLE_EARTH.md) | Compare simulator locations with Google Earth without copying Google's imagery into the repo. | anyone checking positions |
 | [`ros2_ws/src/simulation/sim_worlds/data/suas_field_real/LICENSES.md`](../ros2_ws/src/simulation/sim_worlds/data/suas_field_real/LICENSES.md) | Where every file of the real-field site pack comes from and how to credit it (generated). | developers, reviewers of data licences |
 

@@ -146,7 +146,7 @@ def test_real_drone_params_plan(sim_home):
 def test_docker_split_plan(sim_home):
     sv = plan.demo_vars(resolve('docker_split'))
     assert sv.scalars['TEAM_STACK_WHERE'] == 'external' and sv.scalars['HEADLESS'] == '1'
-    assert sv.scalars['WINDOWS_GCS'] == 'false'
+    assert sv.scalars['WINDOWS_GCS'] == 'true'          # Mission Planner always gets its copy
     assert sorted(sv.arrays['PLUGIN_SIM_ARGS']) == ['camera_bind:=0.0.0.0', 'mavros_out:=udp:172.30.0.3:14552']
 
 

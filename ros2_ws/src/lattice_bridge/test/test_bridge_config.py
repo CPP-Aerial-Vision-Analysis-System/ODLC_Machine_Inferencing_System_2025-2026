@@ -352,7 +352,7 @@ def test_world_colon_name_finds_the_simulators_own_file_inside_the_repository():
     path = BC.resolve_world_config('runway')
     assert path.replace('\\', '/').endswith('sim_worlds/config/runway.yaml')
     assert [s.name for s in BC.load_areas('world:runway')] == ['search_box']                 # this world has no boundary
-    field = [s.name for s in BC.load_areas('world:suas_field')]
+    field = [s.name for s in BC.load_areas('world:suas_field_real')]
     assert field[0] == 'flight_boundary' and len(field) >= 2                                 # this one does
 
 

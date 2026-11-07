@@ -8,7 +8,7 @@ services, message types, QoS, files and ports) and the team's current component 
     camera         siyi_emulator (SIYI SDK + media web API at 192.168.144.25); or your own
     detector       the team's detection/new_od; or truth_detector (answer key); or your own
     mission_brain  the team's main/main_controller.py; or your own
-    world          runway | suas_field | suas_field_real | any .sdf + config .yaml
+    world          runway | suas_field_real | any .sdf + config .yaml
     extras         any extra launch files / nodes / programs started with the stack (a logger ...)
     network        where MAVProxy sends MAVLink, where the camera emulator listens (Docker setups)
 

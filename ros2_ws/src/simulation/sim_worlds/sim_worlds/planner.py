@@ -106,7 +106,8 @@ def settings_from_config(survey_cfg, **overrides):
                        width_px=int(cam.get('width_px', survey.PHOTO_WIDTH_PX)),
                        height_px=int(cam.get('height_px', survey.PHOTO_HEIGHT_PX)),
                        overshoot_m=float(survey_cfg.get('overshoot_m', 0.0)),
-                       lead_in_s=float(survey_cfg.get('lead_in_s', 0.0) or 0.0))
+                       lead_in_s=float(survey_cfg.get('lead_in_s', 0.0) or 0.0),
+                       agl_basis_m=(float(survey_cfg['agl_basis_m']) if survey_cfg.get('agl_basis_m') else None))
     for k, v in overrides.items():
         if v is not None:
             setattr(s, k, v)

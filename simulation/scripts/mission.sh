@@ -19,12 +19,12 @@
 #    bash mission.sh check FILE                 explain + check a mission file (exit 0 = flyable)
 #    bash mission.sh load  FILE|WORLD           check, upload, MAVROS re-read
 #    bash mission.sh fly   [FILE|WORLD]         (load FILE first) then arm + AUTO; no FILE = fly what is loaded
-#    bash mission.sh make  WORLD [options]      new survey mission for runway / suas_field
+#    bash mission.sh make  WORLD [options]      new survey mission for runway / suas_field_real
 #    bash mission.sh list                       the mission files of the worlds and the ones you made
 #  FILE   a Mission Planner .waypoints file (first line "QGC WPL 110") or a QGroundControl .plan file (converted to
 #         .waypoints in ~/.astra_sim/missions/ before the upload). A Windows path works too, in quotes:
 #         "C:\Users\me\Documents\Mission Planner\field.waypoints"  or  "\\wsl.localhost\Ubuntu-22.04\home\me\m.waypoints"
-#  WORLD  runway | suas_field : that world's own survey mission
+#  WORLD  runway | suas_field_real : that world's own survey mission
 #  Options:
 #    check:     --strict (warnings count as errors), --quiet (no item table), --json, --home LAT,LON
 #    load, fly: --force (upload even when the check found errors), --url URL (MAVLink link; default: the running
@@ -135,7 +135,7 @@ if [ "$CMD" = list ]; then
   [ -d "$SHARE" ] || SHARE="$ASTRA_REPO/ros2_ws/src/simulation/sim_worlds/missions"
   info "the worlds' own missions ($SHARE):"
   for f in "$SHARE"/*.waypoints; do [ -f "$f" ] && info "    $f"; done
-  info "  by world name:  runway -> runway_survey.waypoints,  suas_field -> suas_field_survey.waypoints"
+  info "  by world name:  runway -> runway_survey.waypoints,  suas_field_real -> suas_field_real_survey.waypoints"
   MINE="$ASTRA_SIM_HOME/missions"
   info "missions made with 'mission.sh make' or converted from .plan ($MINE):"
   found=0
@@ -158,7 +158,7 @@ if [ "$CMD" = make ]; then
     esac
     shift
   done
-  [ -n "$WORLD" ] || die_usage "make needs a WORLD (runway or suas_field)"
+  [ -n "$WORLD" ] || die_usage "make needs a WORLD (runway or suas_field_real)"
   astra_load_env
   astra_require_built
   # A world is a name with a config in sim_worlds/config (or a config .yaml file): say so before Python does.
@@ -176,7 +176,7 @@ if [ "$CMD" = make ]; then
   say "Planning a survey mission for the world \"$WORLD\""
   ros2 run sim_worlds make_mission.py "$WORLD" "${PASS[@]}" --out "$OUT" || die "making the mission failed (the reason is above).
     Likely cause: an unknown world or area name, or a setting out of range.
-    Fix: worlds are runway and suas_field; see every setting with  ros2 run sim_worlds make_mission.py --help"
+    Fix: worlds are runway and suas_field_real; see every setting with  ros2 run sim_worlds make_mission.py --help"
   echo
   run_checker "$OUT" --quiet || warn "the new mission has problems (above): change the settings and make it again"
   echo

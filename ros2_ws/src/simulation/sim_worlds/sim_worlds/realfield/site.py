@@ -12,7 +12,7 @@ WORLD FRAME (the same convention as every sim_worlds world):
   the earth's curvature (13 cm at 1.3 km) and the NAD83/WGS84 difference (about 1 m, PROJ treats it as 0)
   are ignored on purpose: ArduPilot SITL ignores them too.
 
-WHY THE ORIGIN MOVED: the procedural "suas_field" world uses 36.2143 N, 96.0068 W as "the pad", but that point
+WHY THE ORIGIN MOVED: the deleted flat "suas_field" world used 36.2143 N, 96.0068 W as "the pad", but that point
 is on the east edge of the paved strip, about 50 m south of the real pad (site_facts research). Here the
 origin is the pad itself: 6.5 m south of the strip's north end, on the strip axis (OpenStreetMap way
 203824325), which agrees with the pad drawn in the handbook's Appendix A (36.21476 N, 96.00670 W, +-5 m).
@@ -46,7 +46,7 @@ TENT_PINS_LATLON = {                       #: "Runway 1 Tents" / "Runway 2 Tents
 }
 
 # ------------------------------------------------------------------------------------------------------------
-# Competition geometry from the RoboNation SUAS 2026 Team Handbook (identical to build_suas_field.py)
+# Competition geometry from the RoboNation SUAS 2026 Team Handbook (the same numbers the deleted flat field used)
 # ------------------------------------------------------------------------------------------------------------
 FLIGHT_BOUNDARY_LATLON = [
     (36.2193143935478, -96.00171089172362), (36.2203876816226, -96.0041356086731),
@@ -153,8 +153,8 @@ PAD_DETAIL_RADIUS_M = 30.0                 #: ... and those within this distance
 #: photo), far 1 m/px. Tolerance 5 cm in the search areas: smaller would mostly keep the lidar's +-5 cm noise.
 TILE_KINDS = {
     'detail': {'size': TILE_M, 'tolerance': 0.05, 'tex_px': 1024, 'tex_px_hd': 2048, 'micro': True},
-    'near66': {'size': TILE_M, 'tolerance': 0.10, 'tex_px': 256, 'tex_px_hd': 256, 'micro': False},
-    'near': {'size': 2 * TILE_M, 'tolerance': 0.10, 'tex_px': 512, 'tex_px_hd': 512, 'micro': False},
+    'near66': {'size': TILE_M, 'tolerance': 0.10, 'tex_px': 256, 'tex_px_hd': 1024, 'micro': False},
+    'near': {'size': 2 * TILE_M, 'tolerance': 0.10, 'tex_px': 512, 'tex_px_hd': 1024, 'micro': False},
     'far': {'size': BLOCK_M, 'tolerance': 0.25, 'tex_px': 256, 'tex_px_hd': 256, 'micro': False},
 }
 #: simplification tolerance (m) of the physics (collision) mesh per tile kind. In the search areas and at the pad

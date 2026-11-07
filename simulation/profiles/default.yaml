@@ -23,7 +23,7 @@ description: "today's simulator: runway, ArduCopter SITL 4.6.3, SIYI emulator (z
 extends: ""                    # start from another profile ("" = from these defaults)
 
 world:
-  name: runway                 # runway | suas_field | any sim_worlds/config/<name>.yaml | a path to a .sdf / world .yaml
+  name: runway                 # runway | suas_field_real | any sim_worlds/config/<name>.yaml | a path to a .sdf / world .yaml
   mission: ""                  # "" = the world's own survey mission; or a path to a .waypoints file
 
 autopilot:
@@ -67,8 +67,7 @@ network:
   gcs_out: ""                  # "" = udp:127.0.0.1:<gcs_port>
   mavros_out: ""               # "" = udp:127.0.0.1:<mavros_port>; e.g. udp:172.18.0.3:14552 (MAVROS in a container)
   extra_outs: []               # more MAVProxy outputs, e.g. [udp:192.168.1.20:14550]
-  windows_gcs: true            # inside WSL also send MAVLink to Mission Planner on Windows
-  windows_gcs_addr: ""         # "" = automatic; or HOST / HOST:PORT
+  windows_gcs_addr: ""         # Mission Planner ALWAYS opens and gets a MAVLink copy; "" = automatic address; or HOST / HOST:PORT
   camera_ip: "192.168.144.25"  # the address the camera answers on (the real SIYI's address)
   camera_bind: ""              # "" = camera_ip if this PC has it; 0.0.0.0 = every address (containers)
   fcu_url: ""                  # "" = tcp://127.0.0.1:<5763 + 10 x instance> (SITL SERIAL2, like the Jetson on TELEM2);

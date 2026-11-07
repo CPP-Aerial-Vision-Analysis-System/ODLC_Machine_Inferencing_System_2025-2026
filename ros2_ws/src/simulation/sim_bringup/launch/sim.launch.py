@@ -1,7 +1,7 @@
 """
 sim_bringup/launch/sim.launch.py -- PURPOSE: start the whole ASTRA simulator with one command.
 
-    ros2 launch sim_bringup sim.launch.py [world:=runway|suas_field|/path/world.sdf] [camera_model:=zr10|a8mini]
+    ros2 launch sim_bringup sim.launch.py [world:=runway|suas_field_real|/path/world.sdf] [camera_model:=zr10|a8mini]
         [gui:=true] [rviz:=true] [panel:=true] [headless_rendering:=false] [detector:=real|truth]
         [sitl:=true] [sitl_instance:=0] [mavproxy:=true] [windows_gcs:=true] [emulator:=true] [payload:=true]
         [bridge:=true] [markers:=true] [follow:=true]   (and more, see `ros2 launch sim_bringup sim.launch.py --show-args`)
@@ -69,7 +69,7 @@ from sim_bringup.wait_then_exec import bound_ports
 
 #: (name, default, description) of every launch argument. `--show-args` prints these.
 ARGUMENTS = [
-    ('world', 'runway', 'runway | suas_field | path to a world .sdf | path to a world config .yaml'),
+    ('world', 'runway', 'runway | suas_field_real | path to a world .sdf | path to a world config .yaml'),
     ('camera_model', 'zr10', 'zr10 (2K photos, last year\'s default) | a8mini (4K photos)'),
     ('gui', 'true', 'open the Gazebo window (false = server only, no window)'),
     ('rviz', 'true', 'open RViz with the camera POV layout'),
@@ -307,7 +307,7 @@ def _launch_setup(context):
         actions.append(_prepend_env('GZ_SIM_SYSTEM_PLUGIN_PATH', [os.path.join(ag_dir, 'build')]))
     actions.append(SetEnvironmentVariable('GZ_VERSION', 'harmonic'))
     if not world_cfg.world_file:
-        return fatal(f'no world file for world:={cfg["world"]}. Known worlds: runway, suas_field '
+        return fatal(f'no world file for world:={cfg["world"]}. Known worlds: runway, suas_field_real '
                      '(sim_worlds/config/<name>.yaml), or give a path to an .sdf file.')
     if ' ' in world_cfg.world_file:
         say('WARNING: the world path contains a space; Gazebo may not open it. Use the Linux-side copy '

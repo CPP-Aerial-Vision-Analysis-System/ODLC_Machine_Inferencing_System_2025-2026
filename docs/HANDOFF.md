@@ -119,7 +119,7 @@ listed under "Being written" in the index until they exist. The tables in sectio
 |---|---|---|
 | Full search demo (runway world, shared team stack, real YOLO) | **Works** | 2026-10-24 run `20261024-100602_runway`: 2/2 targets; 94/94 photos processed; 94 triggers served, none dropped; tent/hiker drops 0.32/0.54 m, aim errors 0.30/0.57 m; 288.3 s flight, landed; no controller failure/traceback, all processes stopped |
 | Four team-code bug fixes (commit `81a7950`) + Task 2 real-drone hardening (commit `94ccf0b`) | **Done in the sim, not flown on the real drone** | 3 review findings fixed with before/after tests; robustness and no-helper upload shown in the simulator; 2 demos 2/2 (drops 1.1/0.5 and 0.6/1.0 m); 6 open hardware/design decisions (Task 2 section below) |
-| Simulator core (sim_models, sim_worlds runway/suas_field, siyi_emulator, sim_bringup, sim_demo, Mission Planner buttons) | **Works** | unit tests green |
+| Simulator core (sim_models, sim_worlds runway/suas_field_real, siyi_emulator, sim_bringup, sim_demo, Mission Planner buttons) | **Works** | unit tests green |
 | Plug-and-play slots + pluggable ArduPilot | **Unit-tested; runtime WIP** | sim_plugins 219, example_detector 10 and example_listener 3 pass; generated PLUGINS reference current; alternate profiles/SITL not flown |
 | Docker (sim container + Jetson stand-in) | **WIP** | Docker Engine installed in the WSL distro, compose files parse, **images never built or run** |
 | Real-terrain world `suas_field_real` | **WIP** | generator + site pack; 18 synthetic preparation regressions added (62 world tests pass); **no world/config/mission/truth yet**, missing build stages and numerical gaps documented in WORLDS |

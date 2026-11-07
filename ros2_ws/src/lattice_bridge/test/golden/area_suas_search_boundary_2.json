@@ -1,6 +1,6 @@
 {
   "entityId": "astra-runway20261024t153000z-area-search-boundary-2",
-  "description": "one hiker + one tent among debris, vehicles, bushes and people",
+  "description": "one hiker + one tent among debris, vehicles, bushes and people (real terrain)",
   "isLive": true,
   "expiryTime": "2026-10-25T03:30:00.000000Z",
   "aliases": {
@@ -24,32 +24,32 @@
           "positions": [
             {
               "position": {
-                "latitudeDegrees": 36.213469,
-                "longitudeDegrees": -96.00263504
+                "latitudeDegrees": 36.21347306,
+                "longitudeDegrees": -96.00263011
               }
             },
             {
               "position": {
-                "latitudeDegrees": 36.21579501,
-                "longitudeDegrees": -96.00263505
+                "latitudeDegrees": 36.21579174,
+                "longitudeDegrees": -96.00263012
               }
             },
             {
               "position": {
-                "latitudeDegrees": 36.215795,
-                "longitudeDegrees": -96.00428599
+                "latitudeDegrees": 36.21579173,
+                "longitudeDegrees": -96.00428302
               }
             },
             {
               "position": {
-                "latitudeDegrees": 36.213469,
-                "longitudeDegrees": -96.00428598
+                "latitudeDegrees": 36.21347305,
+                "longitudeDegrees": -96.00428301
               }
             },
             {
               "position": {
-                "latitudeDegrees": 36.213469,
-                "longitudeDegrees": -96.00263504
+                "latitudeDegrees": 36.21347306,
+                "longitudeDegrees": -96.00263011
               }
             }
           ]

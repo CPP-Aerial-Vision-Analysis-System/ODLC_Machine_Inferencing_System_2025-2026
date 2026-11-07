@@ -11,11 +11,10 @@
 #  For the complete automatic search demo use demo.sh instead.
 #
 #  HOW TO RUN:   bash start_sim.sh                         -> runway world (quick test field)
-#                bash start_sim.sh suas_field              -> the SUAS 2026 competition field
+#                bash start_sim.sh suas_field_real              -> the SUAS 2026 competition field
 #                bash start_sim.sh runway camera_model:=a8mini rviz:=false
 #                bash start_sim.sh runway --background     -> start and give the terminal back
 #                bash start_sim.sh runway --headless       -> no windows (= gui:=false rviz:=false panel:=false)
-#                bash start_sim.sh runway --no-windows-gcs -> no MAVLink copy for Mission Planner on Windows
 #  Plug and play (docs/simulation/PLUGINS.md):
 #                bash start_sim.sh --profile ardupilot_version     -> a plug-in profile (simulation/profiles/*.yaml
 #                                                                     or a path): autopilot, camera, world, extras ...
@@ -59,7 +58,6 @@ for a in "$@"; do
     --headless) EXTRA+=("gui:=false" "rviz:=false" "panel:=false") ;;
     --keep-photos) KEEP_PHOTOS=1 ;;
     --no-camera-ip) CAMERA_IP_STEP=0 ;;
-    --no-windows-gcs) EXTRA+=("windows_gcs:=false") ;;
     --profile) NEXT="profile"; PLUGIN=1 ;;
     --set) NEXT="set"; PLUGIN=1 ;;
     --dry-run) DRY=1 ;;
@@ -98,11 +96,11 @@ if [ "$PLUGIN" = 1 ]; then
 fi
 
 case "$WORLD" in
-  runway|suas_field|standin) ;;
+  runway|suas_field_real|standin) ;;
   *.sdf|*.yaml|*.yml) [ -f "$WORLD" ] || die "the world file \"$WORLD\" does not exist.
     Likely cause: a typo in the path, or a path relative to another folder.
-    Fix: check it with  ls \"$WORLD\"  or use a world name: runway, suas_field"; WORLD="$(readlink -f "$WORLD")" ;;
-  *) warn "\"$WORLD\" is not one of runway / suas_field; trying it as a world name from sim_worlds/config." \
+    Fix: check it with  ls \"$WORLD\"  or use a world name: runway, suas_field_real"; WORLD="$(readlink -f "$WORLD")" ;;
+  *) warn "\"$WORLD\" is not one of runway / suas_field_real; trying it as a world name from sim_worlds/config." \
           "Consequence: if there is no such world, the launch stops with an error in the log. Fix: check the spelling" ;;
 esac
 
@@ -153,6 +151,7 @@ LOG="$ASTRA_SIM_HOME/logs/sim_$(date +%Y%m%d-%H%M%S).log"
 printf 'SESSION=%s\nWORLD=%s\nLOG=%s\nSTARTED=%s\nCOMMAND=%s\n' "$ASTRA_SIM_SESSION" "$WORLD" "$LOG" "$(date)" \
   "${CMD[*]}" > "$ASTRA_STATE_DIR/start_sim.env"
 
+astra_open_mission_planner        # always: Mission Planner opens with every start
 say "Starting the ASTRA simulator"
 info "world:    $WORLD"
 info "settings: ${EXTRA[*]:-(defaults)}"

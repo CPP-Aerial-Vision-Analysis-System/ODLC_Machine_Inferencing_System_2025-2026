@@ -1,4 +1,4 @@
-<!-- PURPOSE: explain the two working simulated fields (runway, suas_field), their search missions and answer keys (truth files), and the tools that build and check them. The user guide, including the unfinished real-terrain field suas_field_real, is docs/simulation/WORLDS.md. -->
+<!-- PURPOSE: explain the two working simulated fields (runway, suas_field_real), their search missions and answer keys (truth files), and the tools that build and check them. The user guide, including the unfinished real-terrain field suas_field_real, is docs/simulation/WORLDS.md. -->
 # sim_worlds: the simulated fields for the SUAS search demo
 
 **2027 training addition:** see [SUAS_2027.md](../../../../docs/simulation/SUAS_2027.md) for the opt-in
@@ -14,7 +14,7 @@ hiker (the SUAS mannequin) and the tent really are, so a run can be scored autom
 | world | what it is | search area | survey height |
 |---|---|---|---|
 | `runway` | small and fast test field near the real SUAS site | one 120 x 100 m box, 1 hiker + 1 tent, 60-120 m from the pad | 30 m |
-| `suas_field` | the SUAS 2026 field (Skyway Range, Tulsa) from the handbook GPS numbers | Search Boundaries 1 and 2, 1 hiker + 1 tent each | 50 m (164 ft) |
+| `suas_field_real` | the SUAS 2026 field (Skyway36, Tulsa) on REAL terrain: USGS lidar ground, NAIP aerial-photo colour, the real trees and buildings | Search Boundaries 1 and 2, 1 hiker + 1 tent each | 58.7 m / 55.8 m above the pad (47-56 m above the ground), derived from the real ground |
 
 The drone itself is **not** in these worlds: the bringup spawns it (model `iris`) where the config says.
 
@@ -50,15 +50,15 @@ What you should see in step 2: grass, a concrete pad with an **H** in the middle
 
 ```
 sim_worlds/
-  worlds/runway.sdf, worlds/suas_field.sdf      the worlds (GENERATED, do not edit by hand)
-  config/runway.yaml, config/suas_field.yaml    what the bringup needs: world file, SITL home, spawn, mission, truth
+  worlds/runway.sdf, worlds/suas_field_real.sdf      the worlds (GENERATED, do not edit by hand)
+  config/runway.yaml, config/suas_field_real.yaml    what the bringup needs: world file, SITL home, spawn, mission, truth
   missions/<world>_survey.waypoints            search missions, QGC WPL 110 (Mission Planner / MAVProxy "wp load")
-  missions/suas_field_sb2_survey.waypoints      extra mission for Search Boundary 2
+  missions/suas_field_real_sb2_survey.waypoints  extra mission for Search Boundary 2
   truth/<world>.yaml                           where every target and distractor really is (for scoring)
-  models/                                      ground, pad, runway, tent, grass patches, creek (our own models)
+  models/                                      ground, pad, runway, tent, grass patches (our own models); the real-terrain models rf_* are generated, not committed
   sim_worlds/                                  Python helpers (importable): geo, survey, mission, planner,
                                                world_config, truth, gzrun, worldgen/ (the generators' parts)
-  scripts/                                     tools: build_runway.py, build_suas_field.py, make_mission.py,
+  scripts/                                     tools: build_runway.py, build_real_field.py, make_mission.py,
                                                world_info.py, check_world.py, render_preview.py, fetch_models.sh,
                                                test_sim_worlds.sh
   test/                                        unit tests (pytest)
@@ -102,7 +102,7 @@ sim_worlds/
 | `targets[]` | the hiker (`class: person`, `kind: mannequin`, `pose`) and the tent (`class: tent`) of each area |
 | `distractors[]` | standing people (`class: person`!), vehicles, debris, bushes, flight-line objects |
 | per entry | `id` (Gazebo model name), `x y z yaw` (m, rad, object origin), `lat lon` (**ArduPilot convention**), `lat_wgs84 lon_wgs84`, `alt_msl`, `size [sx sy sz]` (box in the object frame), `center` (world xyz of the box centre), `center_z`, `area`, `distance_from_home_m`, `model` |
-| suas_field only | `flight_boundary` (latlon + local), `altitude_rule_agl_m` {45.7, 121.9}, `runway_1`, `runway_2_pad`, `creek_centreline_xy` |
+| suas_field_real only | `flight_boundary` (latlon + local), `altitude_rule_agl_m` {45.7, 121.9}, `survey_altitudes` (per area: ground min / max, flight height, camera height over the highest and lowest ground), `runway_2_pad`, `paved_strip`, `poles` (the three real poles), `terrain` |
 
 **Two GPS conventions, on purpose.** `lat/lon` is what ArduPilot SITL (so MAVROS `/mavros/global_position/global`
 and the photo names `"<lat> , <lon>.jpg"`) reports directly above the point: SITL turns Gazebo metres into GPS
@@ -140,7 +140,8 @@ NavSat sensor reports. Inside these worlds they differ by less than about 1 m. C
 | `check_world.py` | headless load test + real-time factor + GPS probes | `<world|file.sdf> [--seconds 12] [--json FILE]` |
 | `render_preview.py` | pictures from cameras you place (no drone, no window) | `--world --out --camera NAME:x,y,z,r,p,y[,w,h,hfov] | NAME:x,y,z@tx,ty,tz[,w,h,hfov]` |
 | `fetch_models.sh` | pre-downloads the Fuel models | `--check`, `--list` |
-| `build_runway.py`, `build_suas_field.py` | regenerate a world + its config, truth, missions | `--seed`, `--assets fuel|primitive`, `--altitude`, `--textures`, `--out-dir` |
+| `build_runway.py` | regenerate the runway world + its config, truth, missions | `--seed`, `--assets fuel|primitive`, `--altitude`, `--textures`, `--out-dir` |
+| `build_real_field.py` | the real-terrain field: `assets` (terrain, trees, buildings), `world`, `check`, `preview`, `upscale`, `treetops` | see [WORLDS](../../../../docs/simulation/WORLDS.md#real-terrain-world-suas_field_real) |
 | `test_sim_worlds.sh` | every check in one go | `--quick` (no Gazebo) |
 
 ---
@@ -184,12 +185,12 @@ pipeline delivers although the trigger asks every 1 s), rounded down to 0.5 m/s,
 | world | height | footprint | cm/px | lanes | spacing | speed | survey path |
 |---|---|---|---|---|---|---|---|
 | runway | 30 m | 51.2 x 28.8 m | 2.0 | 3 x 120 m | 24.4 m | 5.5 m/s | 409 m |
-| suas_field SB1 | 50 m | 85.4 x 48.0 m | 3.3 | 3 x 262 m (east-west) | 31.1 m | 9.5 m/s | 848 m |
-| suas_field SB2 | 50 m | 85.4 x 48.0 m | 3.3 | 3 x 259 m (north-south) | 31.4 m | 9.5 m/s | 840 m |
+| suas_field_real SB1 | 58.7 m above the pad (46.8 m over the highest ground) | 80 x 45 m at 46.8 m | 3.1 | 3 x 262 m (east-west) | 33.6 m | 8.5 m/s | 854 m |
+| suas_field_real SB2 | 55.8 m above the pad (46.8 m over the highest ground) | 80 x 45 m at 46.8 m | 3.1 | 3 x 259 m (north-south) | 34.3 m | 8.5 m/s | 843 m |
 
 Why 30 m in the runway world: it is a quick test field, below the SUAS 150 ft floor on purpose (short climb,
-lots of overlap, the hiker is ~90 px long). The competition field flies 50 m (inside 46-122 m; the team drops
-from 49 m). If the camera node zooms (last year's `capture_setup` racks the lens to 5x), the footprint shrinks
+lots of overlap, the hiker is ~90 px long). The real field flies the lowest legal height over its sloping ground
+(150 ft above the highest ground plus 1 m; the lane spacing uses the camera height over that highest ground). If the camera node zooms (last year's `capture_setup` racks the lens to 5x), the footprint shrinks
 5x and these lanes no longer cover the area: re-plan with a narrower `hfov` or keep 1x.
 
 ---
@@ -203,13 +204,16 @@ at its corners. Inside: the hiker (Rescue Randy mannequin lying on its back, a s
 pop-up tent, an SUV, 3 bushes, a barrel, 2 drums, a carton, a tarp, 2 logs, a pallet, a tyre, dirt patches.
 A tree line beyond the north edge, scattered trees, dry-grass patches.
 
-**suas_field** (`scripts/build_suas_field.py`, seed 2026). The SUAS 2026 site from the Team Handbook: flight
-boundary (11 points), Search Boundary 1 (36.211822-36.213147 N, 96.005545-96.002627 W, 262 x 147 m) and 2
-(36.213469-36.215795 N, 96.004286-96.002635 W, 148 x 259 m), Runway 1 (020 deg) and Runway 2 = the VTOL pad = the
-origin. Each search boundary: one hiker (lying face up/down, sitting or standing; the two never share a pose;
-"open", "near a bush" or "next to a vehicle", as the rules say "surrounded/covered by bushes/trees/vehicles"),
-one open pop-up tent, 1-3 vehicles, 1-3 standing people (the detector calls them "person" too), 5-8 bushes and
-~30 pieces of debris. A creek with trees along the north, tree lines west and south-east.
+**suas_field_real** (`scripts/build_real_field.py world`, seed 2026; terrain by `build_real_field.py assets`). The SUAS
+2026 site from the Team Handbook on real ground: flight boundary (11 points), Search Boundary 1 (36.211822-36.213147 N,
+96.005545-96.002627 W, 262 x 147 m, ground 2.4 to 11.9 m above the pad) and 2 (36.213469-36.215795 N,
+96.004286-96.002635 W, 148 x 259 m, ground 0.1 to 9.0 m), the paved strip, and Runway 2 = the VTOL pad = the origin.
+Each search boundary: one hiker (lying face up/down, sitting or standing; the two never share a pose; "open", "near
+a bush" or "next to a vehicle"), one open pop-up tent, 1-3 vehicles, 1-3 standing people (the detector calls them
+"person" too), 5-8 bushes and ~30 pieces of debris, all placed on open, level real ground clear of the real trees.
+The real trees (about 17,000) and 324 buildings come from lidar, the 2023 aerial photo and OpenStreetMap / Microsoft
+footprints; three real wooden poles stand in Search Boundary 1. Everything about it (run, check, accuracy, the
+optional AI-sharper ground) is in [docs/simulation/WORLDS.md](../../../../docs/simulation/WORLDS.md#real-terrain-world-suas_field_real).
 
 ---
 
@@ -238,7 +242,7 @@ plywood, roof sheets, lumber, tarps, tyres, bins, coolers, cartons, mattresses, 
 the runway and the grass/dirt patches. Not used on purpose: Fuel "Hatchback" (wheel textures missing) and
 "Cardboard box" (texture path broken).
 
-Offline: `build_runway.py --assets primitive` (or `build_suas_field.py`) writes the same layout from simple shapes
+Offline: `build_runway.py --assets primitive` (or `build_real_field.py world --assets primitive`) writes the same layout from simple shapes
 only (mannequin from capsules, box cars, ellipsoid bushes); no download needed. If a Fuel model is missing at run
 time, the world still loads and only that object is missing (Gazebo prints an error).
 
@@ -249,7 +253,7 @@ time, the world still loads and only that object is missing (Gazebo prints an er
 ```bash
 cd <repo>/ros2_ws/src/simulation/sim_worlds            # the SOURCE folder (scripts write into it)
 python3 scripts/build_runway.py                          # same seed -> exactly the same files
-python3 scripts/build_suas_field.py --seed 7             # a different layout (targets elsewhere)
+python3 scripts/build_real_field.py world --seed 7        # the real field: targets elsewhere, same terrain
 python3 scripts/build_runway.py --hiker-pose sitting     # lying_face_up | lying_face_down | sitting | standing
 python3 scripts/build_runway.py --textures               # re-paint the shared pictures (fixed seed 2026)
 python3 -m pytest -q test                                # the committed worlds must equal the generator output

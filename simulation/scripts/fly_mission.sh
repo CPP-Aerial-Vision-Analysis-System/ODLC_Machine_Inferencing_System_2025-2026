@@ -15,7 +15,7 @@
 #  runs. demo.sh does all of this for you, plus the team stack and the score.
 #
 #  HOW TO RUN:   bash fly_mission.sh                    -> runway mission
-#                bash fly_mission.sh suas_field --watch
+#                bash fly_mission.sh suas_field_real --watch
 #                bash fly_mission.sh /path/my.waypoints
 #  Options:      --url URL (default: the running simulator's ground-station port, udp 14550), --no-upload (fly what is already on the autopilot),
 #                --watch (print messages until landed and disarmed)

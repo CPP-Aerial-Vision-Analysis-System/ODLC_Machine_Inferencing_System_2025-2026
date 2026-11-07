@@ -88,12 +88,6 @@ def test_runway_generator_deterministic_and_committed(pkg_dir):
     ET.fromstring(w1)
 
 
-def test_suas_field_generator_committed(pkg_dir):
-    _, w = _gen('build_suas_field', 2026, 'fuel')
-    with open(os.path.join(pkg_dir, 'worlds', 'suas_field.sdf'), encoding='utf-8') as f:
-        assert f.read() == w, 'worlds/suas_field.sdf differs from the generator: re-run scripts/build_suas_field.py'
-
-
 def test_primitive_mode_needs_no_fuel():
     b, w = _gen('build_runway', 7, 'primitive')
     assert 'fuel.gazebosim.org' not in w

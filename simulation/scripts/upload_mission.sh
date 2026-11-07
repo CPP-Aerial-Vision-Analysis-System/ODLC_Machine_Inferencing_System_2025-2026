@@ -9,7 +9,7 @@
 #  `ros2 run sim_bringup mission_tool upload`, through MAVProxy's ground-station output (udp 14550).
 #
 #  HOW TO RUN:   bash upload_mission.sh                  -> the runway mission
-#                bash upload_mission.sh suas_field        -> the SUAS field mission
+#                bash upload_mission.sh suas_field_real        -> the SUAS field mission
 #                bash upload_mission.sh /path/my.waypoints
 #  Options:      --url URL   another MAVLink connection (default: the running simulator's ground-station port, udp 14550)
 #  Note: only one program can listen on udp 14550 at a time; close QGroundControl / Mission Planner first,

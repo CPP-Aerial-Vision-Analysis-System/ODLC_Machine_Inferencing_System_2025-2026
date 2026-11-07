@@ -7,7 +7,7 @@ entities.build_area_geo. It knows how the two worlds describe their areas:
     rectangles in LOCAL METRES (east, north of home): center [x, y], size [along the lanes, across the
     lanes], yaw (radians; 0 = lanes run east, 1.5708 = north). Example: the "search_box" of the runway world.
   * sim_worlds/truth/<world>.yaml (the answer key) also has `flight_boundary: {latlon: [[lat, lon], ...]}`
-    (suas_field only) and `altitude_rule_agl_m: {min, max}`.
+    (suas_field_real only) and `altitude_rule_agl_m: {min, max}`.
 
 On the real field the same job is done by whoever prepares the mission: any list of (lat, lon) corners
 works with build_area_geo; this module is only the bridge from the simulator's files.

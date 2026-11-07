@@ -21,8 +21,8 @@ test/test_golden.py`) and **read the diff against the Lattice docs before commit
 | `track_person.json` | the hiker: a track at the projected target position, confidence 95 %, 7 sightings | `build_target_track(...)` |
 | `track_tent.json` | the tent: same shape, other class and numbers | `build_target_track(...)` |
 | `area_runway_search_box.json` | the runway world's search box as a polygon (from `config/runway.yaml`) | `build_area_geo(...)` |
-| `area_suas_search_boundary_2.json` | the suas_field world's second search boundary (rotated rectangle) | `build_area_geo(...)` |
-| `area_suas_flight_boundary.json` | the suas_field flight boundary: an 11-corner polygon of type `GEO_TYPE_CONTROL_AREA`, with the 150-400 ft altitude rule in the description | `build_area_geo(..., geo_type=...)` |
+| `area_suas_search_boundary_2.json` | the suas_field_real world's second search boundary (rotated rectangle) | `build_area_geo(...)` |
+| `area_suas_flight_boundary.json` | the suas_field_real flight boundary: an 11-corner polygon of type `GEO_TYPE_CONTROL_AREA`, with the 150-400 ft altitude rule in the description | `build_area_geo(..., geo_type=...)` |
 | `drop_person.json` | where the person payload was released: a geo point | `build_drop_point(...)` |
 | `drop_tent.json` | the tent payload release, with a height | `build_drop_point(...)` |
 

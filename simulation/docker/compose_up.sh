@@ -20,7 +20,7 @@
 #
 #  HOW TO RUN (inside Ubuntu: the WSL distro on Windows, or a Linux PC; images built with build_images.sh):
 #      bash simulation/docker/compose_up.sh                    runway world, full demo, windows on the desktop
-#      bash simulation/docker/compose_up.sh suas_field         the SUAS 2026 competition field
+#      bash simulation/docker/compose_up.sh suas_field_real         the SUAS 2026 competition field
 #      bash simulation/docker/compose_up.sh runway --headless --detector truth     no windows (any PC, fastest)
 #  Options:  --detector real|truth   who finds the targets (real = the team's new_od in the jetson container)
 #            --camera zr10|a8mini    photo profile (zr10 = 2K photos, default; a8mini = 4K)
@@ -29,7 +29,6 @@
 #            --keep                  keep everything running after the landing (stop: compose_down.sh)
 #            --timeout MIN           give the demo up after MIN minutes (default 30)
 #            --no-gpu                no NVIDIA card for the containers (the detector then runs on the processor)
-#            --no-windows-gcs        no MAVLink copy for Mission Planner / QGroundControl on Windows
 #            --windows-gcs HOST[:PORT]  send that copy somewhere else (default: the Windows host, port 14550)
 #            --only sim              start only the simulator (your own Jetson stand-in: run_jetson_container.sh --net astra)
 #            --repo DIR              mount this repo folder (default: this repo, or its Linux-side copy, see above)
@@ -63,7 +62,6 @@ while [ $# -gt 0 ]; do
     --timeout) shift; TIMEOUT_MIN="${1:-}" ;;
     --no-gpu) GPU=no ;;
     --gpu) GPU=yes ;;
-    --no-windows-gcs) WIN_GCS="" ;;
     --windows-gcs) shift; WIN_GCS="${1:-}"; [ -n "$WIN_GCS" ] || die "--windows-gcs needs HOST or HOST:PORT" ;;
     --only) shift; ONLY="${1:-}"; [ "$ONLY" = sim ] || die "--only takes: sim" ;;
     --repo) shift; REPO_ARG="${1:-}" ;;
@@ -109,9 +107,9 @@ astra_prepare_data
 astra_prepare_repo_mounts "$REPO_HOST"
 astra_use_host_fuel
 
-# The world: a name (runway, suas_field, ...) or a file INSIDE the mounted repo (the container only sees the repo).
+# The world: a name (runway, suas_field_real, ...) or a file INSIDE the mounted repo (the container only sees the repo).
 case "$WORLD" in
-  runway|suas_field|standin) CWORLD="$WORLD" ;;
+  runway|suas_field_real|standin) CWORLD="$WORLD" ;;
   *.sdf|*.yaml|*.yml)
     f="$(readlink -f "$WORLD" 2>/dev/null || true)"
     case "$f" in
@@ -183,6 +181,10 @@ info "GPU        $GPU_TEXT"
 info "Windows GS ${WIN_GCS:-none}$([ -n "$WIN_GCS" ] && echo " (Mission Planner: connection type UDP, port ${WIN_GCS##*:})")"
 info "compose    $COMPOSE_TEXT"
 astra_mem_check 4000
+# Mission Planner opens every time (no switch to turn it off): through WSL interop, from the host side of the containers.
+if [ "$ASTRA_DRY" != 1 ]; then
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts" && pwd)/mission_planner.sh" start     || warn "Mission Planner could not be opened from here (not WSL on Windows, or not installed). Consequence: open it yourself"             "on the Windows PC: connection type UDP, port ${WIN_GCS##*:}. Fix: docs/simulation/MISSION_PLANNER.md"
+fi
 
 if [ "$ASTRA_DRY" = 1 ]; then
   say "DRY RUN: checking the compose files with these settings (nothing is started)"

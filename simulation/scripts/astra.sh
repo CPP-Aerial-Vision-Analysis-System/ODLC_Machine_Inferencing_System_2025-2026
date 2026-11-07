@@ -37,7 +37,7 @@
 #
 #  Examples:
 #    bash simulation/scripts/astra.sh demo                       # runway world, about 8 minutes, closes by itself
-#    bash simulation/scripts/astra.sh demo suas_field --detector truth
+#    bash simulation/scripts/astra.sh demo suas_field_real --detector truth
 #    bash simulation/scripts/astra.sh demo runway --profile truth_detector
 #    bash simulation/scripts/astra.sh manual                     # then in a second terminal:
 #    bash simulation/scripts/astra.sh mission fly runway --watch

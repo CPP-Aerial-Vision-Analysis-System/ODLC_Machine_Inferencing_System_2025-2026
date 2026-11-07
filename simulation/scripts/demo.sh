@@ -20,7 +20,7 @@
 #  Everything of one run is in ~/.astra_sim/runs/<date>_<world>/ (logs, phases, photos, score_report.md).
 #
 #  HOW TO RUN:   bash demo.sh                          -> runway world (small and quick, about 6-8 minutes)
-#                bash demo.sh suas_field                -> the SUAS 2026 field (longer)
+#                bash demo.sh suas_field_real                -> the SUAS 2026 field (longer)
 #                bash demo.sh runway --detector truth   -> answer-key detector stand-in instead of the team model
 #                bash demo.sh runway --camera a8mini    -> A8 mini profile, 4K photos
 #  Options:      --detector real|truth   who finds the targets (default real = the team's new_od + yolo26m)
@@ -32,8 +32,8 @@
 #                                        Mission Planner is the ground station (the camera picture is at
 #                                        http://127.0.0.1:8081/pov.mjpg, see docs/simulation/MISSION_PLANNER.md)
 #                --no-panel              (the default) do not open the ASTRA demo panel
-#                --no-windows-gcs        no MAVLink copy for Mission Planner / QGroundControl on Windows (by default,
-#                                        inside WSL, it goes to the Windows host: Mission Planner -> UDP -> port 14550)
+#                (Mission Planner ALWAYS opens with the simulator and gets a MAVLink copy on UDP port 14550; there is no
+#                 option to turn that off, so every PC shows the same thing)
 #                --windows-gcs HOST[:PORT]  send that copy somewhere else (another laptop, mirrored networking)
 #                --timeout MINUTES       give up after this long (default 30)
 #                --keep                  leave everything running after the landing
@@ -122,7 +122,6 @@ while [ $# -gt 0 ]; do
     --headless) HEADLESS=1; TYPED+=("run.headless=true") ;;
     --panel) PANEL=1 ;;
     --no-panel) PANEL=0 ;;
-    --no-windows-gcs) WINDOWS_GCS=false; TYPED+=("network.windows_gcs=false") ;;
     --windows-gcs) shift; WINDOWS_GCS_ADDR="${1:-}"; [ -n "$WINDOWS_GCS_ADDR" ] || die_usage "--windows-gcs needs HOST or HOST:PORT, e.g. --windows-gcs 192.168.1.20:14550"
                    TYPED+=("network.windows_gcs_addr=$WINDOWS_GCS_ADDR") ;;
     --timeout) shift; TIMEOUT_MIN="${1:-30}"; TYPED+=("run.timeout_min=$TIMEOUT_MIN") ;;
@@ -169,7 +168,7 @@ while [ $# -gt 0 ]; do
     --photo-pace) shift; JETSON_PACE="${1:-}" ;;
     --jetson-like) JETSON_LIKE=1 ;;
     -*) die_usage "unknown option \"$1\"" ;;
-    *) if [ "$FIRST" = 1 ]; then WORLD="$1"; FIRST=0; TYPED+=("world.name=$1"); else die_usage "unexpected argument \"$1\" (the world comes first and only once, e.g. demo.sh suas_field --keep)"; fi ;;
+    *) if [ "$FIRST" = 1 ]; then WORLD="$1"; FIRST=0; TYPED+=("world.name=$1"); else die_usage "unexpected argument \"$1\" (the world comes first and only once, e.g. demo.sh suas_field_real --keep)"; fi ;;
   esac
   shift
 done
@@ -350,6 +349,15 @@ SIM_ARGS+=("windows_gcs:=$WINDOWS_GCS")
 # A profile's other sim.launch.py arguments (autopilot, network, camera ...); --launch-arg still comes last.
 SIM_ARGS+=("${PLUGIN_SIM_ARGS[@]}")
 SIM_ARGS+=("${LAUNCH_EXTRA[@]}")
+# Mission Planner always gets its MAVLink copy: a launch argument that switches it off is dropped (with a warning).
+NEW_ARGS=()
+for a in "${SIM_ARGS[@]}"; do
+  case "$a" in
+    windows_gcs:=false|windows_gcs:=0) warn "ignoring $a: Mission Planner always opens and always gets the MAVLink copy" ;;
+    *) NEW_ARGS+=("$a") ;;
+  esac
+done
+SIM_ARGS=("${NEW_ARGS[@]}")
 # The flight recorder's own copy of the MAVLink (one more MAVProxy output). It is ADDED to the extra_outs a profile or a
 # --launch-arg gives (ros2 launch keeps only the LAST extra_outs:=), never replacing them.
 RECORDER_OUT="udp:127.0.0.1:$RECORDER_PORT"
@@ -646,6 +654,7 @@ handed_over() {
   exit 0
 }
 
+astra_open_mission_planner        # always: Mission Planner opens with every start (also with --headless)
 say "STEP 1/6  Starting the simulator (Gazebo, SITL, camera emulator$([ "$HEADLESS" = 0 ] && echo ", windows"))"
 # (through stamp_lines: every line of sim.log gets its date and time, also MAVProxy's, Gazebo's and tracebacks;
 #  $! stays the launch's own pid = its process group, because the stamper is made inside that background job)

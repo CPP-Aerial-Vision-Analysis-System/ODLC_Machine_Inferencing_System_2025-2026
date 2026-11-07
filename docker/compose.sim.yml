@@ -45,7 +45,7 @@
 #  options). The most useful ones:
 #      ASTRA_REPO_HOST    the repo folder to mount (default: the repo this file is in)
 #      ASTRA_DOCKER_DATA  where runs, logs and the detector weights are kept on the host (~/.astra_docker)
-#      ASTRA_SIM_WORLD    runway | suas_field | ...      ASTRA_CAMERA    zr10 | a8mini
+#      ASTRA_SIM_WORLD    runway | suas_field_real | ...      ASTRA_CAMERA    zr10 | a8mini
 #      ASTRA_DETECTOR     real (team new_od) | truth     ASTRA_DEMO      1 = fly the demo by itself, 0 = you fly
 #  Needs Docker Compose 2.20 or newer (simulation/docker/install_docker_engine.sh installs a current one).
 # =============================================================================

@@ -69,8 +69,8 @@ Every other message after `astra.sh WORD` comes from the script that word runs: 
 | `[mission] ERROR: check needs a mission FILE` / `load needs a mission FILE or a WORLD name` / `make needs a WORLD` (exit 2) | The file or world is missing on the command line. | Add it, e.g. `mission.sh check ~/Downloads/field.waypoints`, `mission.sh make runway`. |
 | `[mission] ERROR: ... takes ONE mission, got "A" and "B"` (exit 2) | Two file names, often a Windows path with spaces but **without quotes**. | Put the path in quotes: `"C:\Users\me\Documents\Mission Planner\field.waypoints"`. |
 | `[mission] ERROR: the mission file "..." does not exist.` (exit 3) | A typo in the name, a Windows path without quotes (the backslashes get lost), or a `\\wsl.localhost\OTHER-DISTRO\...` path of another WSL distribution (only this one can be read). | Check it with `ls "FILE"`; put a Windows path in quotes (`C:\...` and `\\wsl.localhost\Ubuntu-22.04\...` both work). |
-| `[mission] ERROR: "..." is neither a mission file nor a world with a survey mission.` (exit 3) | Not a file, and not a world name (`runway`, `suas_field`). | `bash simulation/scripts/mission.sh list` shows what you can use. |
-| `[mission] ERROR: there is no world called "..."` (exit 3, `make`) | A typo in the world name. | Use one of the names the message lists (`runway`, `suas_field`). |
+| `[mission] ERROR: "..." is neither a mission file nor a world with a survey mission.` (exit 3) | Not a file, and not a world name (`runway`, `suas_field_real`). | `bash simulation/scripts/mission.sh list` shows what you can use. |
+| `[mission] ERROR: there is no world called "..."` (exit 3, `make`) | A typo in the world name. | Use one of the names the message lists (`runway`, `suas_field_real`). |
 | `[mission] ERROR: the mission check found errors (listed above), so nothing was uploaded.` (exit 1) | The checker found something the team's flight code cannot fly (each `ERROR:` line above says what). | Fix it in Mission Planner and save again (FLIGHT PLAN > Save WP File). Upload anyway only for a test: add `--force`. |
 | `[mission] WARNING: --force: uploading although the check found errors` | You chose to upload a mission with errors. The team code will probably not take photos, hold or drop correctly. | Only for tests. |
 | `[mission] ERROR: the mission checker is missing (...mission_check.py)` | An old or partial copy of the repo. | Update the checkout, then `bash simulation/setup/03_build.sh`. |
@@ -173,7 +173,7 @@ Before anything starts, `demo.sh` checks everything and lists each problem as a 
 | `[demo] ERROR: the plug-in profile cannot be used` | A typo in the profile name or a `--set`, a file the profile names is missing, or sim_plugins not built. | `python3 -m sim_plugins.profile_tool plan --profile NAME --check` says which line. |
 | `WARNING: the team package "..." is not built/installed` / `the simulation package "..." is not built` | The build did not finish. | `bash simulation/setup/03_build.sh`. |
 | `WARNING: the team's launcher.sh is missing in ...` | A broken copy (or a wrong `--team-repo`). | Update the copy, or check the `--team-repo` folder. |
-| `WARNING: world "..." has no world file` / `has no survey mission` / `mission file not found` | A typo in the world name or `--mission` path. | Worlds: `runway`, `suas_field`; missions: `mission.sh list`. |
+| `WARNING: world "..." has no world file` / `has no survey mission` / `mission file not found` | A typo in the world name or `--mission` path. | Worlds: `runway`, `suas_field_real`; missions: `mission.sh list`. |
 | `WARNING: the mission file does not have what the team code needs` | The mission check failed. | `bash simulation/scripts/mission.sh check FILE` explains each problem. |
 | `WARNING: no detector weights` / `the detector weights ... cannot be used` | `yolo26m.pt` is missing (no internet during the build) or the file is broken. | `03_build.sh` with internet, `--model FILE`, or `--detector truth`. |
 | `WARNING: udp 14550 is in use` / `udp 14552 is in use` | A ground station inside Ubuntu, or an old MAVROS / launcher. | Close it (`ss -lunp`), or `--gcs-port P`. |
@@ -199,8 +199,8 @@ Before anything starts, `demo.sh` checks everything and lists each problem as a 
 |---|---|---|
 | `[start_sim] ERROR: unknown option` / `unexpected argument` / `--profile needs a value` / `--set needs KEY=VALUE` (exit 2) | Typed wrong. Settings look like `name:=value` (e.g. `camera_model:=a8mini`). | `bash simulation/scripts/start_sim.sh --help`. |
 | `[start_sim] ERROR: the plug-in profile cannot be used` | Same as in demo. | `python3 -m sim_plugins.profile_tool plan --profile NAME --check`. |
-| `[start_sim] ERROR: the world file "..." does not exist.` | A typo in the `.sdf` / `.yaml` path. | `ls FILE`, or use `runway` / `suas_field`. |
-| `[start_sim] WARNING: "..." is not one of runway / suas_field` | It tries it as a world name; a wrong name stops the launch with an error in the log. | Check the spelling. |
+| `[start_sim] ERROR: the world file "..." does not exist.` | A typo in the `.sdf` / `.yaml` path. | `ls FILE`, or use `runway` / `suas_field_real`. |
+| `[start_sim] WARNING: "..." is not one of runway / suas_field_real` | It tries it as a world name; a wrong name stops the launch with an error in the log. | Check the spelling. |
 | `[start_sim] WARNING: continuing without the camera address` | No photos (video_cam cannot reach the emulator). | The two commands printed just above it. |
 
 ## stop_sim

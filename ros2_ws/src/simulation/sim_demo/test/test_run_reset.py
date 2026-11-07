@@ -376,7 +376,7 @@ def test_no_simulator_running_gives_exit_code_3(machine):
 
 def test_other_world_is_refused_with_a_clear_message(machine):
     m = machine
-    assert m.make(rr.Options(world='suas_field')).run() == 1
+    assert m.make(rr.Options(world='suas_field_real')).run() == 1
     text = _progress(m)[-1]['text']
     assert 'runway' in text and 'stop_sim.sh' in text
     assert not any(e[0] == 'gz.remove' for e in m.events)          # nothing was changed
@@ -534,7 +534,7 @@ def test_select_never_returns_protected_or_foreign_processes():
 def test_demo_script_is_found_through_its_tagged_child():
     procs = [_p(['bash', '/r/demo.sh', 'runway'], session='', pid=10),
              _p(['python3', '/w/lib/sim_bringup/phase_monitor'], pid=11, ppid=10),
-             _p(['bash', '/r/demo.sh', 'suas_field'], session='', pid=20)]                  # another demo, no child
+             _p(['bash', '/r/demo.sh', 'suas_field_real'], session='', pid=20)]                  # another demo, no child
     assert [p.pid for p in rr.demo_scripts(procs, SESSION)] == [10]
 
 

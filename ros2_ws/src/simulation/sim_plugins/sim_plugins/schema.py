@@ -72,7 +72,7 @@ SCHEMA: Dict[str, Any] = {
     'extends': Field('', 'str', help='start from another profile (a name in simulation/profiles or a path), '
                                      'then change only what this file says'),
     'world': {
-        'name': Field('runway', 'str', help='runway | suas_field | suas_field_real (when built) | any name with '
+        'name': Field('runway', 'str', help='runway | suas_field_real | any name with '
                                             'sim_worlds/config/<name>.yaml | a path to a .sdf or a world .yaml'),
         'mission': Field('', 'path', help='another survey mission (.waypoints) instead of the world\'s own'),
     },
@@ -152,8 +152,7 @@ SCHEMA: Dict[str, Any] = {
         'mavros_out': Field('', 'mavout', help='"" = udp:127.0.0.1:<mavros_port>; e.g. udp:172.18.0.3:14552 = a '
                                                'MAVROS in another container'),
         'extra_outs': Field([], 'mavouts', help='more MAVProxy outputs, e.g. [udp:192.168.1.20:14550]'),
-        'windows_gcs': Field(True, 'bool', help='inside WSL also send MAVLink to Mission Planner on Windows'),
-        'windows_gcs_addr': Field('', 'hostport', help='"" = automatic; HOST or HOST:PORT = send it there'),
+        'windows_gcs_addr': Field('', 'hostport', help='Mission Planner ALWAYS opens and gets a copy; "" = automatic address; HOST or HOST:PORT = send it there'),
         'camera_ip': Field('192.168.144.25', 'ip', help='the address the camera emulator pretends to be'),
         'camera_bind': Field('', 'ip', help='"" = camera_ip if this computer has it, else 127.0.0.1; '
                                             '0.0.0.0 = listen on every address (containers)'),

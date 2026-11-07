@@ -10,7 +10,7 @@ generator for fictional coastal terrain, colored mannequins/suitcases, clutter a
 It produces an external bundle; the 2026 worlds and their default flight behavior stay as described here.
 Its local evaluator is independent of the person-and-tent truth validator and the 2026 score.
 
-Status on 2026-11-07: `runway` and `suas_field` are generated working worlds. **`suas_field_real` now exists end to
+Status on 2026-11-07: `runway` is the generated small test world. The old flat synthetic `suas_field` was deleted on 2026-11-07 (the real-terrain world replaces it; do not look for it). **`suas_field_real` now exists end to
 end** (all four generator stages, offline checks, Gazebo load check, box-drop ground check and one complete scored
 flight with the team's real detector, see [Real-terrain world](#real-terrain-world-suas_field_real)). It is a first
 accepted version, not the final one: trees and ground sharpness are still being improved, and it has not been compared
@@ -25,7 +25,6 @@ code; [Docker](DOCKER.md) covers container paths.
 | Name | Ground/targets | Mission and status |
 |---|---|---|
 | `runway` | Small synthetic field, 120 × 100 m search area, one hiker and one tent | 30 m survey; short default regression demo, flown in SITL |
-| `suas_field` | Synthetic SUAS site using handbook boundary/runway coordinates; two search areas | 50 m surveys, one mission per search area; generated and unit tested |
 | `standin` | ArduPilot Gazebo runway, no ASTRA search targets | Supply a mission explicitly; useful for bringup |
 | `suas_field_real` | Real USGS lidar ground, NAIP 2023 aerial colour, the real trees and buildings, the three real poles; two search areas | One legal survey height per area (58.7 m and 55.8 m above the pad); flown once end to end; see [Real-terrain world](#real-terrain-world-suas_field_real) |
 
@@ -77,9 +76,7 @@ Edit generators, not their generated SDF/YAML/mission files. From the package so
 
 ```bash
 python3 scripts/build_runway.py --help
-python3 scripts/build_suas_field.py --help
 python3 scripts/build_runway.py --seed 7
-python3 scripts/build_suas_field.py --seed 2026
 python3 -m pytest -q -p no:cacheprovider test
 ```
 
@@ -122,6 +119,7 @@ from compact derived assets without installing GIS libraries or downloading raw 
 | `prepare` | Private raw cache → aligned `.npy` rasters, feature JSON, tree CSV | `prepare.py`, `trees_detect.py`; implemented, synthetic regressions pass, full new data pass pending |
 | `pack` | Prepared grids → `data/suas_field_real/` compact derived site pack | `pack.py`, `sitepack.py`; implemented; tracked pack predates the latest numerical fixes |
 | `upscale` (optional) | Site pack → AI-sharpened ground picture of the search areas (cache, not in git) | `upscale.py`; Real-ESRGAN x4 on the GPU, about 25 s; used by `assets` when it exists |
+| `treetops` (maintainers) | Unpainted aerial photo → `tree_tops_32.jpg`: a top-down picture of every tree's crown (5 MB, in the pack) + `crown_rgb` in `trees.csv` | `tree_tops.py`; needs the prepared photo from stage 1 |
 | `assets` | Site pack → terrain/tree/building Gazebo models and baked textures | `assets_build.py` with `terrain.py`, `trees.py`, `texture.py`, `structures.py`; about 40 s (standard) to 2 min (hd) |
 | `world` | Site pack → SDF, config, truth and missions | `world_build.py`; seconds |
 | `check`, `preview` | Pack/generated models → validation and pictures | `checks.py` (offline PASS/FAIL list), `previews.py` (overview, hillshade, per-area top views, altitude profiles) |
@@ -225,6 +223,19 @@ exists (`--upscale off` ignores it). The AI invents plausible fine texture (gras
 objects. Because invented texture could trigger a detector, compare the false-alarm counts of two flights (with and
 without) before trusting it. One-time environment: `bash simulation/setup/upscale_env.sh` (its own virtual
 environment; ROS's Python is untouched).
+
+### How the trees and the ground are made to look like the photo from above
+
+- **Crowns carry the photo's own pixels.** The ground picture has the 3D trees' crowns painted out, so each 3D crown is
+  textured with its own top-down picture from the unpainted photo (`tree_tops_32.jpg`, planar projection from above;
+  the steep sides of a crown sample the middle of the picture so they do not streak) plus fine leaf-clump detail
+  (the photo gives a crown only about 30 pixels). From above a crown then has the colours and shape of the photo's crown.
+- **No doubled shadows.** The photo already contains the real tree shadows (same sun as the world's sun), so the tree
+  and canopy models do not cast Gazebo shadows (`TREE_SHADOWS = False` in `assets_build.py`). Objects under a tree are
+  not shaded dynamically; the baked shadow in the ground picture is what shows.
+- **Sharper ground reaches past the search areas**: the AI picture covers the detail area plus 100 m, and the 66 m and
+  132 m tiles beside it are 1024 pixels in `hd` quality (they were 256 and 512 px: a blurry band next to the sharp tiles).
+- Forest edges taper in two steps (60 % and 30 % of the canopy height) instead of a vertical wall.
 
 ### Evidence (2026-11-07)
 

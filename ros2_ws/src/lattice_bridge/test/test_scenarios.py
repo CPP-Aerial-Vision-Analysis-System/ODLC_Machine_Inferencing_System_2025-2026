@@ -1,6 +1,6 @@
 """
 lattice_bridge/test/test_scenarios.py -- PURPOSE: run the library against the REAL positions of the two
-simulator worlds (runway, suas_field): the true hiker, tent, decoy people, search areas and flight boundary
+simulator worlds (runway, suas_field_real): the true hiker, tent, decoy people, search areas and flight boundary
 (copied into data/scenario_truth.yaml; a freshness test compares the copy with the real world files when the
 full repo is present). This is the "does it make sense on the actual field" test:
 
@@ -160,7 +160,7 @@ def test_search_areas_become_valid_polygons_that_contain_their_targets(world):
 
 
 def test_the_flight_boundary_is_a_valid_control_area_that_contains_the_search_areas():
-    truth = DATA['suas_field']['truth']
+    truth = DATA['suas_field_real']['truth']
     boundary = world_areas.flight_boundary(truth)
     assert boundary.geo_type == C.GEO_TYPE_CONTROL_AREA and len(boundary.corners_latlon) == 11
     assert '45.7' in boundary.note and '121.9' in boundary.note
@@ -170,7 +170,7 @@ def test_the_flight_boundary_is_a_valid_control_area_that_contains_the_search_ar
     assert find_problems(entity, NOW) == []
     assert len(entity['geoShape']['polygon']['rings'][0]['positions']) == 12
     ring = list(boundary.corners_latlon)
-    for spec in world_areas.search_areas(DATA['suas_field']['config']):
+    for spec in world_areas.search_areas(DATA['suas_field_real']['config']):
         for lat, lon in spec.corners_latlon:
             assert point_in_polygon(lat, lon, ring), f'{spec.name} corner outside the flight boundary'
     home = truth['home']

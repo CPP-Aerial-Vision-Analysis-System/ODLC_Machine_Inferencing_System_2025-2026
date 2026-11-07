@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
     -h|--help) astra_usage "$0"; exit 0 ;;
     --fly) FLY=1; PASS+=(--fly) ;;
     --follow) FOLLOW=1 ;;
-    --world) shift; [ -n "${1:-}" ] || die_usage "--world needs a world name (runway or suas_field)"; WORLD="$1"; PASS+=(--world "$WORLD") ;;
+    --world) shift; [ -n "${1:-}" ] || die_usage "--world needs a world name (runway or suas_field_real)"; WORLD="$1"; PASS+=(--world "$WORLD") ;;
     --mission) shift; [ -f "${1:-}" ] || die "the mission file \"${1:-}\" does not exist.
     Likely cause: a typo in the path (or no file name after --mission).
     Fix: check it with  ls \"${1:-}\"  ; see the mission files with  bash \"$ASTRA_SCRIPTS_DIR/mission.sh\" list"

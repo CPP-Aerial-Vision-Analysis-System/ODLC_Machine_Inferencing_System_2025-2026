@@ -105,41 +105,104 @@ Terminal 2 — run the mission stack against it:
 For the complete Gazebo mission, camera emulator and scoring, use the native setup below or follow
 [the Docker guide](docs/simulation/DOCKER.md). The container integration is still being validated.
 
-## Simulation (Gazebo)
+## Simulation (Gazebo): the real SUAS field, flown from Mission Planner
 
-A full digital twin: our Iris + SIYI camera in Gazebo Harmonic, flown by ArduCopter SITL 4.6.3 (the
-Pixhawk's firmware), with **the same team flight stack** (`./launcher.sh sim`) talking to it through MAVROS
-and to a SIYI camera emulator at the real camera address. You watch the camera's point of view while the
-drone searches for the hiker and the tent, detects them, drops the payloads and flies home; a score report
-is written at the end. Everything is in [`simulation/README.md`](simulation/README.md).
+A full digital twin of the competition site: our Iris + SIYI ZR10 camera in Gazebo Harmonic over the **real terrain**
+(USGS lidar ground, NAIP aerial photo, the real trees and buildings), flown by ArduCopter SITL 4.6.3 (the Pixhawk's
+firmware) with **the same team flight stack** (`./launcher.sh sim`) over MAVROS. **Mission Planner on Windows opens
+every time** (there is no option to skip it), shows the drone, the mission and the camera picture, and a score report
+is written at the end. *Why each tool was chosen:* [docs/simulation/WHY_THESE_CHOICES.md](docs/simulation/WHY_THESE_CHOICES.md).
+Everything else about the simulator: [`simulation/README.md`](simulation/README.md). The index of every doc: [docs/README.md](docs/README.md).
+
+> **What changed (2026-11-07):** the old flat `suas_field` world is **deleted** (use `suas_field_real`; the small `runway`
+> test world stays); **Mission Planner always opens** (`--no-windows-gcs` and the profile field `network.windows_gcs` are gone);
+> the real-terrain world exists end to end, with an optional AI-sharper ground. If an old note of yours says
+> `demo.sh suas_field`, use `demo.sh suas_field_real`.
+
+### What you need (the reference PC)
+
+Windows 11 + WSL2 with the `Ubuntu-22.04` distro, an NVIDIA GPU with a current Windows driver (reference: RTX 4060 Laptop,
+8 GB), about 25 GB free disk, internet for the first build, and **Mission Planner installed on Windows** (see
+[MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md) for the install and the ASTRA plugin). Details and the reasons:
+[WHY_THESE_CHOICES.md](docs/simulation/WHY_THESE_CHOICES.md#the-reference-pc-what-the-same-result-means).
+
+### Step 1 - one-time setup (about 30-60 minutes, mostly downloads)
+
+Clone the repo on the Windows disk, then in an **Ubuntu-22.04** terminal, from the repo folder (`/mnt/d/...`):
 
 ```bash
-# one time, from the checkout inside Ubuntu 22.04
-sudo bash simulation/setup/01_install_humble.sh
-bash simulation/setup/02_setup_ardupilot.sh
-bash simulation/setup/03_build.sh --workers 4
-# Only Windows-mounted checkouts create the mirror; native Linux stays in its checkout.
-# After a Windows-mounted build: cd ~/ODLC_Machine_Inferencing_System_2025-2026
+sudo bash simulation/setup/01_install_humble.sh        # ROS 2 Humble, Gazebo Harmonic, tools
+bash simulation/setup/02_setup_ardupilot.sh            # ArduCopter SITL 4.6.3
+bash simulation/setup/03_build.sh --workers 4          # copies the repo to ~/ODLC_Machine_Inferencing_System_2025-2026,
+                                                       # builds it, downloads the Gazebo models and the detector weights,
+                                                       # and MAKES THE REAL-TERRAIN MODELS (about 1 minute)
+```
+
+Every later change: edit on Windows, run `03_build.sh` again (it overwrites the Linux copy; never edit the copy).
+Optional sharper ground (needs the GPU; about 5 minutes once):
+
+```bash
+bash simulation/setup/upscale_env.sh                                              # the upscaler, in its own venv
+cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/simulation/sim_worlds
+~/.astra_sim/upscale_venv/bin/python scripts/build_real_field.py upscale          # about 25-45 s
+python3 scripts/build_real_field.py assets --install                              # paint the ground from it (about 2 min)
+```
+
+### Step 2 - fly it (automatic search of Search Boundary 1)
+
+```bash
+cd ~/ODLC_Machine_Inferencing_System_2025-2026
 source simulation/setup/sim_env.sh
-bash simulation/scripts/demo.sh runway
+bash simulation/scripts/demo.sh suas_field_real
 ```
 
-### The real SUAS field (real terrain) and Mission Planner
+What you will see, in order (reference PC): **Mission Planner opens**; Gazebo and RViz open; "ready to arm" after about 80 s;
+the drone arms, takes off to **58.7 m above the pad** (about 47-56 m above the ground), flies 3 lanes at 8.5 m/s taking a photo
+every second (about 110 photos), the detector finds the targets, the drone flies to them, drops, returns and lands
+(about **7.5 minutes** in the air). Every phase prints in the terminal; the run folder `~/.astra_sim/runs/<date>_suas_field_real/`
+holds `score_report.md`, the photos with detection boxes, CSV logs and the mission map. In Mission Planner the drone, the lanes
+and the status texts appear, and the ASTRA tab shows the camera.
 
-Besides the small `runway` world and the flat `suas_field`, there is `suas_field_real`: the competition site on **real
-terrain** (USGS lidar ground, NAIP aerial-photo colour, the real trees and buildings). `03_build.sh` makes its
-models; then:
+| Reference result (2026-11-07, real detector `new_od` + yolo26m, seed 2026) | Value |
+|---|---|
+| Flight | landed, 7.4 min, 110 photos |
+| Hiker (Search Boundary 1) | found, confidence 0.92; payload landed about 16 m from it |
+| Tent | the pick can be a false alarm on bright bare ground (first flight: 222 m error); expect tent precision to be low (see [WORLDS.md](docs/simulation/WORLDS.md#evidence-2026-11-07)) |
+| Search Boundary 2 | not flown by the contract mission (use `suas_field_real_sb2_survey.waypoints`) |
+
+Exact numbers vary a little between runs (timing, detector); the structure above must be the same.
+
+### Step 3 - fly it yourself from Mission Planner (the competition procedure)
 
 ```bash
-bash simulation/scripts/demo.sh suas_field_real            # automatic search of Search Boundary 1, windows open
-bash simulation/scripts/demo.sh suas_field_real --manual   # Mission Planner mode: you upload, arm and start AUTO
+bash simulation/scripts/demo.sh suas_field_real --manual        # or: simulation\windows\Start for Mission Planner.bat suas_field_real
 ```
 
-For Mission Planner: connect UDP 14550 (or use the Windows launcher: `simulation\windows\Start for Mission Planner.bat suas_field_real`),
-open the **ASTRA** tab for the drone camera, and load `missions/suas_field_real_survey.waypoints` (Search Boundary 1) or
-`..._sb2_survey.waypoints` (Search Boundary 2) with PLAN → Load WP file. Every step, the checks, the optional AI-sharper
-ground and the measured accuracy are in [docs/simulation/WORLDS.md](docs/simulation/WORLDS.md#real-terrain-world-suas_field_real)
-and [docs/simulation/MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md).
+Mission Planner opens by itself. In it: (1) top right choose **UDP**, **CONNECT**, port **14550**; (2) **PLAN → Load WP file** →
+`ros2_ws/src/simulation/sim_worlds/missions/suas_field_real_survey.waypoints` (Search Boundary 1) or
+`suas_field_real_sb2_survey.waypoints` (Search Boundary 2) → **Write**; (3) arm, set **AUTO**. The **ASTRA** tab shows the
+drone camera. The team code then handles detections, drops and RTL. Full guide and troubleshooting:
+[MISSION_PLANNER.md](docs/simulation/MISSION_PLANNER.md).
+
+### Step 4 - check that your PC matches ours
+
+```bash
+cd ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/simulation/sim_worlds
+python3 scripts/build_real_field.py check                    # offline: expect "all checks passed" (about 25 PASS lines)
+ros2 run sim_worlds check_world.py suas_field_real --seconds 20   # Gazebo: expect RESULT: PASS, real-time factor about 1.0, 0 [Err]
+python3 -m pytest -q -p no:cacheprovider test                # the package tests
+```
+
+If Mission Planner's map and the camera picture seem to disagree: the terrain is placed within 1-2 m of the real
+site (measured), the usual cause is the 0.3-1.7 s delay of the position the map and the photo tags use, plus the map being
+another imagery date; see [WORLDS.md](docs/simulation/WORLDS.md#why-the-drone-icon-in-mission-planner-can-seem-to-be-somewhere-else-than-the-camera-picture).
+
+### The small test world and stopping
+
+```bash
+bash simulation/scripts/demo.sh runway          # the tiny quick test field (about 7 minutes); Mission Planner opens here too
+bash simulation/scripts/stop_sim.sh             # stop everything
+```
 
 The simulator lives in `simulation/` (setup and scripts) and `ros2_ws/src/simulation/` (packages
 `sim_bringup`, `sim_models`, `sim_worlds`, `siyi_emulator`, `sim_demo`, `sim_plugins`).

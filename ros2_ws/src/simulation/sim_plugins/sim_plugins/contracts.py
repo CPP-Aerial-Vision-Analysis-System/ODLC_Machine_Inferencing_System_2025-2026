@@ -266,7 +266,7 @@ WORLD = SlotContract(
     slot='world',
     title='World (the field, the targets and the survey mission)',
     default='runway (sim_worlds/config/runway.yaml)',
-    alternatives='suas_field | suas_field_real (real terrain; being built) | any .sdf + config .yaml',
+    alternatives='suas_field_real (real terrain) | any .sdf + config .yaml',
     summary='A Gazebo world plus one config file that tells the bringup where the world file, the SITL home, '
             'the spawn pose, the survey mission and the answer key (truth) are.',
     topics=(

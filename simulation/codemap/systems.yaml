@@ -112,7 +112,7 @@ systems:
       Everything that pretends to be the real world. Gazebo Harmonic computes the physics and draws the field,
       the hiker (a mannequin), the tent and our drone. sim_models holds the drone (an Iris quadcopter with a gimbal
       camera, a live camera, a photo camera and two droppable payloads) and payload_release, which drops a payload
-      when the autopilot opens servo 11 or 13. sim_worlds builds the worlds (runway, suas_field), their survey
+      when the autopilot opens servo 11 or 13. sim_worlds builds the worlds (runway, suas_field_real), their survey
       missions and the answer key of where the targets really are. siyi_emulator pretends to be the SIYI camera at
       192.168.144.25: it answers the SIYI SDK (UDP 37260) and, for the legacy photo pipeline, the HTTP photo API
       (port 82); its RTSP video stream for the team's new video pipeline (TCP 8554) is being built.
@@ -1029,9 +1029,9 @@ links:
     kind: data
     label: "loads this world (the default, demo.sh runway)"
   - from: ext:gazebo
-    to: mod:ros2_ws/src/simulation/sim_worlds/worlds/suas_field.sdf
+    to: mod:ros2_ws/src/simulation/sim_worlds/worlds/suas_field_real.sdf
     kind: data
-    label: "loads this world (demo.sh suas_field)"
+    label: "loads this world (demo.sh suas_field_real)"
   - from: ext:gazebo
     to: mod:ros2_ws/src/simulation/sim_models/models/iris_a8mini/model.sdf.xacro
     kind: data
@@ -1545,7 +1545,7 @@ wiring:
         - Live picture · 1280×720 for pov_server
         - Photo camera · legacy photos
         - ArduPilotPlugin · motors, IMU, GPS
-        - World · runway or suas_field
+        - World · runway or suas_field_real
         - Targets · hiker, tent, decoys
         - Payload hooks · servo 11 and 13
       where: Physics and rendering · twin of the outside world
