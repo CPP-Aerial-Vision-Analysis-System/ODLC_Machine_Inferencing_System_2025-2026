@@ -1,0 +1,1350 @@
+{
+ "area": "Code map tools (simulation/codemap)",
+ "entries": {
+  "fn:simulation/codemap/build_artifact.py::build.slim": {
+   "explain": "Makes (once) and remembers a copy of the code map reduced to one size stage (full, no file source, short source, no source, no docstrings) together with its size in bytes, so build() can try the stages in order without redoing the work."
+  },
+  "fn:simulation/codemap/build_artifact.py::embed": {
+   "explain": "Puts the code map and the recording into the page: replaces the one <!-- ASTRA_EMBED --> marker in web/index.html with a script block that sets window.ASTRA_CODEMAP and window.ASTRA_TRACE (as JSON with '<' escaped). Stops with a clear error when the marker is missing or appears twice.",
+   "inputs": "the page text, the code map dict, the list of recorded events",
+   "outputs": "the page text with the data inside"
+  },
+  "fn:simulation/codemap/build_artifact.py::main": {
+   "explain": "The command line of build_artifact.py: reads the options (--codemap, --recording, --out, --index, --max-bytes, --max-events, --max-trace-bytes, --no-source), builds dist/astra_code_map.html and prints what it kept, which recording it used and the final size. Without --recording it embeds the newest recording of recordings/ and ~/.astra_sim/codemap/recordings. Exit code 0 = written, 2 = something is missing or the page cannot be made small enough.",
+   "effects": "writes simulation/codemap/dist/astra_code_map.html (or --out)"
+  },
+  "fn:simulation/codemap/build_artifact.py::newest_recording": {
+   "explain": "Returns the most recently changed *.jsonl file of the folders it is given (folders that do not exist are skipped), or None when there is none. Without --recording, main() gives it recordings/ and ~/.astra_sim/codemap/recordings (see default_recording_dirs)."
+  },
+  "fn:simulation/codemap/build_artifact.py::read_recording": {
+   "explain": "Reads one recording file into a list of clean events: JSON lines (what server.py --record writes) or one JSON array; every line goes through normalize_event, so broken or unknown lines are skipped instead of stopping the build."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.__init__": {
+   "explain": "Prepares an empty map builder for one repository: remembers the repo folder, systems.yaml, the explanations folder and whether to keep source code, and makes the empty tables for nodes, edges, problems (what --check fails on) and warnings."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_edge": {
+   "explain": "Adds one link (from, to, kind, optional label) to the map, ignoring empty ends and links from a block to itself. The kind must be one of the contract's edge kinds (calls, imports, publishes, subscribes, launches, runs, mavlink, http, data)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_links": {
+   "explain": "Adds the hand-written network links of systems.yaml (for example MAVProxy to SITL over TCP 5760) as edges; creates topic blocks they name, and reports a link whose kind is unknown or whose end is not in the map as a problem."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_module_nodes": {
+   "explain": "Makes one module block (mod:<path>) for every source file found, under its package, with its language, a test flag for test files, and a summary (its PURPOSE paragraph or a generated one); Python files are also parsed here for the later steps."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_node": {
+   "explain": "Adds one block to the map; when the id is already there it keeps the first one and records the id as a duplicate (extract.py --check then fails)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_package_nodes": {
+   "explain": "Makes one package block (pkg:<folder>) for every package that owns at least one file, under the system systems.yaml gives it (or sys:other, with a problem noted, when none does), with its label and summary."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_python_def_nodes": {
+   "explain": "Makes the blocks of one Python file's classes, functions and methods: id fn:<path>::<qualname>, first line (decorators included), last line, signature, docstring, test flag and, unless --no-source, the source text (capped)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.add_system_nodes": {
+   "explain": "Makes the top blocks: one sys:<key> per system and one ext:<key> per outside program listed in systems.yaml, each with its label and plain summary; an outside program sits inside the system named as its parent."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_bash": {
+   "explain": "Reads every bash script: finds its functions, which scripts it sources (to know functions defined in a sourced file such as _common.sh) and, through bash_edges, which functions and programs each function calls or runs."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_batch": {
+   "explain": "Reads every Windows .bat file (one at a time, a broken file only becomes a note) to find the repo scripts it starts through wsl.exe ... bash ..."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_csharp": {
+   "explain": "Reads every C# file (the Mission Planner plugin) to find its classes, methods and properties and the calls between them."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_launch_xml": {
+   "explain": "Reads every ROS launch XML file (.launch or .launch.xml) to find the programs it starts (<node>, <executable>) and the launch files it includes."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_powershell": {
+   "explain": "Reads every PowerShell script (one at a time) to find its functions and the repo files it names, copies or runs."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.analyze_python": {
+   "explain": "The Python part of the extractor: learns each file's importable name and its definitions, then finds imports, calls between functions (only when the called name can be resolved for sure), ROS publishers and subscribers, and what launch .py files start."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_edges": {
+   "explain": "For one bash script, finds every command and turns it into links: a call of a known function (calls), a script or program it starts (runs); each link starts at the function the command sits in, or at the file for top-level commands."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_edges.owner_of": {
+   "explain": "Returns the id of the innermost bash function whose lines include the given line number, or the file's id when the line is outside every function."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.build": {
+   "explain": "Runs the whole extraction in order: reads systems.yaml, scans the repo, finds packages, gives each package a system, makes the system/package/module blocks, analyses Python, bash, launch, C#, batch and PowerShell files, adds the hand-written links, merges the explanations, checks the edges and returns the finished map.",
+   "outputs": "the codemap dict (schema 1: nodes, edges, trace_index)"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.check_edges": {
+   "explain": "Drops every link whose end is not a block of the map and notes each one as a warning, and warns about blocks whose parent is missing."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.class_bases": {
+   "explain": "Returns the base classes of a Python class that are themselves classes of the repo (resolved through imports), so a method call can be followed into an inherited method."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.discover_packages": {
+   "explain": "Finds every package: each folder with a package.xml (a ROS package, with its facts read from package.xml, setup.py and CMakeLists.txt), each test folder, and each folder systems.yaml declares."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.ensure_topic": {
+   "explain": "Makes the block topic:<name> for a ROS topic the first time it is mentioned."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.fallback_explain": {
+   "explain": "Chooses the panel text for a block that has no entry in explanations/*.json: the systems.yaml summary for systems and outside programs, a generated sentence for topics, the package or module summary, the docstring, the test's name, or a generated sentence; it also says which source the text came from."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.is_test_path": {
+   "explain": "True when a repo path is a test file: it lies in a test or tests folder, or its name starts with test_."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.load_systems": {
+   "explain": "Reads systems.yaml with the small built-in YAML reader: the systems and their packages and patterns, the outside programs (with the ROS packages, program names and launch names that belong to them), the network links and the topic owners."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.merge_explanations": {
+   "explain": "Reads every explanations/*.json file and copies its fields (explain, called_when, inputs, outputs, effects, how_it_fits) onto the matching blocks; reports unreadable files, ids that are not in the map and ids two files both claim."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_imports": {
+   "explain": "Finds every import and from-import of one Python file and adds an imports link to each repo file it names (relative imports included)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_topic": {
+   "explain": "For one create_publisher / create_subscription / create_service / create_client call: works out the topic or service name (a string, or a constant it can resolve) and adds a publishes or subscribes link with the message type as its label; names built at run time are counted as dynamic and skipped."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.result": {
+   "explain": "Turns the builder's tables into the final codemap dict: blocks sorted by id with empty fields removed, links sorted, plus schema, generated time, git commit and trace_index."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.system_of": {
+   "explain": "Walks up the parent links from a block to the system it belongs to and returns that system's id (None when there is none)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.topic_name": {
+   "explain": "Cleans a topic name found in code: adds the leading slash, and refuses names that are private (~), empty or built at run time (spaces, {}, $, <>)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.trace_index": {
+   "explain": "Builds the trace_index the live server uses to name tracer messages: py_files (path -> file id, plus the copies colcon makes), py_modules (dotted import name -> file id, leaving out names two files share) and functions (file id -> first line of each def -> function id)."
+  },
+  "fn:simulation/codemap/extract.py::Package.__init__": {
+   "explain": "Holds what the extractor knows about one package folder: its kind (ROS, test, declared or automatic), whether it owns its sub-folders, its system, its ROS facts, label and summary."
+  },
+  "fn:simulation/codemap/extract.py::Package.id": {
+   "explain": "The package's code map id, pkg:<folder>."
+  },
+  "fn:simulation/codemap/extract.py::PyDef.__init__": {
+   "explain": "Holds one Python class, function or method found in a file: its qualified name, short name, kind, syntax-tree node(s), parent definition and code map id, plus details used to resolve calls (local names, self/cls name, static flag)."
+  },
+  "fn:simulation/codemap/extract.py::PyDef.is_class": {
+   "explain": "True when this definition is a class."
+  },
+  "fn:simulation/codemap/extract.py::PyDef.node": {
+   "explain": "The first syntax-tree node of this definition (a name defined twice keeps all its nodes; the first one is the main one)."
+  },
+  "fn:simulation/codemap/extract.py::PyModule.__init__": {
+   "explain": "Holds one Python file for the extractor: its path, id, text and lines, and its parsed syntax tree; a file that cannot be parsed keeps the reason (it shows up as a note) instead of stopping the run."
+  },
+  "fn:simulation/codemap/extract.py::RosPackage.__init__": {
+   "explain": "Holds the facts of one ROS package read from package.xml, setup.py and CMakeLists.txt: name, build type, description, console scripts (executable -> module and function), installed programs and Python packages."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.__init__": {
+   "explain": "Starts the small built-in YAML reader on one text (only the part of YAML systems.yaml uses, because extract.py may only use the standard library)."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.block": {
+   "explain": "Reads the YAML block at the current line: a list when it starts with '- ', otherwise a mapping."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.block_scalar": {
+   "explain": "Reads a folded or literal block of text (key: >- or key: | followed by indented lines) into one string."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.indent": {
+   "explain": "The number of spaces at the start of a line."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.mapping": {
+   "explain": "Reads 'key: value' lines at one indentation into a dict, following nested blocks."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.parse": {
+   "explain": "Reads the whole YAML text and returns its top-level value (an empty dict for an empty file)."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.seq": {
+   "explain": "Reads '- item' lines at one indentation into a list, following nested blocks."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.skip_blank": {
+   "explain": "Moves past empty lines, comment lines and '---' separators."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.where": {
+   "explain": "Names the current place ('systems.yaml line N') for error messages."
+  },
+  "fn:simulation/codemap/extract.py::bash_clean.blank": {
+   "explain": "Replaces the characters between two positions with spaces (keeping line breaks), so comments and quoted text are hidden from the bash command finder without moving any line numbers."
+  },
+  "fn:simulation/codemap/extract.py::bash_split_commands.flush_cmd": {
+   "explain": "Ends the command being collected: stores its words with the line it started on, then starts a new one."
+  },
+  "fn:simulation/codemap/extract.py::bash_split_commands.flush_word": {
+   "explain": "Ends the word being collected and adds it to the current command (remembering the line of the command's first word)."
+  },
+  "fn:simulation/codemap/extract.py::bindings_of.bind": {
+   "explain": "Records what a name is bound to in a block of Python code; when the same name gets two different meanings it is marked as shadowed, so the extractor never guesses which one a call means."
+  },
+  "fn:simulation/codemap/extract.py::collect_defs.visit": {
+   "explain": "Walks a Python file's statements and nested definitions and records every class, function and method with its qualified name (outer.inner for nested functions, Class.method for methods)."
+  },
+  "fn:simulation/codemap/extract.py::cs_clean.blank": {
+   "explain": "Replaces the characters between two positions with spaces (keeping line breaks), so C# comments and strings are hidden from the method finder without moving line numbers."
+  },
+  "fn:simulation/codemap/extract.py::dumps_codemap.one": {
+   "explain": "Writes one value as compact JSON with sorted keys, so codemap.json comes out the same byte for byte on Windows and Linux."
+  },
+  "fn:simulation/codemap/extract.py::function_params": {
+   "explain": "Returns the names of all parameters of a Python function (positional, keyword-only, *args and **kwargs)."
+  },
+  "fn:simulation/codemap/extract.py::main": {
+   "explain": "The command line of extract.py: reads the options (--repo, --out, --systems, --explanations, --no-source, --check, --quiet), builds the map, writes codemap.json and prints the report (blocks and links per kind, explanation coverage per kind and system, notes). With --check it exits 1 when a file has no package or system or an id repeats.",
+   "effects": "writes simulation/codemap/codemap.json (or --out)"
+  },
+  "fn:simulation/codemap/extract.py::ps_clean.blank": {
+   "explain": "Replaces the characters between two positions with spaces (keeping line breaks), so PowerShell comments and strings are hidden from the command finder without moving line numbers."
+  },
+  "fn:simulation/codemap/extract.py::rosidl_summary.fields": {
+   "explain": "Returns the field names of one block of a ROS .msg or .srv file, ignoring comments, for the generated summary of a message or service type."
+  },
+  "fn:simulation/codemap/server.py::App": {
+   "explain": "The code map server's state and work: the loaded code map index, the hub that sends live events, the recording, the counters of what came in, and the loops that read tracer messages (UDP), send batches every 200 ms and list running programs every 2 s.",
+   "how_it_fits": "server.py's main() makes one App and the web handler reads it for every request."
+  },
+  "fn:simulation/codemap/server.py::App.__init__": {
+   "explain": "Sets up the server state from the command-line options: paths of the code map and the page, the recording folders (--recordings, or by default recordings/ next to server.py plus ~/.astra_sim/codemap/recordings), the recording file (when --record), the event hub, the first load of codemap.json, the Mission Planner check (tasklist.exe) and the counters."
+  },
+  "fn:simulation/codemap/server.py::App._record_path": {
+   "explain": "Turns the --record option into the file to record into: 'auto' -> recordings/<stamp>.jsonl, a folder -> <folder>/<stamp>.jsonl, otherwise the path itself; None without --record."
+  },
+  "fn:simulation/codemap/server.py::App.batch_loop": {
+   "explain": "Background loop: every 200 ms sends the calls collected since the last time to the open pages (and the recording) as one 'calls' event."
+  },
+  "fn:simulation/codemap/server.py::App.find_recording": {
+   "explain": "Finds a recording by its file name for GET /recordings/<file>, only for safe names ending in .jsonl and only inside the recording folders (so no other file can be read)."
+  },
+  "fn:simulation/codemap/server.py::App.gzip_of": {
+   "explain": "Returns the gzip-compressed copy of a big answer (the 12 MB codemap.json becomes about 2 MB), made once and kept in a small cache."
+  },
+  "fn:simulation/codemap/server.py::App.list_recordings": {
+   "explain": "Lists the recording files (*.jsonl) of the recording folders for GET /recordings: name, size, time changed and URL, newest first."
+  },
+  "fn:simulation/codemap/server.py::App.procs_loop": {
+   "explain": "Background loop: re-reads codemap.json when it changed, and every 2 s scans the running programs and sends the list as a 'procs' event."
+  },
+  "fn:simulation/codemap/server.py::App.recording_dirs": {
+   "explain": "The folders GET /recordings lists: the --recordings folder when one is given; otherwise recordings/ next to server.py plus ~/.astra_sim/codemap/recordings (where demo_traced.sh records runs started from the Linux-side copy); and always the folder of the current --record file. When two folders hold a file with the same name, the first one wins."
+  },
+  "fn:simulation/codemap/server.py::App.scan_running": {
+   "explain": "Looks at every running process (Linux /proc), turns each command line into code map ids with the index (our scripts and ROS programs as mod:..., outside programs as ext:...), adds ext:mission_planner when Windows says MissionPlanner.exe runs, and returns the sorted list."
+  },
+  "fn:simulation/codemap/server.py::App.udp_loop": {
+   "explain": "Background loop: receives the tracers' UDP messages on 127.0.0.1:8091 and hands each one to handle_datagram; keeps listening after network errors."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex.__init__": {
+   "explain": "Builds the look-up tables from codemap.json that turn tracer messages and command lines into ids: the trace_index tables, module paths, file names, function names per file (for files edited after extract.py ran), installed program names, outside-program patterns, package folders and ROS entry points."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._add_entry_point": {
+   "explain": "Remembers that 'ros2 run <package> <executable>' (and the executable name alone) runs a given module."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._in_package": {
+   "explain": "True when a repo path lies inside the folder of the named ROS package (used for files colcon copied into install/ or build/)."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._map_command": {
+   "explain": "Turns one process command line into code map ids: outside programs by their patterns (gz sim, arducopter, mavproxy, mavros_node, MissionPlanner), ros2 launch / ros2 run by package and file, and interpreters running a repo file or python -m module."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._mod_for_path": {
+   "explain": "Returns the module id whose path is exactly the given repo path, or None."
+  },
+  "fn:simulation/codemap/server.py::Handler": {
+   "explain": "The web server's request handler: answers GET and HEAD for the page, /codemap.json (gzip when the browser accepts it), /events (the live Server-Sent Events stream), /recordings, /recordings/<file> and /health."
+  },
+  "fn:simulation/codemap/server.py::Handler._json": {
+   "explain": "Sends a value as a JSON answer with the given status."
+  },
+  "fn:simulation/codemap/server.py::Handler._route": {
+   "explain": "Picks the answer for the requested path (the page, /codemap.json, /events, /recordings, /recordings/<file>, /health) and sends 404 for anything else; a connection the browser already closed is simply ignored."
+  },
+  "fn:simulation/codemap/server.py::Handler._send": {
+   "explain": "Sends one HTTP answer: status, content type, length, no-cache, CORS header, and gzip compression for big cached answers when the browser accepts it; HEAD requests get only the headers."
+  },
+  "fn:simulation/codemap/server.py::Handler._text": {
+   "explain": "Sends a plain text answer with the given status."
+  },
+  "fn:simulation/codemap/server.py::Handler.app": {
+   "explain": "The App this web server belongs to (its state and counters)."
+  },
+  "fn:simulation/codemap/server.py::Handler.do_GET": {
+   "explain": "Answers a GET request through _route."
+  },
+  "fn:simulation/codemap/server.py::Handler.do_HEAD": {
+   "explain": "Answers a HEAD request (headers only) through _route."
+  },
+  "fn:simulation/codemap/server.py::Handler.log_message": {
+   "explain": "Prints each HTTP request only when server.py runs with --verbose (quiet otherwise)."
+  },
+  "fn:simulation/codemap/server.py::Hub": {
+   "explain": "The live event hub: collects calls between batches, keeps one queue per open page (at most 8), sends every event to all pages without ever waiting for a slow one, and writes every event to the recording file."
+  },
+  "fn:simulation/codemap/server.py::Hub.__init__": {
+   "explain": "Sets up the hub: the pending calls, the list of page queues, the page limit, and the recording file opened line-buffered (so every event is on disk at once)."
+  },
+  "fn:simulation/codemap/server.py::Hub.add_calls": {
+   "explain": "Adds call counts (function id -> number of calls) to the batch that goes out at the next 200 ms tick."
+  },
+  "fn:simulation/codemap/server.py::Hub.close": {
+   "explain": "At shutdown: tells every open page stream to finish and closes the recording file."
+  },
+  "fn:simulation/codemap/server.py::Hub.flush_calls": {
+   "explain": "Takes the calls collected since the last batch and publishes them as one 'calls' event with the time (nothing is sent when there were none)."
+  },
+  "fn:simulation/codemap/server.py::Hub.publish": {
+   "explain": "Sends one event to every open page queue (a full queue is skipped and counted, never waited for), counts it, and writes it as one JSON line to the recording."
+  },
+  "fn:simulation/codemap/server.py::Hub.register": {
+   "explain": "Opens a queue for a new page that listens to /events; returns None when 8 pages already listen (the page then gets a 503 answer)."
+  },
+  "fn:simulation/codemap/server.py::Hub.set_procs": {
+   "explain": "Stores the newest list of running programs and publishes it as a 'procs' event (a page that connects later gets the newest list at once)."
+  },
+  "fn:simulation/codemap/server.py::Hub.sse_chunk": {
+   "explain": "Formats one Server-Sent Event: 'event: <name>' and 'data: <compact JSON>' followed by an empty line."
+  },
+  "fn:simulation/codemap/server.py::Hub.unregister": {
+   "explain": "Removes a page's queue when its /events connection closes."
+  },
+  "fn:simulation/codemap/server.py::MissionPlannerWatch.__init__": {
+   "explain": "Finds Windows' tasklist.exe (inside WSL through /mnt/c), used to see whether Mission Planner runs on Windows; switched off with --no-windows."
+  },
+  "fn:simulation/codemap/server.py::MissionPlannerWatch.running": {
+   "explain": "Asks tasklist.exe at most every 6 s whether MissionPlanner.exe runs and returns the last answer (False when tasklist is not available)."
+  },
+  "fn:simulation/codemap/server.py::Server": {
+   "explain": "The threaded HTTP server: one thread per request, open /events connections never keep the program alive, and port reuse only on Linux (on Windows it would let two servers share a port)."
+  },
+  "fn:simulation/codemap/server.py::main": {
+   "explain": "Starts the code map server: opens UDP 127.0.0.1:8091 for the tracers and HTTP 127.0.0.1:8090 for the page (a clear message and exit code 2 when a port is busy), starts the three background loops, prints the address, and on Ctrl+C or SIGTERM handles the last messages, saves <recording>.health.json and closes everything.",
+   "effects": "listens on UDP 8091 and TCP 8090; writes the recording and its .health.json with --record"
+  },
+  "fn:simulation/codemap/server.py::main._stop": {
+   "explain": "Signal handler: turns SIGTERM (what demo_traced.sh sends at the end) into a clean stop of the server."
+  },
+  "fn:simulation/codemap/server.py::parse_args": {
+   "explain": "Reads server.py's options: --host, --port (8090), --udp-host, --udp-port (8091), --codemap, --web, --record, --recordings (default: recordings/ next to server.py and ~/.astra_sim/codemap/recordings), --procs-interval, --no-windows, --verbose."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_make_profiler.astra_profile": {
+   "explain": "The profiler function Python calls for every function call and return in a traced program. It ignores everything but 'call' events, skips files already known to be not ours with one set look-up, decides once per new file whether it is team code, and adds 1 to the call count of our functions. It catches only the two errors it can cause itself (RecursionError when the program is already 1-2 frames from Python's recursion limit, and MemoryError), so an exception that belongs to the program, for example one its own signal handler raises at that instant, still reaches the program. When an exception does leave it (a RecursionError at the very last frame, or the program's own), Python switches the profiler off for that thread: the program goes on as untraced, but that thread stops reporting.",
+   "called_when": "for every Python function call in a program started with ASTRA_TRACE=1 (the hot path)"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_send.emit": {
+   "explain": "Sends one UDP datagram with a list of [module, file, first line, name, count] entries to the server, without waiting (a datagram that cannot go at once is dropped and counted), and marks those counts as reported.",
+   "effects": "one UDP datagram to ASTRA_TRACE_ADDR (default 127.0.0.1:8091)"
+  },
+  "fn:simulation/codemap/web/make_sample.py::bash_defs": {
+   "explain": "Finds the functions of a bash script (name() { ... }) with their first and last lines, for the small sample map."
+  },
+  "fn:simulation/codemap/web/make_sample.py::build_codemap": {
+   "explain": "Builds web/sample_codemap.json: a small code map (3 systems, 5 outside programs, 7 packages, 14 real files with their real functions, topics and links) with explanations reused from explanations/*.json, for testing the page without the full map."
+  },
+  "fn:simulation/codemap/web/make_sample.py::build_codemap.add_edge": {
+   "explain": "Adds one link to the sample map once; stops with an error when an end is not a sample block."
+  },
+  "fn:simulation/codemap/web/make_sample.py::build_codemap.add_node": {
+   "explain": "Adds one block to the sample map and copies its explanation fields from explanations/*.json when there is an entry."
+  },
+  "fn:simulation/codemap/web/make_sample.py::build_recording.at": {
+   "explain": "Adds n calls of one sample function at time t to the synthetic recording, grouped into 0.2 s buckets like the server's batches; stops when the id is not in the sample map."
+  },
+  "fn:simulation/codemap/web/make_sample.py::lang_of": {
+   "explain": "Returns the short language name of a file from its ending (py, sh, cs, xml)."
+  },
+  "fn:simulation/codemap/web/make_sample.py::load_explanations": {
+   "explain": "Reads all explanations/*.json files into one table (id -> fields), skipping unreadable files with a message."
+  },
+  "fn:simulation/codemap/web/make_sample.py::main": {
+   "explain": "The command line of make_sample.py: builds the sample map and the synthetic sample recording, prints their counts and writes web/sample_codemap.json and web/sample_recording.jsonl (with --check it only prints).",
+   "effects": "writes web/sample_codemap.json and web/sample_recording.jsonl"
+  },
+  "fn:simulation/codemap/web/make_sample.py::py_defs.visit": {
+   "explain": "Walks one Python file's syntax tree and makes a sample block for every class, function and method, with its id, first line (decorators included), last line and signature."
+  },
+  "fn:simulation/codemap/web/make_sample.py::read_text": {
+   "explain": "Reads a repo file (given by its repo path) as text."
+  },
+  "fn:simulation/codemap/web/make_sample.py::repo_file": {
+   "explain": "Turns a repo path with / into a file path on this computer."
+  },
+  "fn:simulation/codemap/server.py::sim_home_recordings": {
+   "explain": "Returns the folder where demo_traced.sh records runs started from the Linux-side copy: $ASTRA_SIM_HOME/codemap/recordings, by default ~/.astra_sim/codemap/recordings (the same rule as the script). The folder may not exist yet (then it lists nothing); the answer is None only when no home folder can be found.",
+   "called_when": "once, when the server starts without --recordings (App.__init__)"
+  },
+  "fn:simulation/codemap/build_artifact.py::default_recording_dirs": {
+   "explain": "Lists where recordings are looked for when no --recording is given: recordings/ next to build_artifact.py, then $ASTRA_SIM_HOME/codemap/recordings (by default ~/.astra_sim/codemap/recordings), where demo_traced.sh records runs started from the Linux-side copy."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_flush": {
+   "explain": "Sends this process's waiting call counts to the code map server as small UDP messages (one per script file), but at most once every 100 ms per process, the code map's rate limit; calls that come sooner keep adding up. It sends at once when called with 1 (the EXIT trap) or right before an exec command, and it never sends counts that a subshell inherited from its parent.",
+   "effects": "UDP datagrams {\"pid\", \"sh\", \"calls\"} to ASTRA_TRACE_ADDR (default 127.0.0.1:8091), written with bash's /dev/udp"
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_newproc": {
+   "explain": "Runs the first time a subshell (a new process made by $( ), ( ) or a pipeline) does anything traced: it forgets the waiting counts it inherited from its parent (the parent sends those itself) and starts its own 100 ms clock, so no call is ever reported twice."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_exit_trap": {
+   "explain": "Once in each subshell that counts one of our functions, gives that subshell the tracer's EXIT trap, so its last counts are sent when it ends. It does this only when the subshell has no EXIT trap of its own: bash shows the parent's trap text inside a subshell, so only 'none' or 'ours' is replaced."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_entry": {
+   "explain": "Counts one call of a function that was just entered, when the file it was defined in belongs to the team repo (decided once per file; the code map's own files and the tracer's helpers never count). In a new subshell it first starts fresh counts and gives the subshell an EXIT trap."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_hook": {
+   "explain": "Runs from the DEBUG trap. When a function was just entered it counts it (with _astra_tr_entry); while counts wait it checks the clock and sends them once 100 ms have passed since this process's last message, or right before an exec command.",
+   "called_when": "before a command, when the call stack got deeper (a function was entered) or while counts wait"
+  },
+  "fn:simulation/codemap/extract.py::read_text": {
+   "explain": "Reads one file as text the same way on every computer: UTF-8, a broken byte becomes a replacement mark instead of an error, a byte-order mark at the start is dropped, and Windows (\\r\\n) or old Mac (\\r) line ends become \\n. So a file checked out on Windows gives the same map as on Linux.",
+   "inputs": "a file path",
+   "outputs": "the text"
+  },
+  "fn:simulation/codemap/extract.py::cap_text": {
+   "explain": "Keeps a long text (a docstring or a function's source) under a size limit: it cuts at the last line end before the limit (or right at the limit when that line end is in the first half) and adds a line '... (N more characters not shown)'. Short texts come back unchanged.",
+   "inputs": "a text (or None) and the limit in characters",
+   "outputs": "the text, maybe shortened"
+  },
+  "fn:simulation/codemap/extract.py::shorten": {
+   "explain": "Shortens a one-paragraph summary to about 700 characters (SUMMARY_CAP): it prefers to stop at the end of a sentence ('. ', '! ' or '? ') in the second half of the limit, else at a space, and then adds ' ...'.",
+   "outputs": "the shortened text"
+  },
+  "fn:simulation/codemap/extract.py::clean_comment_lines": {
+   "explain": "Turns comment lines whose markers (#, //, rem ...) were already removed into one clean text: lines made only of decoration such as '=====' or '-----' (3 or more characters) are dropped, empty lines at the start and end are removed, and the indentation all lines share is taken away so indented lists stay readable.",
+   "inputs": "a list of comment lines",
+   "outputs": "one text"
+  },
+  "fn:simulation/codemap/extract.py::first_paragraph": {
+   "explain": "Takes the first paragraph of a docstring (everything before the first empty line), puts it on one line, gives it a capital first letter and shortens it with shorten(). This is the text a block shows when nobody wrote an explanation for it (marked '(from the docstring)').",
+   "outputs": "one line of text, or None for an empty docstring"
+  },
+  "fn:simulation/codemap/extract.py::purpose_summary": {
+   "explain": "Finds the PURPOSE paragraph of a file's header comment (this repo's rule: '<file> -- PURPOSE: ...') and returns its first paragraph on one line. Without the word PURPOSE it takes the first paragraph after removing a leading '<file name> --' title.",
+   "outputs": "the summary sentence(s), or None"
+  },
+  "fn:simulation/codemap/extract.py::posix_join": {
+   "explain": "Joins parts of a repo path with '/', skipping empty parts and '.', so posix_join('', 'docs') is 'docs'; with nothing left it returns '.' (the repo root)."
+  },
+  "fn:simulation/codemap/extract.py::posix_dirname": {
+   "explain": "The folder part of a repo path: 'simulation/scripts/demo.sh' gives 'simulation/scripts'; a file in the repo root gives '.'."
+  },
+  "fn:simulation/codemap/extract.py::posix_norm": {
+   "explain": "Tidies a repo path: '\\' becomes '/', 'a/./b/../c' becomes 'a/c'. Returns None when the path climbs out of the repository with too many '..' parts, so a script path pointing outside the repo is never linked to a file inside it."
+  },
+  "fn:simulation/codemap/extract.py::node_text": {
+   "explain": "Cuts lines first to last (counted from 1, both included) out of a file's list of lines and joins them into one text; used to store a function's source code on its block."
+  },
+  "fn:simulation/codemap/extract.py::YamlError": {
+   "explain": "The error the small YAML reader raises when systems.yaml uses something it does not understand (a '{...}' mapping on one line, an anchor, a tab-style indentation mistake, a repeated key ...). Its message names the file and the line, so the person editing systems.yaml can fix it."
+  },
+  "fn:simulation/codemap/extract.py::_yaml_strip_comment": {
+   "explain": "Removes a '# comment' from the end of one YAML line, but only when the '#' stands at the start or after a space or tab and is not inside quotes, so 'a#b' and '\"# not a comment\"' stay as they are."
+  },
+  "fn:simulation/codemap/extract.py::_yaml_scalar": {
+   "explain": "Reads one YAML value written on a line: '' gives an empty text; [a, b] gives a list (each item read the same way); 'single quotes' ('' inside means one quote); \"double quotes\" with \\n, \\t, \\\\, \\\" and \\/ escapes; anything else is plain text. A value starting with { & * ! | > or '- ' is refused with a YamlError that says to use quotes.",
+   "inputs": "the value text and where it is (file and line, for the error message)"
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader": {
+   "explain": "A tiny YAML reader written for this project, because Python's standard library has none and the extractor must run with no extra packages. It reads only what systems.yaml uses: 'key: value' mappings, '- item' lists, plain and quoted values, [flow lists] and folded ('>', '>-') or literal ('|', '|-') text blocks, by looking at each line's indentation. Every value stays a text (no numbers or true/false are guessed).",
+   "how_it_fits": "parse_yaml_subset() is its front door; load_systems() uses it for systems.yaml. A test checks that it reads the real systems.yaml exactly like PyYAML would."
+  },
+  "fn:simulation/codemap/extract.py::_YamlReader.value_after": {
+   "explain": "Reads the value that follows 'key:' (or '- '): a text-block marker (> >- | |- >+ |+) starts a block of lines; text on the same line is one value; nothing on the line means the value is the more-indented block on the next lines (or a list starting at the same indentation); otherwise the value is empty (None).",
+   "inputs": "the rest of the line after the colon or dash, and the indentation of the key"
+  },
+  "fn:simulation/codemap/extract.py::parse_yaml_subset": {
+   "explain": "The front door of the small YAML reader: reads a text written in the YAML subset described in _YamlReader and returns plain Python dictionaries, lists and texts. Anything else raises YamlError with the line number.",
+   "inputs": "the YAML text and a name for error messages",
+   "outputs": "dict / list / text"
+  },
+  "fn:simulation/codemap/extract.py::classify": {
+   "explain": "Decides what kind of file a repo file is, from its name (and, for files without an extension, the first line '#!...'): python, bash, csharp, cpp, batch, powershell, sdf, xml, yaml, rosidl (.msg/.srv), params, mission (.waypoints), cmake, dockerfile, config, html, javascript, css, markdown, image, mesh, pdf, data, weights (.pt .onnx .engine), marker (COLCON_IGNORE, ament resource files), text, backup (.bak, '~', dated copies ...) or other. Saved *.mhtml web pages return None: the contract leaves them out.",
+   "inputs": "the repo path and the first bytes of the file",
+   "outputs": "a kind word, or None"
+  },
+  "fn:simulation/codemap/extract.py::file_kind_summary": {
+   "explain": "Writes the one-sentence description shown for a file that is not code: a backup ('An old copy of X, kept for reference'), a marker file (what colcon or the ament index does with it), a picture, a 3D mesh, a PDF or a data file with its size, or model weights with their size in MiB. Other kinds get None (they are described from their own header comment).",
+   "inputs": "path, kind and size in bytes"
+  },
+  "fn:simulation/codemap/extract.py::markdown_summary": {
+   "explain": "Finds what a Markdown document is about: its '<!-- ... PURPOSE ... -->' header comment when it starts with one (this repo's rule), otherwise its first normal paragraph (headings, tables, code blocks, pictures and quotes are skipped).",
+   "outputs": "(the header comment or None, the summary or None)"
+  },
+  "fn:simulation/codemap/extract.py::scan_repo": {
+   "explain": "Walks through every folder of the repository and decides, for each file, whether it gets a block and of which kind (classify). It never enters build output, caches, .git, editor folders or the folders the flight code fills with photos while it runs (SKIP_DIR_NAMES, SKIP_REL_DIRS), and leaves out the files named in skip_files (the owner's LOCAL_NOTES.md, codemap.json itself). Folders and files are visited in sorted order, so the map is the same on every computer.",
+   "inputs": "the repo folder and the files to leave out",
+   "outputs": "(repo path -> kind for every kept file, the set of every file seen, a count per kind)"
+  },
+  "fn:simulation/codemap/extract.py::hash_comment_header": {
+   "explain": "Reads the header comment of a file that uses '#' comments (bash, YAML, Dockerfile, CMake, PowerShell ...): skips a '#!' first line and empty lines, then collects the run of '#' lines and cleans it with clean_comment_lines.",
+   "outputs": "the header text, or None"
+  },
+  "fn:simulation/codemap/extract.py::xml_comment_header": {
+   "explain": "Reads the header of an XML-style file (launch XML, SDF, package.xml, Gazebo .config, Markdown): the first <!-- comment --> that comes before the first real element. If an element comes first, there is no header (None)."
+  },
+  "fn:simulation/codemap/extract.py::slash_comment_header": {
+   "explain": "Reads the header of a C#, C++, JavaScript or CSS file: a leading /* ... */ block (with the ' * ' at the start of each line removed) or a run of // lines.",
+   "outputs": "the header text, or None"
+  },
+  "fn:simulation/codemap/extract.py::batch_comment_header": {
+   "explain": "Reads the header of a Windows .bat file: the 'rem' or '::' lines at the top, skipping '@echo off' and empty lines, until the first real command.",
+   "outputs": "the header text, or None"
+  },
+  "fn:simulation/codemap/extract.py::powershell_comment_header": {
+   "explain": "Reads the header of a PowerShell file: a leading <# ... #> block, or else a run of '#' lines (hash_comment_header).",
+   "outputs": "the header text, or None"
+  },
+  "fn:simulation/codemap/extract.py::rosidl_summary": {
+   "explain": "Writes a plain sentence for a ROS 2 interface file: for a .msg 'ROS 2 message type interfaces/msg/ImageResult with the fields: ...'; for a .srv or .action the fields of the request and of the answer (the parts are split at the '---' line). Field names are read from lines like 'float32 latitude'; comments are ignored.",
+   "inputs": "path, file text, ROS package name"
+  },
+  "fn:simulation/codemap/extract.py::mission_summary": {
+   "explain": "Writes a plain sentence for a mission file (QGC WPL 110, the format Mission Planner saves): how many items it has and how many of each kind after the home item, for example 'home, 1 take-off, 8 waypoints, 1 camera trigger, 1 return-to-launch'. Unknown command numbers are named 'command N'.",
+   "outputs": "one sentence"
+  },
+  "fn:simulation/codemap/extract.py::RosPackage": {
+   "explain": "What the extractor knows about one ROS 2 package folder (a folder with a package.xml): its folder and name, build type (ament_python or ament_cmake), description, header comment, the programs its setup.py declares (console_scripts: executable -> module and function), and for CMake packages the programs, helper files and Python packages that CMakeLists.txt installs.",
+   "how_it_fits": "Filled by discover_packages/read_package_xml/read_ros_facts; used to link 'ros2 run <pkg> <exe>' and launch files to the right file, and by trace_index to know where colcon puts each Python file."
+  },
+  "fn:simulation/codemap/extract.py::RosPackage.workspace": {
+   "explain": "The colcon workspace folder of the package: the part of its path before '/src/' (for 'ros2_ws/src/main' that is 'ros2_ws'); None when the folder is not inside a src/ folder."
+  },
+  "fn:simulation/codemap/extract.py::read_package_xml": {
+   "explain": "Reads one package.xml: keeps its header comment, and fills in the package name, the description (on one line) and the build type (<export><build_type>). If the XML cannot be read it still tries to find <name> with a text pattern and keeps the folder name otherwise.",
+   "inputs": "the repo folder and the RosPackage to fill"
+  },
+  "fn:simulation/codemap/extract.py::read_console_scripts": {
+   "explain": "Finds the programs a setup.py declares, without running it: it parses the file into a Python tree and reads every text of the 'console_scripts' list, for example 'new_od = detection.new_od:main' -> ('new_od', 'detection.new_od', 'main'). A setup.py that does not parse gives an empty list.",
+   "outputs": "a list of (executable, module, function)"
+  },
+  "fn:simulation/codemap/extract.py::read_cmake_installs": {
+   "explain": "Reads a CMakeLists.txt (comments removed) for what 'colcon build' installs into lib/<package> (the place 'ros2 run' looks): install(PROGRAMS ...) files with their RENAME name, install(FILES ...) helper files, and the Python packages of ament_python_install_package(). Installs to other places are ignored.",
+   "outputs": "(programs as (source, executable), helper files, Python package names)",
+   "how_it_fits": "Needed for the team's main package (ament_cmake with Python scripts): it tells the map that 'ros2 run main main_controller.py' is src/main_controller.py, and where the installed copy lives."
+  },
+  "fn:simulation/codemap/extract.py::first_line_of": {
+   "explain": "The line number Python itself reports for a function or class (co_firstlineno): the line of its first decorator if it has one, else the 'def' or 'class' line. The live tracer sends that number, so the trace index must use exactly the same one."
+  },
+  "fn:simulation/codemap/extract.py::iter_defs": {
+   "explain": "Goes through a list of Python statements in source order and yields every class and function definition found, also inside if/try/with blocks, but not the ones nested inside another def or class (those are visited when their parent is) and nothing inside a lambda."
+  },
+  "fn:simulation/codemap/extract.py::own_nodes": {
+   "explain": "Yields every part of the Python tree that belongs to this block's own code: it does not go into nested functions or classes (they are blocks of their own), but it does include lambdas, because a lambda's calls are made by the block that holds it."
+  },
+  "fn:simulation/codemap/extract.py::dotted_of": {
+   "explain": "Turns an expression made only of names and dots into its parts: self.pub.publish -> ['self', 'pub', 'publish']. Anything else (a call, an index, a text) gives None."
+  },
+  "fn:simulation/codemap/extract.py::_assigned_names": {
+   "explain": "Collects the plain names an assignment target binds: a, (a, b), [a, *b]. Assigning to an attribute (self.x) or an index (d[k]) binds no local name, so those are skipped.",
+   "inputs": "an assignment target and the set to add the names to"
+  },
+  "fn:simulation/codemap/extract.py::PyDef": {
+   "explain": "One class or function of a Python file, as the extractor sees it: its qualified name (Class.method, outer.inner), short name, kind (class, function or method), the tree node(s), the block it sits in, its block id, the names bound inside it, the name of a method's self parameter and whether it is a staticmethod. Two definitions with the same name (a property's getter and setter) become ONE PyDef holding both nodes in source order."
+  },
+  "fn:simulation/codemap/extract.py::PyDef.enclosing_class": {
+   "explain": "The class this definition sits directly in, or None: only methods have one (a function nested inside a method does not)."
+  },
+  "fn:simulation/codemap/extract.py::PyModule": {
+   "explain": "One Python file, parsed: its path and block id, text and lines, the parsed tree (or the parse error), the name Python would import it under, whether it is inside a Python package, its definitions (PyDef by qualified name and the top-level ones), the names it binds at module level, its NAME = 'text' constants and the facts collected per class. A file that cannot be parsed still gets a block (with the error noted)."
+  },
+  "fn:simulation/codemap/extract.py::PyModule.package_name": {
+   "explain": "The Python package this file belongs to, used to work out relative imports ('from . import x'): for a package's __init__.py its own name, for any other file its name minus the last part; None when the file is not inside a package."
+  },
+  "fn:simulation/codemap/extract.py::collect_defs": {
+   "explain": "Finds every class, function and method of a parsed file and gives each its block id with the contract's naming rule: Class.method, outer.inner for nested functions, never '<locals>'. Same-name definitions in one place are merged into one PyDef. For methods it also notes staticmethod and the name of the first parameter (usually self).",
+   "inputs": "a PyModule (its tree)",
+   "effects": "fills mod.defs and mod.top"
+  },
+  "fn:simulation/codemap/extract.py::bindings_of": {
+   "explain": "Builds the table of names one scope (a module or a function body) binds and what each means: 'import x' / 'from y import z' remember what was imported, a def remembers itself, while parameters, assignments, loop variables, 'with ... as', 'except ... as' and ':=' make a name 'something we cannot follow' (SHADOW). A name set to None does not hide an import of the same name; names declared global or nonlocal are left to the outer scope.",
+   "inputs": "the statements of the scope and its parameter names",
+   "outputs": "name -> what it is bound to"
+  },
+  "fn:simulation/codemap/extract.py::python_signature": {
+   "explain": "Rebuilds the first line of a definition from the tree, for the block's 'signature': 'name(arg: type = default) -> result' (with 'async' when needed) or 'class Name(Base)'. If anything goes wrong it just returns the name: a signature is a nice extra and must never stop the map."
+  },
+  "fn:simulation/codemap/extract.py::test_sentence": {
+   "explain": "Turns a test function's name into the sentence shown when nobody wrote an explanation: test_publisher_follows_the_schedule -> 'Test: publisher follows the schedule.'; a test inside a class TestSomeThing gets '(some thing)' after 'Test'.",
+   "inputs": "the qualified name of the test"
+  },
+  "fn:simulation/codemap/extract.py::bash_clean": {
+   "explain": "Prepares a bash script for reading: it blanks out (replaces with spaces) every comment and the body of every here-document (cat <<EOF ... EOF), but keeps every line break, so line numbers stay right. It follows bash's quoting: '...', \"...\", $'...', $(...) inside double quotes and `...`, so a '#' inside quotes is not taken for a comment. It also records, for every line, whether it starts outside any quote and is not a continuation of the line before: only such lines can start a function definition.",
+   "outputs": "(clean text, line number -> True/False)"
+  },
+  "fn:simulation/codemap/extract.py::_match_close": {
+   "explain": "Finds the bracket that closes the one at a given position, counting nested brackets and skipping anything inside quotes or after a backslash. Returns -1 when the text ends first.",
+   "inputs": "text, position of the open bracket, the open and close characters",
+   "outputs": "an index or -1"
+  },
+  "fn:simulation/codemap/extract.py::bash_functions": {
+   "explain": "Finds the functions defined in a cleaned bash script: a line (that starts outside quotes) of the form 'name() {' or 'function name {' whose body ({...} or (...)) can be matched to its closing bracket, also when the opening bracket is on the next line.",
+   "outputs": "a list of (name, first line, last line, header span, body span)"
+  },
+  "fn:simulation/codemap/extract.py::_strip_expansions": {
+   "explain": "Removes bash variable and command expansions from a path word and keeps only the fixed text after the last one: '$(cd ..)/x.sh', '${DIR}/x.sh' and '$HERE/x.sh' all become '/x.sh'. Used to guess which repo file a script path means."
+  },
+  "fn:simulation/codemap/extract.py::bash_split_commands": {
+   "explain": "Cuts cleaned bash text into simple commands, each with its line number and its words: quotes are removed from words, the inside of $( ... ), `...`, <( ) and >( ) becomes commands of its own (so a call inside them is still seen), redirections such as '> file' or '2>&1' and their targets are dropped, and ; & | ( ) and line ends finish a command. A backslash at a line end joins two lines.",
+   "inputs": "clean text and the line number it starts at",
+   "outputs": "a list of (line, [words])"
+  },
+  "fn:simulation/codemap/extract.py::bash_command_words": {
+   "explain": "Finds the real program of a command line: it skips leading keywords (if, then, while, !, [[ ...), NAME=value assignments and wrappers that only start another program (exec, command, nohup, setsid, nice, sudo with its options, env with its NAME=value words, timeout with its duration). A line that starts with for, select, case or function is not a command.",
+   "outputs": "(the remaining words, the values of the skipped assignments)"
+  },
+  "fn:simulation/codemap/extract.py::cs_clean": {
+   "explain": "Prepares a C# file for reading: blanks out // and /* */ comments and the inside of text and character literals (normal \"...\" with backslash escapes, verbatim @\"...\" with doubled quotes, and $\"...\" interpolated texts), keeping every line break. The texts themselves are kept on the side with their position, because some of them name programs or files.",
+   "outputs": "(clean text, list of (offset, text))"
+  },
+  "fn:simulation/codemap/extract.py::ps_clean": {
+   "explain": "Prepares a PowerShell file for reading: blanks out <# ... #> and # comments and the inside of strings ('...', \"...\" with ` escapes and doubled quotes, and @\"...\"@ / @'...'@ here-strings), keeping every line break, and keeps the string texts on the side.",
+   "outputs": "(clean text, list of (offset, text))"
+  },
+  "fn:simulation/codemap/extract.py::Package": {
+   "explain": "One package block of the map: a ROS package folder, its test/ folder, a Python sub-package inside a ROS package (such as lattice_bridge.sinks), a folder named in systems.yaml, or an automatic one for a file nothing else claims. It knows its folder, its kind, whether it also owns sub-folders, its system, its ROS facts, label and summary (and whether that summary came from a docstring); its id is pkg:<folder>."
+  },
+  "fn:simulation/codemap/extract.py::glob_to_regex": {
+   "explain": "Turns a folder pattern from systems.yaml into a regular expression: '*' matches one folder name, '**' any number of folders, '**/' an optional chain of folders, '?' one character. For example 'ros2_ws/src/*' matches every folder directly in ros2_ws/src, and '**/test' every test folder."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder": {
+   "explain": "The machine that makes the whole map. build() runs its steps in order: read systems.yaml, walk the repo, find packages, put each package in a system, make the system/package/file blocks, read the ROS facts, read every Python, bash, C#, PowerShell, batch and launch XML file for blocks and links, add the hand-written network links, finish the ROS topics, copy the explanations on, check every link and return the result. It also keeps the lists that --check and the report print: problems, warnings, repeated ids, files with no system, explanations that match no block, and the statistics.",
+   "how_it_fits": "build_codemap() creates one CodeMapBuilder per run; nothing else in the repo uses it."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.guard": {
+   "explain": "Runs one per-file step (for example reading one Python file) and catches any error it raises: the error is written down as a problem (so --check fails and names the file and the step) and the extractor carries on, so one strange file never stops the rest of the map from being written.",
+   "inputs": "where (a file name for the message), the step to run and its arguments",
+   "outputs": "the step's result, or None when it failed"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.package_of": {
+   "explain": "Finds the package block that owns a file: the package of the file's own folder, or else the nearest parent folder whose package also owns sub-folders (a ROS package, or a 'dir/**' line in systems.yaml). A 'dir' line without '/**' owns only the files directly in that folder.",
+   "outputs": "a Package, or None when nothing owns the file"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.assign_systems": {
+   "explain": "Puts every package into exactly one system, using the folder lines in systems.yaml. A line that names the folder exactly ('dir' or 'dir/**') beats a pattern ('ros2_ws/src/*', '**/test'); between two patterns the one with more fixed characters wins. A Python sub-package with no exact line gets the system of its ROS package. Two equally good matches are reported as a problem.",
+   "effects": "sets pkg.system on every Package; may add problems"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.fallback_package": {
+   "explain": "Gives a file that no package claims a home anyway: a package block for its own folder, in the system 'other' (or a made-up 'Not in any system' block when systems.yaml has no 'other'). The file is also listed as unassigned, so --check fails and says which line systems.yaml needs.",
+   "outputs": "the Package used"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.read_ros_facts": {
+   "explain": "Works out how every ROS program is started: for each ROS package it reads setup.py's console_scripts and CMakeLists.txt's install rules and records (package, executable) -> the source file (and function) that runs. It also records where colcon installs each program and helper file (ros2_ws/install/<pkg>/lib/<pkg>/<exe>), so the live tracer's file paths can be matched back to the source. An entry point whose file is missing becomes a warning.",
+   "effects": "fills exec_map, programs and py_aliases"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.set_dotted": {
+   "explain": "Works out the name Python would import a file under: inside a Python package (folders with __init__.py) it is the dotted path from the top package (sim_bringup.mission_tool); a loose script is just its file name (main_controller). It also notes whether the file is in a package and which ROS package (or code-map package) it belongs to, which import guesses need.",
+   "effects": "sets pm.dotted, pm.in_package and pm.area"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.collect_consts": {
+   "explain": "Collects the module-level constants of a Python file that hold a text and are set exactly once (NAME = 'text'), for example TOPIC = '/image_detection'. Topic names are often written this way, so the topic links can be found.",
+   "effects": "fills pm.consts"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.find_module": {
+   "explain": "Finds which repo file an import name means. A one-word import from a loose script first looks next to that script; otherwise it uses the table of importable names, and when two files share a name it only picks one if exactly one is in the same ROS package as the importer. Outside libraries (rclpy, numpy ...) and unclear cases give None, so no wrong 'imports' link is drawn.",
+   "inputs": "the dotted import name and the importing PyModule",
+   "outputs": "a PyModule or None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.from_base": {
+   "explain": "Turns a relative import into an absolute module name: 'from ..common import x' inside lattice_bridge.sources.mavlink_source becomes 'lattice_bridge.common'. A plain 'from a.b import c' keeps 'a.b'. Too many dots, or a file that is not in a package, give None."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.resolve_binding": {
+   "explain": "Says what one bound name really is: a function or class of this file ('def'), a nested function, a repo module ('module'), something from an outside library ('ext' with its dotted name), or a text constant ('const'). 'from x import y' is followed into module x (and through x's own imports, at most a few steps deep). Names the reader cannot follow give None.",
+   "outputs": "('def', module, PyDef) | ('module', module) | ('ext', name) | ('const', text) | None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.lookup_in_module": {
+   "explain": "Looks up a name at the top level of another repo module: one of its functions or classes, one of its text constants, or a name it imports itself (followed further with resolve_binding).",
+   "outputs": "the same kinds of answer as resolve_binding"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.scope_bindings": {
+   "explain": "The table of names bound inside one function (its parameters, local imports, nested functions and assignments; see bindings_of), made once and kept on the PyDef. A nested function gets a direct pointer to its own block.",
+   "outputs": "name -> binding"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.lookup": {
+   "explain": "Finds what a name means at one place in the code, with Python's own rule: first the function the code is in, then the functions around it (class bodies are skipped, like Python does), then the module. Code directly in a class body sees the class's own definitions first.",
+   "inputs": "the module, the block the code is in (None = module level) and the name"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.find_method": {
+   "explain": "Finds a method by name in a class or, if the class does not have it, in its base classes that are in the repo (followed recursively, never twice through the same class).",
+   "outputs": "(module, PyDef) of the method, or None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.resolve_expr": {
+   "explain": "Follows a chain of names and dots to what it means: 'mt.Vehicle.pump' -> the module mission_tool -> its class Vehicle -> the method pump. Attributes of outside libraries stay 'ext' names ('rclpy.node.Node'); anything the reader cannot follow gives None.",
+   "outputs": "the same kinds of answer as resolve_binding"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.method_class": {
+   "explain": "For code inside a method (or inside a function nested in a method) returns the method's class and the name of its first parameter (usually 'self'), so 'self.something' can be understood. Outside methods it returns (None, None)."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.call_class_of": {
+   "explain": "Checks whether a value is 'SomeRepoClass(...)', the creation of an object of a class defined in this repo; if so it returns that class (and its module), else None. Used to know what type self.x or a local variable holds."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.class_facts": {
+   "explain": "Collects what a class's methods store in self.<attr>: when an attribute is always set to an object of the same repo class, its type is noted (so self.store.put(...) can be linked to FrameStore.put); when it is always set to the same text (or a ROS parameter's default text), that text is noted (so a topic name kept in self.topic is still found). Text constants in the class body and every declare_parameter('name', 'default') are kept too.",
+   "effects": "fills pm.class_info[class name] with 'types', 'consts', 'params' and 'class_consts'"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.param_or_const": {
+   "explain": "Recognises a value that is a fixed text: a plain 'text' (also str('text')), or a ROS parameter read such as self.declare_parameter('topic', '/x').value or self.get_parameter('topic')..., where the parameter's default text is known.",
+   "outputs": "(text, None) for a plain text; (default text, parameter name) for a parameter; None otherwise"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.local_facts": {
+   "explain": "Inside one function, notes the local variables that always hold an object of the same repo class and the ones that always hold the same text (or parameter default). A variable that is changed in a loop, with +=, in a 'with' or with ':=' is not trusted.",
+   "outputs": "(name -> class, name -> text)"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.resolve_call": {
+   "explain": "Decides which block a call goes to, only when it is clear: self.method(...) (also through a base class), self.thing.method(...) when self.thing always holds one repo class, super().method(...), variable.method(...) when the variable always holds one repo class, or a plain name / dotted name that resolves to a repo function or class. Calling a class is labelled 'creates'.",
+   "outputs": "(target id, label or None), or None when unsure"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.str_value": {
+   "explain": "Tries to find the text a topic-name argument stands for: a plain or f-string text without placeholders, str(...), a local or module text constant, a constant imported from another module, self.<attr> or a class constant noted by class_facts, or a ROS parameter's default.",
+   "outputs": "(text, parameter name or None), or None when the name is computed at run time"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.msg_type": {
+   "explain": "Works out the ROS message or service type of a create_publisher/create_subscription call, such as 'std_msgs/msg/String' or 'interfaces/msg/ImageResult', from the class name and where it was imported from (also for imports wrapped in try/except with a None fallback).",
+   "outputs": "a type name such as 'pkg/msg/Name', or the dotted name as written"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.callback_target": {
+   "explain": "Finds the function a callback argument points to: self.method, a function name, or, for a lambda, the repo function the lambda calls (preferring the call that receives the lambda's own argument, the message).",
+   "outputs": "the function id, or None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_owner": {
+   "explain": "Reads the code that belongs to one block (a module's top level, a class body or a function, without its nested functions) and adds its links: 'calls' for every clear call, ROS 'publishes' / 'subscribes' / service links for create_publisher, create_subscription, create_client and create_service (also through a short local alias), 'called_when' notes for timer callbacks and for functions started under if __name__ == '__main__', and 'runs' links for ['ros2', 'run', ...] or ['bash', 'x.sh'] lists.",
+   "effects": "adds edges and called_when notes"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.under_main_guard": {
+   "explain": "True when a top-level call stands inside 'if __name__ == \"__main__\":', which means it runs when the file is started as a program (the block then gets the note 'When the file is run as a program.')."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.assigned_holder": {
+   "explain": "Finds where the result of a create_publisher/create_client call is stored inside a function: in self.<attr> ('self', attr) or in a local variable ('local', name).",
+   "outputs": "('self', attr) | ('local', name) | None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.attr_users": {
+   "explain": "Lists the methods of a class that use a stored publisher or client: the ones calling self.<attr>.publish(...) (or call_async/call for a service client). The 'publishes' link is then drawn from those methods, which is where the message really leaves.",
+   "outputs": "a list of method ids"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_runs": {
+   "explain": "Spots a list of fixed texts in Python code that starts a program: ['ros2', 'run', pkg, exe], ['ros2', 'launch', pkg, file] or ['bash', 'x.sh'], and adds a 'runs' link to the matching repo file or outside program."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.ros2_target": {
+   "explain": "Adds the link for 'ros2 run <pkg> <exe>' or 'ros2 launch <pkg> <file>': to the repo file that program or launch file is, or else to the outside program (for example MAVROS for 'ros2 launch mavros ...'). A variable in the package name makes it unknowable, so nothing is drawn; a name a repo package does not provide becomes a warning.",
+   "inputs": "the source block, 'run' or 'launch', package, executable or file, and the link kind"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.launch_file_in": {
+   "explain": "Finds the repo file of a launch file named in a ROS package (by its file name inside that package's folder), for example tracker.launch.xml in the package main.",
+   "outputs": "a repo path, or None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.entry_points": {
+   "explain": "Writes 'ros2 run <pkg> <exe>' as the entry_point on the function a console script names (usually main) and on its file, and gives that function the note 'When you start the program: ros2 run ...'. A console script naming a missing function becomes a warning."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_launch": {
+   "explain": "Reads a Python launch file (*.launch.py) for what it starts: Node(package=..., executable=...), ExecuteProcess with a name or a command that is a known outside program (gz, arducopter, mavproxy.py ...), helper calls given a (package, executable) pair, and other launch files named by their file name (a name two packages share is settled by a package name in the same call).",
+   "effects": "adds 'launches' links"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.python_launch.lit": {
+   "explain": "Inner helper of python_launch: returns the text of the first of the given keyword arguments that is written as a plain text (for example package='main'), else None."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.launch_xml_file": {
+   "explain": "Reads one XML launch file (such as main/launch/tracker.launch.xml) for what it starts: <node pkg=... exec=...>, <include file=\"$(find-pkg-share pkg)/...\"> and <executable cmd=...>. If the XML is broken it falls back to simple text patterns and adds a warning.",
+   "effects": "adds 'launches' links"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.resolve_script": {
+   "explain": "Works out which repo file a path written in a script means, for example '$HERE/../setup/x.sh' or '~/ODLC.../simulation/scripts/demo.sh'. After removing $variables it tries the path relative to the script's folder, then relative to the repo root, then a unique repo file whose path ends the same way (preferring the script's own folder). Only paths ending in .sh, .bash, .py, .ps1 or .bat count; anything unclear gives None.",
+   "outputs": "a repo path, or None"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_file": {
+   "explain": "Reads one bash script: cleans it (bash_clean), finds its functions and makes one block per function with its line range, signature, the comment above it as its docstring and its source. A function defined twice keeps one block that shows both texts. The script is remembered for the later pass that draws its links.",
+   "effects": "adds function blocks; fills self.sh[rel]"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_function_doc": {
+   "explain": "The 'docstring' of a bash function: the run of # comment lines right above it, or else a '# comment' written after its opening brace on the same line."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.blank_func_headers": {
+   "explain": "Returns the cleaned script with every 'name() {' header blanked out, so the link pass does not mistake a function's definition for a call of it."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_known": {
+   "explain": "Lists the functions a bash script can call: those of the files it sources (followed up to 3 files deep; a name two sourced files both define is left out because it is unclear) and then its own, which win.",
+   "outputs": "function name -> function id"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.bash_command": {
+   "explain": "Draws the links of one simple bash command: a call of a known function; a trap handler (with a 'called_when' note for the signal); wsl.exe ... -- cmd; bash/sh with a script or with -c 'commands'; source/. of a file ('imports'); python3 x.py or python3 -m module ('runs'); ros2 run/launch, ros2 topic pub/echo/hz and ros2 service call (topic and service links); an outside program such as mavproxy.py; or a script path. Print commands (echo, say, warn ...) are skipped, and commands hidden in VAR=\"ros2 ...\" assignments are read too (at most 3 levels deep).",
+   "effects": "adds edges, topics and called_when notes"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.csharp_file": {
+   "explain": "Reads one C# file (in this repo: the Mission Planner plugin astra_gcs.cs) with careful text rules, after cs_clean blanked comments and texts: it counts { } depth to find every class, struct, interface and enum (nested ones get names like Outer.Inner), every method and constructor declared directly in a type (overloads with the same name become one block), and every property with code (get { ... } or => ...), because a property's code runs whenever it is read. Each gets a block with line range, signature, /// comment and source. Then it draws calls between the file's own methods, 'creates' for new SomeClass(...), 'reads the property' links, and 'runs' links for .sh paths written in texts (such as mp_actions.sh).",
+   "effects": "adds class and method blocks and their links"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.csharp_file.block_end": {
+   "explain": "Inner helper of csharp_file: finds the '}' that closes the '{' at a given position, using the depth table made from the cleaned text; -1 when the file ends first."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.cs_body_edges": {
+   "explain": "Draws the calls inside one C# method body to blocks of the same file, only in clear cases: 'new Name(' of a class defined once in the file ('creates'), an unqualified Name(...) or this.Name(...) that is a method of the same or an enclosing class, and ClassName.Method(...) of a class defined once in the file."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.cs_stmt_start": {
+   "explain": "Finds where the declaration that contains a position starts: just after the previous ';', '{', '}' or ']' (attributes like [Serializable] end with ']'), skipping spaces. Used to get the modifiers and return type in front of a method name."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.cs_doc": {
+   "explain": "The 'docstring' of a C# declaration: the /// comment lines right above it (attribute lines in [brackets] in between are allowed), with XML tags such as <summary> removed."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.cs_find_method": {
+   "explain": "For an unqualified call inside a C# class, returns the method of that name in the class itself, or else in an enclosing class (for nested classes); None when there is none in this file."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.powershell_file": {
+   "explain": "Reads one PowerShell file: makes a block for every 'function Name { ... }' (with its source), and for every repo file named inside a string (.cs, .sh, .py, .ps1, .bat, .yaml) draws a link: 'runs' when the string also mentions bash and the file is a script, otherwise 'uses this file' (for example the plugin installer copying astra_gcs.cs).",
+   "effects": "adds function blocks and links"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.batch_file": {
+   "explain": "Reads one Windows .bat launcher line by line, skipping comments, echo, set, title, goto, labels, pause, setlocal, if and for lines, and reads the remaining commands like bash commands (bash_command), so 'wsl.exe -d Ubuntu-22.04 -- bash .../demo.sh' becomes a 'runs' link to demo.sh. The % signs of batch variables are removed first."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.finish_topics": {
+   "explain": "Finishes every ROS topic and service block after all files were read. topic_owners in systems.yaml say which outside program answers a group of names (MAVROS for /mavros/...), so MAVROS gets a 'publishes' (or 'passes it on', or for a service 'serves this service') link. Each topic is then placed inside one system (a pinned parent from systems.yaml, the owner's system, an outside publisher, or the system most of its users belong to) and gets a plain summary: topic or service, its message type(s), who sends it and who reads it (or who answers and who calls). Test code is left out when deciding the owner and the summary, but its links stay.",
+   "effects": "sets each topic node's parent and summary; may add edges"
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.names": {
+   "explain": "Turns a set of block ids into a short readable list for a topic's summary: 'file.py (function)' for code, the label for files and outside programs, duplicates removed, at most 8 names and then 'and N more'."
+  },
+  "fn:simulation/codemap/extract.py::CodeMapBuilder.coverage": {
+   "explain": "Counts, per kind of block and per system, how many blocks got their plain explanation from where: the explanations files, a docstring, a test name, text the extractor made from the code, systems.yaml, or none. These are the two tables extract.py prints, which show where explanations are still missing.",
+   "outputs": "{'by_kind': {...}, 'by_system': {...}}"
+  },
+  "fn:simulation/codemap/extract.py::git_commit": {
+   "explain": "Finds the short (7 character) hash of the commit that is checked out, by reading the .git folder directly (also for a git worktree, where .git is a file, and for refs kept in packed-refs), and only if that fails by asking the git program. Gives 'unknown' when neither works (for example in the Linux-side copy, which has no .git). It is written into codemap.json as 'commit'."
+  },
+  "fn:simulation/codemap/extract.py::now_iso": {
+   "explain": "The time stamp written into codemap.json as 'generated', in UTC (2026-10-31T19:18:05Z). When the environment variable SOURCE_DATE_EPOCH holds a number of seconds, that time is used instead, so two runs on unchanged code give identical files (tests use this)."
+  },
+  "fn:simulation/codemap/extract.py::build_codemap": {
+   "explain": "The public front door of the extractor: builds the code map of a repository and returns it together with a report. Without arguments it uses simulation/codemap/systems.yaml and explanations/ of that repo and leaves out LOCAL_NOTES.md and codemap.json itself. The report holds the problems, warnings, repeated ids, files with no system, explanation ids that match no block, file counts per kind, statistics, explanation coverage, the system of every package and the topic names that could not be worked out.",
+   "called_when": "by main() (python3 extract.py) and by the tests",
+   "outputs": "(the codemap dictionary, the report dictionary)"
+  },
+  "fn:simulation/codemap/extract.py::dumps_codemap": {
+   "explain": "Writes the code map as text in a fixed layout: keys sorted, one block or link per line, and one line per entry of each trace_index table. So after a code change, codemap.json changes only in the lines of what really changed."
+  },
+  "fn:simulation/codemap/extract.py::print_report": {
+   "explain": "Prints what a run found: the output file, its size and commit; the number of blocks and links of each kind; files per kind; the statistics; the explanation coverage per kind and per system (columns: explanations files / docstrings / test names / generated / systems.yaml / none); then every explanation id that matches no block, the notes (warnings), and the lists --check fails on (PROBLEMS, FILES WITHOUT A PACKAGE/SYSTEM, DUPLICATE IDS). With --quiet only the problem lists are printed."
+  },
+  "mod:simulation/codemap/extract.py": {
+   "explain": "The code map's extractor. It reads every file of the repository WITHOUT running any of it and writes one map, simulation/codemap/codemap.json: systems (from systems.yaml) -> packages (folders) -> files -> classes -> functions, plus the links between them (calls, imports, ROS publishes/subscribes and services, launches, runs, and the MAVLink / HTTP / data links between the big programs from systems.yaml). Python is read with Python's own parser (ast); bash, C#, PowerShell and batch files with careful text rules; launch files for what they start. It copies the plain-words explanations from explanations/*.json onto the blocks (else a docstring, a test name or a sentence made from the code) and adds the trace index that lets server.py light up a function when the live tracer reports it.",
+   "effects": "writes simulation/codemap/codemap.json (or --out); reads systems.yaml and explanations/*.json",
+   "how_it_fits": "Run 'python3 simulation/codemap/extract.py --check' (Windows: py -3 ...) after files or functions were added, moved or renamed; standard library only, about 10 s. server.py serves the map to the page, build_artifact.py packs it into the shareable page, and test/test_extract.py checks it. --check exits 1 when a file has no package/system, an id repeats or a file could not be read; explanation ids that match no block are printed but do not fail --check."
+  },
+  "mod:simulation/codemap/server.py": {
+   "explain": "The small server that makes the code map page LIVE while the simulator flies. It listens on UDP 127.0.0.1:8091 for the tracers' 'these functions just ran' messages, turns each one into code map ids with the trace_index of codemap.json (by module name, by the end of the file path, by the line where the function starts, or by the function's name when the file changed after extract.py ran), and every 200 ms sends the new call counts to the open pages as Server-Sent Events; every 2 s it also sends which programs are running (our scripts and ROS programs, and Gazebo, ArduPilot SITL, MAVProxy, MAVROS and, through Windows' tasklist.exe, Mission Planner). It serves the page on http://127.0.0.1:8090/ (/, /codemap.json, /events, /recordings, /health), can record every event into a .jsonl file for replay, and at the end saves its last /health answer next to the recording.",
+   "effects": "UDP 127.0.0.1:8091 in, HTTP 127.0.0.1:8090 out; with --record writes <stamp>.jsonl and <stamp>.health.json",
+   "how_it_fits": "Started and stopped by simulation/scripts/demo_traced.sh, or by hand: 'python3 simulation/codemap/server.py' (then the Replay tab plays old recordings from recordings/ and ~/.astra_sim/codemap/recordings). Standard library only; it only listens on this computer. The tracers are trace/astra_trace.py and trace/astra_trace.sh; test/test_live.py tests it."
+  },
+  "fn:simulation/codemap/server.py::_basename": {
+   "explain": "The last part of a path, whether it is written with / (Linux) or \\ (Windows): 'C:\\a\\b.py' and '/a/b.py' both give 'b.py'."
+  },
+  "fn:simulation/codemap/server.py::_is_generated": {
+   "explain": "True for a file path inside ros2_ws/install/ or ros2_ws/build/: files colcon or rosidl MADE (setup helpers, generated message classes). The tracers report them because they sit inside the repo folder, but they are not source files and never in the map, so /health counts their calls apart ('unknown_generated_calls') as harmless."
+  },
+  "fn:simulation/codemap/server.py::_now_iso": {
+   "explain": "A readable local date and time to the second, such as '2026-10-31T15:20:01', for /health and the recordings list (now, or a given epoch time)."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex": {
+   "explain": "The look-up tables made from codemap.json that turn what the tracers and the process list report into code map ids: Python module names -> files, every path a file can show up under (its own, colcon's build/install copies, installed programs, bash scripts) grouped by file name, file -> (first line -> function), file -> (function name -> functions) for files that changed after extract.py ran, ROS (package, executable) -> file, and the outside programs' process patterns. It also reads the repo's package.xml and setup.py files for 'ros2 run' names the map may not hold. Results are cached.",
+   "how_it_fits": "App.load_codemap builds a new one whenever codemap.json changes; App.handle_datagram and App.scan_running use it."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._module_of": {
+   "explain": "Walks up the 'parent' links of a function block (method -> class -> file) until it reaches the file (mod:...) it belongs to; gives up after 20 steps. Used only for an old map without a trace_index."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._entry_points_from_nodes": {
+   "explain": "Collects how programs are started from the blocks' 'entry_point' field: a function holding 'ros2 run detection new_od' means that command runs this function's file; a file block may hold a program name, a list or table of names, or true (its own file name), also written as 'package/exe'.",
+   "effects": "fills entry_points"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._scan_repo": {
+   "explain": "Reads the repo's ros2_ws/src/*/package.xml files (up to three folders deep) for the ROS package names and their setup.py files for console_scripts, so 'ros2 run <package> <exe>' in the process list can be matched to its file even when the map does not say it.",
+   "effects": "fills pkg_dirs and entry_points"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex.map_py": {
+   "explain": "Turns one Python tracer report [module name, file, first line, function name] into a function id. It tries the module name (only when the file name agrees), then the end of the file path, each with the first line of the function. If the line is unknown because the file was edited after extract.py ran, it accepts the function by its NAME, but only when exactly one function of that file has that name (never for <lambda> and the like) and counts that as 'placed by name only'.",
+   "outputs": "a fn: id, or None (listed as \"could not place\" in /health)"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._module_by_name": {
+   "explain": "Finds a file by its Python module name (such as video_cam.camera_interface), but only when the reported file name agrees, because two packages may use the same short module name. '__main__' (a file run as a program) gives None: such a file is found by its path instead."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex.file_to_mod": {
+   "explain": "Finds the file block for a file path from any computer (absolute or relative, / or \\): the longest known path that the reported path ends with wins, so /home/u/ODLC.../ros2_ws/src/main/src/main_controller.py matches ros2_ws/src/main/src/main_controller.py. A copy colcon made (install/<pkg>/... or build/<pkg>/...) is matched by its package when only one file of that name is in that package.",
+   "outputs": "a mod: id or None"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex.map_sh": {
+   "explain": "Turns a bash tracer report (the script's path and a function name) into a function id: ('/home/u/ODLC.../simulation/scripts/_common.sh', 'say') -> 'fn:simulation/scripts/_common.sh::say', but only when that block exists in the map.",
+   "outputs": "a fn: id or None"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex.map_command": {
+   "explain": "Turns one running program's command line into the code map ids it stands for (cached): an outside program (Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner, by the map's process patterns on the first three words or built-in rules), the launch file of 'ros2 launch', the program of 'ros2 run', a 'python3 -m module', or a script or ROS executable run by an interpreter (python, bash, env, setsid, timeout ...).",
+   "inputs": "the command line words and the working folder (for relative script paths)",
+   "outputs": "a set of mod:/ext: ids"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._absolute": {
+   "explain": "Makes a path from a command line absolute, using the process's working folder for a relative one, and follows symbolic links when the file exists (colcon's --symlink-install links point back into the repo)."
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._mod_for_program": {
+   "explain": "Finds the file block for a program file named on a command line: by its (absolute) path, or, for an installed ROS program ros2_ws/install/<pkg>/lib/<pkg>/<exe>, by its (package, executable).",
+   "outputs": "a mod: id or None"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._mod_for_executable": {
+   "explain": "Finds the file that 'ros2 run <package> <exe>' runs: from the extractor's table of installed programs, else from the entry points (also by executable name alone when the file is inside that package), else a file named <exe> or <exe>.py inside the package.",
+   "outputs": "a mod: id or None"
+  },
+  "fn:simulation/codemap/server.py::CodeMapIndex._mod_for_launch": {
+   "explain": "Finds the launch file that 'ros2 launch <package> <file>' starts: a file of that name inside the package, preferring one in a launch/ folder; 'ros2 launch <path>' is treated as a program path.",
+   "outputs": "a mod: id or None"
+  },
+  "fn:simulation/codemap/server.py::list_processes": {
+   "explain": "Lists the programs running on this computer as (process id, command line words, where to read its working folder): on Linux and WSL from /proc/<pid>/cmdline, elsewhere from 'ps -eo pid=,args='. On Windows itself it lists nothing (the simulator never runs there; Mission Planner is checked apart)."
+  },
+  "fn:simulation/codemap/server.py::MissionPlannerWatch": {
+   "explain": "Answers 'is Mission Planner running on Windows?' from inside WSL: it runs Windows' tasklist.exe (through WSL's interop, or /mnt/c/Windows/System32/tasklist.exe) with the filter IMAGENAME eq MissionPlanner.exe, at most every 6 s because that is slow, and remembers the answer in between. --no-windows switches it off; its state shows on /health as mission_planner_check."
+  },
+  "fn:simulation/codemap/server.py::App.load_codemap": {
+   "explain": "Reads codemap.json again when its file time changed (so a fresh extract.py run is picked up while the server runs), builds a new CodeMapIndex and clears the gzip cache. A missing or unreadable file is noted as codemap_error (shown on /health and /codemap.json) and not retried until the file changes again.",
+   "called_when": "at start, every procs interval (2 s) and on every GET /codemap.json",
+   "outputs": "True when a new version was loaded"
+  },
+  "fn:simulation/codemap/server.py::App.handle_datagram": {
+   "explain": "Handles one UDP message from a tracer: Python messages {'pid', 'proc', 'calls': [[module, file, line, name, count], ...]} or bash messages {'pid', 'sh': script, 'calls': [[function, count], ...]}. Each call is mapped to a function id (CodeMapIndex.map_py / map_sh) and the counts go to the hub; calls it cannot place are counted (generated files apart) and kept, at most 5000 different ones, for /health. It also notes which process sent it and when. A broken message is counted as bad and skipped.",
+   "called_when": "by udp_loop for every message, and by drain_and_flush at shutdown",
+   "effects": "Hub.add_calls; updates the statistics"
+  },
+  "fn:simulation/codemap/server.py::App.health": {
+   "explain": "Builds the /health answer: start time and uptime, addresses, which codemap.json is loaded (commit, number of blocks and indexed functions, how many were placed only by name, a sign the map is older than the code), what came in (messages, bad ones, calls placed, calls not placed, generated ones), the busiest 'could not place' entries (50 by default) with a note on why they are harmless, the tracer processes seen, events sent, open pages, the recording, the running programs and the Mission Planner check.",
+   "outputs": "a dictionary (sent as JSON)"
+  },
+  "fn:simulation/codemap/server.py::App.drain_and_flush": {
+   "explain": "At shutdown, handles the messages still waiting in the UDP socket (for at most 1 s) and then sends and records the last batch of calls, so the calls of the final ~200 ms of a short demo, right before demo_traced.sh stops the server, still reach the recording."
+  },
+  "fn:simulation/codemap/server.py::App.write_final_health": {
+   "explain": "At shutdown with --record, saves the last /health answer, with EVERY call it could not place (not only the busiest 50) and 'final': true, as <recording name>.health.json next to the recording, and prints a one-line summary. The name does not end in .jsonl, so it is never listed as a recording. Any error just returns None: the shutdown must finish.",
+   "outputs": "the path written, or None"
+  },
+  "fn:simulation/codemap/server.py::Handler._cors": {
+   "explain": "Lets a page opened as a local file (Origin 'null') or from another localhost port read the server's data, by sending Access-Control-Allow-Origin for exactly those origins (nothing for any other website)."
+  },
+  "fn:simulation/codemap/server.py::Handler._web_file": {
+   "explain": "Serves any other file of the web folder (for example the sample files), with a guessed content type. A path that would leave the web folder ('..') or a missing file gets 404."
+  },
+  "fn:simulation/codemap/server.py::Handler._events": {
+   "explain": "Serves GET /events, the live stream (Server-Sent Events). It takes a place among the at most 8 pages (else 503 'Too many live code map pages are open'), sends 'retry: 2000' and the newest list of running programs right away, then writes every chunk the hub publishes ('event: calls' / 'event: procs'), with a keep-alive comment every 15 s when nothing happens, until the page closes or the server stops."
+  },
+  "mod:simulation/codemap/trace/astra_trace.py": {
+   "explain": "The live call counter inside every traced Python program. When sitecustomize.py calls install() (only with ASTRA_TRACE=1), it registers a tiny profiler function with Python (sys.setprofile and threading.setprofile) that Python calls at every function start. For a function of the team repo it adds 1 to a counter; everything else is rejected at once. A background thread sends the new counts at most every 100 ms as one small non-blocking UDP message to server.py (127.0.0.1:8091), and a last one when the program ends. It never waits for the network, catches its own errors, skips MAVProxy by default (ASTRA_TRACE_SKIP) and never counts the code map's own files.",
+   "effects": "UDP datagrams {\"pid\", \"proc\", \"calls\": [[module, file, first line, name, count], ...]} to ASTRA_TRACE_ADDR (default 127.0.0.1:8091)",
+   "how_it_fits": "Only the simulator switches it on (demo_traced.sh puts simulation/codemap/trace on PYTHONPATH with ASTRA_TRACE=1); nothing on the real drone sets ASTRA_TRACE. Its header lists the measured cost and the exact limits (programs run slower; 1 frame less of Python's recursion limit). test/test_live.py tests it."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_repo_of_tracer": {
+   "explain": "Finds the repository this tracer file belongs to: the folder three levels above <repo>/simulation/codemap/trace. If the tracer is NOT at that place (a loose copy in /tmp/trace) it gives None, and it never returns '/' or a drive root, because that would make every file of the computer count as team code."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_norm": {
+   "explain": "Writes a path in the one spelling used for every comparison: the real path (links followed), the operating system's normal letter case, and '/' separators."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_as_prefix": {
+   "explain": "The same as _norm, with exactly one '/' at the end, so the folder '/a/b' never matches a file in '/a/bc/'."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_default_roots": {
+   "explain": "The folders whose files count when ASTRA_TRACE_ROOTS is not set: the repo this tracer lives in (when it is at its proper place) and the Linux-side copy ~/ODLC_Machine_Inferencing_System_2025-2026, without duplicates.",
+   "outputs": "a tuple of folder prefixes"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_program_names": {
+   "explain": "The names this program goes by, to compare with ASTRA_TRACE_SKIP: the file name of the program (mavproxy.py), or for 'python -m <module>' the module, which on Linux is read from /proc/self/cmdline because Python has not filled it in yet when sitecustomize runs. 'python -c' gives no name."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_skip_match": {
+   "explain": "Checks whether this program is listed in ASTRA_TRACE_SKIP (default 'mavproxy.py,mavproxy'; '' traces every program), comparing without letter case and with or without '.py'.",
+   "outputs": "the matching program name, or '' when this program should be traced"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_decide": {
+   "explain": "Decides, once per file, whether a file Python runs is team code: not for Python's own '<...>' code, not for this tracer or any simulation/codemap/ file, yes when its real path (colcon's symlinks followed back to ros2_ws/src) starts with one of the roots, or, with the default roots, contains a folder named ODLC_Machine_Inferencing_System_2025-2026 (which covers the Windows checkout too).",
+   "outputs": "the real path when it is ours, else None"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_first_call": {
+   "explain": "The slow path, run once for each new piece of code: is its file ours (_decide, remembered both ways)? If yes, the first time also starts the sending thread. Code named '<module>', '<lambda>', '<listcomp>' and the like is marked -1 (ours but not a map function, never counted again); a real function gets its report data (module name, real path, first line, name) and its first count. It catches every Exception, so an odd file name can never reach the program."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_make_profiler": {
+   "explain": "Builds the profiler function Python calls at every function start (the hot path, kept tiny): it ignores everything but 'call' events, rejects code from known foreign files at once, counts our known functions, and hands brand-new code to _first_call. The whole body sits inside a try that catches only RecursionError and MemoryError, the two errors it can cause itself; an exception the program's own signal handler raises is never swallowed.",
+   "inputs": "the not-ours set, the counts table and the slow-path function (kept as closure variables, the fastest look-up Python has)",
+   "outputs": "the profiler function"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_parse_addr": {
+   "explain": "Reads the send address: 'HOST:PORT' or '[IPv6 address]:PORT' -> (host, port). An empty host, a missing or out-of-range port raises ValueError."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_is_numeric_host": {
+   "explain": "True when the host is an IP address written in numbers (IPv4 or IPv6), so no name look-up (DNS) is needed to send to it."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_get_socket": {
+   "explain": "Makes, on first use, the non-blocking UDP socket and the resolved target address, and keeps them. A bad address (nonsense, port 0, an unknown host) is remembered: counts are then simply dropped. At program exit it refuses a host name that would need a DNS answer, so a program never waits while ending.",
+   "outputs": "(socket, address) or (None, None)"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_proc_name": {
+   "explain": "Makes the readable process name sent with every message, once: the program's file name ('python -c' / 'python -m' / for 'python3 -m pytest' the package name), plus '(node <name>)' when a ROS 2 node name is given with '__node:='. The server shows it in /health."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_send": {
+   "explain": "Sends the waiting counts as JSON datagrams {'pid', 'proc', 'calls': [[module, file, first line, name, count], ...]}, split so each stays under about 60 kB and at most 8 per flush (the rest waits for the next flush). A message that cannot go at once (busy socket, nobody listening) is dropped and counted, never retried; either way the counts are marked as reported, so nothing piles up.",
+   "effects": "non-blocking UDP sends"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_flush": {
+   "explain": "Collects every function whose count grew since it was last reported and sends the differences with _send. Only one flush runs at a time: it waits for another running flush at most 'wait' seconds (normally not at all) and never waits for the network. It catches every Exception.",
+   "inputs": "wait: seconds to wait for a running flush; at_exit: True during program exit (no DNS look-ups)"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_flush_loop": {
+   "explain": "The background sending thread: sleeps 100 ms (FLUSH_SECONDS) and flushes, again and again, for as long as the program lives. That is how the 'at most one message per process every 100 ms' rule of the contract is kept."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_start_flusher": {
+   "explain": "Starts the background sending thread once, and only in programs that actually run team code. It is a raw _thread (not threading.Thread): it starts at once, is never waited for at exit, and does not get the profiler, so it never counts itself."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_flush_at_exit": {
+   "explain": "Registered with atexit: when the program ends, sends what the last 100 ms counted (waiting at most 0.25 s for a running flush), otherwise a short program would report nothing."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::_after_fork_in_child": {
+   "explain": "After os.fork() without exec, the child process starts fresh: new lock, new socket, new pid and name, no sending thread inherited, and the counts so far marked as already reported (the parent reports those), so each process reports only its own calls. It starts its own sending thread if it runs team code."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::install": {
+   "explain": "Switches tracing on for this program: unless the program is in ASTRA_TRACE_SKIP, it sets the roots (ASTRA_TRACE_ROOTS, else the default roots plus the repo-folder-name rule), excludes the tracer and every simulation/codemap/ folder, sets the send address (ASTRA_TRACE_ADDR, default 127.0.0.1:8091), installs the profiler for this thread and every thread started later, and registers the exit flush and the fork handler. It catches every Exception.",
+   "called_when": "by sitecustomize.py at Python start-up, only when ASTRA_TRACE is exactly 1",
+   "outputs": "True when installed (or already installed), False when skipped or failed"
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::uninstall": {
+   "explain": "Switches the profiler off for this thread and for threads started later (tests and benchmarks use it); threads already running keep theirs."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::flush_now": {
+   "explain": "Sends the waiting counts right away, waiting at most 0.5 s for a flush already running (for tests and tools)."
+  },
+  "fn:simulation/codemap/trace/astra_trace.py::stats": {
+   "explain": "A small summary of what the tracer has seen, for tests and debugging: installed or not, the skipped program name, the roots, how many files were found ours and not ours, how many functions and calls were counted, datagrams sent and dropped, whether the address was bad and whether the sending thread started."
+  },
+  "mod:simulation/codemap/trace/astra_trace.sh": {
+   "explain": "The live function counter for the simulator's bash scripts. It is sourced only when ASTRA_TRACE=1, by a 3-line hook in simulation/scripts/_common.sh. It uses bash's 'set -T' and a DEBUG trap (a command bash runs before every command) to notice when a function of a team-repo script is entered, counts it per process, and sends the counts to server.py as {'pid', 'sh': script path, 'calls': [[function, count], ...]} over UDP (bash's /dev/udp), at most once every 100 ms per process, right before 'exec', and at exit. Every command it runs is guarded, its trap always returns 0 and keeps $? and PIPESTATUS, and it never replaces an EXIT or DEBUG trap the script already has.",
+   "how_it_fits": "The bash half of the live map (astra_trace.py is the Python half). Without ASTRA_TRACE=1 this file is never read. Its cost per command and per call is measured in simulation/codemap/README.md."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_is_ours": {
+   "explain": "True when an absolute script path belongs to the team repo: it starts with one of the roots, or (with the default roots) contains the repo folder's name. Files under simulation/codemap/ (the code map tools themselves) never count."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_normpath": {
+   "explain": "Works out '.' and '..' in an absolute path as text only (the file is not touched) and puts the result in _ASTRA_TR_E: '/repo/simulation/scripts/../../../x/lib.sh' becomes '/x/lib.sh'. Without it, a file outside the repo sourced through '..' would look as if it were inside."
+  },
+  "fn:simulation/codemap/trace/astra_trace.sh::_astra_tr_esc": {
+   "explain": "Escapes a text for use inside a JSON string (backslash, double quote, newline, carriage return, tab) with bash's own text replacement only, no extra program, and puts the result in _ASTRA_TR_E instead of printing it (printing would need a $( ) subshell for every call)."
+  },
+  "mod:simulation/codemap/trace/sitecustomize.py": {
+   "explain": "The on/off switch of the Python tracer. Python runs the first file named sitecustomize it finds on its search path at every start, before the program's own code; with simulation/codemap/trace at the front of PYTHONPATH that is this file. It first runs the system's own sitecustomize that it hides (on Ubuntu the crash-reporter 'apport' hook), so Python behaves exactly as before, and then, ONLY when ASTRA_TRACE is exactly '1', imports astra_trace and calls install(). Without it nothing else happens: no imports, no threads, no profiler, no network. Both steps are inside try/except.",
+   "how_it_fits": "demo_traced.sh (and the 'export' line of demo_traced.sh --map-only) put this folder on PYTHONPATH with ASTRA_TRACE=1; nothing on the real drone does."
+  },
+  "fn:simulation/codemap/trace/sitecustomize.py::_chain_hidden_sitecustomize": {
+   "explain": "Runs the next 'sitecustomize' on Python's search path, the one this file hides, exactly like Python's site.py would: normally a plain sitecustomize.py file, which it compiles and runs as a module; in rare cases a sitecustomize package or a compiled .pyc, which it lets the import system load. It never runs itself twice and costs only a few file checks at start-up. If that hidden file fails, the caller prints the same one-line message Python would print."
+  },
+  "mod:simulation/codemap/build_artifact.py": {
+   "explain": "Makes ONE shareable file, simulation/codemap/dist/astra_code_map.html, that shows the code map with one recorded simulator run inside and needs no server: it takes web/index.html, removes the outer <!doctype>/<html>/<head>/<body> tags (a Claude artifact adds its own frame), and puts codemap.json and the recording in as window.ASTRA_CODEMAP and window.ASTRA_TRACE, right before the page's own script. It keeps the page at or under 15 MB (15,000,000 bytes, below the artifact limit of 16 MB): the recording is downsampled first (call totals kept exactly), then the source code in the map is reduced step by step.",
+   "effects": "writes dist/astra_code_map.html (or --out)",
+   "how_it_fits": "Run after extract.py: 'python3 simulation/codemap/build_artifact.py' (newest recording of recordings/ and ~/.astra_sim/codemap/recordings) or with --recording FILE. The result is published as a Claude artifact; when the page sees the embedded data it makes no network calls at all except its fonts and its layout library. test/test_build_artifact.py tests it."
+  },
+  "fn:simulation/codemap/build_artifact.py::BuildError": {
+   "explain": "The error for something the person has to fix: a missing file, a code map without blocks, a page missing its embed marker or loading from a host an artifact cannot reach, or a page that cannot be made small enough. main() prints its message and exits with code 2."
+  },
+  "fn:simulation/codemap/build_artifact.py::strip_outer": {
+   "explain": "Removes the outer page tags (<!doctype>, <html>, <head>, <body>, and the charset and viewport <meta> lines that the artifact frame already has) from web/index.html, but leaves comments, <script> and <style> blocks exactly as they are, even when their text mentions those tags."
+  },
+  "fn:simulation/codemap/build_artifact.py::js_json": {
+   "explain": "Writes data as compact JSON that is safe inside a <script> block: every '<' becomes \\u003c (so a text such as '</script>' inside the code map can never end the block early) and the two JavaScript line-separator characters are escaped too."
+  },
+  "fn:simulation/codemap/build_artifact.py::check_external_urls": {
+   "explain": "Checks every src=\"http...\" and href=\"http...\" of the page: each must point at a host a Claude artifact may load from (cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com, fonts.googleapis.com, fonts.gstatic.com). Any other host stops the build with a BuildError naming the addresses."
+  },
+  "fn:simulation/codemap/build_artifact.py::normalize_event": {
+   "explain": "Turns one recorded line into a clean event, with the same rules as the page's own normalizeEvent: {'event': 'calls', 't', 'calls': {id: count}} (lists of [id, count] are merged, zero or broken counts dropped), {'event': 'procs', 't', 'running': [ids]}, or {'event': 'meta', 'note'}. A line without a usable time, or with nothing in it, gives None and is skipped.",
+   "outputs": "an event dictionary or None"
+  },
+  "fn:simulation/codemap/build_artifact.py::_merge_calls": {
+   "explain": "Adds up the call events of every 'window' seconds into one event, stamped with the time of the first event in that window, so a long recording becomes fewer, bigger events with the same totals."
+  },
+  "fn:simulation/codemap/build_artifact.py::downsample": {
+   "explain": "Makes a recording small enough for the page while keeping every function's call total exactly: the running-program lists are kept only when they change (and at least every 30 s, so jumping in the replay finds one), and the call events are merged into windows of 0.4, 0.8, 1.6, 3.2 s ... until at most max_events (3000) events and max_bytes (3 MB) of JSON remain, or the window reaches 120 s. Only the timing gets coarser.",
+   "outputs": "(events, window in seconds; 0 = not merged)"
+  },
+  "fn:simulation/codemap/build_artifact.py::slim_codemap": {
+   "explain": "Makes a copy of the code map for one size stage, never changing the original: the trace_index is always dropped (only server.py needs it); 'no-module-source' drops whole-file source, 'short-source' also cuts function source to 60 lines, 'no-source' drops all source, 'no-source-no-doc' also drops the docstring of every function or class that has a plain explanation. It records the stage and whether the source is full, partial or dropped under 'artifact' (the page shows it).",
+   "outputs": "the slimmed copy"
+  },
+  "fn:simulation/codemap/build_artifact.py::build": {
+   "explain": "Puts the page together: strips the outer tags, checks the outside addresses and that the <title> is in the first 8 KB (the artifact gallery reads only that), then tries the size stages from 'full' down (each stage's JSON is made once) with the downsampled recording; the first page at or under max_bytes wins and gets build facts (time, recording name, window, event counts). If nothing fits it halves the recording budget (down to 200 events) and tries again, and finally raises BuildError with the smallest size reached.",
+   "outputs": "(page text, report: bytes, stage, source state, window, events, blocks, links, attempts)"
+  },
+  "mod:simulation/codemap/web/make_sample.py": {
+   "explain": "Makes the two small SAMPLE files the explorer page is tested with: sample_codemap.json (3 systems, the 5 outside programs, 7 packages, 14 files and about 120 functions, with names, lines, docstrings, signatures and source READ FROM THE REAL FILES of this repo, explanations taken from explanations/*.json, and 'sample': true so the page shows SAMPLE DATA) and sample_recording.jsonl (about 72 s of SYNTHETIC events shaped like the start of a search flight; its first line says it was not recorded). Run it with 'python simulation/codemap/web/make_sample.py' (--check only reports).",
+   "how_it_fits": "Its two files feed web/run_selftest.js, web/dom_smoke.js and test/test_build_artifact.py, so the page can be tested without the full extractor or a simulator. The sample still follows last year's photo flow (1 photo per second, video_cam), because the sample was made before 2026-10-31."
+  },
+  "fn:simulation/codemap/web/make_sample.py::header_doc": {
+   "explain": "Reads a file's PURPOSE header for the sample: the module docstring of a Python file, the first <!-- --> comment of an XML file, the leading /* */ block of a C# file, or the # lines right after the first line of a shell script."
+  },
+  "fn:simulation/codemap/web/make_sample.py::py_defs": {
+   "explain": "Lists every class, function and method of a Python file with the contract's names (Class.method, outer.inner, never <locals>), each with its first line (decorators included, like Python's co_firstlineno), last line, signature, docstring and source.",
+   "outputs": "(list of definitions, the parsed tree)"
+  },
+  "fn:simulation/codemap/web/make_sample.py::cs_defs": {
+   "explain": "Finds the wanted Class.Method entries in a C# file (for the sample: methods of the Mission Planner plugin) by their declaration line, and finds where each ends by counting braces.",
+   "outputs": "a list of method records with lines, signature and source"
+  },
+  "fn:simulation/codemap/web/make_sample.py::call_edges": {
+   "explain": "Finds the call links of the sample's chosen functions in their real source: self.m(...) inside the same class, alias.f(...) of an imported repo file, and f(...) of a nested function, a function of the same file or an imported name. Calls inside nested functions are left to those functions.",
+   "outputs": "a list of (caller id, called id)"
+  },
+  "fn:simulation/codemap/web/make_sample.py::build_recording": {
+   "explain": "Writes the SYNTHETIC sample recording: about 72 s of call and running-program events in server.py's format, shaped like the start of a search flight (start-up, one photo per second, detections, the hold, the divert and one drop), using only ids that exist in the sample map (it stops with an error otherwise). Calls are grouped into 0.2 s steps like the live server does.",
+   "outputs": "the list of events (the first one is a meta note saying the data is synthetic)"
+  },
+  "mod:simulation/codemap/web/index.html": {
+   "explain": "The code map explorer page, one file with its CSS and JavaScript inside (the dagre layout library from cdnjs and fonts from Google Fonts; a built-in layout when the library cannot load). It draws the project as block diagrams you open one level at a time (systems -> packages -> files -> functions), shows a side panel with each block's plain explanation, links and source, searches, and lights blocks up green as calls arrive: live from server.py (/events), replayed from a recording, or replayed from the data build_artifact.py embedded. It works in light and dark colours and at phone width.",
+   "how_it_fits": "server.py serves it at http://127.0.0.1:8090/; build_artifact.py turns it into dist/astra_code_map.html; web/run_selftest.js and web/dom_smoke.js test it in node."
+  },
+  "mod:simulation/codemap/web/run_selftest.js": {
+   "explain": "A node test of the explorer page without a browser: it cuts the two inline scripts out of index.html, checks that both parse as JavaScript, runs the page's logic script (id 'astra-core') and its built-in self-test (ids, the index, every diagram level, both layouts, the glow, replay, search, formatting), and builds every view of the sample map when the sample files are there.",
+   "how_it_fits": "Run 'node simulation/codemap/web/run_selftest.js' (node 18+); test_build_artifact.py runs it too."
+  },
+  "mod:simulation/codemap/web/dom_smoke.js": {
+   "explain": "A node smoke test of the page's screen code: it builds a tiny fake browser (document, elements, events, timers), loads index.html's markup and both scripts and drives the page like a person would: in artifact mode with the sample data (draw, replay, glow, counts, running programs, the 'just ran' list, click, double-click, search, keys, scrubber; and never any network call) and in localhost mode (no codemap.json, so it must fall back to the sample map, show SAMPLE DATA, connect to a fake /events stream and glow on a 'calls' event). '--codemap PATH' and '--artifact PATH' run it on real data or a built artifact. It cannot show what the page LOOKS like.",
+   "how_it_fits": "Run 'node simulation/codemap/web/dom_smoke.js'; test_build_artifact.py runs it too."
+  },
+  "mod:simulation/codemap/web/sample_codemap.json": {
+   "explain": "The small sample code map made by make_sample.py from real files of this repo (marked 'sample': true, so the page shows a SAMPLE DATA label). Re-make it with make_sample.py; never edit it by hand.",
+   "how_it_fits": "Used by run_selftest.js, dom_smoke.js, test_build_artifact.py and by 'python3 -m http.server' in web/ to try the page."
+  },
+  "mod:simulation/codemap/web/sample_recording.jsonl": {
+   "explain": "The small SYNTHETIC recording made by make_sample.py (about 72 s shaped like the start of a search flight); its first line is a note saying it was not recorded from a real run.",
+   "how_it_fits": "Replayed by the page in the tests and in the sample page."
+  },
+  "mod:simulation/codemap/systems.yaml": {
+   "explain": "The hand-written top of the code map: the systems (the first blocks you see) with a plain summary each, which folders ('packages') belong to which system ('dir' = only its own files, 'dir/**' = with sub-folders, or patterns such as ros2_ws/src/*), the outside programs (Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner, Lattice ...) with the patterns that recognise them in a process list, the network links between the big programs (MAVLink, HTTP, data), and who owns groups of ROS topics (MAVROS for /mavros/...).",
+   "how_it_fits": "extract.py reads it with its own small YAML reader; a new top-level folder needs a line here or 'extract.py --check' fails and names the file."
+  },
+  "mod:simulation/codemap/README.md": {
+   "explain": "The full reference guide of the code map: what it shows, how to watch a traced flight live, how to rebuild the map and the shareable page, how the tracer stays off on the real drone and what tracing costs, every file of the folder, the shared contract (ids, file formats, live events), the tests and what was verified on 2026-10-31.",
+   "how_it_fits": "The short teammate guide is docs/simulation/CODE_MAP.md; both are listed in docs/README.md."
+  },
+  "mod:simulation/codemap/.gitignore": {
+   "explain": "Keeps the code map's GENERATED files out of git: the map simulation/codemap/codemap.json, the recordings/ folder, dist/ (the shareable page) and Python caches. They are big and anyone can make them again. The codemap.json line is written '/codemap.json' (only the file in this folder), so the hand-written explanations/codemap.json is NOT ignored.",
+   "how_it_fits": "Before 2026-10-31 15:30 the line was 'codemap.json', which also hid explanations/codemap.json from git; it is fixed in the working tree, and that explanations file still has to be added to git."
+  },
+  "pkg:simulation/codemap": {
+   "explain": "The live code map: tools that draw ALL of the project's software as block diagrams you can open (systems -> packages -> files -> functions) and light up the functions that run while the simulator flies. extract.py reads the repo into codemap.json; systems.yaml and explanations/*.json are written by hand; web/index.html is the explorer page; server.py serves it live on http://127.0.0.1:8090/ and collects the tracers' messages on UDP 8091; trace/ holds the opt-in tracers; build_artifact.py makes the one-file shareable page.",
+   "how_it_fits": "A simulator-side tool only: nothing on the real drone uses it or sets ASTRA_TRACE. Its only hook outside this folder is 3 lines in simulation/scripts/_common.sh (plus demo_traced.sh). Guides: simulation/codemap/README.md and docs/simulation/CODE_MAP.md."
+  },
+  "pkg:simulation/codemap/test": {
+   "explain": "The pytest tests of the code map (no ROS needed): test_extract.py (the extractor and the real repo's map), test_live.py (the Python and bash tracers, the server, demo_traced.sh) and test_build_artifact.py (the shareable page, which also runs the two node page tests), with conftest.py.",
+   "how_it_fits": "Run 'python -m pytest -q -p no:cacheprovider simulation/codemap/test' on Windows, or the same with /usr/bin/python3 in WSL."
+  },
+  "mod:simulation/codemap/test/conftest.py": {
+   "explain": "Shared pytest set-up for the code map tests: it puts simulation/codemap on Python's import path (so a test can write 'import extract', 'import server' or 'import build_artifact') and stops Python from writing __pycache__ folders into the repo. On purpose it does NOT put the trace folder on the path, so its sitecustomize.py can never switch on by accident during the tests."
+  },
+  "mod:simulation/codemap/test/test_extract.py": {
+   "explain": "Tests of extract.py: the small YAML reader (and that it reads the real systems.yaml like PyYAML), Python block ids (Class.method, outer.inner, decorators, merged getter/setter) and that every trace_index line equals Python's own co_firstlineno, bash, C#, PowerShell and launch-file reading, topics and services, systems and packages, explanations, the report, and a full run on the real repository with --check."
+  },
+  "mod:simulation/codemap/test/test_live.py": {
+   "explain": "Tests of the LIVE part: the Python tracer (off unless ASTRA_TRACE=1, still runs the system's sitecustomize, sends the right module/file/line/name/count, keeps the 100 ms rate, never blocks or raises with a bad address, skips MAVProxy, survives fork, takes at most one frame of the recursion limit, catches only its own two errors), the bash tracer (rate limit, subshells, exec, exit traps, the _common.sh hook), the server (mapping messages and programs, events, recordings, health, at most 8 pages) and demo_traced.sh with a fake demo."
+  },
+  "mod:simulation/codemap/test/test_build_artifact.py": {
+   "explain": "Tests of build_artifact.py with the sample files: the result is a bare artifact page (no outer tags, title in the first 8 KB), the code map and recording are embedded before the app script and come back unchanged, no code map text can end the script block early, downsampling keeps every call total, source is dropped step by step when too big, only allowed hosts are referenced, the default recording folders include the Linux-side copy's, and the two node page tests pass."
+  },
+  "mod:simulation/codemap/explanations/camera_plugins.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the camera emulator and the plug-and-play system: one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/codemap.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the code map's own code (simulation/codemap): one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/flight.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the team's flight code (main, waypoint_mavros, wp_sender, gps_ros2, interfaces ...): one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/lattice.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the Lattice bridge (handed to the team on 2026-10-31): one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/sim_demo.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the demo, scoring and Mission Planner camera tools (sim_demo): one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/tooling.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the scripts, setup, Docker and Windows helpers: one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/vision.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the camera, detection and mapping packages (the legacy 2025 photo pipeline) and the operator tools: one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "mod:simulation/codemap/explanations/world.json": {
+   "explain": "Hand-written plain-words explanations for the blocks of the simulated world, the drone model and the simulator bring-up: one entry per block id, with 'explain' (required) and optionally 'called_when', 'inputs', 'outputs', 'effects' and 'how_it_fits'. extract.py copies them onto the matching blocks and reports any id that matches no block.",
+   "how_it_fits": "Edit it to add or fix an explanation, then run 'python3 simulation/codemap/extract.py --check'. Format: simulation/codemap/README.md, 'Explanations: the plain words'."
+  },
+  "fn:simulation/codemap/test/test_extract.py::write_files": {
+   "explain": "Test helper: writes a dictionary {repo path: text} as files under a folder (text de-indented, LF line ends; a non-text value makes an empty file), creating folders as needed."
+  },
+  "fn:simulation/codemap/test/test_extract.py::make_repo": {
+   "explain": "Test helper: makes a pretend repository in a temporary folder from a {path: text} dictionary, plus a systems.yaml next to it (a small default one unless given) and an explanations folder with the given files.",
+   "outputs": "the pretend repo folder"
+  },
+  "fn:simulation/codemap/test/test_extract.py::build": {
+   "explain": "Test helper: makes a pretend repo (make_repo) and runs extract.build_codemap on it with a fixed time stamp and commit, so results are repeatable.",
+   "outputs": "an object with cm, report, nodes by id, the set of (from, to, kind) edges, edge labels and repo"
+  },
+  "fn:simulation/codemap/test/test_extract.py::ros_python_pkg": {
+   "explain": "Test helper: the files of a pretend ament_python ROS package ros2_ws/src/<name> (package.xml, __init__.py, a setup.py with the given console_scripts, the ament resource marker) plus the given modules in <name>/<name>/."
+  },
+  "fn:simulation/codemap/test/test_extract.py::_stringify": {
+   "explain": "Test helper: turns every non-text value inside nested dictionaries and lists into text, so PyYAML's numbers and booleans can be compared with the small YAML reader, which keeps every value a text."
+  },
+  "fn:simulation/codemap/test/test_extract.py::_code_objects": {
+   "explain": "Test helper: lists every function and class code object Python compiles for a source text, with its qualified name (without '<locals>') and co_firstlineno, exactly what the live tracer sees, so the test can check that every trace_index line matches."
+  },
+  "fn:simulation/codemap/test/test_extract.py::test_one_odd_file_is_a_problem_not_a_crash.fussy_clean": {
+   "explain": "Inside the test: a stand-in for extract.bash_clean that raises an error for a file containing 'BOOM' and works normally otherwise, to prove one odd file becomes a reported problem while the rest of the map is still built."
+  },
+  "fn:simulation/codemap/test/test_extract.py::real": {
+   "explain": "Test fixture (made once per test file): runs the extractor on the REAL repository without source text, with a fixed time stamp and commit, and remembers when it started (files someone saves after that may differ from the map).",
+   "outputs": "an object with cm, report, nodes, edges and the start time"
+  },
+  "fn:simulation/codemap/test/test_live.py::clean_env": {
+   "explain": "Test helper: a copy of the test's environment with every tracer setting removed (ASTRA_TRACE, ASTRA_TRACE_ADDR, _ROOTS, _SKIP, PYTHONPATH, PYTHONSTARTUP), no __pycache__ writing, UTF-8 output, plus the given extra settings, so each test starts from a known state."
+  },
+  "fn:simulation/codemap/test/test_live.py::free_port": {
+   "explain": "Test helper: asks the system for a free TCP (or UDP) port on 127.0.0.1 and returns its number."
+  },
+  "fn:simulation/codemap/test/test_live.py::UdpCollector": {
+   "explain": "Test helper: a UDP socket on a free port that receives every datagram in a background thread and keeps both the raw bytes and the decoded JSON messages, standing in for server.py when a tracer is tested alone."
+  },
+  "fn:simulation/codemap/test/test_live.py::UdpCollector.__init__": {
+   "explain": "Opens the socket on 127.0.0.1 with a free port (the 'port' attribute) and starts the receiving thread."
+  },
+  "fn:simulation/codemap/test/test_live.py::UdpCollector._run": {
+   "explain": "The receiving thread: keeps every datagram (raw and as JSON) and the time of the last one, until close()."
+  },
+  "fn:simulation/codemap/test/test_live.py::UdpCollector.wait_quiet": {
+   "explain": "Waits until nothing new has arrived for 'quiet' seconds (default 0.6), at most 'limit' seconds (default 8), so a test reads the messages only after the tracer stopped sending."
+  },
+  "fn:simulation/codemap/test/test_live.py::UdpCollector.close": {
+   "explain": "Stops the receiving thread (waiting up to 2 s) and closes the socket."
+  },
+  "fn:simulation/codemap/test/test_live.py::collector": {
+   "explain": "Test fixture: gives a test a running UdpCollector and closes it afterwards."
+  },
+  "fn:simulation/codemap/test/test_live.py::line_of": {
+   "explain": "Test helper: the 1-based number of the first line of a text that contains a given piece of text (fails the test when there is none). Used to know a function's first line in a sample program."
+  },
+  "fn:simulation/codemap/test/test_live.py::tiny_repo": {
+   "explain": "Test fixture: a pretend repo with one program (tinymod.py) and one package module (pkg_tiny/helpers.py), for tracing a real Python run."
+  },
+  "fn:simulation/codemap/test/test_live.py::run_traced": {
+   "explain": "Test helper: runs a Python script with the trace folder at the front of PYTHONPATH and the chosen ASTRA_TRACE, ASTRA_TRACE_ROOTS and ASTRA_TRACE_ADDR (or a port), from the script's folder.",
+   "outputs": "(the finished process with its output, its process id)"
+  },
+  "fn:simulation/codemap/test/test_live.py::totals": {
+   "explain": "Test helper: adds up the counts of Python tracer messages per (module, file name, first line, function name)."
+  },
+  "fn:simulation/codemap/test/test_live.py::_load_astra_trace": {
+   "explain": "Test helper: loads a private copy of trace/astra_trace.py into the test process under another name (loading it installs nothing), so its inner functions can be tested directly."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.ProgramsOwn": {
+   "explain": "Inside the test: an exception class standing for an error that belongs to the program (for example one raised by its own signal handler); the profiler must let it through."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.Event": {
+   "explain": "Inside the test: a fake 'event' value whose comparison with 'call' (the profiler's very first line) raises a chosen error, to check what happens when the error comes from that first line."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.Event.__init__": {
+   "explain": "Remembers the error the comparison should raise."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.Event.__ne__": {
+   "explain": "The '!=' comparison the profiler does first ('event != \"call\"'): it raises the remembered error."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.raising": {
+   "explain": "Inside the test: makes a stand-in for the tracer's once-per-function slow path that raises the given error."
+  },
+  "fn:simulation/codemap/test/test_live.py::test_python_profiler_catches_only_its_own_errors.raising.first_call": {
+   "explain": "The stand-in slow path itself: raises the chosen error when the profiler calls it."
+  },
+  "fn:simulation/codemap/test/test_live.py::find_bash": {
+   "explain": "Test helper: finds a real bash (Git Bash on Windows, or the system bash), never Windows' WSL launcher in System32 or the WindowsApps stub; None when there is none."
+  },
+  "fn:simulation/codemap/test/test_live.py::bash_has_dev_udp": {
+   "explain": "Test helper: checks that this bash can send UDP through its built-in /dev/udp (one 'printf x' to a collector). The bash tracer tests are skipped when it cannot."
+  },
+  "fn:simulation/codemap/test/test_live.py::make_bash_repo": {
+   "explain": "Test helper: a pretend repo with a copy of trace/astra_trace.sh and a test script simulation/scripts/t.sh (written with LF line ends), plus a lib.sh OUTSIDE the repo for the 'outside files never count' checks.",
+   "outputs": "the path of t.sh"
+  },
+  "fn:simulation/codemap/test/test_live.py::run_bash": {
+   "explain": "Test helper: runs a test script with bash from its own folder, with ASTRA_TRACE_ADDR pointing at a collector and ASTRA_TRACE set as asked, and returns the finished process."
+  },
+  "fn:simulation/codemap/test/test_live.py::bash_totals": {
+   "explain": "Test helper: adds up the counts of bash tracer messages per (script file name, function name)."
+  },
+  "fn:simulation/codemap/test/test_live.py::make_traced_demo_repo": {
+   "explain": "Test helper: a throw-away repo with the REAL demo_traced.sh, _common.sh, server.py and trace/ folder, a stand-in demo.sh, the real target_geolocation.py and a tiny codemap.json that names the bash function 'say' and the Python function 'wrap_360', to run demo_traced.sh end to end without a simulator.",
+   "outputs": "(repo folder, id of say, id of wrap_360)"
+  },
+  "fn:simulation/codemap/test/test_live.py::recorded_calls": {
+   "explain": "Test helper: adds up the call counts per function id in a recording (.jsonl) file."
+  },
+  "fn:simulation/codemap/test/test_live.py::port_open": {
+   "explain": "Test helper: True when something accepts a TCP connection on 127.0.0.1 at that port (used to check the server stopped)."
+  },
+  "fn:simulation/codemap/test/test_live.py::load_server_module": {
+   "explain": "Test helper: loads a private copy of server.py into the test process (registered under its own module name), so its classes can be tested directly."
+  },
+  "fn:simulation/codemap/test/test_live.py::fake_codemap": {
+   "explain": "Test helper: a small hand-made code map (a system, a package, three Python files, a bash script and their functions) with a trace_index, where tinymod.py's hello() starts at the given line."
+  },
+  "fn:simulation/codemap/test/test_live.py::fake_codemap.node": {
+   "explain": "Makes one block for the fake map: id, kind, parent and a label taken from the end of the id, plus any extra fields."
+  },
+  "fn:simulation/codemap/test/test_live.py::http_get": {
+   "explain": "Test helper: one HTTP GET to 127.0.0.1 at a port and path.",
+   "outputs": "(status, headers, body bytes)"
+  },
+  "fn:simulation/codemap/test/test_live.py::ServerUnderTest": {
+   "explain": "Test helper: a real server.py process started on free ports with a fake code map, a stand-in index.html, a recording file and --no-windows, plus a UDP socket to send it tracer messages."
+  },
+  "fn:simulation/codemap/test/test_live.py::ServerUnderTest.__init__": {
+   "explain": "Writes the fake files, starts server.py (procs every 0.5 s) and waits up to 20 s until /health answers; fails the test with the server's output if it does not start."
+  },
+  "fn:simulation/codemap/test/test_live.py::ServerUnderTest.send": {
+   "explain": "Sends one tracer message (a dictionary as JSON, or raw bytes) to the server's UDP port."
+  },
+  "fn:simulation/codemap/test/test_live.py::ServerUnderTest.health": {
+   "explain": "Reads /health and returns it as a dictionary (checking the answer is 200)."
+  },
+  "fn:simulation/codemap/test/test_live.py::ServerUnderTest.stop": {
+   "explain": "Closes the UDP socket and stops the server process (terminate, then kill after 10 s)."
+  },
+  "fn:simulation/codemap/test/test_live.py::server": {
+   "explain": "Test fixture: a running ServerUnderTest whose fake map has hello() at its real line in the sample program; stopped after the test."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader": {
+   "explain": "Test helper: opens the server's /events stream and reads it in a background thread, keeping every (event name, data) pair and the raw lines for format checks."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader.__init__": {
+   "explain": "Opens GET /events, keeps its own handle on the socket (so close() really hangs up) and starts the reading thread when the answer is 200."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader._run": {
+   "explain": "The reading thread: collects 'event:' and 'data:' lines into events at each empty line, until the stream ends or close() hangs up."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader.calls": {
+   "explain": "Adds up the counts of all 'calls' events received so far per function id."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader.wait_for": {
+   "explain": "Waits (at most 8 s by default) until a given check becomes true, and returns the last result."
+  },
+  "fn:simulation/codemap/test/test_live.py::SseReader.close": {
+   "explain": "Hangs up: shuts the socket down and closes the response and the connection, ignoring errors."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_load_builder": {
+   "explain": "Test helper: loads build_artifact.py from its file as a module, so its functions can be tested."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_embedded": {
+   "explain": "Test helper: finds the embed block in a built page and returns the code map and recording inside it (decoded from JSON) and the match; fails the test when the block is missing."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_markup": {
+   "explain": "Test helper: the page without its comments, scripts and style blocks (the only places the outer tags could still appear), to check that strip_outer removed them."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_build_sample": {
+   "explain": "Test helper: runs build_artifact.main with the sample code map and recording into a temporary file (plus any extra options), checks the exit code is 0 and returns the page text."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_sample": {
+   "explain": "Test helper: reads web/sample_codemap.json."
+  },
+  "fn:simulation/codemap/test/test_build_artifact.py::_totals": {
+   "explain": "Test helper: adds up the call counts per function id over a list of events, to prove downsampling keeps every total."
+  },
+  "mod:docs/simulation/CODE_MAP.md": {
+   "explain": "The short teammates' guide to the live code map: what the boxes are (systems, packages, files, functions), how to watch the team's code light up during a traced simulator flight (demo_traced.sh, then http://127.0.0.1:8090/), where a run is saved and how to replay it, the shareable one-file page, how to keep the map and its plain explanations up to date, why tracing is safe for the real drone and what it changes, and a small troubleshooting table.",
+   "how_it_fits": "The full reference is simulation/codemap/README.md; both are listed in docs/README.md."
+  }
+ }
+}

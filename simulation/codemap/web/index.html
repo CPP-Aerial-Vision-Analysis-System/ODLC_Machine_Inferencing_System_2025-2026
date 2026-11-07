@@ -5,6 +5,12 @@ did not write: Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner) -> one
 files -> one file's classes and functions. Click any block to read what it is and exactly what it does, in plain
 words, with its source code. While the traced simulator runs, every function that gets called flashes green, and
 its file, package and system glow and count the calls, so you can watch the code work from the top level down.
+The "Wiring" button shows a third view: how the programs talk (Gazebo, ArduPilot SITL, MAVProxy, Mission Planner,
+MAVROS, the team's nodes, the team's new video pipeline, the camera emulator, the Jetson relay, the flight recorder,
+the code map itself), every wire coloured by kind of message (MAVLink, ROS 2, Gazebo, camera, web, files) with its
+transport and port, dashed when it is being built, dotted for a proposal, grey for the legacy (2025) photo pipeline,
+plus a "follow a mission" tour. It is drawn from codemap.json "wiring", which extract.py makes from systems.yaml
+(the same links the block diagrams use), so the wiring is never drawn twice by hand. Open it directly with #wiring.
 It runs two ways (see simulation/codemap/README.md):
   * localhost: server.py serves this page on http://127.0.0.1:8090/ ; the page loads /codemap.json, listens to
     /events (live calls, Server-Sent Events) and can replay the files under /recordings.
@@ -68,6 +74,13 @@ astra-core and is tested with node by web/run_selftest.js.
   --e-mavlink: #b05829;
   --e-http: #9a4b6b;
   --e-data: #3e7e87;
+  --w-mav: #b35f08;          /* Wiring view: one colour per kind of message */
+  --w-ros: #1f5fc2;
+  --w-gz: #7646c4;
+  --w-cam: #bd2b69;
+  --w-web: #0b7880;
+  --w-files: #7a6750;
+  --w-legacy: #9aa6b2;       /* last year's photo pipeline: greyed */
   --shadow: 0 1px 2px rgba(19, 32, 46, 0.08), 0 6px 18px rgba(19, 32, 46, 0.08);
   /* Type: B612 was drawn for aircraft cockpit screens (block labels, headings); Atkinson Hyperlegible keeps the
      plain-language explanations easy to read; B612 Mono for code, ids, counters and times. */
@@ -85,6 +98,7 @@ astra-core and is tested with node by web/run_selftest.js.
     --k-function: #1a2632; --k-topic: #1b3240; --k-group: #212c37; --cluster: rgba(225, 232, 239, 0.035); --cluster-line: #3a4a5b;
     --e-calls: #8fa1b4; --e-imports: #66788b; --e-publishes: #5ab2c3; --e-subscribes: #7ca5db; --e-launches: #b29ad5;
     --e-runs: #c8a366; --e-mavlink: #df8a56; --e-http: #d08aaa; --e-data: #6db4bc;
+    --w-mav: #f2a33a; --w-ros: #6fa1ff; --w-gz: #b597ff; --w-cam: #ff73a9; --w-web: #3ac7ce; --w-files: #c7b498; --w-legacy: #5b6878;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
     color-scheme: dark;
   }
@@ -98,6 +112,7 @@ astra-core and is tested with node by web/run_selftest.js.
   --k-function: #1a2632; --k-topic: #1b3240; --k-group: #212c37; --cluster: rgba(225, 232, 239, 0.035); --cluster-line: #3a4a5b;
   --e-calls: #8fa1b4; --e-imports: #66788b; --e-publishes: #5ab2c3; --e-subscribes: #7ca5db; --e-launches: #b29ad5;
   --e-runs: #c8a366; --e-mavlink: #df8a56; --e-http: #d08aaa; --e-data: #6db4bc;
+  --w-mav: #f2a33a; --w-ros: #6fa1ff; --w-gz: #b597ff; --w-cam: #ff73a9; --w-web: #3ac7ce; --w-files: #c7b498; --w-legacy: #5b6878;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 22px rgba(0, 0, 0, 0.3);
   color-scheme: dark;
 }
@@ -159,7 +174,7 @@ button { cursor: pointer; }
 
 /* ---------- main area ---------- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 31vw, 430px); gap: 12px; min-height: 0; }
-.stage-wrap { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-2); overflow: hidden; }
+.stage-wrap { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-2); overflow: hidden; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 10px; border-bottom: 1px solid var(--rule-2); background: var(--card); }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; min-width: 0; flex: 1 1 280px; }
 .crumb { position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; font: 400 13px var(--f-display); color: var(--ink-2); max-width: 32ch; }
@@ -267,6 +282,86 @@ button { cursor: pointer; }
 #svg.has-sel .edge:not(.is-nb) { opacity: 0.16; }
 #svg.has-sel .elabel:not(.is-nb) { opacity: 0.2; }
 .edge.is-nb { stroke-width: 2.4; }
+
+/* ---------- the Wiring view: how the programs talk (boxes = programs, wires coloured by kind of message) ---------- */
+.stage-wrap > .toolbar { grid-row: 1; }
+.stage-wrap > .wbar { grid-row: 2; }
+.stage-wrap > .stage { grid-row: 3; }
+.stage-wrap > .transport { grid-row: 4; }
+.is-wiring .drill-only { display: none !important; }
+.wbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 7px 10px; border-bottom: 1px solid var(--rule-2); background: var(--card); min-width: 0; }
+.wtour { display: flex; flex-wrap: wrap; gap: 6px; }
+.tbtn.primary { background: var(--ink); color: var(--card); border-color: var(--ink); font-weight: 700; }
+.wsteps { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.wsteps button { width: 28px; height: 28px; padding: 0; border: 1px solid var(--rule); border-radius: 6px; background: var(--card); font: 700 11.5px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.wsteps button[aria-current="step"] { background: var(--live-soft); border-color: var(--live); color: var(--live); }
+.wlegend { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.wlegend button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--rule); border-radius: 999px; background: var(--card); padding: 2px 10px 2px 8px; font: 400 12px var(--f-body); color: var(--ink); }
+.wlegend button[aria-pressed="true"] { border-color: var(--live); background: var(--live-soft); }
+.wsw { width: 18px; height: 4px; border-radius: 2px; display: inline-block; flex: none; background: var(--w-files); }
+.wsw.k-mav { background: var(--w-mav); } .wsw.k-ros { background: var(--w-ros); } .wsw.k-gz { background: var(--w-gz); }
+.wsw.k-cam { background: var(--w-cam); } .wsw.k-web { background: var(--w-web); } .wsw.k-files { background: var(--w-files); }
+.wst { display: inline-block; width: 26px; height: 0; border-top: 3px solid var(--ink-2); vertical-align: middle; flex: none; }
+.wst.st-being-built, .wst.st-optional { border-top-style: dashed; }
+.wst.st-proposal { border-top-style: dotted; }
+.wst.st-legacy { border-top-color: var(--w-legacy); }
+.wzone rect { fill: var(--cluster); stroke: var(--cluster-line); stroke-width: 1.2; stroke-dasharray: 7 5; }
+.wzone .wz-label { font: 700 12px var(--f-mono); letter-spacing: 0.06em; fill: var(--ink-2); }
+.wzone .wz-note { font: 400 12px var(--f-body); fill: var(--ink-2); }
+.wbox { cursor: pointer; outline: none; transition: opacity 0.2s; }
+.wbox .wshape { fill: var(--card); stroke: var(--ink); stroke-width: 1.4; }
+.wbox .wglow { fill: var(--glow); opacity: 0; pointer-events: none; }
+.wbox .wt { font: 700 14px var(--f-display); fill: var(--ink); }
+.wbox .ws { font: 400 12.5px var(--f-body); fill: var(--ink-2); }
+.wbox .wtag { font: 700 9.5px var(--f-mono); letter-spacing: 0.08em; fill: var(--ink-2); }
+.wbox .wchip rect { fill: var(--paper-2); stroke: var(--rule); stroke-width: 1; }
+.wbox .wchip text { font: 400 12px var(--f-body); fill: var(--ink); }
+.wbox .wrun { display: none; }
+.wbox .wrun rect { fill: var(--card); stroke: var(--live); stroke-width: 1; }
+.wbox .wrun circle { fill: var(--glow-halo); }
+.wbox .wrun text { font: 700 9.5px var(--f-mono); letter-spacing: 0.06em; fill: var(--live); }
+.wbox.is-run .wrun { display: inline; }
+.wbox.is-run .wshape { stroke: var(--live); stroke-width: 2.4; }
+.wbox.st-being-built .wshape, .wbox.st-optional .wshape { stroke-dasharray: 7 4; }
+.wbox.st-proposal .wshape { stroke-dasharray: 1.5 4.5; stroke-linecap: round; stroke-width: 2.2; }
+.wbox.st-legacy .wshape { stroke: var(--w-legacy); fill: var(--paper); }
+.wbox.st-legacy .wt, .wbox.st-legacy .ws, .wbox.st-legacy .wtag { fill: var(--ink-3); }
+.wbox.is-rail .wshape { fill: var(--w-ros); stroke: none; }
+.wbox.is-rail .wt { font: 700 11px var(--f-mono); fill: var(--w-ros); }
+.wbox:hover .wshape { stroke-width: 2.6; }
+.wbox:focus-visible .wshape { stroke: var(--focus); stroke-width: 3; }
+.wbox.on .wshape { stroke: var(--live); stroke-width: 2.6; fill: var(--live-soft); }
+.wbox.is-rail.on .wshape { fill: var(--live); }
+.wbox.sel .wshape { stroke-width: 3.4; }
+.wwire { cursor: pointer; outline: none; transition: opacity 0.2s; }
+.wwire .wl { fill: none; stroke: var(--w-files); stroke-width: 2.2; stroke-linejoin: round; pointer-events: none; }
+.wwire .wh { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; }
+.wwire .wlab { font: 700 11px var(--f-mono); paint-order: stroke; stroke: var(--paper); stroke-width: 4px; stroke-linejoin: round; fill: var(--w-files); }
+.wwire.k-mav .wl { stroke: var(--w-mav); } .wwire.k-mav .wlab { fill: var(--w-mav); }
+.wwire.k-ros .wl { stroke: var(--w-ros); } .wwire.k-ros .wlab { fill: var(--w-ros); }
+.wwire.k-gz .wl { stroke: var(--w-gz); } .wwire.k-gz .wlab { fill: var(--w-gz); }
+.wwire.k-cam .wl { stroke: var(--w-cam); } .wwire.k-cam .wlab { fill: var(--w-cam); }
+.wwire.k-web .wl { stroke: var(--w-web); } .wwire.k-web .wlab { fill: var(--w-web); }
+.wwire.st-being-built .wl, .wwire.st-optional .wl { stroke-dasharray: 8 5; }
+.wwire.st-proposal .wl { stroke-dasharray: 1.5 5; stroke-linecap: round; stroke-width: 2.8; }
+.wwire.st-legacy .wl { stroke: var(--w-legacy); }
+.wwire.st-legacy .wlab { fill: var(--ink-3); }
+.wwire.is-stub .wl { stroke-width: 3; }
+.wwire:hover .wl { stroke-width: 3.6; }
+.wwire:focus-visible .wl { stroke-width: 4; }
+.wwire:focus-visible .wlab { text-decoration: underline; }
+.wwire.on .wl { stroke: var(--live); stroke-width: 3.2; }
+.wwire.on .wlab { fill: var(--live); }
+.wwire.sel .wl { stroke-width: 4.2; }
+@media (prefers-reduced-motion: no-preference) {
+  .wwire.on .wl { stroke-dasharray: 9 7; animation: wflow 0.8s linear infinite; }
+}
+@keyframes wflow { to { stroke-dashoffset: -16; } }
+.wiring-root.w-focus .wbox:not(.on), .wiring-root.w-focus .wwire:not(.on) { opacity: 0.18; }
+.wmk-mav { fill: var(--w-mav); } .wmk-ros { fill: var(--w-ros); } .wmk-gz { fill: var(--w-gz); } .wmk-cam { fill: var(--w-cam); }
+.wmk-web { fill: var(--w-web); } .wmk-files { fill: var(--w-files); } .wmk-legacy { fill: var(--w-legacy); } .wmk-live { fill: var(--live); }
+.wnote { font: 400 12px var(--f-body); fill: var(--ink-2); }
+.wkchip { display: inline-flex; align-items: center; gap: 6px; }
 
 /* legend popover */
 .legend { position: absolute; z-index: 15; top: 10px; right: 10px; width: min(370px, calc(100% - 20px)); max-height: calc(100% - 20px); overflow: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 12px 14px 14px; box-shadow: var(--shadow); cursor: default; }
@@ -422,15 +517,26 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
           <div class="seg" role="group" aria-label="Diagram type">
             <button type="button" id="btn-drill" aria-pressed="true">Drill down</button>
             <button type="button" id="btn-overview" aria-pressed="false">Overview</button>
+            <button type="button" id="btn-wiring" aria-pressed="false" title="How the programs talk: every wire with its port, coloured by kind of message">Wiring</button>
           </div>
-          <button type="button" class="tbtn" id="btn-up" title="Up one level (Backspace)">Up</button>
+          <button type="button" class="tbtn drill-only" id="btn-up" title="Up one level (Backspace)">Up</button>
           <button type="button" class="tbtn" id="btn-fit" title="Fit the whole diagram (F)">Fit</button>
           <button type="button" class="tbtn icon" id="btn-zoom-out" aria-label="Zoom out" title="Zoom out (-)">&#8722;</button>
           <button type="button" class="tbtn icon" id="btn-zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-          <label class="check" title="Jump to the file that is busiest right now"><input type="checkbox" id="opt-follow"> Follow activity</label>
-          <label class="check" title="Also show test files"><input type="checkbox" id="opt-tests"> Show tests</label>
-          <button type="button" class="tbtn" id="btn-legend" aria-expanded="false" aria-controls="legend">Legend</button>
+          <label class="check drill-only" title="Jump to the file that is busiest right now"><input type="checkbox" id="opt-follow"> Follow activity</label>
+          <label class="check drill-only" title="Also show test files"><input type="checkbox" id="opt-tests"> Show tests</label>
+          <button type="button" class="tbtn drill-only" id="btn-legend" aria-expanded="false" aria-controls="legend">Legend</button>
         </div>
+      </div>
+      <div class="wbar" id="wbar" hidden>
+        <div class="wtour" role="group" aria-label="Follow a mission">
+          <button type="button" class="tbtn" id="w-prev">Back</button>
+          <button type="button" class="tbtn primary" id="w-play">Play the mission</button>
+          <button type="button" class="tbtn" id="w-next">Next</button>
+          <button type="button" class="tbtn" id="w-reset">Show everything</button>
+        </div>
+        <ol class="wsteps" id="w-steps" aria-label="Mission steps"></ol>
+        <div class="wlegend" id="w-legend" role="group" aria-label="Kinds of message"></div>
       </div>
       <div class="stage" id="stage">
         <svg id="svg" role="group" aria-label="Block diagram">
@@ -1639,6 +1745,170 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     return Math.round(ms / 3600000) + ' h';
   };
 
+  /* ---------- the Wiring view (codemap.json "wiring", made by extract.py from systems.yaml) ---------- */
+
+  // The kinds of message a wire can carry (its colour) and how finished a wire is (its dash pattern).
+  C.WIRE_KINDS = ['mav', 'ros', 'gz', 'cam', 'web', 'files'];
+  C.WIRE_STATUSES = ['current', 'being built', 'proposal', 'legacy', 'optional'];
+  C.statusClass = (s) => 'st-' + String(s || 'current').replace(/[^a-z]+/gi, '-').toLowerCase();
+
+  // Where an orthogonal line between box A and the point p leaves A: straight out of the side facing p when p is
+  // level with A, otherwise out of the side facing p horizontally, then one turn towards p. Returns the points from
+  // A's edge outwards (p itself not included).
+  function wireSnap(box, p) {
+    const x0 = box.x, x1 = box.x + box.w, y0 = box.y, y1 = box.y + box.h;
+    if (p[0] >= x0 && p[0] <= x1) return [[p[0], p[1] < y0 ? y0 : y1]];
+    if (p[1] >= y0 && p[1] <= y1) return [[p[0] < x0 ? x0 : x1, p[1]]];
+    const cy = y0 + box.h / 2, sx = p[0] < x0 ? x0 : x1;
+    return [[sx, cy], [p[0], cy]];
+  }
+  const dist2 = (a, b) => (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]);
+  const boxCentre = (b) => [b.x + b.w / 2, b.y + b.h / 2];
+
+  // The route of one wire from box A to box B: a list of [x, y] corner points (horizontal and vertical lines only).
+  // opts.path: corner points written in systems.yaml (any order: the end nearer to B is turned round);
+  // opts.offset: move a straight wire sideways (for two wires between the same boxes).
+  C.routeWire = function (A, B, opts) {
+    opts = opts || {};
+    const off = Number(opts.offset) || 0;
+    const clamp = (v, lo, hi) => (lo > hi ? (lo + hi) / 2 : Math.max(lo, Math.min(hi, v)));
+    let via = Array.isArray(opts.path) ? opts.path.filter((p) => Array.isArray(p) && p.length >= 2 && isFinite(p[0]) && isFinite(p[1])).map((p) => [Number(p[0]), Number(p[1])]) : [];
+    if (via.length) {
+      const a = boxCentre(A), b = boxCentre(B);
+      if (dist2(via[0], b) + dist2(via[via.length - 1], a) < dist2(via[0], a) + dist2(via[via.length - 1], b)) via = via.slice().reverse();
+      const pts = wireSnap(A, via[0]).concat(via, wireSnap(B, via[via.length - 1]).reverse());
+      return pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1]);
+    }
+    // a margin so a wire never runs along a box corner; thin boxes (the ROS rail) get a smaller one
+    const mA = Math.min(8, A.w / 4, A.h / 4), mB = Math.min(8, B.w / 4, B.h / 4);
+    const ax0 = A.x, ax1 = A.x + A.w, ay0 = A.y, ay1 = A.y + A.h, bx0 = B.x, bx1 = B.x + B.w, by0 = B.y, by1 = B.y + B.h;
+    const oy0 = Math.max(ay0 + mA, by0 + mB), oy1 = Math.min(ay1 - mA, by1 - mB);
+    const ox0 = Math.max(ax0 + mA, bx0 + mB), ox1 = Math.min(ax1 - mA, bx1 - mB);
+    const sepX = bx0 >= ax1 || ax0 >= bx1, sepY = by0 >= ay1 || ay0 >= by1;
+    if (sepX && oy1 >= oy0) {
+      const y = clamp((oy0 + oy1) / 2 + off, oy0, oy1);
+      return bx0 >= ax1 ? [[ax1, y], [bx0, y]] : [[ax0, y], [bx1, y]];
+    }
+    if (sepY && ox1 >= ox0) {
+      const x = clamp((ox0 + ox1) / 2 + off, ox0, ox1);
+      return by0 >= ay1 ? [[x, ay1], [x, by0]] : [[x, ay0], [x, by1]];
+    }
+    if (sepX) {                                   // across and up/down: out sideways, one vertical, in sideways
+      const right = bx0 >= ax1, xa = right ? ax1 : ax0, xb = right ? bx0 : bx1, xm = (xa + xb) / 2 + off;
+      const ya = clamp(ay0 + A.h / 2 + off, ay0 + mA, ay1 - mA), yb = clamp(by0 + B.h / 2 + off, by0 + mB, by1 - mB);
+      return [[xa, ya], [xm, ya], [xm, yb], [xb, yb]];
+    }
+    const down = by0 + B.h / 2 >= ay0 + A.h / 2, ya = down ? ay1 : ay0, yb = down ? by0 : by1, ym = (ya + yb) / 2 + off;
+    const xa = clamp(ax0 + A.w / 2 + off, ax0 + mA, ax1 - mA), xb = clamp(bx0 + B.w / 2 + off, bx0 + mB, bx1 - mB);
+    return [[xa, ya], [xa, ym], [xb, ym], [xb, yb]];
+  };
+
+  // Where the words of a wire go: above the middle of its longest flat piece, or to the right of its longest
+  // upright piece. at = [x, y, anchor?] from systems.yaml wins.
+  // flat = the piece is horizontal, room = its length (the page stacks the words when they are wider than that),
+  // stack = systems.yaml asked for the words one part per line ("x,y start stack").
+  C.wireLabelPos = function (pts, at) {
+    if (Array.isArray(at) && at.length >= 2 && isFinite(at[0]) && isFinite(at[1])) {
+      const extra = at.slice(2).map(String);
+      const anchor = extra.find((t) => t === 'start' || t === 'middle' || t === 'end') || 'middle';
+      return { x: Number(at[0]), y: Number(at[1]), anchor: anchor, flat: true, room: Infinity, stack: extra.indexOf('stack') >= 0, fixed: true };
+    }
+    let best = null, bestLen = -1;
+    for (let i = 1; i < (pts || []).length; i++) {
+      const a = pts[i - 1], b = pts[i], len = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+      if (len > bestLen) { bestLen = len; best = [a, b]; }
+    }
+    if (!best) return { x: 0, y: 0, anchor: 'middle', flat: true, room: 0, stack: false };
+    const [a, b] = best;
+    if (a[1] === b[1]) return { x: (a[0] + b[0]) / 2, y: a[1] - 7, anchor: 'middle', flat: true, room: bestLen, stack: false };
+    return { x: a[0] + 7, y: (a[1] + b[1]) / 2 + 4, anchor: 'start', flat: false, room: Infinity, stack: false };
+  };
+  // The lines of a wire's words: the whole text, or one part per line ("UDP 14550 · Windows host" -> two lines) when
+  // asked to stack or when the text is wider than the room on a flat piece. width = a function that measures text.
+  C.wireLabelLines = function (text, lab, width) {
+    const parts = String(text || '').split(' · ').filter(Boolean);
+    if (parts.length < 2) return [String(text || '')];
+    if (lab && lab.stack) return parts;
+    if (lab && lab.flat && isFinite(lab.room) && (width ? width(text) : String(text).length * 7) + 16 > lab.room) return parts;
+    return [String(text)];
+  };
+
+  // Read the "wiring" part of a code map once: boxes by id, every wire routed, the tour steps, and which box a map
+  // id belongs to (for the live lights). Never throws: what it cannot use is listed in "problems".
+  C.wiringModel = function (w) {
+    const M = { ok: false, title: '', intro: '', width: 0, height: 0, kinds: [], statuses: [], zones: [], boxes: new Map(), boxList: [],
+      wires: [], wireMap: new Map(), steps: [], memberOf: new Map(), problems: [] };
+    if (!w || typeof w !== 'object' || !Array.isArray(w.boxes) || !Array.isArray(w.wires)) return M;
+    const num = (v) => (isFinite(Number(v)) ? Number(v) : NaN);
+    M.title = String(w.title || 'How the programs talk');
+    M.intro = String(w.intro || '');
+    M.kinds = (Array.isArray(w.kinds) ? w.kinds : []).filter((k) => k && C.WIRE_KINDS.indexOf(k.key) >= 0);
+    for (const k of C.WIRE_KINDS) if (!M.kinds.some((x) => x.key === k)) M.kinds.push({ key: k, label: k, text: '' });
+    M.statuses = (Array.isArray(w.statuses) ? w.statuses : []).filter((s) => s && C.WIRE_STATUSES.indexOf(s.key) >= 0);
+    let x1 = 0, y1 = 0;
+    for (const z of Array.isArray(w.zones) ? w.zones : []) {
+      if (!z || !isFinite(num(z.x)) || !isFinite(num(z.w))) continue;
+      M.zones.push(z);
+      x1 = Math.max(x1, num(z.x) + num(z.w)); y1 = Math.max(y1, num(z.y) + num(z.h));
+    }
+    for (const b of w.boxes) {
+      if (!b || typeof b.id !== 'string' || [b.x, b.y, b.w, b.h].some((v) => !isFinite(num(v)))) { M.problems.push('box without a place: ' + (b && b.id)); continue; }
+      if (M.boxes.has(b.id)) { M.problems.push('box listed twice: ' + b.id); continue; }
+      const box = Object.assign({}, b, { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h), status: C.WIRE_STATUSES.indexOf(b.status) >= 0 ? b.status : 'current' });
+      M.boxes.set(b.id, box);
+      M.boxList.push(box);
+      for (const m of Array.isArray(b.members) ? b.members : []) if (!M.memberOf.has(m)) M.memberOf.set(m, b.id);
+      x1 = Math.max(x1, box.x + box.w); y1 = Math.max(y1, box.y + box.h);
+    }
+    // wires between the same two boxes are spread apart unless systems.yaml placed them itself
+    const pairs = new Map();
+    const pairKey = (a, b) => (a < b ? a + '\u0000' + b : b + '\u0000' + a);
+    for (const wr of w.wires) if (wr && !wr.path && wr.offset == null) pairs.set(pairKey(wr.from, wr.to), (pairs.get(pairKey(wr.from, wr.to)) || 0) + 1);
+    const seen = new Map();
+    for (const wr of w.wires) {
+      if (!wr || typeof wr.id !== 'string') continue;
+      const A = M.boxes.get(wr.from), B = M.boxes.get(wr.to);
+      if (!A || !B) { M.problems.push('wire ' + wr.id + ': a box it joins is missing'); continue; }
+      if (M.wireMap.has(wr.id)) { M.problems.push('wire listed twice: ' + wr.id); continue; }
+      let offset = Number(wr.offset) || 0;
+      const pk = pairKey(wr.from, wr.to), n = pairs.get(pk) || 1;
+      if (!wr.path && wr.offset == null && n > 1) { const i = seen.get(pk) || 0; seen.set(pk, i + 1); offset = (i - (n - 1) / 2) * 14; }
+      const pts = C.routeWire(A, B, { path: wr.path, offset: offset });
+      const kind = C.WIRE_KINDS.indexOf(wr.kind) >= 0 ? wr.kind : 'files';
+      const status = C.WIRE_STATUSES.indexOf(wr.status) >= 0 ? wr.status : 'current';
+      const stub = A.shape === 'rail' || B.shape === 'rail';
+      const wire = Object.assign({}, wr, { kind: kind, status: status, pts: pts, stub: stub, arrow: stub ? 'none' : (wr.arrow || 'to'),
+        lab: C.wireLabelPos(pts, wr.label_at) });
+      M.wires.push(wire);
+      M.wireMap.set(wr.id, wire);
+    }
+    for (const s of Array.isArray(w.steps) ? w.steps : []) {
+      if (!s) continue;
+      M.steps.push({ title: String(s.title || ''), text: String(s.text || ''), wires: (s.wires || []).filter((x) => M.wireMap.has(x)), boxes: (s.boxes || []).filter((x) => M.boxes.has(x)) });
+    }
+    M.width = isFinite(num(w.width)) && num(w.width) > 0 ? num(w.width) : x1 + 20;
+    M.height = isFinite(num(w.height)) && num(w.height) > 0 ? num(w.height) : y1 + 20;
+    M.ok = M.boxList.length > 0;
+    return M;
+  };
+
+  // What lights up when you pick something in the Wiring view: a box with its wires and neighbours, a wire with its
+  // two boxes (a click on the ROS rail lights every program on it), or every wire of one kind.
+  C.wiringRelated = function (M, type, id) {
+    const wires = [], boxes = [];
+    const addB = (b) => { if (b && boxes.indexOf(b) < 0) boxes.push(b); };
+    if (type === 'box') {
+      addB(id);
+      for (const w of M.wires) if (w.from === id || w.to === id) { wires.push(w.id); addB(w.from === id ? w.to : w.from); }
+    } else if (type === 'wire') {
+      const w = M.wireMap.get(id);
+      if (w) { wires.push(w.id); addB(w.from); addB(w.to); }
+    } else if (type === 'kind') {
+      for (const w of M.wires) if (w.kind === id) { wires.push(w.id); addB(w.from); addB(w.to); }
+    }
+    return { wires: wires, boxes: boxes };
+  };
+
   /* ---------- self-test (node: web/run_selftest.js; browser: open the page with #selftest) ---------- */
 
   C.selfTest = function (extra) {
@@ -1837,6 +2107,58 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       ok(C.firstSentence('Use e.g. the camera now. Then more.') === 'Use e.g. the camera now.', 'firstSentence keeps e.g.');
       ok(C.fileTag('a/b.launch.py') === 'LAUNCH FILE' && C.fileTag('x.cs') === 'C# FILE', 'fileTag');
     });
+    run('wiring view', () => {
+      const A = { x: 0, y: 0, w: 100, h: 50 }, B = { x: 200, y: 20, w: 100, h: 50 }, Cb = { x: 20, y: 200, w: 60, h: 40 };
+      const D = { x: 300, y: 300, w: 80, h: 40 }, R = { x: 150, y: 0, w: 10, h: 400 };
+      const flat = C.routeWire(A, B);
+      ok(flat.length === 2 && flat[0][0] === 100 && flat[1][0] === 200 && flat[0][1] === flat[1][1] && flat[0][1] > 20 && flat[0][1] < 50, 'routeWire: side by side -> one straight line');
+      const up = C.routeWire(Cb, A);
+      ok(up.length === 2 && up[0][1] === 200 && up[1][1] === 50 && up[0][0] === up[1][0], 'routeWire: one above the other -> one upright line');
+      const z = C.routeWire(A, D);
+      ok(z.length === 4 && z[0][0] === 100 && z[3][0] === 300 && z[1][0] === z[2][0] && z[0][1] === z[1][1] && z[2][1] === z[3][1], 'routeWire: diagonal -> out, across, in (right angles only)');
+      const rail = C.routeWire(A, R);
+      ok(rail.length === 2 && rail[1][0] === 150, 'routeWire: a thin rail still gets a straight stub');
+      const pathed = C.routeWire(A, D, { path: [[340, 25]] });
+      ok(pathed[0][0] === 100 && pathed[0][1] === 25 && pathed[pathed.length - 1][1] === 300, 'routeWire: corner points from systems.yaml');
+      const rev = C.routeWire(A, D, { path: [[340, 25], [340, 200]] }), fwd = C.routeWire(D, A, { path: [[340, 25], [340, 200]] });
+      ok(rev[0][0] === 100 && fwd[0][1] === 300, 'routeWire: corner points work in either order');
+      ok(C.routeWire(A, B, { offset: 6 })[0][1] === flat[0][1] + 6, 'routeWire: offset moves a straight wire');
+      const lp = C.wireLabelPos(z);
+      ok(lp.anchor === 'start' || lp.anchor === 'middle', 'wireLabelPos: a place for the words');
+      ok(C.wireLabelPos(z, [5, 6, 'end']).anchor === 'end', 'wireLabelPos: label_at wins');
+      ok(C.wireLabelPos(z, [5, 6, 'start', 'stack']).stack && C.wireLabelPos(z, [5, 6, 'stack']).anchor === 'middle', 'wireLabelPos: label_at can ask for stacked words');
+      const flatLab = C.wireLabelPos(flat);
+      ok(C.wireLabelLines('UDP 14550 · Windows host', flatLab).length === 2 && C.wireLabelLines('UDP 9002', flatLab).length === 1, 'wireLabelLines: long words on a short wire go one part per line');
+      ok(C.wireLabelLines('UDP 14550 · Windows host', { flat: true, room: 900 }).length === 1, 'wireLabelLines: one line when there is room');
+      const M = C.wiringModel({
+        title: 'T', width: 400, height: 400, zones: [{ id: 'z', label: 'Z', x: 0, y: 0, w: 400, h: 400 }],
+        boxes: [{ id: 'a', title: 'A', x: 0, y: 0, w: 100, h: 50, members: ['ext:x'] }, { id: 'b', title: 'B', x: 200, y: 20, w: 100, h: 50, status: 'legacy' },
+          { id: 'r', title: 'ROS', shape: 'rail', x: 150, y: 100, w: 10, h: 200 }, { id: 'c', title: 'C', x: 20, y: 200, w: 60, h: 40 }],
+        wires: [{ id: 'w1', from: 'a', to: 'b', kind: 'mav', status: 'current' }, { id: 'w2', from: 'a', to: 'b', kind: 'cam', status: 'being built' },
+          { id: 'w3', from: 'c', to: 'r', kind: 'ros' }, { id: 'bad', from: 'a', to: 'nowhere', kind: 'web' }],
+        steps: [{ title: 'S', text: 'x', wires: ['w1', 'gone'], boxes: ['a', 'gone'] }]
+      });
+      ok(M.ok && M.boxes.size === 4 && M.wires.length === 3, 'wiringModel: boxes and the wires it can draw');
+      ok(M.problems.length === 1 && /bad/.test(M.problems[0]), 'wiringModel: a wire to a missing box is reported, not drawn');
+      ok(M.wireMap.get('w1').pts[0][1] !== M.wireMap.get('w2').pts[0][1], 'wiringModel: two wires between the same boxes are spread apart');
+      ok(M.wireMap.get('w3').stub && M.wireMap.get('w3').arrow === 'none', 'wiringModel: a wire to the ROS rail is a stub without arrows');
+      ok(M.steps[0].wires.join() === 'w1' && M.steps[0].boxes.join() === 'a', 'wiringModel: tour steps keep only what exists');
+      ok(M.memberOf.get('ext:x') === 'a', 'wiringModel: map ids find their box (live lights)');
+      ok(M.boxes.get('b').status === 'legacy' && C.statusClass('being built') === 'st-being-built', 'wiringModel: status classes');
+      const relB = C.wiringRelated(M, 'box', 'a');
+      ok(relB.wires.length === 2 && relB.boxes.indexOf('b') >= 0, 'wiringRelated: a box lights its wires and neighbours');
+      ok(C.wiringRelated(M, 'kind', 'cam').wires.join() === 'w2', 'wiringRelated: one kind of message');
+      ok(!C.wiringModel(null).ok && !C.wiringModel({ boxes: 'x' }).ok, 'wiringModel: no wiring section -> nothing drawn, no error');
+    });
+    if (extra.sample && extra.sample.wiring) run('sample wiring', () => {
+      const M = C.wiringModel(extra.sample.wiring);
+      ok(M.ok && M.problems.length === 0, 'sample wiring reads without problems (' + M.problems.join('; ') + ')');
+      ok(M.wires.length === extra.sample.wiring.wires.length, 'every sample wire is drawn');
+      ok(M.wires.every((w) => w.pts.length >= 2 && w.pts.every((p) => isFinite(p[0]) && isFinite(p[1]))), 'every sample wire has a route');
+      ok(M.wires.every((w) => w.pts.slice(1).every((p, i) => p[0] === w.pts[i][0] || p[1] === w.pts[i][1])), 'every sample wire uses right angles only');
+      ok(M.steps.length > 5 && M.steps.every((s) => s.wires.length + s.boxes.length > 0), 'the sample tour has steps that light something');
+      ok(M.kinds.length === 6, 'six kinds of message');
+    });
     if (extra.sample) run('sample codemap', () => {
       const sidx = C.buildIndex(extra.sample);
       ok(sidx.nodes.size > 20, 'sample has nodes');
@@ -1939,7 +2261,9 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     ticker: [], tickerDirty: false, tickerAt: 0, countsAt: 0,
     tab: 'live', replay: null, playing: false, speed: 1, loop: true, recName: '',
     es: null, esRetry: 0, connected: false, callsSeen: 0, unknownCalls: 0, lastEventWall: 0, lastEventT: 0,
-    tf: { x: 0, y: 0, k: 1 }, tween: 0, reducedMotion: false, lastFrame: 0, frameReq: 0, fontsAtRender: true
+    tf: { x: 0, y: 0, k: 1 }, tween: 0, reducedMotion: false, lastFrame: 0, frameReq: 0, fontsAtRender: true,
+    // the Wiring view: its model (Core.wiringModel), drawn boxes and wires, what is picked, the tour
+    wiring: null, wEls: null, wWires: null, wPick: null, wStep: -1, wTimer: 0
   };
 
   let measureCtx = null;
@@ -2003,6 +2327,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     wireSearch();
     wireTransport();
     wirePanelClicks();
+    wireWiringBar();
     document.addEventListener('keydown', onGlobalKey);
     setInterval(slowTick, 1000);
     setInterval(followTick, 2000);
@@ -2084,8 +2409,14 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     const chip = $('data-chip');
     chip.textContent = Core.fmtInt(fns) + ' functions · ' + Core.fmtInt(c.module || 0) + ' files' + (cm.commit ? ' · commit ' + cm.commit : '');
     chip.title = 'Code map ' + (cm.generated ? 'made ' + cm.generated : '') + (S.idx.unresolvedEdges ? '; ' + S.idx.unresolvedEdges + ' links point at nothing and are skipped' : '');
+    S.wiring = Core.wiringModel(cm.wiring);
+    if (S.wiring.problems.length) console.warn('wiring view: ' + S.wiring.problems.join('; '));
+    $('btn-wiring').disabled = !S.wiring.ok;
+    $('btn-wiring').title = S.wiring.ok ? 'How the programs talk: every wire with its port, coloured by kind of message'
+      : 'This code map has no wiring section (run simulation/codemap/extract.py again)';
     setStageMsg(null);
-    setView({ mode: 'drill', container: null }, { instant: true });
+    const hash = (window.location && window.location.hash) || '';
+    setView(hash === '#wiring' && S.wiring.ok ? { mode: 'wiring' } : { mode: 'drill', container: null }, { instant: true });
   }
 
   function fatal(err) {
@@ -2152,12 +2483,14 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
 
   /* ================================ views ================================ */
 
-  function sameView(a, b) { return a && b && a.mode === b.mode && (a.mode === 'overview' || (a.container || null) === (b.container || null)); }
+  function sameView(a, b) { return a && b && a.mode === b.mode && (a.mode === 'overview' || a.mode === 'wiring' || (a.container || null) === (b.container || null)); }
 
   // Build, lay out and draw one view. opts: focusId, keep, instant, keepTransform
   function setView(view, opts) {
     opts = opts || {};
     if (!opts.keepTransform) S.userMoved = false;
+    if (view.mode === 'wiring') { setWiringView(opts); return; }
+    leaveWiring();
     S.view = view.mode === 'overview' ? { mode: 'overview' } : { mode: 'drill', container: view.container || null };
     if (S.view.mode === 'drill') S.lastDrill = S.view;
     const level = Core.buildLevel(S.idx, S.view, { showTests: S.showTests, keep: opts.keep || (S.sel && S.sel.node ? [S.sel.node] : []) });
@@ -2184,6 +2517,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     renderCrumbs();
     $('btn-drill').setAttribute('aria-pressed', String(S.view.mode === 'drill'));
     $('btn-overview').setAttribute('aria-pressed', String(S.view.mode === 'overview'));
+    $('btn-wiring').setAttribute('aria-pressed', 'false');
     $('btn-up').disabled = S.view.mode === 'drill' && !S.view.container;
     $('svg').setAttribute('aria-label', 'Block diagram: ' + level.title + ', ' + level.levelName);
     const info = [Core.plural(level.items.length, 'block'), Core.plural(level.edges.length, 'link')];
@@ -2208,6 +2542,390 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     S.countsAt = 0;
     announce('Showing ' + level.title + ': ' + Core.plural(level.items.length, 'block') + '.');
     requestFrame();
+  }
+
+  /* ================================ the Wiring view ================================ */
+  // How the programs talk: the boxes and wires of codemap.json "wiring" (systems.yaml), drawn on the same zoomable
+  // chart as the block diagrams. A click picks a box or a wire (the side panel explains it); the bar above the chart
+  // plays the "follow a mission" tour and lights every wire of one kind of message. While a traced run plays, a box
+  // glows when its programs' code runs and says RUNNING when its program is running.
+
+  const WFONT = {
+    title: '700 14px "B612", "Segoe UI", system-ui, sans-serif',
+    line: '400 12.5px "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif',
+    tag: '700 9.5px "B612 Mono", ui-monospace, Consolas, monospace',
+    chip: '400 12px "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif',
+    label: '700 11px "B612 Mono", ui-monospace, Consolas, monospace'
+  };
+  const statusWord = (s) => { const st = S.wiring && S.wiring.statuses.find((x) => x.key === s); return st ? st.label : s; };
+  const kindInfo = (k) => (S.wiring && S.wiring.kinds.find((x) => x.key === k)) || { key: k, label: k, text: '' };
+  const boxTitle = (id) => { const b = S.wiring && S.wiring.boxes.get(id); return b ? b.title : id; };
+
+  function wireWiringBar() {
+    $('w-prev').addEventListener('click', () => { stopTour(); goStep(Math.max(0, S.wStep - 1)); });
+    $('w-next').addEventListener('click', () => { stopTour(); goStep(S.wStep + 1); });
+    $('w-play').addEventListener('click', () => { if (S.wTimer) stopTour(); else startTour(); });
+    $('w-reset').addEventListener('click', () => wiringReset());
+  }
+  // The step chips and the kind buttons depend on the code map: made when the view opens.
+  function renderWiringBar() {
+    const M = S.wiring, list = $('w-steps'), lg = $('w-legend');
+    list.textContent = '';
+    M.steps.forEach((s, i) => {
+      const b = h('button', { type: 'button', title: s.title, 'aria-label': 'Step ' + (i + 1) + ': ' + s.title, text: String(i + 1) });
+      b.addEventListener('click', () => { stopTour(); goStep(i); });
+      list.appendChild(h('li', null, b));
+    });
+    lg.textContent = '';
+    for (const k of M.kinds) {
+      const b = h('button', { type: 'button', 'aria-pressed': 'false', 'data-kind': k.key, title: k.text || k.label }, [h('span', { class: 'wsw k-' + k.key, 'aria-hidden': 'true' }), k.label]);
+      b.addEventListener('click', () => { if (b.getAttribute('aria-pressed') === 'true') wiringReset(); else wiringPick('kind', k.key, { from: 'legend' }); });
+      lg.appendChild(b);
+    }
+    $('w-play').disabled = !M.steps.length;
+  }
+
+  function setWiringView(opts) {
+    opts = opts || {};
+    const M = S.wiring;
+    if (!M || !M.ok) { setView({ mode: 'drill', container: null }); return; }
+    stopTour();
+    S.view = { mode: 'wiring' };
+    if (S.follow) { S.follow = false; $('opt-follow').checked = false; }
+    S.level = { mode: 'wiring', containerId: null, containerKind: 'wiring', items: [], itemMap: new Map(), clusters: [], edges: [],
+      repOf: () => null, title: 'Wiring', levelName: 'how the programs talk', hiddenTests: 0, folded: 0, topicsFolded: 0 };
+    const nodes = new Map();
+    for (const b of M.boxList) nodes.set(b.id, { x: b.x, y: b.y, w: b.w, h: b.h });
+    S.layout = { nodes: nodes, clusters: new Map(), edges: new Map(), width: M.width, height: M.height, engine: 'wiring' };
+    S.vstats = new Map();
+    S.sel = null;
+    S.elements = new Map(); S.edgeEls = new Map(); S.clusterEls = new Map(); S.order = []; S.focusEl = null;
+    S.wPick = null; S.wStep = -1;
+    $('app').classList.add('is-wiring');
+    $('wbar').hidden = false;
+    renderWiringBar();
+    renderWiring();
+    renderCrumbs();
+    $('btn-drill').setAttribute('aria-pressed', 'false');
+    $('btn-overview').setAttribute('aria-pressed', 'false');
+    $('btn-wiring').setAttribute('aria-pressed', 'true');
+    $('svg').setAttribute('aria-label', 'Wiring diagram: ' + M.title + ', ' + Core.plural(M.boxList.length, 'box', 'boxes') + ' and ' + Core.plural(M.wires.length, 'wire'));
+    $('level-info').textContent = [Core.plural(M.boxList.length, 'box', 'boxes'), Core.plural(M.wires.length, 'wire')]
+      .concat(M.problems.length ? [M.problems.length + ' could not be drawn'] : []).join(' · ');
+    if (!$('stage-msg').querySelector('.box')) setStageMsg(null);
+    renderWiringIntro();
+    if (opts.keepTransform) applyTransform(); else fit(!opts.instant);
+    S.runDirty = true;
+    requestFrame();
+    announce('Showing the wiring: ' + Core.plural(M.boxList.length, 'program box', 'program boxes') + ' and ' + Core.plural(M.wires.length, 'wire') + '.');
+  }
+  function leaveWiring() {
+    if (!S.wEls && $('wbar').hidden) return;
+    stopTour();
+    S.wEls = null; S.wWires = null; S.wPick = null; S.wStep = -1;
+    $('app').classList.remove('is-wiring');
+    $('wbar').hidden = true;
+  }
+
+  function wireMarker(W, live) {
+    const w = W.w;
+    if (w.arrow === 'none') return;
+    const m = 'url(#wm-' + (live ? 'live' : (w.status === 'legacy' ? 'legacy' : w.kind)) + ')';
+    if (w.arrow === 'to' || w.arrow === 'both') W.line.setAttribute('marker-end', m);
+    if (w.arrow === 'from' || w.arrow === 'both') W.line.setAttribute('marker-start', m);
+  }
+
+  function renderWiring() {
+    const M = S.wiring, vp = $('viewport');
+    vp.textContent = '';
+    hideTooltip();
+    S.wEls = new Map(); S.wWires = new Map();
+    const root = svgEl('g', { class: 'wiring-root' }, vp);
+    const gZ = svgEl('g', { class: 'wzones' }, root), gW = svgEl('g', { class: 'wwires' }, root);
+    const gB = svgEl('g', { class: 'wboxes' }, root), gL = svgEl('g', { class: 'wlabels' }, root);
+    for (const z of M.zones) {
+      const g = svgEl('g', { class: 'wzone' }, gZ);
+      svgEl('rect', { x: f1(z.x), y: f1(z.y), width: f1(z.w), height: f1(z.h), rx: 14 }, g);
+      svgEl('text', { class: 'wz-label', x: f1(z.x + 14), y: f1(z.y + 21) }, g).textContent = clipText(z.label, WFONT.tag.replace('9.5px', '12px'), z.w - 28);
+      if (z.note) svgEl('text', { class: 'wz-note', x: f1(z.x + 14), y: f1(z.y + z.h - 10) }, g).textContent = clipText(z.note, WFONT.line, z.w - 28);
+    }
+    for (const w of M.wires) {
+      const cls = 'wwire k-' + w.kind + ' ' + Core.statusClass(w.status) + (w.stub ? ' is-stub' : '');
+      const label = w.title + (w.via ? ': ' + w.via : '') + ' (' + kindInfo(w.kind).label + ', ' + statusWord(w.status) + '). Enter for details.';
+      const g = svgEl('g', { class: cls, 'data-wwire': w.id, tabindex: 0, role: 'button', 'aria-label': label }, gW);
+      const d = 'M' + w.pts.map((p) => f1(p[0]) + ' ' + f1(p[1])).join('L');
+      svgEl('path', { class: 'wh', d: d }, g);
+      const line = svgEl('path', { class: 'wl', d: d }, g);
+      svgEl('title', null, g).textContent = w.title + (w.via ? ' · ' + w.via : '');
+      let g2 = null;
+      if (w.via && !w.stub) {
+        g2 = svgEl('g', { class: cls, 'data-wwire': w.id }, gL);
+        const lab = w.lab, lines = Core.wireLabelLines(w.via, lab, (t) => textW(t, WFONT.label));
+        const t = svgEl('text', { class: 'wlab', x: f1(lab.x), y: f1(lab.y), 'text-anchor': lab.anchor || 'middle' }, g2);
+        if (lines.length === 1) t.textContent = lines[0];
+        else lines.forEach((part, i) => {
+          // a flat wire: the first part above the line, the others under it; an upright wire: one under the other
+          const y = !lab.flat ? lab.y + 13 * i : i === 0 ? (lab.fixed ? lab.y - 7 : lab.y) : (lab.fixed ? lab.y + 15 : lab.y + 22) + 13 * (i - 1);
+          svgEl('tspan', { x: f1(lab.x), y: f1(y) }, t).textContent = part;
+        });
+      }
+      const W = { gs: [g, g2], line: line, w: w };
+      S.wWires.set(w.id, W);
+      wireMarker(W, false);
+    }
+    for (const b of M.boxList) {
+      const rail = b.shape === 'rail';
+      const cls = 'wbox ' + Core.statusClass(b.status) + (rail ? ' is-rail' : '');
+      const aria = b.title + '. ' + (b.where ? b.where + '. ' : '') + (b.status !== 'current' ? statusWord(b.status) + '. ' : '') + 'Enter for details.';
+      const g = svgEl('g', { class: cls, 'data-wbox': b.id, tabindex: 0, role: 'button', 'aria-label': aria }, gB);
+      const shape = svgEl('rect', { class: 'wshape', x: f1(b.x), y: f1(b.y), width: f1(b.w), height: f1(b.h), rx: rail ? 4 : 8 }, g);
+      const glow = svgEl('rect', { class: 'wglow', x: f1(b.x), y: f1(b.y), width: f1(b.w), height: f1(b.h), rx: rail ? 4 : 8 }, g);
+      if (rail) {
+        svgEl('text', { class: 'wt', x: f1(b.x + b.w / 2), y: f1(b.y - 8), 'text-anchor': 'middle' }, g).textContent = b.title;
+      } else {
+        const room = b.w - 24;
+        if (b.tag) svgEl('text', { class: 'wtag', x: f1(b.x + b.w - 10), y: f1(b.y + 15), 'text-anchor': 'end' }, g).textContent = clipText(b.tag, WFONT.tag, room);
+        let y = b.y + (b.tag ? 32 : 25);
+        svgEl('text', { class: 'wt', x: f1(b.x + 12), y: f1(y) }, g).textContent = clipText(b.title, WFONT.title, room);
+        for (const s of b.lines || []) {
+          y += 17;
+          if (s && y < b.y + b.h - 2) svgEl('text', { class: 'ws', x: f1(b.x + 12), y: f1(y) }, g).textContent = clipText(s, WFONT.line, room);
+        }
+        y += 10;
+        for (const c of b.chips || []) {
+          if (y + 30 > b.y + b.h - 6) break;
+          const cg = svgEl('g', { class: 'wchip' }, g);
+          svgEl('rect', { x: f1(b.x + 14), y: f1(y), width: f1(b.w - 28), height: 30, rx: 6 }, cg);
+          svgEl('text', { x: f1(b.x + 24), y: f1(y + 19.5) }, cg).textContent = clipText(c, WFONT.chip, b.w - 48);
+          y += 38;
+        }
+        const run = svgEl('g', { class: 'wrun', transform: 'translate(' + f1(b.x) + ',' + f1(b.y) + ')' }, g);
+        svgEl('rect', { x: 8, y: -9, width: 80, height: 18, rx: 9 }, run);
+        svgEl('circle', { cx: 18, cy: 0, r: 3.5 }, run);
+        svgEl('text', { x: 26, y: 3.5 }, run).textContent = 'RUNNING';
+      }
+      S.wEls.set(b.id, { g: g, box: b, shape: shape, glow: glow, shown: -1 });
+    }
+  }
+
+  // Light some wires and boxes, dim the rest (nothing = everything normal again).
+  function wiringHighlight(wires, boxes, sel) {
+    if (!S.wEls) return;
+    const root = $('viewport').querySelector('.wiring-root');
+    S.wEls.forEach((r) => r.g.classList.remove('on', 'sel'));
+    S.wWires.forEach((W) => { W.gs.forEach((g) => { if (g) g.classList.remove('on', 'sel'); }); wireMarker(W, false); });
+    if (root) root.classList.toggle('w-focus', !!(wires.length || boxes.length));
+    for (const id of wires) { const W = S.wWires.get(id); if (W) { W.gs.forEach((g) => { if (g) g.classList.add('on'); }); wireMarker(W, true); } }
+    for (const id of boxes) { const r = S.wEls.get(id); if (r) r.g.classList.add('on'); }
+    if (sel && sel.type === 'box' && S.wEls.get(sel.id)) S.wEls.get(sel.id).g.classList.add('sel');
+    if (sel && sel.type === 'wire' && S.wWires.get(sel.id)) S.wWires.get(sel.id).gs.forEach((g) => { if (g) g.classList.add('sel'); });
+    for (const b of $('w-legend').querySelectorAll('button')) b.setAttribute('aria-pressed', String(!!(sel && sel.type === 'kind' && b.getAttribute('data-kind') === sel.id)));
+  }
+  function markStepChips() {
+    $('w-steps').querySelectorAll('button').forEach((c, k) => { if (k === S.wStep) c.setAttribute('aria-current', 'step'); else c.removeAttribute('aria-current'); });
+  }
+  function wiringPick(type, id, opts) {
+    if (!S.wiring || !S.wEls) return;
+    opts = opts || {};
+    stopTour();
+    S.wStep = -1;
+    markStepChips();
+    const rel = Core.wiringRelated(S.wiring, type, id);
+    S.wPick = { type: type, id: id };
+    wiringHighlight(rel.wires, rel.boxes, { type: type, id: id });
+    if (type === 'box') renderWiringBox(id); else if (type === 'wire') renderWiringWire(id); else if (type === 'kind') renderWiringKind(id);
+    if (opts.from === 'panel' && type === 'box') ensureVisible(id);
+    announce(type === 'kind' ? 'Every ' + kindInfo(id).label + ' wire' : (type === 'box' ? boxTitle(id) : (S.wiring.wireMap.get(id) || {}).title || id));
+  }
+  function wiringReset() {
+    if (!S.wEls) return;
+    stopTour();
+    S.wPick = null; S.wStep = -1;
+    markStepChips();
+    wiringHighlight([], [], null);
+    renderWiringIntro();
+  }
+  // "Follow a mission": each step lights the wires and boxes of one part of a flight and explains it.
+  function goStep(i) {
+    const M = S.wiring;
+    if (!M || !M.steps.length || !S.wEls) return;
+    i = Math.max(0, Math.min(M.steps.length - 1, i));
+    S.wStep = i; S.wPick = null;
+    const s = M.steps[i];
+    wiringHighlight(s.wires, s.boxes, null);
+    markStepChips();
+    renderWiringStep(i);
+  }
+  function startTour() {
+    const M = S.wiring;
+    if (!M || !M.steps.length) return;
+    goStep(S.wStep < 0 || S.wStep >= M.steps.length - 1 ? 0 : S.wStep + 1);
+    $('w-play').textContent = 'Pause';
+    const token = (S.wTourToken = (S.wTourToken || 0) + 1);
+    S.wTimer = setInterval(() => {
+      if (S.wTourToken !== token || !S.wTimer) return;
+      if (S.wStep >= M.steps.length - 1) { stopTour(); return; }
+      goStep(S.wStep + 1);
+    }, 6500);
+  }
+  function stopTour() {
+    if (S.wTimer) clearInterval(S.wTimer);
+    S.wTimer = 0;
+    S.wTourToken = (S.wTourToken || 0) + 1;
+    const b = $('w-play');
+    if (b) b.textContent = 'Play the mission';
+  }
+
+  /* ---------- the side panel in the Wiring view ---------- */
+  const wpickBtn = (type, id, label, ctx, sw) => h('li', null, h('button', { type: 'button', 'data-wpick': type + ':' + id, title: label }, [
+    sw ? h('span', { class: sw, 'aria-hidden': 'true' }) : null, h('span', { class: 'lk-name', text: label }), ctx ? h('span', { class: 'lk-ctx', text: ctx }) : null]));
+  const statusChip = (s) => h('span', { class: 'kchip' + (s === 'current' ? '' : ' test'), text: statusWord(s) });
+  function wiringHead(chips, title, sub) {
+    return h('header', { class: 'pn-head' }, [h('div', { class: 'pn-chips' }, chips), h('h2', { class: 'pn-title', id: 'panel-title', text: title }),
+      sub ? h('p', { class: 'pn-where', text: sub }) : null]);
+  }
+  function renderWiringIntro() {
+    const M = S.wiring, body = $('panel-body');
+    body.textContent = '';
+    add(body, wiringHead([h('span', { class: 'kchip', text: 'wiring view' })], M.title, 'Click a box or a wire · Esc clears · "Drill down" goes back to the code'));
+    if (M.intro) add(body, sec('How to read it', h('p', { class: 'pn-explain', text: M.intro })));
+    const kinds = h('ul', { class: 'links' });
+    for (const k of M.kinds) kinds.appendChild(wpickBtn('kind', k.key, k.label, Core.plural(M.wires.filter((w) => w.kind === k.key).length, 'wire'), 'wsw k-' + k.key));
+    add(body, sec('Kinds of message (the colours)', kinds));
+    if (M.statuses.length) {
+      const dl = h('dl', { class: 'facts' });
+      for (const s of M.statuses) dl.appendChild(h('div', null, [h('dt', null, [h('span', { class: 'wst ' + Core.statusClass(s.key), 'aria-hidden': 'true' }), ' ' + s.label]), h('dd', { text: s.text || '' })]));
+      add(body, sec('How finished it is (the line style)', dl));
+    }
+    if (M.steps.length) {
+      const ol = h('ul', { class: 'links' });
+      M.steps.forEach((s, i) => ol.appendChild(wpickBtn('step', String(i), (i + 1) + '. ' + s.title, '')));
+      add(body, sec('Follow a mission (' + M.steps.length + ' steps)', ol));
+    }
+    if (M.problems.length) add(body, sec('Could not be drawn', h('p', { class: 'muted', text: M.problems.join('; ') })));
+  }
+  function renderWiringBox(id) {
+    const M = S.wiring, b = M.boxes.get(id), body = $('panel-body');
+    body.textContent = '';
+    if (!b) return;
+    const node = b.node && S.idx.nodes.has(b.node) ? S.idx.nodes.get(b.node) : null;
+    const chips = [h('span', { class: 'kchip', text: b.shape === 'rail' ? 'ROS 2 graph' : 'program' })];
+    if (b.status !== 'current') chips.push(statusChip(b.status));
+    if (b.tag && b.tag !== 'WINDOWS') chips.push(h('span', { class: 'kchip', text: b.tag.toLowerCase() }));
+    const el = S.wEls && S.wEls.get(id);
+    if (el && el.g.classList.contains('is-run')) chips.push(h('span', { class: 'kchip run', text: 'running' }));
+    add(body, wiringHead(chips, b.title, b.where || ''));
+    const explain = b.explain || (node && (node.explain || node.summary)) || '';
+    add(body, sec('What it is', explain ? h('p', { class: 'pn-explain', text: explain }) : h('p', { class: 'muted', text: 'No explanation written yet.' })));
+    if (b.stands_for) add(body, sec(b.shape === 'rail' ? 'On the real drone' : 'On the real drone, it stands for', h('p', { text: b.stands_for })));
+    const ws = M.wires.filter((w) => w.from === id || w.to === id);
+    if (ws.length) {
+      const ul = h('ul', { class: 'links' });
+      for (const w of ws) {
+        const other = w.from === id ? w.to : w.from;
+        ul.appendChild(wpickBtn('wire', w.id, w.title + ' (' + (w.from === id ? (w.arrow === 'both' ? '⇄ ' : w.arrow === 'from' ? '← ' : '→ ') : (w.arrow === 'both' ? '⇄ ' : w.arrow === 'from' ? '→ ' : '← ')) + boxTitle(other) + ')',
+          w.via || kindInfo(w.kind).label, 'wsw k-' + w.kind));
+      }
+      add(body, sec('Talks over (' + ws.length + ')', ul));
+    }
+    const inMap = (b.members || []).filter((m) => S.idx.nodes.has(m));
+    if (inMap.length) add(body, sec('In the code map', linkList(inMap, 12)));
+    if (node) add(body, h('div', { class: 'pn-actions' }, [h('button', { type: 'button', class: 'btn', 'data-go': b.node, text: 'Open ' + Core.labelOf(S.idx, b.node) + ' in the code map' })]));
+  }
+  function renderWiringWire(id) {
+    const M = S.wiring, w = M.wireMap.get(id), body = $('panel-body');
+    body.textContent = '';
+    if (!w) return;
+    const k = kindInfo(w.kind);
+    const chips = [h('span', { class: 'kchip wkchip' }, [h('span', { class: 'wsw k-' + w.kind, 'aria-hidden': 'true' }), k.label])];
+    if (w.status !== 'current') chips.push(statusChip(w.status));
+    const arrow = w.arrow === 'both' ? ' ⇄ ' : w.arrow === 'from' ? ' ← ' : ' → ';
+    add(body, wiringHead(chips, w.title, boxTitle(w.from) + arrow + boxTitle(w.to)));
+    if (w.via) add(body, sec('Transport and port', h('code', { class: 'sig', text: w.via })));
+    add(body, sec('What travels here', w.explain ? h('p', { class: 'pn-explain', text: w.explain }) : h('p', { class: 'muted', text: 'No explanation written yet.' })));
+    if (w.label && w.label !== w.explain) add(body, sec('The link in the code map', h('p', { text: w.label })));
+    if (w.code && w.code.length) {
+      const ul = h('ul', { class: 'links' });
+      for (const c of w.code) ul.appendChild(S.idx.nodes.has('mod:' + c) ? linkRow('mod:' + c) : h('li', null, h('span', { class: 'lk-name', text: c })));
+      add(body, sec('Checked in these files', ul));
+    }
+    const ends = h('ul', { class: 'links' });
+    ends.appendChild(wpickBtn('box', w.from, 'From: ' + boxTitle(w.from), ''));
+    ends.appendChild(wpickBtn('box', w.to, 'To: ' + boxTitle(w.to), ''));
+    add(body, sec('Its two ends', ends));
+    const go = [w.map_from, w.map_to].filter((x, i, a) => x && S.idx.nodes.has(x) && a.indexOf(x) === i);
+    if (go.length) add(body, h('div', { class: 'pn-actions' }, go.map((x) => h('button', { type: 'button', class: 'btn ghost', 'data-go': x, text: 'Open ' + Core.labelOf(S.idx, x) }))));
+  }
+  function renderWiringStep(i) {
+    const M = S.wiring, s = M.steps[i], body = $('panel-body');
+    body.textContent = '';
+    add(body, wiringHead([h('span', { class: 'kchip run', text: 'step ' + (i + 1) + ' of ' + M.steps.length })], s.title, ''));
+    add(body, sec('What happens', h('p', { class: 'pn-explain', text: s.text })));
+    const ul = h('ul', { class: 'links' });
+    for (const b of s.boxes) ul.appendChild(wpickBtn('box', b, boxTitle(b), ''));
+    for (const x of s.wires) { const w = M.wireMap.get(x); ul.appendChild(wpickBtn('wire', x, w.title, w.via || '', 'wsw k-' + w.kind)); }
+    add(body, sec('Lit up', ul));
+  }
+  function renderWiringKind(kk) {
+    const M = S.wiring, k = kindInfo(kk), body = $('panel-body');
+    body.textContent = '';
+    add(body, wiringHead([h('span', { class: 'kchip wkchip' }, [h('span', { class: 'wsw k-' + kk, 'aria-hidden': 'true' }), 'kind of message'])], k.label, ''));
+    if (k.text) add(body, sec('What it is', h('p', { class: 'pn-explain', text: k.text })));
+    const ul = h('ul', { class: 'links' });
+    for (const w of M.wires.filter((x) => x.kind === kk && !x.stub)) ul.appendChild(wpickBtn('wire', w.id, w.title, w.via || statusWord(w.status), 'wsw k-' + w.kind));
+    add(body, sec('Wires of this kind', ul));
+  }
+
+  // Keys on a box or wire: Enter / Space = details, arrows = the next box that way, Esc = clear.
+  function onWiringKey(ev) {
+    if (S.view.mode !== 'wiring') return;
+    const b = ev.target.closest && ev.target.closest('.wbox'), w = !b && ev.target.closest && ev.target.closest('.wwire');
+    if (!b && !w) return;
+    if (ev.key === 'Enter' || ev.key === ' ') {
+      ev.preventDefault();
+      if (b) wiringPick('box', b.getAttribute('data-wbox'), { from: 'key' }); else wiringPick('wire', w.getAttribute('data-wwire'), { from: 'key' });
+    } else if (b && /^Arrow/.test(ev.key)) {
+      ev.preventDefault();
+      const from = S.layout.nodes.get(b.getAttribute('data-wbox'));
+      const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+      if (!from || !dir) return;
+      const ax = from.x + from.w / 2, ay = from.y + from.h / 2;
+      let best = null, bestScore = Infinity;
+      S.layout.nodes.forEach((q, id) => {
+        const dx = q.x + q.w / 2 - ax, dy = q.y + q.h / 2 - ay, along = dx * dir[0] + dy * dir[1];
+        if (along <= 1) return;
+        const score = along + Math.abs(dx * dir[1] - dy * dir[0]) * 2.2;
+        if (score < bestScore) { bestScore = score; best = id; }
+      });
+      const r = best && S.wEls.get(best);
+      if (r) { try { r.g.focus({ preventScroll: true }); } catch (e) { r.g.focus(); } ensureVisible(best); }
+    } else if (ev.key === 'Escape') wiringReset();
+  }
+  function wiringTooltip(ev) {
+    const t = ev.target, b = t && t.closest && t.closest('.wbox'), w = !b && t && t.closest && t.closest('.wwire');
+    if (!b && !w) { hideTooltip(); return; }
+    const tip = $('tooltip'), key = b ? 'b:' + b.getAttribute('data-wbox') : 'w:' + w.getAttribute('data-wwire');
+    if (tip.getAttribute('data-for') !== key) {
+      tip.textContent = '';
+      if (b) {
+        const box = S.wiring.boxes.get(b.getAttribute('data-wbox'));
+        const node = box && box.node && S.idx.nodes.get(box.node);
+        const txt = box ? Core.firstSentence(box.explain || (node && (node.explain || node.summary)) || box.stands_for || '') : '';
+        add(tip, [h('span', { class: 'tt-kind', text: box && box.status !== 'current' ? statusWord(box.status) : 'program' }), h('b', { text: box ? box.title : '' }), txt ? h('span', { text: txt }) : null]);
+      } else {
+        const wr = S.wiring.wireMap.get(w.getAttribute('data-wwire'));
+        add(tip, [h('span', { class: 'tt-kind', text: wr ? kindInfo(wr.kind).label + (wr.status !== 'current' ? ' · ' + statusWord(wr.status) : '') : '' }), h('b', { text: wr ? wr.title : '' }), wr && wr.via ? h('span', { text: wr.via }) : null]);
+      }
+      tip.setAttribute('data-for', key);
+    }
+    tip.hidden = false;
+    const s = stageSize();
+    const tw = tip.offsetWidth || 260, th = tip.offsetHeight || 60;
+    let x = ev.clientX - s.left + 14, y = ev.clientY - s.top + 16;
+    x = Math.max(6, Math.min(s.w - tw - 6, x));
+    if (y + th > s.h - 6) y = Math.max(6, ev.clientY - s.top - th - 10);
+    tip.style.left = f1(x) + 'px';
+    tip.style.top = f1(y) + 'px';
   }
 
   function geomFor(it) {
@@ -2258,6 +2976,11 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     for (const k of Core.EDGE_KINDS) {
       const m = svgEl('marker', { id: 'mk-' + k, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 9, markerHeight: 9, markerUnits: 'userSpaceOnUse', orient: 'auto-start-reverse' }, defs);
       svgEl('path', { class: 'mk mk-' + k, d: 'M0 0L10 5L0 10z' }, m);
+    }
+    // the Wiring view's arrowheads: one per kind of message, grey for the legacy photo pipeline, green when lit
+    for (const k of Core.WIRE_KINDS.concat(['legacy', 'live'])) {
+      const m = svgEl('marker', { id: 'wm-' + k, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 10, markerHeight: 10, markerUnits: 'userSpaceOnUse', orient: 'auto-start-reverse' }, defs);
+      svgEl('path', { class: 'wmk-' + k, d: 'M0 0L10 5L0 10z' }, m);
     }
   }
 
@@ -2371,6 +3094,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       S.crumbs.push({ el: b, nodeId: nodeId, num: b.lastChild, shown: -1, lastTotal: -1 });
     };
     if (S.view.mode === 'overview') { addCrumb('Overview: systems and their packages', null, S.view, true); return; }
+    if (S.view.mode === 'wiring') { addCrumb('Wiring: how the programs talk', null, S.view, true); return; }
     addCrumb('All systems', null, { mode: 'drill', container: null }, !S.view.container);
     if (S.view.container) {
       const ch = Core.chainOf(S.idx, S.view.container).slice().reverse();
@@ -2443,6 +3167,10 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     const targetOf = (ev) => {
       const t = ev.target;
       if (!t || !t.closest) return null;
+      const wb = t.closest('.wbox');
+      if (wb) return { type: 'wbox', id: wb.getAttribute('data-wbox') };
+      const ww = t.closest('.wwire');
+      if (ww) return { type: 'wwire', id: ww.getAttribute('data-wwire') };
       const n = t.closest('.node');
       if (n) return { type: 'node', id: n.getAttribute('data-el') };
       const c = t.closest('.cluster');
@@ -2484,7 +3212,11 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       if (pinch) { if (ptrs.size < 2) pinch = null; drag = null; return; }
       if (drag && !drag.moved && ev.type === 'pointerup') {
         const tg = drag.target, now = performance.now();
-        if (tg && tg.type === 'node') {
+        if (S.view.mode === 'wiring') {
+          if (tg && tg.type === 'wbox') wiringPick('box', tg.id, { from: 'click' });
+          else if (tg && tg.type === 'wwire') wiringPick('wire', tg.id, { from: 'click' });
+          else wiringReset();
+        } else if (tg && tg.type === 'node') {
           const dbl = lastTap.id === tg.id && now - lastTap.t < 380;
           lastTap = { id: tg.id, t: now };
           if (dbl) openElement(tg.id); else selectElement(tg.id, { focus: true });
@@ -2504,7 +3236,15 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       zoomAt(ev.clientX - s.left, ev.clientY - s.top, Math.exp(-ev.deltaY * unit));
     }, { passive: false });
     svg.addEventListener('keydown', onNodeKey);
+    svg.addEventListener('keydown', onWiringKey);
     svg.addEventListener('focusin', (ev) => {
+      const wEl = ev.target.closest && (ev.target.closest('.wbox') || ev.target.closest('.wwire'));
+      if (wEl) {
+        let byKeyboard = true;
+        try { byKeyboard = wEl.matches(':focus-visible'); } catch (e) { byKeyboard = true; }
+        if (byKeyboard && wEl.classList.contains('wbox')) ensureVisible(wEl.getAttribute('data-wbox'));
+        return;
+      }
       const n = ev.target.closest && ev.target.closest('.node');
       if (!n) return;
       const id = n.getAttribute('data-el');
@@ -2572,7 +3312,8 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
     const inChart = t && t.closest && t.closest('#stage');
     if (ev.key === '/') { ev.preventDefault(); $('search').focus(); return; }
     if (!inChart && t !== document.body) return;
-    if (ev.key === 'Backspace') { ev.preventDefault(); goUp(); }
+    if (ev.key === 'Escape' && S.view.mode === 'wiring') wiringReset();
+    else if (ev.key === 'Backspace') { ev.preventDefault(); goUp(); }
     else if (ev.key === 'f' || ev.key === 'F') { S.userMoved = false; fit(true); }
     else if (ev.key === '+' || ev.key === '=') zoomBy(1.2);
     else if (ev.key === '-' || ev.key === '_') zoomBy(1 / 1.2);
@@ -2581,6 +3322,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
   /* ---------- tooltip ---------- */
 
   function hoverTooltip(ev) {
+    if (S.view.mode === 'wiring') { wiringTooltip(ev); return; }
     const n = ev.target && ev.target.closest && ev.target.closest('.node');
     if (!n) { hideTooltip(); return; }
     const s = stageSize();
@@ -2657,6 +3399,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
   function goUp() {
     manualNav();
     if (S.view.mode === 'overview') { setView({ mode: 'drill', container: null }); return; }
+    if (S.view.mode === 'wiring') { setView(S.lastDrill); return; }
     const cid = S.view.container;
     if (!cid) return;
     let p = Core.parentOf(S.idx, cid);
@@ -2682,6 +3425,7 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
   function wireToolbar() {
     $('btn-drill').addEventListener('click', () => { if (S.view.mode !== 'drill') { manualNav(); setView(S.lastDrill); } });
     $('btn-overview').addEventListener('click', () => { if (S.view.mode !== 'overview') { manualNav(); setView({ mode: 'overview' }); } });
+    $('btn-wiring').addEventListener('click', () => { if (S.view.mode !== 'wiring' && S.wiring && S.wiring.ok) { manualNav(); setView({ mode: 'wiring' }); } });
     $('btn-up').addEventListener('click', goUp);
     $('btn-fit').addEventListener('click', () => { S.userMoved = false; fit(true); });
     $('btn-zoom-in').addEventListener('click', () => zoomBy(1.25));
@@ -2736,6 +3480,13 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
 
   function wirePanelClicks() {
     $('panel-body').addEventListener('click', (ev) => {
+      const wp = ev.target.closest && ev.target.closest('[data-wpick]');
+      if (wp) {
+        ev.preventDefault();
+        const v = wp.getAttribute('data-wpick'), k = v.indexOf(':'), type = v.slice(0, k), id = v.slice(k + 1);
+        if (type === 'step') { stopTour(); goStep(Number(id)); } else wiringPick(type, id, { from: 'panel' });
+        return;
+      }
       const b = ev.target.closest && ev.target.closest('[data-go]');
       if (b) { ev.preventDefault(); jump(b.getAttribute('data-go')); }
     });
@@ -2949,7 +3700,8 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
         h('li', { text: 'Click a box to read what it is and exactly what it does.' }),
         h('li', { text: 'Double-click it (or press Enter twice, or "Open inside") to look inside.' }),
         h('li', { text: 'Lines show how parts talk: calls, imports, ROS topics, MAVLink, HTTP. "Legend" explains every shape and line.' }),
-        h('li', { text: 'When a function runs, its box flashes green, and the file, package and system around it glow and count the calls.' })
+        h('li', { text: 'When a function runs, its box flashes green, and the file, package and system around it glow and count the calls.' }),
+        S.wiring && S.wiring.ok ? h('li', { text: '"Wiring" (top right of the chart) shows how the programs talk: every wire with its port, coloured by kind of message, and a "follow a mission" tour.' }) : null
       ]),
       h('div', { class: 'mini' }, [
         h('div', null, [h('span', { class: 'sw hot' }), 'just ran (brighter = more calls)']),
@@ -3082,6 +3834,14 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       if (S.reducedMotion) v = v > 0.02 ? 0.75 : 0;
       if (Math.abs(v - c.shown) > 0.01 || (v === 0 && c.shown !== 0)) { c.shown = v; c.el.style.setProperty('--g', (0.55 * v).toFixed(3)); }
     }
+    // Wiring view: a box glows while code of one of its programs runs (its members, and everything inside them)
+    if (S.wEls) S.wEls.forEach((r) => {
+      let v = 0;
+      for (const m of r.box.members || []) v = Math.max(v, Core.glowAt(S.stats.get(m), now));
+      if (v > 0) any = true;
+      if (S.reducedMotion) v = v > 0.02 ? 0.75 : 0;
+      if (r.shown < 0 || Math.abs(v - r.shown) > 0.01 || (v === 0 && r.shown !== 0)) { r.shown = v; r.glow.style.opacity = (0.55 * v).toFixed(3); }
+    });
     return any;
   }
   function paintCounts() {
@@ -3114,6 +3874,11 @@ details.pn-more[open] > summary { border-bottom: 1px solid var(--rule-2); }
       r.g.classList.toggle('has-run', !!info);
       r.g.classList.toggle('is-running', info === 'RUNNING');
       if (info) { r.runText.textContent = info; r.runRect.setAttribute('width', Math.ceil(textW(info, FONT.badgeSmall)) + 28); }
+    });
+    // Wiring view: RUNNING on a box when one of its programs is in the running list (procs events)
+    if (S.wEls) S.wEls.forEach((r) => {
+      const on = (r.box.members || []).some((m) => S.running.has(m) || (S.runDesc.get(m) || 0) > 0);
+      r.g.classList.toggle('is-run', on);
     });
   }
   function renderTicker(now) {

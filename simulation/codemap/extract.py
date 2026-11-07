@@ -4,12 +4,14 @@ simulation/codemap/extract.py -- PURPOSE: read every source file of this reposit
 it) and write ONE map of the whole project, simulation/codemap/codemap.json. The code-map explorer
 (simulation/codemap/web/index.html, served by server.py) draws that map as connected, labelled blocks:
 
-    systems (12 big parts, from systems.yaml) -> packages (folders) -> modules (files) -> classes -> functions
+    systems (17 big parts, from systems.yaml) -> packages (folders) -> modules (files) -> classes -> functions
 
 plus the wires between the blocks: which function CALLS which, which file IMPORTS which, which ROS 2 topics
 a node PUBLISHES and SUBSCRIBES to, which launch file LAUNCHES which program, which script RUNS which
 script, and the network links (MAVLink, HTTP, data) between the big programs such as Gazebo, ArduPilot SITL,
-MAVProxy, MAVROS and Mission Planner.
+MAVProxy, MAVROS and Mission Planner. It also writes the "wiring" part that the explorer's Wiring view draws:
+how the programs talk (boxes, and wires coloured by kind of message with their transport and port), copied
+from systems.yaml's "wiring:" section and from every link there that has "wire:".
 
 How it works, in plain words:
   1. It walks the repository folder and decides what kind of file each one is. EVERY file becomes a block
@@ -24,8 +26,11 @@ How it works, in plain words:
      quotes, comments and here-documents, plus regular expressions (text patterns).
   4. Launch files (*.launch.py, *.launch.xml) are read to find which ROS package/executable they start.
   5. YAML, SDF, XML, mission and parameter files become "module" blocks whose summary is their header comment.
-  6. simulation/codemap/systems.yaml (written by hand) puts every folder into one system, describes the
-     programs that are not ours ("externals") and lists the network links between the big programs.
+  6. simulation/codemap/systems.yaml (written by hand) puts every folder into one system (and, with "files:",
+     single files that belong to another system than their folder), describes the programs that are not ours
+     ("externals", including the team's new video pipeline whose code is not in this repo), lists the network
+     links between the big programs and lays out the Wiring view (build_wiring checks every box, wire and tour
+     step: a wire that no box can hold, a wire id used twice or an unknown kind makes --check fail).
   7. Explanations written for people (simulation/codemap/explanations/*.json) are copied onto the matching
      blocks. A block without one gets the first paragraph of its docstring, marked "(from the docstring)";
      a test function gets its name turned into a sentence ("Test: the publisher follows the schedule.").
@@ -59,6 +64,13 @@ Extras on top of the contract (readers that do not know them can ignore them):
   * external nodes carry "process_match": regular expressions that recognise the program in a process list.
   * "called_when" is filled from the code when nobody explained it: ROS subscription / service / timer
     callbacks, console entry points, `if __name__ == '__main__'` calls, bash trap handlers.
+  * a package block may group the files one system claims from one folder: id pkg:<folder>@<system key>, its
+    "path" is that folder (systems.yaml "files:").
+  * top-level "wiring" (only when systems.yaml has a wiring section): {"schema", "title", "intro", "width",
+    "height", "kinds": [{key, label, text}], "statuses": [...], "zones": [{id, label, note, x, y, w, h}],
+    "boxes": [{id, title, x, y, w, h, status, members, node?, tag?, lines?, chips?, where?, stands_for?, explain?,
+    shape?}], "wires": [{id, from, to (box ids), kind, status, arrow, title, via?, explain?, code?, path?,
+    label_at?, offset?, map_from?, map_to?, label?}], "steps": [{title, text, wires, boxes}]}.
   * trace_index also has "sh_files" {repo path of a bash script: mod id} and "programs" {installed program path
     (ros2_ws/install/<pkg>/lib/<pkg>/<exe>): mod id}. "py_files" also lists where colcon puts our Python files
     (ros2_ws/build/<pkg>/..., ros2_ws/install/<pkg>/lib/python3.10/site-packages/...,
@@ -396,7 +408,8 @@ class _YamlReader:
             if not after:
                 self.i += 1
                 out.append(self.value_after('', indent))
-            elif re.match(r'''^("[^"]*"|'[^']*'|[^:#\[][^:]*?)\s*:(\s|$)''', after):
+            elif re.match(r'''^("[^"]*"|'[^']*'|[^:#\['"][^:]*?)\s*:(\s|$)''', after):
+                # (a plain key never starts with a quote, so a quoted item such as "HUD: camera" stays one text)
                 # "- key: value" starts a mapping whose keys line up with "key"
                 self.lines[self.i] = ' ' * item_indent + raw.lstrip()[1:].lstrip(' ')
                 out.append(self.mapping(item_indent))
@@ -1576,21 +1589,46 @@ def ps_clean(text: str):
 # ---------------------------------------------------------------------------------------------------------
 
 class Package:
-    """One package block: a ROS package folder, its test/ folder, or a folder named in systems.yaml."""
+    """One package block: a ROS package folder, its test/ folder, a folder named in systems.yaml, or the files one
+    system claims from one folder ("files:" in systems.yaml; id pkg:<folder>@<system key>)."""
 
     def __init__(self, folder: str, kind: str, recursive: bool):
         self.dir = folder
-        self.kind = kind              # 'ros' | 'test' | 'declared' | 'auto'
+        self.kind = kind              # 'ros' | 'test' | 'declared' | 'subpkg' | 'files' | 'auto'
         self.recursive = recursive    # True: also owns files in sub-folders that are not packages themselves
         self.system = None
         self.ros: RosPackage | None = None
         self.label = None
         self.summary = None
         self.summary_from_doc = False
+        self.pid: str | None = None   # set for a group of claimed files (its folder is not its id)
 
     @property
     def id(self) -> str:
-        return f'pkg:{self.dir}'
+        return self.pid or f'pkg:{self.dir}'
+
+
+def number_list(text, count: int | None = None) -> list | None:
+    """'310 140 220 140' or '840,490' -> [310.0, 140.0, ...] (None when it is not that many numbers)."""
+    parts = re.split(r'[\s,]+', str(text or '').strip())
+    try:
+        nums = [float(p) for p in parts if p]
+    except ValueError:
+        return None
+    if count is not None and len(nums) != count:
+        return None
+    return nums
+
+
+def yaml_false(value) -> bool:
+    """True when a systems.yaml value says no ('false', 'no', 'off', '0'; the small reader keeps them as text)."""
+    return str(value).strip().lower() in ('false', 'no', 'off', '0')
+
+
+# The Wiring view's vocabulary (systems.yaml "wire:" and "status:"): kinds of message and how finished a wire is.
+WIRE_KINDS = ('mav', 'ros', 'gz', 'cam', 'web', 'files')
+WIRE_STATUSES = ('current', 'being built', 'proposal', 'legacy', 'optional')
+WIRE_ARROWS = ('to', 'from', 'both')
 
 
 def glob_to_regex(pattern: str):
@@ -1614,6 +1652,156 @@ def glob_to_regex(pattern: str):
             out += re.escape(pattern[i])
             i += 1
     return re.compile('^' + out + '$')
+
+
+def build_wiring_section(spec, links, node_ids=None):
+    """The "wiring" part of codemap.json, read by the explorer's Wiring view: the zones and boxes of
+    systems.yaml "wiring:", and one wire for every link that has "wire:". A wire goes from the box that holds the
+    link's "from" end (a box holds the ids in its "node" and "members") to the box that holds its "to" end, unless
+    wire_from / wire_to name a box. Returns (wiring or None, problems, notes): problems are mistakes (an unknown
+    box, kind or status, a wire id used twice, a tour step that names something unknown; --check fails on them),
+    notes are harmless (a box whose "node" is not in the map yet). node_ids = the ids of the map (None: no check).
+    Used by CodeMapBuilder.build_wiring and by web/make_sample.py (the sample map's Wiring view)."""
+    problems, notes = [], []
+    if not isinstance(spec, dict) or not spec:
+        return None, problems, notes
+
+    def prob(msg):
+        problems.append(f'systems.yaml wiring: {msg}')
+
+    def text(value):
+        return ' '.join(str(value).split()) if value not in (None, '') else None
+
+    def id_list(value):
+        return [str(v) for v in value] if isinstance(value, list) else ([str(value)] if value else [])
+
+    size = number_list(spec.get('size'), 2) or [1600.0, 1200.0]
+    out = {'schema': 1, 'title': text(spec.get('title')) or 'How the programs talk',
+           'intro': text(spec.get('intro')), 'width': size[0], 'height': size[1],
+           'kinds': [], 'statuses': [], 'zones': [], 'boxes': [], 'wires': [], 'steps': []}
+    for item, key, allowed in ((spec.get('kinds'), 'kinds', WIRE_KINDS), (spec.get('statuses'), 'statuses',
+                                                                            WIRE_STATUSES)):
+        for k in item or []:
+            if not isinstance(k, dict) or k.get('key') not in allowed:
+                prob(f'{key}: "{k.get("key") if isinstance(k, dict) else k}" is not one of {", ".join(allowed)}')
+                continue
+            out[key].append({'key': k['key'], 'label': text(k.get('label')) or k['key'],
+                             'text': text(k.get('text'))})
+    zone_ids = set()
+    for z in spec.get('zones') or []:
+        at = number_list(z.get('at'), 4) if isinstance(z, dict) else None
+        if not at or not z.get('id'):
+            prob(f'zone {z!r:.60} needs an id and "at: x y width height"')
+            continue
+        zone_ids.add(z['id'])
+        out['zones'].append({'id': z['id'], 'label': text(z.get('label')) or z['id'], 'note': text(z.get('note')),
+                             'x': at[0], 'y': at[1], 'w': at[2], 'h': at[3]})
+    box_ids, holder = set(), {}
+    for b in spec.get('boxes') or []:
+        at = number_list(b.get('at'), 4) if isinstance(b, dict) else None
+        if not at or not b.get('id'):
+            prob(f'box {b!r:.60} needs an id and "at: x y width height"')
+            continue
+        bid = b['id']
+        if bid in box_ids:
+            prob(f'the box id "{bid}" is used twice')
+            continue
+        box_ids.add(bid)
+        status = b.get('status') or 'current'
+        if status not in WIRE_STATUSES:
+            prob(f'box {bid}: unknown status "{status}"')
+        node = b.get('node')
+        members = id_list(b.get('members')) if 'members' in b else ([node] if node else [])
+        if node and node not in members:
+            members.insert(0, node)
+        if node and node_ids is not None and node not in node_ids:
+            notes.append(f'systems.yaml wiring: box {bid} opens "{node}", which is not in the map (yet)')
+        for m in members:
+            if m in holder and holder[m] != bid:
+                prob(f'"{m}" is a member of two boxes ({holder[m]}, {bid}): a wire would not know where to go')
+            holder.setdefault(m, bid)
+        box = {'id': bid, 'title': text(b.get('title')) or bid, 'x': at[0], 'y': at[1], 'w': at[2], 'h': at[3],
+               'status': status, 'members': members}
+        for key in ('tag', 'where', 'stands_for', 'explain', 'shape', 'zone'):
+            if text(b.get(key)):
+                box[key] = text(b.get(key))
+        if node:
+            box['node'] = node
+        for key in ('lines', 'chips'):
+            if isinstance(b.get(key), list):
+                box[key] = [str(x) for x in b[key]]
+        out['boxes'].append(box)
+    wire_ids = set()
+    for link in links or []:
+        if not isinstance(link, dict) or not link.get('wire'):
+            continue
+        wid = link.get('id')
+        if not wid:
+            prob(f'the wire {link.get("from")} -> {link.get("to")} needs an "id"')
+            continue
+        if wid in wire_ids:
+            prob(f'the wire id "{wid}" is used twice')
+            continue
+        wire_ids.add(wid)
+        kind, status, arrow = link['wire'], link.get('status') or 'current', link.get('arrow') or 'to'
+        for what, value, allowed in (('wire', kind, WIRE_KINDS), ('status', status, WIRE_STATUSES),
+                                     ('arrow', arrow, WIRE_ARROWS)):
+            if value not in allowed:
+                prob(f'wire {wid}: {what} "{value}" is not one of {", ".join(allowed)}')
+        ends = []
+        for side in ('from', 'to'):
+            box = link.get(f'wire_{side}') or holder.get(link.get(side))
+            if box not in box_ids:
+                named = link.get(f'wire_{side}') or link.get(side)
+                prob(f'wire {wid}: no box holds its "{side}" end ({named})')
+            ends.append(box)
+        if ends[0] == ends[1] and ends[0] is not None:
+            prob(f'wire {wid}: both ends are the box {ends[0]}')
+        wire = {'id': wid, 'from': ends[0], 'to': ends[1], 'kind': kind, 'status': status, 'arrow': arrow,
+                'title': text(link.get('title')) or wid}
+        for key in ('via', 'explain'):
+            if text(link.get(key)):
+                wire[key] = text(link.get(key))
+        if not yaml_false(link.get('map', 'true')):
+            wire['map_from'], wire['map_to'] = link.get('from'), link.get('to')
+            if text(link.get('label')):
+                wire['label'] = text(link.get('label'))
+        code = id_list(link.get('code'))
+        if code:
+            wire['code'] = code
+        if link.get('path'):
+            pts = number_list(link['path'])
+            if not pts or len(pts) % 2:
+                prob(f'wire {wid}: path must be pairs of numbers, "x,y x,y ..."')
+            else:
+                wire['path'] = [[pts[i], pts[i + 1]] for i in range(0, len(pts), 2)]
+        if link.get('label_at'):
+            parts = str(link['label_at']).split()
+            xy = number_list(parts[0] if parts else '', 2)
+            if not xy or any(p not in ('start', 'middle', 'end', 'stack') for p in parts[1:]):
+                prob(f'wire {wid}: label_at must be "x,y" followed by start, middle or end and/or stack')
+            else:
+                wire['label_at'] = xy + parts[1:]
+        if link.get('offset') not in (None, ''):
+            off = number_list(link['offset'], 1)
+            if off is None:
+                prob(f'wire {wid}: offset must be a number')
+            else:
+                wire['offset'] = off[0]
+        out['wires'].append(wire)
+    for i, step in enumerate(spec.get('steps') or [], 1):
+        if not isinstance(step, dict):
+            continue
+        wires, boxes = id_list(step.get('wires')), id_list(step.get('boxes'))
+        for w in wires:
+            if w not in wire_ids:
+                prob(f'tour step {i} names the wire "{w}", which does not exist')
+        for b in boxes:
+            if b not in box_ids:
+                prob(f'tour step {i} names the box "{b}", which does not exist')
+        out['steps'].append({'title': text(step.get('title')) or f'Step {i}', 'text': text(step.get('text')),
+                             'wires': wires, 'boxes': boxes})
+    return out, problems, notes
 
 
 class CodeMapBuilder:
@@ -1672,6 +1860,8 @@ class CodeMapBuilder:
         self.topic_owners = []
         self.package_info = {}
         self.system_patterns = []
+        self.file_patterns = []
+        self.wiring_spec = {}
         self.ext_ros_packages = {}
         self.ext_programs = {}
         self.ext_launch_names = {}
@@ -1684,6 +1874,7 @@ class CodeMapBuilder:
         self.links = data.get('links') or []
         self.topic_owners = data.get('topic_owners') or []
         self.package_info = data.get('package_info') or {}
+        self.wiring_spec = data.get('wiring') or {}
         keys = [s.get('key') for s in self.systems]
         for k, n in Counter(keys).items():
             if n > 1:
@@ -1692,6 +1883,9 @@ class CodeMapBuilder:
             for pat in s.get('packages') or []:
                 literal = not any(ch in pat for ch in '*?')
                 self.system_patterns.append((s['key'], pat, glob_to_regex(pat), literal))
+            for pat in s.get('files') or []:      # single files a system claims (see claim_files)
+                pat = str(pat).strip('/')
+                self.file_patterns.append((s['key'], pat, glob_to_regex(pat), not any(ch in pat for ch in '*?')))
         for e in self.externals:
             eid = f'ext:{e["key"]}'
             for p in e.get('ros_packages') or []:
@@ -1838,6 +2032,55 @@ class CodeMapBuilder:
             if len(tie) > 1:
                 self.problems.append(f'package {folder} matches two systems equally well: {", ".join(sorted(tie))}')
             pkg.system = sorted(tie)[0] if len(tie) > 1 else best[1]
+        # A package nothing names that sits inside a "dir/**" package (for example a ROS package in a folder that is
+        # still being built) belongs to that package's system: the deepest such folder wins.
+        recursive = sorted((f for f, p in self.packages.items() if p.kind == 'declared' and p.recursive and p.system),
+                           key=len, reverse=True)
+        for folder, pkg in sorted(self.packages.items()):
+            if pkg.system is not None:
+                continue
+            outer = next((f for f in recursive if folder.startswith(f + '/')), None)
+            if outer is not None:
+                pkg.system = self.packages[outer].system
+
+    def claim_files(self):
+        """systems.yaml "files:": single files a system claims, even inside another system's package. The claimed
+        files of one folder become ONE package block, id pkg:<folder>@<system key> (label and summary from
+        package_info["<folder>@<key>"]). Returns {repo path: Package}."""
+        claims: dict[str, Package] = {}
+        matched = Counter()
+        for rel in sorted(self.sources):
+            keys = sorted({key for key, _pat, rx, _lit in self.file_patterns if rx.match(rel)})
+            for key, pat, rx, _lit in self.file_patterns:
+                if rx.match(rel):
+                    matched[pat] += 1
+            if not keys:
+                continue
+            if len(keys) > 1:
+                self.problems.append(f'{rel} is claimed by two systems in systems.yaml ("files:"): {", ".join(keys)}')
+            key = keys[0]
+            folder = posix_dirname(rel)
+            group = f'{folder}@{key}'
+            pkg = self.packages.get(group)
+            if pkg is None:
+                pkg = Package(folder, 'files', False)
+                pkg.pid = f'pkg:{group}'
+                pkg.system = key
+                info = self.package_info.get(group) or {}
+                pkg.label = info.get('label') or f'{folder.rsplit("/", 1)[-1]} (part, files of {folder})'
+                if info.get('summary'):
+                    pkg.summary = ' '.join(str(info['summary']).split())
+                self.packages[group] = pkg
+            claims[rel] = pkg
+        for group, pkg in self.packages.items():
+            if pkg.kind == 'files' and not pkg.summary:
+                names = sorted(r.rsplit('/', 1)[-1] for r, p in claims.items() if p is pkg)
+                pkg.summary = f'Files of {pkg.dir} that belong here: {", ".join(names)}.'
+        for _key, pat, _rx, literal in self.file_patterns:
+            if not matched[pat]:
+                self.warnings.append(f'systems.yaml claims the file{"" if literal else "s"} "{pat}", which '
+                                     f'{"does" if literal else "do"} not exist (yet)')
+        return claims
 
     # ---------------------------------------------------------------- the main build
     def build(self) -> dict:
@@ -1845,10 +2088,11 @@ class CodeMapBuilder:
         self.sources, self.everything, self.skipped = scan_repo(self.repo, self.skip_files)
         self.discover_packages()
         self.assign_systems()
+        self.file_claims = self.claim_files()
         self.add_system_nodes()
         self.module_package: dict[str, Package] = {}
         for rel in sorted(self.sources):
-            pkg = self.package_of(rel)
+            pkg = self.file_claims.get(rel) or self.package_of(rel)
             if pkg is None or pkg.system is None:
                 self.unassigned.append(rel)
                 pkg = self.fallback_package(rel)
@@ -1866,6 +2110,7 @@ class CodeMapBuilder:
         self.finish_topics()
         self.merge_explanations()
         self.check_edges()
+        self.wiring = self.build_wiring()
         return self.result()
 
     def fallback_package(self, rel: str) -> Package:
@@ -1910,15 +2155,16 @@ class CodeMapBuilder:
             self.add_node(node)
 
     def add_package_nodes(self):
-        used = {pkg.dir for pkg in self.module_package.values()}
+        used = {pkg.id for pkg in self.module_package.values()}
+        self.package_by_id = {pkg.id: pkg for pkg in self.packages.values()}
         for folder, pkg in sorted(self.packages.items()):
-            if folder not in used:
+            if pkg.id not in used:
                 continue
             if pkg.system is None:
                 self.unassigned.append(f'(package) {folder}')
                 pkg.system = 'other'
             node = {'id': pkg.id, 'kind': 'package', 'label': pkg.label, 'parent': f'sys:{pkg.system}',
-                    'path': folder}
+                    'path': pkg.dir}
             if pkg.summary:
                 node['summary'] = pkg.summary
             if pkg.kind == 'test':
@@ -3438,6 +3684,8 @@ class CodeMapBuilder:
 
     def add_links(self):
         for link in self.links:
+            if yaml_false(link.get('map', 'true')):
+                continue                    # a wire of the Wiring view only (build_wiring reads it)
             src, dst, kind = link.get('from'), link.get('to'), link.get('kind')
             if kind not in EDGE_KINDS:
                 self.problems.append(f'systems.yaml link {src} -> {dst}: unknown kind "{kind}"')
@@ -3599,7 +3847,7 @@ class CodeMapBuilder:
         if kind == 'topic':
             return node['summary'] + GENERATED_MARK, 'generated'
         if kind == 'package':
-            pkg = self.packages.get(node.get('path', ''))
+            pkg = getattr(self, 'package_by_id', {}).get(node['id'])
             if node.get('summary'):
                 if pkg is not None and pkg.summary_from_doc:
                     return node['summary'] + DOCSTRING_MARK, 'docstring'
@@ -3631,6 +3879,17 @@ class CodeMapBuilder:
             parent = node.get('parent')
             if parent is not None and parent not in self.nodes:
                 self.warnings.append(f'{nid}: parent {parent} is not in the map')
+
+    # ---------------------------------------------------------------- the Wiring view
+    def build_wiring(self) -> dict | None:
+        """The Wiring view of codemap.json (see build_wiring_section); its mistakes become problems (--check fails)."""
+        out, problems, notes = build_wiring_section(self.wiring_spec, self.links, set(self.nodes))
+        self.problems.extend(problems)
+        self.warnings.extend(notes)
+        if out:
+            self.stats['wiring view boxes'] = len(out['boxes'])
+            self.stats['wiring view wires'] = len(out['wires'])
+        return out
 
     def trace_index(self) -> dict:
         py_modules, py_files, functions = {}, {}, {}
@@ -3687,7 +3946,10 @@ class CodeMapBuilder:
             if label:
                 e['label'] = label
             edges.append(e)
-        return {'schema': SCHEMA, 'nodes': nodes, 'edges': edges, 'trace_index': self.trace_index()}
+        out = {'schema': SCHEMA, 'nodes': nodes, 'edges': edges, 'trace_index': self.trace_index()}
+        if getattr(self, 'wiring', None):
+            out['wiring'] = self.wiring
+        return out
 
     def coverage(self, cm: dict) -> dict:
         """Explained / total per kind and per system, split by where the explanation came from."""
@@ -3774,6 +4036,8 @@ def build_codemap(repo, systems_file=None, explanations_dir=None, include_source
     cm = {'schema': SCHEMA, 'generated': generated or now_iso(),
           'commit': commit if commit is not None else git_commit(repo),
           'nodes': body['nodes'], 'edges': body['edges'], 'trace_index': body['trace_index']}
+    if body.get('wiring'):
+        cm['wiring'] = body['wiring']
     report = {'problems': builder.problems, 'warnings': builder.warnings, 'duplicates': builder.duplicates,
               'unassigned': builder.unassigned, 'unmatched_explanations': builder.unmatched_explanations,
               'skipped': dict(builder.skipped), 'stats': dict(builder.stats), 'coverage': builder.coverage(cm),
@@ -3801,7 +4065,18 @@ def dumps_codemap(cm: dict) -> str:
         inner = ',\n'.join(f'{one(k)}:{one(v)}' for k, v in value.items())
         sections.append(f'{one(key)}:{{\n{inner}\n}}')
     out.append(',\n'.join(sections))
-    out.append('}')
+    out.append('}' + (',' if cm.get('wiring') else ''))
+    if cm.get('wiring'):
+        # the Wiring view: one zone / box / wire / tour step per line, like the nodes
+        w = cm['wiring']
+        parts = []
+        for key in sorted(w):
+            value = w[key]
+            if isinstance(value, list) and value:
+                parts.append(f'{one(key)}:[\n' + ',\n'.join(one(v) for v in value) + '\n]')
+            else:
+                parts.append(f'{one(key)}:{one(value)}')
+        out.append('"wiring":{\n' + ',\n'.join(parts) + '\n}')
     out.append('}')
     return '\n'.join(out) + '\n'
 

@@ -6,7 +6,7 @@
    "how_it_fits": "They are the hands-on side of sim_plugins: simulation/profiles/example_detector.yaml and example_listener.yaml plug them in ('bash simulation/scripts/demo.sh --profile example_detector'), and the slot rules they follow are the contracts in docs/simulation/PLUGINS.md."
   },
   "pkg:ros2_ws/src/simulation/sim_plugin_examples/example_detector": {
-   "explain": "A template detector you copy to make your own. On the outside it does EXACTLY what the team's detection/new_od does, so main_controller and the demo panel use it unchanged: it watches the team photo folder <ros2_ws>/src/video_cam/mapping_photos for new '<lat> , <lon>.jpg' photos, finds the hiker (class '0') and the tent (class '1') - here simply by colour - and publishes ONE interfaces/ImageResult per photo on /image_detection (RELIABLE, depth 10), even when nothing is found. It also answers /sahi/get_health with 'ModelLoaded: True'.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. A template detector you copy to make your own. On the outside it does EXACTLY what the team's detection/new_od does, so main_controller and the demo panel use it unchanged: it watches the team photo folder <ros2_ws>/src/video_cam/mapping_photos for new '<lat> , <lon>.jpg' photos, finds the hiker (class '0') and the tent (class '1') - here simply by colour - and publishes ONE interfaces/ImageResult per photo on /image_detection (RELIABLE, depth 10), even when nothing is found. It also answers /sahi/get_health with 'ModelLoaded: True'.",
    "how_it_fits": "Replaces new_od in the simulator through the profile simulation/profiles/example_detector.yaml (detector.kind custom): team_stack.launch.py then includes a copy of tracker.launch.xml without new_od (tracker_filter.py) and starts launch/example_detector.launch.py instead; demo.sh waits for node 'example_detector'. Input: photo files written by video_cam (which got them from the camera emulator). Output: /image_detection to main_controller. Optional input: /mavros/mission/reached (copied into waypoint_index). Check: 'ros2 run sim_plugins check_slot --slot detector --take-photo'."
   },
   "pkg:ros2_ws/src/simulation/sim_plugin_examples/example_listener": {
@@ -25,95 +25,95 @@
    "explain": "Overview of the two templates: example_detector (reads the team's photos like new_od and publishes interfaces/ImageResult on /image_detection, here with a colour-blob rule) and example_listener (logs telemetry, mission progress, shutter presses and detections), how to try each with demo.sh --profile, and the shared five steps copy -> rename -> change -> plug in -> check."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/README.md": {
-   "explain": "Guide to the template detector: what it does on the outside (same as new_od), its files, the five steps with exact commands and the table of names to rename, the profile to write, how to run it by hand with parameters (camera_feed_path, min_blob_area_px, HSV colour ranges), and a troubleshooting table (main_controller waiting 90 s, drops aimed at the photo centre, 'STAND-IN' banner, BEST_EFFORT QoS, missing node_name, missing interfaces)."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Guide to the template detector: what it does on the outside (same as new_od), its files, the five steps with exact commands and the table of names to rename, the profile to write, how to run it by hand with parameters (camera_feed_path, min_blob_area_px, HSV colour ranges), and a troubleshooting table (main_controller waiting 90 s, drops aimed at the photo centre, 'STAND-IN' banner, BEST_EFFORT QoS, missing node_name, missing interfaces)."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/__init__.py": {
-   "explain": "Marks the folder as the Python package example_detector and says in its purpose text what blob_logic and node do and how to start, demo and check it."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Marks the folder as the Python package example_detector and says in its purpose text what blob_logic and node do and how to start, demo and check it."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py": {
-   "explain": "The 'brain' of the template detector, with no ROS so it can be tested with plain pytest and swapped for your own model without touching node.py. It finds the hiker and the tent by COLOUR: every connected patch of pixels whose HSV colour is in a class's range (placeholders: person orange/yellow, tent blue) and whose size is plausible becomes one Detection, with class_id '0' person / '1' tent, a score 0..1 and the box centre and size in FULL-photo pixels (what main_controller needs to aim).",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. The 'brain' of the template detector, with no ROS so it can be tested with plain pytest and swapped for your own model without touching node.py. It finds the hiker and the tent by COLOUR: every connected patch of pixels whose HSV colour is in a class's range (placeholders: person orange/yellow, tent blue) and whose size is plausible becomes one Detection, with class_id '0' person / '1' tent, a score 0..1 and the box centre and size in FULL-photo pixels (what main_controller needs to aim).",
    "how_it_fits": "Called by node.py for every new photo; also holds the photo-name helpers (is_photo, latlon_from_name) that match how the team's video_cam names files."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::Detection": {
-   "explain": "One found object in FULL-photo pixels: class_id ('0' person, '1' tent), score 0..1, box centre cx, cy (from the left and top edges) and box width w and height h."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. One found object in FULL-photo pixels: class_id ('0' person, '1' tent), score 0..1, box centre cx, cy (from the left and top edges) and box width w and height h."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::Detection.area": {
-   "explain": "Property: the box area in pixels (w x h)."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Property: the box area in pixels (w x h)."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::Detection.name": {
-   "explain": "Property: the class name, 'person' or 'tent' ('object' for anything else)."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Property: the class name, 'person' or 'tent' ('object' for anything else)."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::is_photo": {
-   "explain": "True for a finished photo file: it ends in .jpg, .jpeg or .png, does not contain '.tmp.' (video_cam writes '<name>.tmp.jpg' first and then renames it) and does not start with a dot. Sidecar .json files are not photos."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). True for a finished photo file: it ends in .jpg, .jpeg or .png, does not contain '.tmp.' (video_cam writes '<name>.tmp.jpg' first and then renames it) and does not start with a dot. Sidecar .json files are not photos."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::latlon_from_name": {
-   "explain": "Reads the GPS position from a team photo name: '36.215026 , -96.006800.jpg' (space, comma, space) -> (36.215026, -96.0068). Names without a position (like 'IMG_0001.jpg') or with impossible numbers give (0.0, 0.0), which main_controller ignores."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Reads the GPS position from a team photo name: '36.215026 , -96.006800.jpg' (space, comma, space) -> (36.215026, -96.0068). Names without a position (like 'IMG_0001.jpg') or with impossible numbers give (0.0, 0.0), which main_controller ignores."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::find_blobs": {
-   "explain": "Finds connected patches of one colour range in an OpenCV picture: converts to HSV, keeps pixels inside [low, high], removes single noisy pixels (a 3x3 'opening'), labels the connected patches and keeps those whose pixel count is between min_area and max_area. Returns (cx, cy, w, h, fill) per patch, where fill = coloured pixels / box area."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Finds connected patches of one colour range in an OpenCV picture: converts to HSV, keeps pixels inside [low, high], removes single noisy pixels (a 3x3 'opening'), labels the connected patches and keeps those whose pixel count is between min_area and max_area. Returns (cx, cy, w, h, fill) per patch, where fill = coloured pixels / box area."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/blob_logic.py::detect": {
-   "explain": "Finds persons and tents in one photo: works on a 1/4-size copy for speed (downscale 4), runs find_blobs for each class's colour range with the size limits scaled to that copy, scores each patch 0.5 + 0.5 x fill (max 1.0), scales the boxes back to FULL-photo pixels, and keeps at most 5 per class (best score first). This is the function to replace with your own model.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Finds persons and tents in one photo: works on a 1/4-size copy for speed (downscale 4), runs find_blobs for each class's colour range with the size limits scaled to that copy, scores each patch 0.5 + 0.5 x fill (max 1.0), scales the boxes back to FULL-photo pixels, and keeps at most 5 per class (best score first). This is the function to replace with your own model.",
    "outputs": "a list of Detection"
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py": {
-   "explain": "The ROS 2 node of the template detector ('example_detector'). Every scan_period_s (1 s) it looks in the team photo folder for new finished photos, runs blob_logic.detect on each, and publishes ONE interfaces/ImageResult per photo on /image_detection (RELIABLE, depth 10) filled exactly like new_od fills it; it answers /sahi/get_health like new_od so demo.sh can wait for it. Parameters: camera_feed_path, scan_period_s, process_existing, min/max_blob_area_px, downscale, person/tent_hsv_low/high, serve_health, method_name.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. The ROS 2 node of the template detector ('example_detector'). Every scan_period_s (1 s) it looks in the team photo folder for new finished photos, runs blob_logic.detect on each, and publishes ONE interfaces/ImageResult per photo on /image_detection (RELIABLE, depth 10) filled exactly like new_od fills it; it answers /sahi/get_health like new_od so demo.sh can wait for it. Parameters: camera_feed_path, scan_period_s, process_existing, min/max_blob_area_px, downscale, person/tent_hsv_low/high, serve_health, method_name.",
    "effects": "publishes topic:/image_detection; serves /sahi/get_health; subscribes topic:/mavros/mission/reached",
    "how_it_fits": "Reads the photos video_cam saves (from the camera emulator in the simulator); main_controller subscribes to /image_detection and waits until every photo name has been reported. Subscribes /mavros/mission/reached (if mavros_msgs is installed) to fill waypoint_index."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::team_photo_dir": {
-   "explain": "Finds the team photo folder the way video_cam and new_od do: walks up from this file (at most 10 levels) to the folder that has both install/ and src/ (the ros2_ws) and returns <ros2_ws>/src/video_cam/mapping_photos; falls back to ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/video_cam/mapping_photos."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Finds the team photo folder the way video_cam and new_od do: walks up from this file (at most 10 levels) to the folder that has both install/ and src/ (the ros2_ws) and returns <ros2_ws>/src/video_cam/mapping_photos; falls back to ~/ODLC_Machine_Inferencing_System_2025-2026/ros2_ws/src/video_cam/mapping_photos."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector": {
-   "explain": "The template detector node: photo folder in, /image_detection out."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. The template detector node: photo folder in, /image_detection out."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector.__init__": {
-   "explain": "Creates node 'example_detector': declares the parameters, picks the folder (camera_feed_path or the team folder, created if missing), creates the RELIABLE depth-10 /image_detection publisher (a BEST_EFFORT one would never reach main_controller), subscribes /mavros/mission/reached if possible, serves /sahi/get_health if serve_health, optionally marks photos already present as seen, and starts the scan timer.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Creates node 'example_detector': declares the parameters, picks the folder (camera_feed_path or the team folder, created if missing), creates the RELIABLE depth-10 /image_detection publisher (a BEST_EFFORT one would never reach main_controller), subscribes /mavros/mission/reached if possible, serves /sahi/get_health if serve_health, optionally marks photos already present as seen, and starts the scan timer.",
    "effects": "creates the /image_detection publisher and /sahi/get_health service"
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector._on_reached": {
-   "explain": "Remembers the mission item just reached (wp_seq from /mavros/mission/reached), later copied into ImageResult.waypoint_index.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Remembers the mission item just reached (wp_seq from /mavros/mission/reached), later copied into ImageResult.waypoint_index.",
    "called_when": "each /mavros/mission/reached message"
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector._on_health": {
-   "explain": "Answers /sahi/get_health in new_od's format: success true and 'Healthy: True, ConsecErrors: <errors>, ModelLoaded: True, Format: colour-blobs' (stack_check --need-detector looks for 'ModelLoaded: True')."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Answers /sahi/get_health in new_od's format: success true and 'Healthy: True, ConsecErrors: <errors>, ModelLoaded: True, Format: colour-blobs' (stack_check --need-detector looks for 'ModelLoaded: True')."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector._scan": {
-   "explain": "Timer callback: lists new finished photos in the folder (oldest first by modification time) and processes each exactly once. A photo counts as finished when its size has not changed since the last scan and it is at least 0.3 s old (a safety net; video_cam writes atomically).",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Timer callback: lists new finished photos in the folder (oldest first by modification time) and processes each exactly once. A photo counts as finished when its size has not changed since the last scan and it is at least 0.3 s old (a safety net; video_cam writes atomically).",
    "called_when": "every scan_period_s seconds (1.0 by default)"
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector._process": {
-   "explain": "Reads one photo with OpenCV, runs blob_logic.detect (an unreadable photo counts an error and gets an EMPTY result, so main_controller still sees its name), publishes the ImageResult on /image_detection and logs what was found.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Reads one photo with OpenCV, runs blob_logic.detect (an unreadable photo counts an error and gets an EMPTY result, so main_controller still sees its name), publishes the ImageResult on /image_detection and logs what was found.",
    "effects": "publishes one message on topic:/image_detection"
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::ExampleDetector._result_message": {
-   "explain": "Builds one ImageResult exactly like new_od: header frame 'camera', a vision_msgs Detection2DArray with one Detection2D per object (class_id, score, box centre and size in full-photo pixels), image_name = the file name only, ISO timestamp, num_detections, method, waypoint_index, latitude/longitude from the file name, and the parallel lists classes, confidences, areas and descriptions."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Builds one ImageResult exactly like new_od: header frame 'camera', a vision_msgs Detection2DArray with one Detection2D per object (class_id, score, box centre and size in full-photo pixels), image_name = the file name only, ISO timestamp, num_detections, method, waypoint_index, latitude/longitude from the file name, and the parallel lists classes, confidences, areas and descriptions."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/example_detector/node.py::main": {
-   "explain": "Entry point of 'ros2 run example_detector example_detector': starts ROS, creates the ExampleDetector node and spins it until Ctrl+C or the launch system stops it, then shuts down cleanly."
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Entry point of 'ros2 run example_detector example_detector': starts ROS, creates the ExampleDetector node and spins it until Ctrl+C or the launch system stops it, then shuts down cleanly."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/launch/example_detector.launch.py": {
-   "explain": "Launch file that starts the template detector node (named 'example_detector', the node_name the profile gives) with its settings as launch arguments a profile can set through detector.custom.args: min_blob_area_px (150), camera_feed_path ('' = the team folder), scan_period_s (1.0) and serve_health (true).",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Launch file that starts the template detector node (named 'example_detector', the node_name the profile gives) with its settings as launch arguments a profile can set through detector.custom.args: min_blob_area_px (150), camera_feed_path ('' = the team folder), scan_period_s (1.0) and serve_health (true).",
    "how_it_fits": "Included by team_stack.launch.py (through launch_support.entry_actions) when simulation/profiles/example_detector.yaml is used."
   },
   "fn:ros2_ws/src/simulation/sim_plugin_examples/example_detector/launch/example_detector.launch.py::generate_launch_description": {
-   "explain": "Declares the four launch arguments and the Node package example_detector / executable example_detector / name example_detector, converting each launch-argument text into the right parameter type (int, str, float, bool) with ParameterValue.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Declares the four launch arguments and the Node package example_detector / executable example_detector / name example_detector, converting each launch-argument text into the right parameter type (int, str, float, bool) with ParameterValue.",
    "called_when": "ros2 launch example_detector example_detector.launch.py, or team_stack.launch.py with the example_detector profile"
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/package.xml": {
-   "explain": "Manifest of the template detector (example_detector 0.1.0, ament_python, MIT, maintainer astra-sim@example.com). Run-time needs: rclpy, launch, launch_ros, the team's interfaces (ImageResult), vision_msgs, std_srvs, mavros_msgs, OpenCV and numpy; pytest for tests."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Manifest of the template detector (example_detector 0.1.0, ament_python, MIT, maintainer astra-sim@example.com). Run-time needs: rclpy, launch, launch_ros, the team's interfaces (ImageResult), vision_msgs, std_srvs, mavros_msgs, OpenCV and numpy; pytest for tests."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/resource/example_detector": {
-   "explain": "Empty marker file that registers the package name example_detector in the ament index (rename it when you copy the template)."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Empty marker file that registers the package name example_detector in the ament index (rename it when you copy the template)."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/setup.cfg": {
-   "explain": "Tells setuptools to install the example_detector command in lib/example_detector, where 'ros2 run' looks for it."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Tells setuptools to install the example_detector command in lib/example_detector, where 'ros2 run' looks for it."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/setup.py": {
-   "explain": "Build recipe of the template detector: installs the Python module, launch/example_detector.launch.py (so a profile can say 'launch: example_detector.launch.py') and the README, and creates the command 'ros2 run example_detector example_detector' (example_detector.node:main). When copying, rename package_name, the folders and the entry point."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Build recipe of the template detector: installs the Python module, launch/example_detector.launch.py (so a profile can say 'launch: example_detector.launch.py') and the README, and creates the command 'ros2 run example_detector example_detector' (example_detector.node:main). When copying, rename package_name, the folders and the entry point."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_detector/test/test_blob_logic.py": {
-   "explain": "Unit tests of blob_logic.py without ROS: the photo-name rules the team's video_cam uses (temporary .tmp. files, sidecars and hidden files are not photos; '<lat> , <lon>' names give the position) and that colour blobs come back as person/tent boxes in FULL-photo pixels with sane scores."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Unit tests of blob_logic.py without ROS: the photo-name rules the team's video_cam uses (temporary .tmp. files, sidecars and hidden files are not photos; '<lat> , <lon>' names give the position) and that colour blobs come back as person/tent boxes in FULL-photo pixels with sane scores."
   },
   "mod:ros2_ws/src/simulation/sim_plugin_examples/example_listener/README.md": {
    "explain": "Guide to the template extra: an example of the summary it logs, its files, the topics it listens to and why /mavros/* use BEST_EFFORT QoS, the five steps copy -> rename -> change -> plug in (a profile extras entry with package, executable, node_name, start_with, args) -> check, and a small troubleshooting table."
@@ -2148,7 +2148,7 @@
    "explain": "Unit tests of sdk_protocol.py: CRC-16/XMODEM, building and parsing frames (video_cam's shutter and set-angles packets reproduced bit-exactly, plus SIYI's own example frames), tolerant splitting of datagrams, and every payload encoder/decoder."
   },
   "mod:ros2_ws/src/simulation/siyi_emulator/test/test_video_cam_compat.py": {
-   "explain": "Runs last year's REAL camera code (video_cam's CameraInterface and PipelineOrchestrator, unchanged) against the emulator on 127.0.0.1, method by method: model detection, SD card check, the whole capture -> find -> download -> verify -> save pipeline for 2K and 4K, every gimbal/zoom/focus/mode/format call, and the strict A8-mini silences. Skipped when video_cam is not importable."
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Runs last year's REAL camera code (video_cam's CameraInterface and PipelineOrchestrator, unchanged) against the emulator on 127.0.0.1, method by method: model detection, SD card check, the whole capture -> find -> download -> verify -> save pipeline for 2K and 4K, every gimbal/zoom/focus/mode/format call, and the strict A8-mini silences. Skipped when video_cam is not importable."
   },
   "pkg:ros2_ws/src/simulation/siyi_emulator/test": {
    "explain": "The tests of siyi_emulator (AGENTS.md lists 147 passing; run 'python3 -m pytest -q test --ignore=test/e2e' or scripts/run_tests.sh). There are unit tests of every module (sdk_protocol, command_handler, camera_state, gimbal_control, photo, sd_card, media_server, node), loopback tests that drive the running emulator over real UDP and HTTP sockets on 127.0.0.1 with a fake Gazebo (conftest.py's FakeGzLink), and test_video_cam_compat.py, which runs the team's real video_cam code against the emulator. The e2e/ folder holds heavier checks that need Gazebo: run_e2e_gazebo.sh with the gimbal_stand test world from fixtures/, and run_e2e_sim_models.sh with the real iris_a8mini drone.",
@@ -2159,7 +2159,7 @@
    "how_it_fits": "Run with 'python3 -m pytest -q -p no:cacheprovider test' (repo layout and ROS sourced) or 'bash test/run_tests.sh' from the package folder; nothing here runs in a simulation."
   },
   "pkg:ros2_ws/src/simulation/sim_plugin_examples/example_detector/test": {
-   "explain": "The tests of the template detector: test_blob_logic.py checks blob_logic.py without ROS (which file names count as finished photos, the GPS position read from a '<lat> , <lon>.jpg' name, and that colour blobs come back as person/tent boxes in FULL-photo pixels with sane scores).",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. The tests of the template detector: test_blob_logic.py checks blob_logic.py without ROS (which file names count as finished photos, the GPS position read from a '<lat> , <lon>.jpg' name, and that colour blobs come back as person/tent boxes in FULL-photo pixels with sane scores).",
    "how_it_fits": "Run with 'python3 -m pytest -q test' from the example_detector folder; copy and adapt them when you make your own detector from this template."
   },
   "pkg:ros2_ws/src/simulation/sim_plugin_examples/example_listener/test": {

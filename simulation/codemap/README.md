@@ -1,4 +1,4 @@
-<!-- PURPOSE: the reference guide of the ASTRA code map (simulation/codemap): what it is, how to watch the team's code run live during a simulator flight, how to rebuild the map and the shareable artifact page, how the tracer stays off on the real drone, what tracing costs, what every file in this folder is, the shared contract (ids, file formats, live events), the tests, and what was verified on 2026-10-31. The short teammate guide is docs/simulation/CODE_MAP.md. -->
+<!-- PURPOSE: the reference guide of the ASTRA code map (simulation/codemap): what it is, its Wiring view (how the programs talk, with every port), how to watch the team's code run live during a simulator flight, how to rebuild the map and the shareable artifact page, how systems.yaml places files and draws the wiring, how the tracer stays off on the real drone, what tracing costs, what every file in this folder is, the shared contract (ids, file formats, live events), the tests, and what was verified on 2026-10-31. The short teammate guide is docs/simulation/CODE_MAP.md. -->
 
 # ASTRA code map
 
@@ -6,7 +6,7 @@ The code map is a web page that shows **all of our software as boxes you can ope
 
 | Level | Example | What a box is |
 |---|---|---|
-| 1. Systems | *Team flight software (Jetson)*, *Camera and target detection*, *Simulated world*, *Simulator control*, *Ground station*, ... plus the programs we did not write: Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner, Lattice | a big part of the project (12 systems, 8 outside programs) |
+| 1. Systems | *Team flight software (Jetson)*, *Team's new video pipeline*, *Legacy (2025) photo pipeline*, *Simulated world*, *Simulator control*, *Run logs*, *Jetson in the loop*, *Ground station*, ... plus the programs we did not write: Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner, Lattice, and the team's zr10_node, zr10_stream and detection package (their code is not in this repo) | a big part of the project (17 systems, 11 outside programs) |
 | 2. Packages | `ros2_ws/src/main`, `ros2_ws/src/video_cam`, `simulation/scripts` | a ROS package or a folder |
 | 3. Files | `main_controller.py`, `demo.sh`, `sim.launch.py` | one source file (Python, bash, C#, launch, XML, YAML ...) |
 | 4. Functions | `MainController.image_result_cb`, `SIYINode.camera_trigger_callback` | one function or method (classes are drawn as boxes around their methods) |
@@ -21,6 +21,37 @@ side effects, who calls it and what it calls, and shows its source code. Click i
 While the simulator flies with tracing on, **every function that runs flashes green**, and its file, package and
 system glow and count the calls. Programs that are running get a RUNNING badge. A run is recorded, so it can be
 replayed later, or embedded in one shareable page (the "artifact").
+
+## The Wiring view: how the programs talk
+
+The **Wiring** button (next to *Drill down* and *Overview*) shows one drawing of the whole twin as it is today:
+every program is a box (Mission Planner, MAVProxy, ArduPilot SITL, Gazebo, MAVROS, the team's nodes, the team's new
+video pipeline, the simulated ZR10 camera, the Jetson relay, the CSV flight recorder, the referees, the code map
+itself), and every connection is a wire with its **transport and port** written on it (for example *TCP 5763 ·
+SERIAL2*, *UDP 14555*, *RTSP · TCP 8554 · /main.264*). Open it directly with `#wiring` at the end of the address
+(`http://127.0.0.1:8090/#wiring`, or `dist/astra_code_map.html#wiring`).
+
+| What you see | What it means |
+|---|---|
+| wire colour | the kind of message: orange MAVLink, blue ROS 2, purple Gazebo, pink the camera (SIYI SDK, RTSP video, HTTP photos), teal web pages and the code map, brown files |
+| solid line or border | works in the twin today |
+| dashed | being built right now (the virtual Jetson's relay, the simulated ZR10's RTSP stream, the team's video code in the twin) |
+| dotted, tag PROPOSAL | our proposal for the team (how detections reach main_controller); the team has not adopted it |
+| grey, tag LEGACY 2025 | last year's photo pipeline (photo trigger, siyi, the photo folder, new_od): still what today's default demo runs, no longer the field system |
+| tag TEAM CODE · NOT IN REPO | the team's new video pipeline: zr10_node, zr10_stream, the detection package |
+| the blue rail | the ROS 2 graph; a short line onto it means "takes part in ROS 2" (click it for the topics) |
+
+Click a box: the panel says what it is, what it stands for on the real drone, every wire it uses, and offers
+"Open ... in the code map". Click a wire: its transport and port, what travels on it, and the files in which the
+port was checked. The colour buttons above the drawing light every wire of one kind. **Play the mission** follows
+one flight in 13 steps (Back, Next, the step numbers, Show everything; Esc clears). While a traced run plays, a box
+glows green when its programs' code runs and shows RUNNING when its program runs.
+
+The drawing is **made from `systems.yaml`**, not drawn in the page: every link there with `wire:` is a wire, and the
+`wiring:` section places the boxes and holds the tour (see "Where a file goes" below). `extract.py` copies both into
+`codemap.json` as `"wiring"` and checks them (`--check` fails on a wire no box can hold, an unknown kind or status, a
+wire id used twice, or a tour step that names something that does not exist). A test checks that every port written
+on a wire (except proposals) appears in the files listed under its `code:`.
 
 ## Watch it live
 
@@ -86,11 +117,36 @@ so the Linux copy (what the simulator runs) gets the new map.
 
 ### Where a file goes (systems.yaml)
 
-`systems.yaml` is written by hand: the 12 systems with a plain summary each, which folders ("packages") belong to
+`systems.yaml` is written by hand: the 17 systems with a plain summary each, which folders ("packages") belong to
 which system, the outside programs (with the patterns that recognise them in the process list) and the network
 links between the big programs. A folder with a `package.xml` is a ROS package and owns everything under it;
 `some/folder` owns only its own files, `some/folder/**` its sub-folders too. A new top-level folder needs a line
 there, or `extract.py --check` fails and names the file.
+
+Three more rules (added 2026-10-31):
+
+- **A ROS package inside a `some/folder/**` package** that no line names belongs to that folder's system. That is
+  how folders that are still being built (`simulation/video/**`, `simulation/jetson/**`) already land in the right
+  system: a package another workflow adds there tomorrow passes `--check` without a new line. A folder named there
+  that has no files yet is only a note.
+- **`files:`** claims single files for a system even when they live in another system's folder, for example the
+  flight recorder (`sim_demo/flight_recorder.py`) for *Run logs* while the rest of `sim_demo` stays in *Demo
+  screens and scoring*. The claimed files of one folder become one package block, id `pkg:<folder>@<system key>`
+  (its label and summary come from `package_info: "<folder>@<key>"`). `*` and `?` work but never cross a `/`
+  (`simulation/profiles/jetson_*.yaml`). A claimed file that does not exist yet is only a note; a file claimed by
+  two systems is a problem.
+- **Wires of the Wiring view** are the `links:` that have `wire:` (the kind of message: `mav`, `ros`, `gz`, `cam`,
+  `web`, `files`), an `id` (the tour uses it), `via` (transport and port, written on the wire; parts separated by
+  ` · ` are stacked when the wire is short), `status` (`current`, `being built`, `proposal`, `legacy`, `optional`),
+  `code` (the repo files where the port was checked), `explain` (plain words), and optionally `arrow`
+  (`to`, `from`, `both`), `wire_from` / `wire_to` (draw it from / to this box), `path` (corner points `"x,y x,y"`),
+  `label_at` (`"x,y [start|middle|end] [stack]"`) and `offset` (move a straight wire sideways). `map: false` makes a
+  wire that is not also a line of the block diagrams (the code already shows that link, or an end is not a block).
+  A wire goes from the box whose `node` / `members` hold the link's `from` id to the box that holds its `to` id. The
+  `wiring:` section has `size`, `kinds`, `statuses`, `zones` and `boxes` (`at: "x y width height"` on a drawing of
+  `size` pixels; `node` = the block "Open in the code map" goes to; `members` = the map ids that light the box live;
+  `tag`, `lines`, `chips`, `where`, `stands_for`, `explain`, `shape: rail`) and the tour `steps` (title, text, the
+  wires and boxes each step lights).
 
 ### Explanations: the plain words
 
@@ -108,7 +164,16 @@ docstring, then its test name, then a generated sentence. Format:
      "how_it_fits": "for files and packages: its role in the whole system"}}}
 ```
 
-Only `explain` is required. An entry whose id is not in the map is reported by `extract.py` (a renamed function).
+Only `explain` is required. An entry whose id is not in the map is reported by `extract.py` (a renamed function)
+under "explanation ids that match no block"; that list does not fail `--check`, so read the last lines.
+
+Conventions used in the texts (2026-10-31): blocks of last year's photo path (`ros2_ws/src/video_cam`, `mapping`,
+`detection`, and the simulator helpers `photo_trigger.py`, `truth_detector.py`, `example_detector`,
+`test_video_cam_compat.py`) start with "Legacy (2025) photo pipeline" (files and classes add "obsolete for the field
+since 2026-10-31, kept for the legacy option"), because the field camera and detection path is now the team's new
+video pipeline. Code another workflow is still building is described in a later pass. `explanations/codemap.json`
+(this folder's own code) is hand-written and must be committed: `.gitignore` ignores only `/codemap.json`, the
+generated map in this folder (before 2026-10-31 the unanchored line `codemap.json` hid the explanations file too).
 
 ## Make the shareable page (artifact)
 
@@ -205,16 +270,16 @@ CPU core (one `top` snapshot during the search).
 | File | What it is |
 |---|---|
 | `extract.py` | the static extractor: reads the repo, writes `codemap.json` (boxes, links, explanations, `trace_index`) |
-| `systems.yaml` | written by hand: the systems, which folders belong to which, the outside programs, the network links |
+| `systems.yaml` | written by hand: the systems, which folders (and single claimed files) belong to which, the outside programs, the network links, and the Wiring view (boxes, wires, the mission tour) |
 | `explanations/*.json` | plain-language explanations per area, merged by `extract.py` |
 | `codemap.json` | the generated map (about 12 MB with source code); re-make it, never edit it |
 | `trace/sitecustomize.py` | the opt-in switch Python runs at start-up; does nothing without `ASTRA_TRACE=1` |
 | `trace/astra_trace.py` | the Python call tracer (profiler hook, counting, UDP sending, cost table) |
 | `trace/astra_trace.sh` | the bash function tracer (DEBUG trap), sourced by `_common.sh` only with `ASTRA_TRACE=1` |
 | `server.py` | the localhost collector and web server (UDP 8091 in, HTTP 8090 out, recordings, `/health`) |
-| `web/index.html` | the explorer page (one file: inline CSS and JavaScript, dagre layout from cdnjs, fonts from Google Fonts) |
+| `web/index.html` | the explorer page with its three views, Drill down, Overview and Wiring (one file: inline CSS and JavaScript, dagre layout from cdnjs, fonts from Google Fonts) |
 | `web/sample_codemap.json`, `web/sample_recording.jsonl` | small sample data for testing the page (the recording is synthetic) |
-| `web/make_sample.py` | makes the two sample files from real files of the repo |
+| `web/make_sample.py` | makes the two sample files from real files of the repo; the sample map carries the real Wiring view of `systems.yaml` (made by `extract.build_wiring_section`), so run it again after you change the wiring |
 | `web/run_selftest.js`, `web/dom_smoke.js` | node tests of the page: logic self-test; a fake-browser run (also `--codemap PATH` and `--artifact PATH` for real data) |
 | `build_artifact.py` | makes `dist/astra_code_map.html` (map + one recording, at most 15 MB) |
 | `dist/astra_code_map.html` | the generated shareable page |
@@ -232,8 +297,8 @@ Ids (exact strings; paths are relative to the repo root, with `/`):
 | Kind | Id | Example |
 |---|---|---|
 | system | `sys:<key>` | `sys:team_stack` |
-| outside program | `ext:<key>` | `ext:gazebo`, `ext:ardupilot_sitl`, `ext:mavproxy`, `ext:mavros`, `ext:mission_planner`, `ext:lattice_cloud` |
-| package | `pkg:<folder>` | `pkg:ros2_ws/src/main` |
+| outside program | `ext:<key>` | `ext:gazebo`, `ext:ardupilot_sitl`, `ext:mavproxy`, `ext:mavros`, `ext:mission_planner`, `ext:lattice_cloud`, `ext:zr10_node`, `ext:zr10_stream`, `ext:team_detector` |
+| package | `pkg:<folder>`, or `pkg:<folder>@<system key>` for the files one system claims from a folder | `pkg:ros2_ws/src/main`, `pkg:ros2_ws/src/simulation/sim_demo/sim_demo@run_logs` |
 | file | `mod:<path>` | `mod:ros2_ws/src/main/src/main_controller.py` |
 | function | `fn:<path>::<qualname>` | `fn:ros2_ws/src/main/src/main_controller.py::MainController.image_result_cb`; nested function `outer.inner`; bash `fn:<path>::<name>`; C# `fn:<path>::<Class>.<Method>` |
 | topic | `topic:<ROS name>` | `topic:/image_detection` |
@@ -245,6 +310,12 @@ Ids (exact strings; paths are relative to the repo root, with `/`):
   mavlink, http, data) and maybe `label`. `trace_index` lets the server turn a tracer message into an id:
   `py_modules` (dotted module name -> file id), `py_files` (path -> file id), `functions` (file id -> first line of
   the def, decorators included -> function id).
+- `codemap.json` may also have `"wiring"` (only when `systems.yaml` has a `wiring:` section; readers that do not
+  know it can ignore it): `{"schema": 1, "title", "intro", "width", "height", "kinds": [{key, label, text}],
+  "statuses": [...], "zones": [{id, label, note, x, y, w, h}], "boxes": [{id, title, x, y, w, h, status, members,
+  node?, tag?, lines?, chips?, where?, stands_for?, explain?, shape?}], "wires": [{id, from, to (box ids), kind,
+  status, arrow, title, via?, explain?, code?, path?, label_at?, offset?, map_from?, map_to?, label?}], "steps":
+  [{title, text, wires, boxes}]}`. `build_artifact.py` keeps it in the artifact.
 - Tracer -> server, UDP `127.0.0.1:8091`, JSON, at most every 100 ms per process:
   Python `{"pid", "proc", "calls": [[module __name__, file, first line, name, count], ...]}`;
   bash `{"pid", "sh": script path, "calls": [[function name, count], ...]}`.
@@ -265,7 +336,15 @@ python -m pytest -q -p no:cacheprovider simulation/codemap/test     # Windows or
 node simulation/codemap/web/run_selftest.js                         # page logic (node 18+)
 node simulation/codemap/web/dom_smoke.js                            # page in a fake browser
 node simulation/codemap/web/dom_smoke.js --artifact simulation/codemap/dist/astra_code_map.html
+node simulation/codemap/web/dom_smoke.js --codemap simulation/codemap/codemap.json
 ```
+
+What the Wiring view's tests cover: `test_extract.py` (file claims, packages inside `dir/**`, the wiring section and
+every kind of mistake in it, the real repo's architecture of today, and that every port on a wire is in the files it
+names), `run_selftest.js` (routes with right angles only, label placement, the model, what lights up, the sample's
+real wiring), `dom_smoke.js` (every box and wire drawn and clickable, legacy / proposal / being-built styles, kind
+buttons, the tour, keys, live glow and RUNNING, "open in the code map", `#wiring`; with `--codemap` / `--artifact`
+also on the real map).
 
 ## Troubleshooting
 

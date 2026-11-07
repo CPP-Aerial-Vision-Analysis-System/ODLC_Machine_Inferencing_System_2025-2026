@@ -2,7 +2,8 @@
 simulation/codemap/web/make_sample.py -- PURPOSE: make the two SAMPLE files that the explorer page (index.html)
 is tested with, so the page can be tried and tested without running the full extractor or the simulator:
 
-  * sample_codemap.json  - a small code map that follows the codemap.json contract (schema 1): 3 systems
+  * sample_codemap.json  - a small code map that follows the codemap.json contract (schema 1), plus the REAL
+    Wiring view of systems.yaml (its "wiring" part, made by extract.py's build_wiring_section): 3 systems
     (team flight code, simulator, ground station), the 5 outside programs, 7 packages, 14 files, about 120
     classes / functions / methods, 9 ROS topics and labelled links (calls, imports, publishes, subscribes,
     launches, runs, mavlink, http, data). Names, first lines (decorators included, like Python's
@@ -549,7 +550,22 @@ def build_codemap():
         'nodes': nodes,
         'edges': edges,
         'trace_index': {'py_modules': py_modules, 'py_files': py_files, 'functions': trace_fns},
+        'wiring': sample_wiring(),
     }
+
+
+def sample_wiring():
+    """The Wiring view of the REAL systems.yaml (boxes, wires, tour), made by extract.py's own builder, so the page's
+    Wiring view is tested with the real layout. Boxes whose map block is not in this small sample simply get no
+    "open in the code map" button."""
+    sys.path.insert(0, os.path.join(HERE, os.pardir))
+    import extract                      # noqa: E402 - the extractor next to this folder (standard library only)
+    with open(os.path.join(HERE, os.pardir, 'systems.yaml'), encoding='utf-8') as fh:
+        data = extract.parse_yaml_subset(fh.read(), 'systems.yaml')
+    wiring, problems, _notes = extract.build_wiring_section(data.get('wiring'), data.get('links'), None)
+    if problems or not wiring:
+        raise SystemExit('the wiring section of systems.yaml has problems: ' + '; '.join(problems))
+    return wiring
 
 
 def build_recording(cm):

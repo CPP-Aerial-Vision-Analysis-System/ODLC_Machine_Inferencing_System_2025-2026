@@ -29,6 +29,7 @@ Run (Windows or Ubuntu, Python 3.10+, no ROS), from the repo root:
 from __future__ import annotations
 
 import json
+import re
 import textwrap
 import time
 import types
@@ -196,6 +197,8 @@ def _stringify(x):
         return {str(k): _stringify(v) for k, v in x.items()}
     if isinstance(x, list):
         return [_stringify(v) for v in x]
+    if isinstance(x, bool):                 # the small reader keeps "false" as text; extract.py reads it as a yes/no
+        return 'true' if x else 'false'
     return x if isinstance(x, str) or x is None else str(x)
 
 
@@ -204,7 +207,7 @@ def test_real_systems_yaml_reads_the_same_as_pyyaml():
     text = (REPO / 'simulation' / 'codemap' / 'systems.yaml').read_text(encoding='utf-8')
     mine = extract.parse_yaml_subset(text, 'systems.yaml')
     assert _stringify(yaml.safe_load(text)) == mine
-    assert len(mine['systems']) in range(8, 13)
+    assert len(mine['systems']) in range(8, 20)
     keys = {s['key'] for s in mine['systems']}
     assert {'team_stack', 'simulator', 'ground_station', 'tests', 'other'} <= keys
     assert {e['key'] for e in mine['externals']} >= {'gazebo', 'ardupilot_sitl', 'mavproxy', 'mavros',
@@ -801,6 +804,164 @@ def test_packages_systems_and_file_kinds(tmp_path):
     assert n['pkg:scripts/sub']['parent'] == 'sys:other'
 
 
+WIRED_SYSTEMS = SYSTEMS.replace("""  - key: tests
+    label: Tests""", """  - key: logs
+    label: Run logs
+    summary: The pretend run logs. Two sentences.
+    packages:
+      - hil/**
+    files:
+      - ros2_ws/src/demo/demo/recorder.py
+      - ros2_ws/src/demo/demo/run_*.py
+      - simulation/scripts/logs.sh
+      - simulation/scripts/not_yet.sh
+  - key: tests
+    label: Tests""").replace("""links:
+""", """package_info:
+  ros2_ws/src/demo/demo@logs:
+    label: "demo: the recorder"
+links:
+  - id: radio
+    from: ext:gazebo
+    to: ext:mavros
+    kind: mavlink
+    label: the pretend radio
+    wire: mav
+    arrow: both
+    status: current
+    title: The radio
+    via: UDP 14550 · Windows host
+    code: [simulation/scripts/logs.sh]
+    explain: Telemetry down, commands up.
+  - id: wire_only
+    map: false
+    wire_from: sim
+    wire_to: rail
+    wire: ros
+    status: being built
+    path: 300,10 300,90
+    label_at: 5,6 start stack
+    offset: -4
+""") + """wiring:
+  title: The pretend wiring
+  intro: Two boxes and a rail.
+  size: 800 600
+  kinds:
+    - key: mav
+      label: MAVLink
+      text: The autopilot's language.
+  statuses:
+    - key: current
+      label: works today
+  zones:
+    - id: pc
+      label: THE PC
+      at: 0 0 800 600
+  boxes:
+    - id: sim
+      title: Gazebo
+      node: ext:gazebo
+      at: 10 10 200 80
+      lines:
+        - "physics: one step at a time"
+    - id: mav
+      title: MAVROS
+      node: ext:mavros
+      at: 400 10 200 80
+      status: legacy
+    - id: rail
+      title: ROS 2
+      shape: rail
+      at: 300 100 10 300
+    - id: later
+      title: Not built yet
+      node: mod:does/not/exist.py
+      at: 10 200 100 50
+  steps:
+    - title: One
+      text: The radio talks.
+      wires: [radio]
+      boxes: [sim, mav]
+"""
+
+
+def test_file_claims_inheritance_and_the_wiring_section(tmp_path):
+    files = ros_python_pkg('demo', {'recorder.py': 'def record():\n    pass\n', 'run_summary.py': 'X = 1\n',
+                                    'panel.py': 'Y = 2\n'})
+    files.update({'simulation/scripts/logs.sh': '#!/bin/bash\n# logs.sh -- PURPOSE: show the runs (UDP 14550).\n',
+                  'simulation/scripts/demo.sh': '#!/bin/bash\necho demo\n',
+                  'hil/tool.sh': '#!/bin/bash\necho hil\n'})
+    # a ROS package inside "hil/**" that nothing names: it belongs to the same system
+    files.update({k.replace('ros2_ws/src/inner', 'hil/inner'): v
+                  for k, v in ros_python_pkg('inner', {'a.py': 'Z = 3\n'}).items()})
+    r = build(tmp_path, files, systems=WIRED_SYSTEMS)
+    n, e = r.nodes, r.edges
+    # claimed files: one package per (folder, system), the rest of the folder stays where it was
+    grp = 'pkg:ros2_ws/src/demo/demo@logs'
+    assert n['mod:ros2_ws/src/demo/demo/recorder.py']['parent'] == grp
+    assert n['mod:ros2_ws/src/demo/demo/run_summary.py']['parent'] == grp
+    assert n['mod:ros2_ws/src/demo/demo/panel.py']['parent'] == 'pkg:ros2_ws/src/demo'
+    assert n[grp]['parent'] == 'sys:logs' and n[grp]['label'] == 'demo: the recorder'
+    assert n[grp]['path'] == 'ros2_ws/src/demo/demo' and 'recorder.py' in n[grp]['summary']
+    assert n['mod:simulation/scripts/logs.sh']['parent'] == 'pkg:simulation/scripts@logs'
+    assert n['pkg:simulation/scripts@logs']['parent'] == 'sys:logs'
+    assert n['mod:simulation/scripts/demo.sh']['parent'] == 'pkg:simulation/scripts'
+    assert any('simulation/scripts/not_yet.sh' in w and 'does not exist' in w for w in r.report['warnings'])
+    # the ROS package inside hil/** joined the "logs" system, its own files stay in it
+    assert n['pkg:hil/inner']['parent'] == 'sys:logs' and n['mod:hil/inner/inner/a.py']['parent'] == 'pkg:hil/inner'
+    assert n['mod:hil/tool.sh']['parent'] == 'pkg:hil'
+    assert r.report['unassigned'] == [] and r.report['problems'] == []
+    # links: a wire with map: false is not a map edge; a normal link is both
+    assert ('ext:gazebo', 'ext:mavros', 'mavlink') in e
+    assert not any(x[0] == 'sim' or x[1] == 'rail' for x in e)
+    w = r.cm['wiring']
+    assert w['title'] == 'The pretend wiring' and w['width'] == 800 and w['height'] == 600
+    assert [b['id'] for b in w['boxes']] == ['sim', 'mav', 'rail', 'later']
+    assert w['boxes'][0]['members'] == ['ext:gazebo'] and w['boxes'][0]['lines'] == ['physics: one step at a time']
+    assert w['boxes'][1]['status'] == 'legacy' and w['boxes'][2]['shape'] == 'rail'
+    radio = next(x for x in w['wires'] if x['id'] == 'radio')
+    assert (radio['from'], radio['to'], radio['kind'], radio['arrow']) == ('sim', 'mav', 'mav', 'both')
+    assert radio['via'] == 'UDP 14550 · Windows host' and radio['code'] == ['simulation/scripts/logs.sh']
+    assert radio['map_from'] == 'ext:gazebo' and radio['label'] == 'the pretend radio'
+    only = next(x for x in w['wires'] if x['id'] == 'wire_only')
+    assert (only['from'], only['to'], only['status']) == ('sim', 'rail', 'being built') and 'map_from' not in only
+    assert only['path'] == [[300.0, 10.0], [300.0, 90.0]] and only['label_at'] == [5.0, 6.0, 'start', 'stack']
+    assert only['offset'] == -4.0
+    assert w['steps'] == [{'title': 'One', 'text': 'The radio talks.', 'wires': ['radio'], 'boxes': ['sim', 'mav']}]
+    assert any('box later opens "mod:does/not/exist.py"' in x for x in r.report['warnings'])
+    assert r.report['stats']['wiring view wires'] == 2
+    # the output file keeps the wiring, one box / wire per line
+    text = extract.dumps_codemap(r.cm)
+    assert json.loads(text)['wiring'] == w
+    assert sum(1 for ln in text.split('\n') if ln.startswith('{"') and '"title":"' in ln and '"x":' in ln) == 4
+
+
+@pytest.mark.parametrize('change, words', [
+    (('    wire_to: rail\n', '    wire_to: nowhere\n'), 'no box holds its "to" end'),
+    (('  - id: wire_only\n', '  - id: radio\n'), 'used twice'),
+    (('    wire: ros\n', '    wire: smoke\n'), 'wire "smoke" is not one of'),
+    (('    status: being built\n', '    status: someday\n'), 'status "someday"'),
+    (('      wires: [radio]\n', '      wires: [radio, ghost]\n'), 'names the wire "ghost"'),
+    (('      boxes: [sim, mav]\n', '      boxes: [sim, ufo]\n'), 'names the box "ufo"'),
+    (('    path: 300,10 300,90\n', '    path: 300,10 300\n'), 'path must be pairs'),
+    (('    label_at: 5,6 start stack\n', '    label_at: 5,6 sideways\n'), 'label_at must be'),
+    (('      at: 400 10 200 80\n', '      at: 400 10\n'), 'needs an id and "at: x y width height"'),
+])
+def test_wiring_mistakes_are_problems(tmp_path, change, words):
+    systems = WIRED_SYSTEMS.replace(*change, 1)
+    assert systems != WIRED_SYSTEMS
+    r = build(tmp_path, {'simulation/scripts/logs.sh': '#!/bin/bash\n'}, systems=systems)
+    assert any(words in p for p in r.report['problems']), r.report['problems']
+
+
+def test_a_file_two_systems_claim_is_a_problem(tmp_path):
+    systems = WIRED_SYSTEMS.replace('      - simulation/windows/plugin\n',
+                                    '      - simulation/windows/plugin\n    files:\n      - simulation/scripts/logs.sh\n')
+    assert systems != WIRED_SYSTEMS
+    r = build(tmp_path, {'simulation/scripts/logs.sh': '#!/bin/bash\n'}, systems=systems)
+    assert any('claimed by two systems' in p for p in r.report['problems'])
+
+
 def test_a_package_two_patterns_claim_equally_is_a_problem(tmp_path):
     systems = SYSTEMS.replace('      - "**/test"', '      - "**/test"\n      - ros2_ws/src/*')
     r = build(tmp_path, ros_python_pkg('alpha', {'a.py': 'X = 1\n'}), systems=systems)
@@ -953,7 +1114,7 @@ def test_real_repo_follows_the_contract(real):
             assert n['parent'] is None
     for e in real.cm['edges']:
         assert e['kind'] in extract.EDGE_KINDS and e['from'] in real.nodes and e['to'] in real.nodes
-    assert len([n for n in real.nodes.values() if n['kind'] == 'system']) in range(8, 13)
+    assert len([n for n in real.nodes.values() if n['kind'] == 'system']) in range(8, 20)
     ti = real.cm['trace_index']
     assert {'py_modules', 'py_files', 'functions'} <= set(ti)
     for mod_id, table in ti['functions'].items():
@@ -1005,3 +1166,122 @@ def test_real_repo_key_facts(real):
         'mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py'
     assert 'mod:LOCAL_NOTES.md' not in n and 'mod:simulation/codemap/codemap.json' not in n
     assert 'fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.RunSimAction' in n
+
+
+def _system_of(nodes, nid):
+    while nid and nodes[nid]['kind'] != 'system':
+        nid = nodes[nid]['parent']
+    return nid
+
+
+def test_real_repo_architecture_of_today(real):
+    """The map shows today's architecture (owner's decisions of 2026-10-31): the new video pipeline (team code, not in
+    this repo), last year's photo path marked legacy, run logs, commands and docs, plug-and-play, Jetson in the loop,
+    Lattice handed to the team, the Docker doctor. Files that other work is still building are checked when present."""
+    n, e = real.nodes, real.edges
+    keys = {nid[4:] for nid, x in n.items() if x['kind'] == 'system'}
+    assert {'team_stack', 'video_pipeline', 'camera_detection', 'run_logs', 'commands_docs', 'plug_and_play',
+            'jetson_hil', 'lattice', 'docker_setup', 'sim_world', 'autopilot', 'codemap'} <= keys
+    assert n['sys:camera_detection']['label'].startswith('Legacy (2025) photo pipeline')
+    assert 'not in this repo' in n['sys:video_pipeline']['summary'].lower() and 'proposal' in n['sys:video_pipeline']['summary']
+    assert 'handed' in n['sys:lattice']['summary'] and 'HANDOFF.md' in n['sys:lattice']['summary']
+    for pkg in ('video_cam', 'mapping', 'detection'):
+        assert 'legacy 2025 photo pipeline' in n[f'pkg:ros2_ws/src/{pkg}']['label']
+        assert _system_of(n, f'pkg:ros2_ws/src/{pkg}') == 'sys:camera_detection'
+    # the team's new video pipeline: code not in this repo, drawn as outside programs of their own system
+    for ext in ('zr10_node', 'zr10_stream', 'team_detector'):
+        assert n[f'ext:{ext}']['parent'] == 'sys:video_pipeline' and 'not in this repo' in n[f'ext:{ext}']['summary'].lower()
+    assert ('ext:zr10_stream', 'topic:/zr10/image_raw', 'publishes') in e
+    assert ('ext:team_detector', 'topic:/zr10/image_raw', 'subscribes') in e
+    assert n['topic:/zr10/image_raw']['parent'] == 'sys:video_pipeline'
+    where = {
+        'ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py': 'run_logs',
+        'ros2_ws/src/simulation/sim_demo/sim_demo/csv_export.py': 'run_logs',
+        'ros2_ws/src/simulation/sim_demo/sim_demo/run_summary.py': 'run_logs',
+        'simulation/scripts/logs.sh': 'run_logs',
+        'docs/simulation/LOGS_AND_DATA.md': 'run_logs',
+        'simulation/scripts/astra.sh': 'commands_docs',
+        'simulation/scripts/mission.sh': 'commands_docs',
+        'ros2_ws/src/simulation/sim_demo/sim_demo/mission_check.py': 'commands_docs',
+        'simulation/scripts/check_docs.py': 'commands_docs',
+        'docs/README.md': 'commands_docs',
+        'docs/simulation/COMMANDS.md': 'commands_docs',
+        'docs/simulation/ERRORS.md': 'commands_docs',
+        'docs/simulation/SWAPPING.md': 'plug_and_play',
+        'ros2_ws/src/simulation/sim_plugins/sim_plugins/profiles.py': 'plug_and_play',
+        'simulation/profiles/default.yaml': 'plug_and_play',
+        'simulation/docker/check_host.sh': 'docker_setup',
+        'simulation/docker/check_host.ps1': 'docker_setup',
+        'docs/lattice/HANDOFF.md': 'lattice',
+        'simulation/profiles/lattice_mock.yaml': 'lattice',
+        'simulation/jetson/jetson.sh': 'jetson_hil',
+        'simulation/jetson/lib/hil_relay.py': 'jetson_hil',
+        'simulation/profiles/jetson_virtual.yaml': 'jetson_hil',
+        'docs/jetson/HIL_DESIGN.md': 'jetson_hil',
+        'docs/simulation/VIDEO_PIPELINE.md': 'video_pipeline',
+        'ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py': 'demo_scoring',
+        'simulation/windows/mission_planner_plugin/astra_gcs.cs': 'ground_station',
+        'ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py': 'sim_world',
+    }
+    checked = 0
+    for rel, key in where.items():
+        path = REPO / rel
+        if not path.is_file() or path.stat().st_mtime >= real.started - 2 or f'mod:{rel}' not in n:
+            continue                          # still being built (or appeared while the tests ran)
+        assert _system_of(n, f'mod:{rel}') == f'sys:{key}', rel
+        checked += 1
+    assert checked >= 20, checked
+
+
+def test_real_repo_wiring_view_shows_today_s_wires(real):
+    w = real.cm['wiring']
+    assert real.report['problems'] == []
+    boxes = {b['id']: b for b in w['boxes']}
+    wires = {x['id']: x for x in w['wires']}
+    want = {'serial2': 'TCP 5763', 'serial0': 'TCP 5760', 'mp_link': 'UDP 14550', 'tool_link': 'UDP 14550',
+            'recorder_link': 'UDP 14555', 'lattice_link': 'UDP 14554', 'physics': 'UDP 9002', 'zr10_sdk': 'UDP 37260',
+            'rtsp': 'TCP 8554', 'pov_mp': ':8081', 'tracer': ':8091', 'page': ':8090', 'relay_mav': 'SSH -R',
+            'relay_cam': 'SSH -R', 'image_raw': '/zr10/image_raw', 'tap': '7461'}
+    for wid, words in want.items():
+        assert words in wires[wid].get('via', ''), (wid, wires[wid].get('via'))
+    status = {'serial2': 'current', 'mp_link': 'current', 'recorder_link': 'current', 'lattice_link': 'optional',
+              'zr10_sdk': 'being built', 'rtsp': 'being built', 'relay_mav': 'being built', 'relay_cam': 'being built',
+              'adapter_main': 'proposal', 'det_adapter': 'proposal', 'legacy_sdk': 'legacy', 'legacy_http': 'legacy',
+              'legacy_trigger': 'legacy', 'legacy_folder': 'legacy', 'legacy_newod': 'legacy'}
+    for wid, st in status.items():
+        assert wires[wid]['status'] == st, wid
+    for bid in ('trigger', 'siyi', 'folder', 'newod'):
+        assert boxes[bid]['status'] == 'legacy' and 'LEGACY' in boxes[bid].get('tag', '')
+    assert boxes['adapter']['status'] == 'proposal' and boxes['relay']['status'] == 'being built'
+    for bid in ('zr10node', 'zr10stream'):
+        assert 'NOT IN REPO' in boxes[bid]['tag']
+    assert {x['kind'] for x in w['wires']} == set(extract.WIRE_KINDS)
+    for x in w['wires']:
+        assert x['from'] in boxes and x['to'] in boxes and x['from'] != x['to'], x['id']
+    for step in w['steps']:
+        assert step['text'] and (step['wires'] or step['boxes'])
+        assert all(s in wires for s in step['wires']) and all(b in boxes for b in step['boxes'])
+    assert len(w['steps']) >= 10
+    for b in w['boxes']:                       # a box whose program is in the map can open it
+        if b.get('node'):
+            assert b['node'] in real.nodes, b['id']
+
+
+def test_real_repo_every_wire_port_is_in_the_code_it_names(real):
+    """Honesty check: each port number written on a wire (except our proposals) appears, as a whole number, in at
+    least one of the repo files the wire lists under "code"; every listed file exists."""
+    port = re.compile(r'(?<![\d.])(\d{2,5})(?![\d.])')
+    checked = 0
+    for x in real.cm['wiring']['wires']:
+        ports = [p for p in port.findall(x.get('via', '')) if int(p) >= 80]
+        if x['status'] == 'proposal' or not ports:
+            continue
+        assert x.get('code'), f'wire {x["id"]} shows a port but names no file where it was checked'
+        texts = []
+        for rel in x['code']:
+            assert (REPO / rel).is_file(), (x['id'], rel)
+            texts.append((REPO / rel).read_text(encoding='utf-8', errors='replace'))
+        for p in ports:
+            assert any(re.search(r'(?<![\d.])' + p + r'(?!\d)', t) for t in texts), (x['id'], p, x['code'])
+            checked += 1
+    assert checked >= 18, checked

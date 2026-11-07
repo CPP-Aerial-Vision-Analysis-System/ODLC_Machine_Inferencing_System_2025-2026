@@ -1,23 +1,40 @@
 # =================================================================================================================
-#  simulation/codemap/systems.yaml  --  PURPOSE: the TOP of the code map, written by hand. It splits the whole
-#  project into 12 big "systems" (the first blocks you see in the explorer), says which folders ("packages")
-#  belong to which system, describes the programs that are NOT our code ("externals": Gazebo, ArduPilot SITL,
-#  MAVProxy, MAVROS, Mission Planner, Lattice ...) and lists the network links between the big programs.
-#  simulation/codemap/extract.py reads this file; everything below the package level (files, classes,
-#  functions, imports, calls, ROS topics) it finds by itself in the code.
+#  simulation/codemap/systems.yaml  --  PURPOSE: the TOP of the code map and its WIRING VIEW, written by hand. It
+#  splits the whole project into 17 big "systems" (the first blocks you see in the explorer), says which folders
+#  and files ("packages") belong to which system, describes the programs that are NOT our code ("externals":
+#  Gazebo, ArduPilot SITL, MAVProxy, MAVROS, Mission Planner, Lattice, and the team's new video pipeline, whose code
+#  is not in this repo), lists the network links between the big programs (each checked in the code), and lays out
+#  the Wiring view (which boxes, where, and the "follow a mission" tour). simulation/codemap/extract.py reads this
+#  file; everything below the package level (files, classes, functions, imports, calls, ROS topics) it finds by
+#  itself in the code.
 #
 #  How a file finds its system:
 #    1. A folder with a package.xml is a ROS package: it owns every file under it (sub-folders included).
 #       Its test/ folder is a separate package that belongs to the "tests" system.
 #    2. A folder written below as "some/folder" is a package that owns only the files DIRECTLY in it;
 #       "some/folder/**" owns its sub-folders too. "." is the top folder of the repo (only its own files).
+#       A ROS package that sits inside a "some/folder/**" package and is named nowhere else belongs to the same
+#       system (so a package that is still being built lands in the right place as soon as it appears).
 #    3. Each package goes to the system that names it. Exact names win over patterns ("ros2_ws/src/*",
 #       "**/test"); between patterns the one with more fixed letters wins.
+#    4. "files:" claims single FILES for a system, even when they live in another system's folder (for example the
+#       flight recorder inside the sim_demo package). The claimed files of one folder become one package block with
+#       the id pkg:<folder>@<system key>. A pattern may use * and ? (they never cross a "/"). A claimed file that
+#       does not exist yet is only a note.
 #    `python3 simulation/codemap/extract.py --check` fails when a file lands nowhere or a pattern is unclear.
+#
+#  Links ("links:") are drawn in the map as lines between blocks. A link with "wire:" is ALSO a wire of the Wiring
+#  view (web/index.html, the "Wiring" button): wire = the kind of message (mav, ros, gz, cam, web, files), id = its
+#  short name (the tour uses it), via = the transport and port written on the wire, status = current | being built |
+#  proposal | legacy | optional, code = the repo files where the port or name was checked, explain = plain words,
+#  arrow = to (default) | from | both, wire_from / wire_to = draw it from / to this box instead of the box that holds
+#  the link's own end, path = corner points "x,y x,y" when the automatic route is not clear, label_at = "x,y [start|end] [stack]"
+#  to move the words, offset = move a straight wire sideways by this many pixels. map: false = a wire only (the
+#  map already shows that link, or one of its ends is not a block of the map).
 #
 #  Only a small part of YAML is understood (extract.py may only use Python's standard library): mappings,
 #  lists, 'quoted' / "quoted" / plain text, [short, lists] and folded blocks (key: >- followed by indented text).
-#  Put text that contains ": " or starts with a special character in quotes.
+#  Put text that contains ": " or " #" or starts with a special character in quotes.
 # =================================================================================================================
 schema: 1
 
@@ -26,13 +43,14 @@ systems:
     label: Team flight software (Jetson)
     summary: >-
       The team's own drone software, written in Python for ROS 2 Humble. On the real drone it runs on the Jetson
-      Orin Nano; in the simulator exactly the same code runs on the laptop, unchanged. launcher.sh starts MAVROS
-      (the translator between ROS 2 and the autopilot) and then main/launch/tracker.launch.xml, which starts six
-      programs: waypoint_manager, gps_mavros_service_node and main_controller are in this block, the photo
-      trigger, the camera driver (siyi) and the detector (new_od) are in "Camera and target detection".
-      main_controller is the mission brain: it collects the detections, picks the best hiker and tent, adds a
-      waypoint above each one, opens the drop servos (channel 11 for the hiker, 13 for the tent) and sends the
-      drone home (RTL).
+      Orin Nano; in the simulator exactly the same code runs unchanged (today on the laptop with ./launcher.sh sim;
+      being built: inside the astra-hil container, the "virtual Jetson"). launcher.sh starts MAVROS (the translator
+      between ROS 2 and the autopilot, wired to the autopilot's TELEM2 port, SITL SERIAL2 in the twin) and then
+      main/launch/tracker.launch.xml. main_controller is the mission brain: it collects the detections, picks the
+      best hiker and tent, adds a waypoint above each one, opens the drop servos (channel 11 for the hiker, 13 for
+      the tent) and sends the drone home (RTL). tracker.launch.xml still starts last year's photo nodes (see
+      "Legacy (2025) photo pipeline"); the field camera system is now the team's new video pipeline, and how its
+      detections reach main_controller is not decided by the team yet.
     packages:
       - .
       - ros2_ws/src/main
@@ -42,16 +60,34 @@ systems:
       - ros2_ws/src/interfaces
       - scripts
 
-  - key: camera_detection
-    label: Camera and target detection (team code)
+  - key: video_pipeline
+    label: Team's new video pipeline (ZR10 camera, RTSP stream, detection)
     summary: >-
-      The team code that takes the photos and finds the targets in them. mission_camera_trigger (package
-      mapping) waits for the autopilot's text "Mission: 3 DigiCamCtrl" and then asks for one photo every second
-      on /camera/trigger. siyi (package video_cam) talks to the SIYI A8 mini camera at 192.168.144.25 (SIYI SDK
-      on UDP port 37260, photo download over HTTP port 82) and saves each photo with its GPS position as the
-      file name, plus a .json "sidecar" with the height, heading and zoom. new_od (package detection) runs the
-      YOLO model on every new photo, cut into 640-pixel tiles, and publishes one result per photo on
-      /image_detection (class "0" = person, the hiker; class "1" = tent).
+      The field camera and detection system of 2026 (owner's decision, 2026-10-31). Three programs of the team, whose
+      code is NOT in this repo: zr10_node (package zr10_ros2) steers the SIYI ZR10 camera with SIYI SDK commands on
+      UDP 37260; stream_node (package zr10_stream) pulls the camera's live video with ffmpeg from
+      rtsp://192.168.144.25:8554/main.264 and publishes it as pictures on the ROS topic /zr10/image_raw; the
+      detection package (today a YOLO26 detector in Docker, on the GPU with TensorRT in the real mission) subscribes
+      to that topic. How detections then reach main_controller is not decided by the team: a clearly labelled
+      proposal is being written in simulation/video/proposals/. The twin's side of this pipeline (the simulated ZR10
+      with an RTSP stream, running the team's code unchanged) is being built in simulation/video/.
+    packages:
+      - simulation/video/**
+      - ros2_ws/src/simulation/sim_video
+    files:
+      - docs/simulation/VIDEO_PIPELINE.md
+
+  - key: camera_detection
+    label: Legacy (2025) photo pipeline (photo trigger, siyi camera driver, new_od)
+    summary: >-
+      Last year's camera and detection path, kept in the repo but no longer the field system (owner, 2026-10-31: "the
+      old photo path is obsolete"). mission_camera_trigger (package mapping) waits for the autopilot's text
+      "Mission: 3 DigiCamCtrl" and then asks for one photo every second on /camera/trigger. siyi (package video_cam)
+      talks to the SIYI camera at 192.168.144.25 (SIYI SDK on UDP 37260, photo download over HTTP port 82) and saves
+      each photo with its GPS position as the file name, plus a .json "sidecar". new_od (package detection) runs YOLO
+      on every new photo and publishes /image_detection for main_controller. tracker.launch.xml still starts these
+      nodes, so today's default demo still runs them; they become an option that is off by default once the new video
+      pipeline works in the twin.
     packages:
       - ros2_ws/src/mapping
       - ros2_ws/src/video_cam
@@ -64,8 +100,9 @@ systems:
       The autopilot is the program that really flies the drone: it reads the sensors, keeps the drone steady and
       flies the mission from waypoint to waypoint. On the real drone it is ArduCopter 4.6.3 on the Pixhawk; in
       the simulator the same firmware runs on the laptop as ArduPilot SITL ("software in the loop"), and Gazebo
-      feeds it pretend sensor readings over UDP port 9002. MAVProxy is a small ground-station program that
-      connects to SITL on TCP port 5760 and copies its MAVLink messages to everyone who needs them. None of
+      feeds it pretend sensor readings over UDP port 9002. MAVProxy, the twin of the telemetry radio, connects to
+      SITL on TCP port 5760 and copies its MAVLink messages to every ground program (UDP 14550, the flight recorder
+      on 14555). MAVROS has its own port, SITL SERIAL2 (TCP 5763), like the Jetson on the Pixhawk's TELEM2. None of
       this is our code: our files only give it settings (sim_models/config/astra_sitl.parm) and missions.
     packages: []
 
@@ -73,47 +110,101 @@ systems:
     label: The simulated world (Gazebo, drone, worlds, pretend camera)
     summary: >-
       Everything that pretends to be the real world. Gazebo Harmonic computes the physics and draws the field,
-      the hiker (a mannequin), the tent and our drone. sim_models holds the drone (an Iris quadcopter with a
-      SIYI A8 mini gimbal, a live camera, a photo camera and two droppable payloads) and payload_release, which
-      drops a payload when the autopilot opens servo 11 or 13. sim_worlds builds the worlds (runway, suas_field),
-      their survey missions and the answer key of where the targets really are. siyi_emulator pretends to be
-      the SIYI camera at 192.168.144.25: it answers the same SDK and HTTP requests as the real camera, but its
-      photos are rendered by Gazebo.
+      the hiker (a mannequin), the tent and our drone. sim_models holds the drone (an Iris quadcopter with a gimbal
+      camera, a live camera, a photo camera and two droppable payloads) and payload_release, which drops a payload
+      when the autopilot opens servo 11 or 13. sim_worlds builds the worlds (runway, suas_field), their survey
+      missions and the answer key of where the targets really are. siyi_emulator pretends to be the SIYI camera at
+      192.168.144.25: it answers the SIYI SDK (UDP 37260) and, for the legacy photo pipeline, the HTTP photo API
+      (port 82); its RTSP video stream for the team's new video pipeline (TCP 8554) is being built.
     packages:
       - ros2_ws/src/simulation/sim_models
       - ros2_ws/src/simulation/sim_worlds
       - ros2_ws/src/simulation/siyi_emulator
 
   - key: simulator
-    label: Simulator control (launch files, scripts, plug-ins)
+    label: Simulator control (launch files, scripts, guides)
     summary: >-
       The buttons and switches that start, run and stop the simulator. demo.sh runs the whole search demo with
-      one command: it starts sim.launch.py (Gazebo, SITL, MAVProxy, the pretend camera, the ROS bridge), uploads
-      the mission with mission_tool, starts the team's ./launcher.sh sim, prints the mission phases
-      (phase_monitor) and stops everything at the end. sim_bringup holds the launch files and the small tools
-      (mission_tool, phase_monitor, stack_check, wait_then_exec, gz_follow, odom_tf, photo_trigger);
-      sim_plugins and the profiles in simulation/profiles let a teammate swap one piece (detector, mission
-      brain, autopilot version) without touching the rest.
+      one command: it starts sim.launch.py (Gazebo, SITL, MAVProxy, the pretend camera, the ROS bridge, the camera
+      picture server for Mission Planner), uploads the mission with mission_tool, starts the team's ./launcher.sh
+      sim, prints the mission phases (phase_monitor) and stops everything at the end. sim_bringup holds the launch
+      files and the small tools (mission_tool, phase_monitor, stack_check, wait_then_exec, gz_follow, odom_tf,
+      photo_trigger). Gazebo's live camera can sit in its own window (gui_camera:=window), which fixed the flicker of
+      the camera picture.
     packages:
       - ros2_ws/src/simulation/sim_bringup
+      - simulation
+      - simulation/scripts
+      - docs
+      - docs/simulation
+
+  - key: plug_and_play
+    label: Plug-and-play swapping (profiles, slots, team code swap)
+    summary: >-
+      How a teammate swaps one piece of the twin without touching the rest. A profile (a small YAML file in
+      simulation/profiles) says which piece fills each slot: the world, the autopilot (another ArduPilot version or a
+      source build), the camera, the detector (another model file), the mission brain, extra programs, or a whole
+      other checkout of the Jetson code. sim_plugins checks the profile, turns it into launch settings, and its
+      check_slot command proves on the live ROS graph that the new piece talks exactly like the one it replaces. The
+      step-by-step guide is docs/simulation/SWAPPING.md; the reference is docs/simulation/PLUGINS.md.
+    packages:
       - ros2_ws/src/simulation/sim_plugins
       - ros2_ws/src/simulation/sim_plugin_examples
       - ros2_ws/src/simulation/sim_plugin_examples/*
-      - simulation
-      - simulation/scripts
       - simulation/profiles
       - simulation/profiles/params
-      - docs
-      - docs/simulation
+    files:
+      - docs/simulation/SWAPPING.md
+      - docs/simulation/PLUGINS.md
+
+  - key: run_logs
+    label: Run logs, CSV recorder and run summaries
+    summary: >-
+      What every simulator run leaves behind, so nobody has to dig through ten log files. While the drone flies, the
+      flight recorder (sim_demo flight_recorder) listens to its own copy of the MAVLink stream (MAVProxy UDP 14555)
+      and writes csv/telemetry.csv, events.csv and phases.csv in the run folder ~/.astra_sim/runs/<date>-<time>_<world>/
+      live. At the end, csv_export completes the CSV files from the score report and run_summary writes
+      run_summary.md (what ran, the result, every problem found in the logs). logs.sh lists the runs and shows their
+      summaries, errors, logs and CSV files. The recorder only listens, so it can never change the flight.
+    packages: []
+    files:
+      - ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py
+      - ros2_ws/src/simulation/sim_demo/sim_demo/csv_export.py
+      - ros2_ws/src/simulation/sim_demo/sim_demo/run_csv.py
+      - ros2_ws/src/simulation/sim_demo/sim_demo/run_records.py
+      - ros2_ws/src/simulation/sim_demo/sim_demo/run_summary.py
+      - simulation/scripts/logs.sh
+      - docs/simulation/LOGS_AND_DATA.md
+
+  - key: commands_docs
+    label: Commands, errors and the docs index
+    summary: >-
+      The front door for people. astra.sh is the one command to remember: each word after it runs the script that
+      does that job (demo, manual, stop, over, mission, photo, status, logs, build ...). mission.sh checks a mission
+      file in plain words before anyone flies it (the checker is sim_demo mission_check.py), loads it and flies it.
+      docs/simulation/COMMANDS.md lists every command and docs/simulation/ERRORS.md every error message with its fix.
+      docs/README.md is the index of every document, and check_docs.py fails when a doc is missing from it or a link
+      or script name is broken.
+    packages: []
+    files:
+      - simulation/scripts/astra.sh
+      - simulation/scripts/mission.sh
+      - simulation/scripts/check_docs.py
+      - ros2_ws/src/simulation/sim_demo/sim_demo/mission_check.py
+      - docs/README.md
+      - docs/simulation/COMMANDS.md
+      - docs/simulation/ERRORS.md
 
   - key: demo_scoring
     label: Demo screens and scoring
     summary: >-
       What you watch during a simulated mission, and the report card at the end. sim_demo holds score_run
       (compares what the team code found, and where the payloads landed, with the answer key and writes
-      score_report.md), demo_markers (pictures in RViz), truth_detector (a perfect stand-in detector for
-      tests), pov_server (the drone camera as a web video for Mission Planner at http://127.0.0.1:8081/pov.mjpg)
-      and the old demo_panel window. RViz is the 3D viewer that shows the camera picture and the markers.
+      score_report.md), demo_markers (pictures in RViz), truth_detector (a perfect stand-in detector for tests),
+      pov_server (the drone camera as a web video for Mission Planner at http://127.0.0.1:8081/pov.mjpg, with the
+      gimbal angles drawn on it) and the old Qt demo panel, which is off by default (demo.sh --panel brings it back).
+      Scoring and phase tracking still read the photo-path topics today; teaching them the new video pipeline's
+      outputs is part of the work going on now.
     packages:
       - ros2_ws/src/simulation/sim_demo
 
@@ -122,45 +213,60 @@ systems:
     summary: >-
       The pilot's screen on the Windows laptop. Mission Planner is the ground-station program used at the
       competition: it uploads the mission, arms the drone, switches flight modes and shows the position,
-      height and messages, all over MAVLink (from the simulator on UDP port 14550). Our plugin astra_gcs.cs adds
-      an ASTRA tab (mission phase, hiker and tent cards, buttons), map markers and the drone camera picture in
-      the HUD (from pov_server). The .bat files in simulation/windows start the simulator from Windows with a
-      double-click.
+      height and messages, all over MAVLink (from the simulator on UDP port 14550). Our plugin astra_gcs.cs
+      (version 1.1) adds an ASTRA tab (mission phase, hiker and tent cards, buttons), map markers and the drone
+      camera picture in the HUD (from pov_server). The .bat files in simulation/windows start the simulator from
+      Windows with a double-click.
     packages:
       - simulation/windows
       - simulation/windows/mission_planner_plugin
 
   - key: lattice
-    label: Lattice bridge (live map for Anduril Lattice)
+    label: Lattice bridge (handed to the team)
     summary: >-
-      An optional extra that shows the mission on Anduril Lattice, a shared live map in a web browser. On the
-      drone, lattice_reporter turns each detection into one short radio text ("TGT p <lat> <lon> <confidence>
-      <count>"); on the ground, the bridge reads the drone's MAVLink, builds Lattice "entities" (the drone, the
-      hiker and tent tracks, the search areas, the drop points) and sends them over HTTP. In the simulator they
-      go to fake_lattice, a pretend Lattice with its own live map at http://127.0.0.1:8089/. The flight never
-      depends on it: if Lattice is down, the drone flies exactly the same.
+      An optional extra that shows the mission on Anduril Lattice, a shared live map in a web browser. The owner
+      handed this work to the team on 2026-10-31 (commit f139036); the team continues it from docs/lattice/HANDOFF.md.
+      On the drone, lattice_reporter turns each detection into one short radio text ("TGT p <lat> <lon> <confidence>
+      <count>"); on the ground, the bridge reads the drone's MAVLink (in the simulator from UDP 14554, profile
+      lattice_mock), builds Lattice "entities" and sends them over HTTP, to fake_lattice (a pretend Lattice with a live
+      map at http://127.0.0.1:8089/) in the simulator. The flight never depends on it.
     packages:
       - ros2_ws/src/lattice_bridge
       - docs/lattice
+    files:
+      - simulation/profiles/lattice_mock.yaml
+
+  - key: jetson_hil
+    label: Jetson in the loop (virtual Jetson now, real Jetson later)
+    summary: >-
+      The team's software in ONE Docker container (astra-hil) that runs exactly as on the drone, while the simulator
+      stays on the PC. For now only the VIRTUAL Jetson runs: the same container on this PC (the owner is at home, so
+      the real board is not connected). A relay (hil_relay.py) carries the MAVLink (to SITL SERIAL2, TCP 5763), the
+      camera's SIYI SDK (UDP 37260), its RTSP video (TCP 8554) and its HTTP photo API (port 82); on the real Jetson it
+      travels through the owner's own SSH login, for the virtual Jetson through local socket files. A read-only ROS
+      tap copies the team's topics back to the PC for the score. This work is being built (simulation/jetson/, guide
+      docs/jetson/README.md, design docs/jetson/HIL_DESIGN.md).
+    packages:
+      - simulation/jetson/**
+      - docs/jetson/**
+    files:
+      - simulation/profiles/jetson_*.yaml
 
   - key: docker_setup
-    label: Install, build and Docker
+    label: Install, build, Docker and the Docker doctor
     summary: >-
       How a computer gets ready to run all of this. simulation/setup installs ROS 2 Humble, Gazebo Harmonic,
       MAVROS and ArduPilot SITL (01_install_humble.sh, 02_setup_ardupilot.sh) and builds the code (03_build.sh
       copies the repo to ~/ODLC_Machine_Inferencing_System_2025-2026 and runs colcon build there); sim_env.sh
       loads it all into a terminal. docker/ and simulation/docker/ do the same inside containers (images
-      astra-dev, astra-sitl, astra-sim) and .devcontainer opens them in VS Code. The Docker part is still work
-      in progress.
+      astra-dev, astra-sitl, astra-sim) and .devcontainer opens them in VS Code. The Docker doctor
+      (simulation/docker/check_host.sh, with check_host.ps1 for the Windows side) checks a computer before the first
+      Docker run and says exactly what to fix.
     packages:
       - simulation/setup
       - simulation/docker
       - docker
       - .devcontainer/**
-      # "Jetson in the loop" (the team stack in Docker on the real Jetson, the simulator on the PC): its design
-      # doc and its scripts (simulation/jetson/, being written on 2026-10-31).
-      - docs/jetson
-      - simulation/jetson/**
 
   - key: tests
     label: Tests and CI checks
@@ -177,10 +283,11 @@ systems:
   - key: codemap
     label: This code map (the explorer)
     summary: >-
-      The explorer you are looking at. extract.py reads every source file and writes codemap.json (this map);
-      server.py serves the explorer page on http://127.0.0.1:8090 and turns the live tracer's reports into
-      green lights; the tracer in trace/ only switches on when the environment variable ASTRA_TRACE=1 is set.
-      build_artifact.py packs the page, the map and one recorded run into a single HTML file.
+      The explorer you are looking at. extract.py reads every source file and writes codemap.json (this map, and
+      the Wiring view from systems.yaml); server.py serves the explorer page on http://127.0.0.1:8090 and turns the
+      live tracer's reports (UDP 8091) into green lights; the tracer in trace/ only switches on when the environment
+      variable ASTRA_TRACE=1 is set. build_artifact.py packs the page, the map and one recorded run into a single
+      HTML file.
     packages:
       - simulation/codemap/**
 
@@ -201,7 +308,8 @@ systems:
       - servo_test
       - LearnC++ROS2
 
-# Plain names and summaries for folders that are not ROS packages (ROS packages use their package.xml).
+# Plain names and summaries for package blocks. A ROS package keeps the name and description of its package.xml
+# unless a label or summary is given here; a group of claimed files is named by "<folder>@<system key>".
 package_info:
   .:
     label: top folder (launcher.sh)
@@ -213,7 +321,13 @@ package_info:
     label: ros2_ws/src (loose files)
     summary: >-
       Files that sit directly in ros2_ws/src next to the packages: yolo_model_downloader.py downloads the YOLO
-      model weights the detector uses.
+      model weights the legacy (2025) photo detector new_od uses.
+  ros2_ws/src/mapping:
+    label: mapping (legacy 2025 photo pipeline)
+  ros2_ws/src/video_cam:
+    label: video_cam (legacy 2025 photo pipeline)
+  ros2_ws/src/detection:
+    label: detection / new_od (legacy 2025 photo pipeline)
   scripts:
     label: scripts (operator tools)
     summary: >-
@@ -234,15 +348,18 @@ package_info:
   simulation/scripts:
     label: simulation/scripts (demo and simulator commands)
     summary: >-
-      The bash commands that run the simulator: demo.sh (the whole search demo), start_sim.sh, stop_sim.sh,
-      status.sh, fly_mission.sh, upload_mission.sh, take_photo.sh, start_over.sh, mission_planner.sh and
-      mp_actions.sh. _common.sh holds the helpers they all share (messages, sessions, the camera address).
+      The bash commands that run the simulator: demo.sh (the whole search demo), demo_traced.sh (the same with the
+      live code map), start_sim.sh, stop_sim.sh, status.sh, fly_mission.sh, upload_mission.sh, take_photo.sh,
+      start_over.sh, mission_planner.sh and mp_actions.sh (the Mission Planner plugin's simulator buttons).
+      _common.sh holds the helpers they all share (messages, sessions, the camera address). astra.sh, mission.sh and
+      check_docs.py are in "Commands, errors and the docs index"; logs.sh is in "Run logs".
   simulation/profiles:
     label: simulation/profiles (plug-in profiles)
     summary: >-
       Plug-and-play profiles: small YAML files that say which piece fills each slot of the simulation (world,
       autopilot, camera, detector, mission brain, extras). default.yaml is today's simulator with every setting
-      explained; the others only list what they change.
+      explained; the others only list what they change. The Jetson profiles are in "Jetson in the loop" and
+      lattice_mock.yaml in "Lattice bridge".
   simulation/setup:
     label: simulation/setup (install and build)
     summary: >-
@@ -250,10 +367,11 @@ package_info:
       03_build.sh, fetch_sitl.sh, camera_ip_alias.sh, check_ros.sh, and sim_env.sh (loads ROS, the workspace
       and the Gazebo paths into a terminal).
   simulation/docker:
-    label: simulation/docker (container helpers)
+    label: simulation/docker (container helpers and the Docker doctor)
     summary: >-
       Scripts that build and run the simulator in Docker containers wired like the real drone: build_images.sh,
-      compose_up.sh / compose_down.sh, the container start scripts and their shared helpers. Work in progress.
+      compose_up.sh / compose_down.sh, the container start scripts and their shared helpers, and the Docker doctor
+      check_host.sh (Linux side) with check_host.ps1 (Windows side), which checks a computer before the first run.
   docker:
     label: docker (Dockerfile and compose files)
     summary: >-
@@ -278,13 +396,85 @@ package_info:
   simulation/windows/mission_planner_plugin:
     label: Mission Planner plugin
     summary: >-
-      astra_gcs.cs, the ASTRA plugin that Mission Planner compiles when it starts: the ASTRA tab, the map
-      markers and the drone camera in the HUD.
+      astra_gcs.cs, the ASTRA plugin (version 1.1) that Mission Planner compiles when it starts: the ASTRA tab, the
+      map markers and the drone camera in the HUD.
   simulation/codemap:
     label: simulation/codemap (the code map)
     summary: >-
       The code map: the extractor (extract.py), this systems file, the explanations, the live tracer, the
-      localhost server and the explorer page.
+      localhost server and the explorer page with its Wiring view.
+  simulation/video:
+    label: simulation/video (the new pipeline in the twin, being built)
+    summary: >-
+      The twin's side of the team's new video pipeline, being built by the video workflow: video.sh (check, build,
+      start, stop the team's video code from a folder you point to), and in proposals/ our labelled proposals for the
+      team (a field launch file, a detection adapter that feeds main_controller, a GPU detector), which the team has
+      not adopted. Design: docs/simulation/VIDEO_PIPELINE.md.
+  simulation/jetson:
+    label: simulation/jetson (Jetson-in-the-loop kit, being built)
+    summary: >-
+      The Jetson kit: jetson.sh (check, login, setup, deploy, start, stop, status, logs), the container image
+      (image/), the relay and board helpers (lib/), the PC side of a Jetson flight (pc/: link.sh, the ROS tap,
+      collect.sh) and their tests. Guide: docs/jetson/README.md.
+  docs/jetson:
+    label: docs/jetson (Jetson guides)
+  ros2_ws/src/simulation/sim_demo/sim_demo@run_logs:
+    label: "sim_demo: flight recorder, CSV files, run summary"
+    summary: >-
+      The run-logging part of the sim_demo package: flight_recorder.py (live CSV from MAVLink UDP 14555),
+      run_records.py (starts and finishes a run's records), csv_export.py (completes the CSV files after the run),
+      run_csv.py (the shared column lists) and run_summary.py (run_summary.md and the table of all runs).
+  ros2_ws/src/simulation/sim_demo/sim_demo@commands_docs:
+    label: "sim_demo: mission_check.py"
+    summary: >-
+      The mission file checker behind "mission.sh check": it explains every item of a mission in plain words and
+      checks that the team's flight code can fly it, before anyone uploads it.
+  simulation/scripts@run_logs:
+    label: logs.sh (look at runs)
+    summary: >-
+      logs.sh lists the run folders and shows a run's summary, its errors, the end of a log, where the CSV files
+      are, and makes one zip of a run to send to a teammate.
+  simulation/scripts@commands_docs:
+    label: astra.sh, mission.sh, check_docs.py
+    summary: >-
+      astra.sh, the one command to remember (it runs the right script for each word), mission.sh (check, load, fly
+      and make mission plans) and check_docs.py (keeps the docs index and every link and script name true).
+  docs@commands_docs:
+    label: docs/README.md (the docs index)
+    summary: >-
+      The index of every document in the repo: where it is, what it is for and who it is for. check_docs.py fails
+      when a doc is missing from it.
+  docs/simulation@commands_docs:
+    label: COMMANDS.md and ERRORS.md
+    summary: >-
+      COMMANDS.md lists every command of the twin through the astra.sh front door; ERRORS.md lists every error and
+      warning message the commands print, with what it means and how to fix it.
+  docs/simulation@run_logs:
+    label: LOGS_AND_DATA.md
+    summary: >-
+      The guide to every log and data file of a run, including the CSV files the flight recorder writes during the
+      flight.
+  docs/simulation@plug_and_play:
+    label: SWAPPING.md and PLUGINS.md
+    summary: >-
+      SWAPPING.md: swap the autopilot, the Jetson code or the detection model with one command each. PLUGINS.md: the
+      full reference of profiles and slots.
+  docs/simulation@video_pipeline:
+    label: VIDEO_PIPELINE.md (design)
+    summary: >-
+      The design for running the team's new video pipeline in the twin exactly as in the field: every connection,
+      the simulated RTSP stream, what reaches the mission logic (a labelled proposal), logging, and the differences
+      from the field.
+  simulation/profiles@jetson_hil:
+    label: Jetson profiles (jetson_usb, jetson_ssh, jetson_virtual)
+    summary: >-
+      The simulator profiles of a Jetson-in-the-loop flight: the team stack runs in the astra-hil container (on the
+      real Jetson over the USB cable or plain SSH, or as the virtual Jetson on this PC) instead of ./launcher.sh sim.
+  simulation/profiles@lattice:
+    label: lattice_mock.yaml
+    summary: >-
+      The profile that runs the Lattice bridge with a pretend Lattice: a second MAVProxy on SITL SERIAL1 (TCP 5762)
+      sends the drone's MAVLink to the bridge on UDP 14554.
 
 externals:
   - key: gazebo
@@ -293,9 +483,10 @@ externals:
     summary: >-
       Gazebo Harmonic (gz sim 8) is the 3D simulator: it computes the physics (gravity, motors, collisions),
       draws the world and renders the drone's cameras. sim.launch.py starts it twice: the server "gz sim -s -r
-      <world>.sdf" and the window "gz sim -g". The drone's ArduPilotPlugin talks to ArduPilot SITL over UDP port
-      9002 in lock-step (each simulation step waits for the autopilot). The pretend camera, payload_release and
-      ros_gz_bridge talk to Gazebo through its own message system (gz transport, partition astra_sim).
+      <world>.sdf" and the window "gz sim -g" (gui_camera:=window puts the live camera in its own window, which
+      fixed its flicker). The drone's ArduPilotPlugin talks to ArduPilot SITL over UDP port 9002 in lock-step (each
+      simulation step waits for the autopilot). The pretend camera, payload_release and ros_gz_bridge talk to Gazebo
+      through its own message system (gz transport, partition astra_sim).
     ros_packages: [ros_gz_sim]
     programs: [gz]
     launch_names: [gz_server, gz_gui]
@@ -320,22 +511,25 @@ externals:
     summary: >-
       ArduPilot SITL is the real ArduCopter 4.6.3 flight firmware compiled to run on a PC (~/sitl/arducopter).
       It believes it is flying a real drone: Gazebo sends it sensor readings and it sends back motor speeds (UDP
-      port 9002, JSON). It speaks MAVLink on TCP 5760 (MAVProxy) and has two spare ports, 5762 and 5763; demo.sh
-      connects MAVROS to 5763, like the Jetson on the Pixhawk's TELEM2 port. Its settings come from copter.parm,
-      gazebo-iris.parm and our astra_sitl.parm; parameters changed while it runs are saved in
+      port 9002, JSON). It speaks MAVLink on TCP 5760 (SERIAL0, MAVProxy), 5762 (SERIAL1, spare: a second ground
+      station or the Lattice profile) and 5763 (SERIAL2): demo.sh connects MAVROS to 5763, like the Jetson on the
+      Pixhawk's TELEM2 port, so ArduPilot forwards the team's texts to every ground station. Its settings come from
+      copter.parm, gazebo-iris.parm and our astra_sitl.parm; parameters changed while it runs are saved in
       ~/.astra_sim/sitl_I0/eeprom.bin.
     programs: [arducopter, sim_vehicle.py]
     launch_names: [sitl]
     process_match: ['\barducopter\b']
 
   - key: mavproxy
-    label: MAVProxy (MAVLink router)
+    label: MAVProxy (MAVLink router, twin of the telemetry radio)
     system: autopilot
     summary: >-
       MAVProxy is a small command-line ground station written in Python. In the simulator it connects to SITL
       on TCP 5760 and copies the MAVLink stream to several UDP outputs: 127.0.0.1:14550 (mission_tool and the
-      other scripts), 14552 (MAVROS, the older wiring), 14553 (the demo panel's buttons) and, inside WSL, port
-      14550 of the Windows computer for Mission Planner. It records the whole conversation in mav.tlog.
+      other scripts), 14555 (the CSV flight recorder; demo.sh adds it), 14552 (the older MAVROS wiring, unused by
+      default), 14553 (the old demo panel's buttons, off by default) and, inside WSL, port 14550 of the Windows
+      computer for Mission Planner. The Lattice profile starts a second MAVProxy on SITL's spare port 5762 that sends
+      to the Lattice bridge on UDP 14554. MAVProxy records the whole conversation in mav.tlog.
     programs: [mavproxy.py, mavproxy]
     launch_names: [mavproxy]
     process_match: ['mavproxy\.py']
@@ -346,12 +540,51 @@ externals:
     summary: >-
       MAVROS translates between MAVLink (the autopilot's language) and ROS 2 topics and services. launcher.sh
       starts it with "ros2 launch mavros apm.launch fcu_url:=...": on the real drone over the USB serial cable
-      /dev/ttyUSB0 at 115200 baud, in the simulator over TCP 5763 (demo.sh) or UDP 14552. The team nodes read
+      /dev/ttyUSB0 at 115200 baud (the Pixhawk's TELEM2), in the simulator over TCP 5763 (SITL SERIAL2, demo.sh's
+      default), in a Jetson-in-the-loop flight to 127.0.0.1:5763 inside the container (the relay). The team nodes read
       /mavros/state, /mavros/mission/reached, /mavros/global_position/* and /mavros/statustext/recv, send text
       with /mavros/statustext/send, and command the drone with services such as /mavros/set_mode,
       /mavros/cmd/command and /mavros/mission/push.
     ros_packages: [mavros]
     process_match: ['\bmavros_node\b']
+
+  - key: zr10_node
+    label: zr10_node (team camera controller, code not in this repo)
+    system: video_pipeline
+    summary: >-
+      The team's camera controller for the SIYI ZR10 (package zr10_ros2, C++ node zr10_camera), started on the field
+      Jetson with "ros2 run zr10_ros2 zr10_node". Team code, not in this repo (it is on the team's ASTRA repo, branch
+      video-cam, and on the board). It sends SIYI SDK commands to the camera at 192.168.144.25 on UDP 37260 only when
+      somebody calls one of its services (take photo, autofocus, zoom, gimbal speed, centre); no team node does that
+      during a mission today. In the twin the simulated ZR10 (siyi_emulator) must answer everything it sends; running
+      it there is being built (simulation/video/).
+    ros_packages: [zr10_ros2]
+    process_match: ['\bzr10_node\b']
+
+  - key: zr10_stream
+    label: zr10_stream (team video stream node, code not in this repo)
+    system: video_pipeline
+    summary: >-
+      The team's stream node (package zr10_stream, Python stream_node, started with "ros2 launch zr10_stream
+      stream.launch.py fps:=2.0"). Team code, not in this repo. It runs ffmpeg to pull the camera's live video over
+      RTSP on TCP (rtsp://192.168.144.25:8554/main.264), scales it to 1280 x 720, keeps 2 pictures a second and
+      publishes each one on the ROS topic /zr10/image_raw (sensor_msgs/Image, rgb8). In the twin the simulated ZR10's
+      RTSP stream, made from the Gazebo gimbal camera, is being built.
+    ros_packages: [zr10_stream]
+    process_match: ['\bstream_node(\.py)?\b', 'zr10_stream']
+
+  - key: team_detector
+    label: Detection package (team YOLO26 detector, code not in this repo)
+    system: video_pipeline
+    summary: >-
+      The team's detection package, which subscribes to the camera pictures on /zr10/image_raw. Team code, not in this
+      repo. Today it is a YOLO26 detector (C++ yolo26_ros detector_node, ONNX model, in the Docker image
+      yolo26-ros-subscriber, input_mode topic) that writes its results as files (a CSV file and an annotated PNG per
+      picture) and publishes no topic. In the real mission it runs on the Jetson GPU with TensorRT. How its detections
+      reach main_controller is not decided by the team; our labelled proposal (a detection topic and an adapter that
+      publishes /image_detection) is being written in simulation/video/proposals/.
+    ros_packages: [yolo26_ros]
+    process_match: ['\bdetector_node\b']
 
   - key: mission_planner
     label: Mission Planner (Windows ground station)
@@ -392,6 +625,8 @@ externals:
 topic_owners:
   - prefix: /camera/
     parent: sys:camera_detection
+  - prefix: /zr10/
+    parent: sys:video_pipeline
   - prefix: /mavros/
     owner: ext:mavros
   - prefix: /waypoint_manager/
@@ -401,66 +636,307 @@ topic_owners:
     owner: mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py
     label: sent automatically by ROS when waypoint_manager changes its index parameters
 
-# Network links and other wires the code itself does not show. Every line was checked in the code
-# (file names in the comments).
+# Network links and other wires the code itself does not show. Every port was checked in the files listed under
+# "code" (test_extract.py checks that those files exist and contain the port). Links with "wire:" are drawn in the
+# Wiring view too (see the header of this file).
 links:
-  # physics: the drone model's ArduPilotPlugin <-> SITL (sim.launch.py, sim_models model.sdf.xacro)
-  - from: ext:gazebo
+  # ---------------------------------------------------------------- the autopilot and the ground
+  - id: physics
+    from: ext:gazebo
     to: ext:ardupilot_sitl
     kind: data
     label: "physics link: sensor readings to SITL, motor speeds back (UDP 9002 + 10 x instance, JSON, lock-step)"
-  # MAVProxy's master connection (sim.launch.py add_mavproxy: --master tcp:127.0.0.1:5760)
-  - from: ext:mavproxy
+    wire: gz
+    arrow: both
+    status: current
+    title: Physics link
+    via: UDP 9002 · JSON lock-step
+    code: [ros2_ws/src/simulation/sim_bringup/sim_bringup/sim_paths.py, ros2_ws/src/simulation/sim_bringup/launch/sim.launch.py]
+    explain: >-
+      SITL sends the motor and servo outputs; Gazebo moves the drone one physics step and answers with position,
+      speed, attitude and IMU readings. Each side waits for the other, so the simulation never drifts. A second
+      simulator adds 10 to the port (9012).
+  - id: serial0
+    from: ext:mavproxy
     to: ext:ardupilot_sitl
     kind: mavlink
     label: "MAVLink over TCP 5760 (SITL serial0); SITL waits for this connection before it starts"
-  # the Windows ground station copy (sim_paths.windows_gcs_output, demo.sh --no-windows-gcs)
-  - from: ext:mavproxy
+    wire: mav
+    arrow: both
+    status: current
+    title: The autopilot's main port
+    via: TCP 5760 · SERIAL0
+    code: [ros2_ws/src/simulation/sim_bringup/sim_bringup/sim_paths.py, ros2_ws/src/simulation/sim_bringup/launch/sim.launch.py]
+    explain: >-
+      Everything a ground station sees and sends goes through here: telemetry, missions, mode changes, arming.
+      MAVProxy is its only client and copies it to the ground programs. TCP 5762 (SERIAL1) stays free for a second
+      ground station.
+  - id: mp_link
+    from: ext:mavproxy
     to: ext:mission_planner
     kind: mavlink
     label: "MAVLink copy for Mission Planner (UDP 14550; inside WSL sent to the Windows computer)"
-  # demo.sh: TEAM_FCU_URL=tcp://127.0.0.1:$((5763 + 10 * INSTANCE))
-  - from: ext:mavros
+    wire: mav
+    arrow: both
+    status: current
+    title: Mission Planner's link
+    via: UDP 14550 · Windows host
+    code: [ros2_ws/src/simulation/sim_bringup/sim_bringup/sim_paths.py]
+    explain: >-
+      Telemetry down, commands up, like the real telemetry radio. Because MAVROS has its own autopilot port, the
+      team's status texts ("Aim tent ...", "Servo 13 -> 1400") arrive here too, and the ASTRA plugin turns them into
+      the phase strip, the target cards and the map markers.
+  - id: serial2
+    label_at: 952,604 start stack
+    from: ext:mavros
     to: ext:ardupilot_sitl
     kind: mavlink
     label: "MAVLink over TCP 5763 (SITL SERIAL2, like the Jetson on the Pixhawk's TELEM2): demo.sh's wiring"
+    wire: mav
+    arrow: both
+    status: current
+    title: The Jetson's link (SERIAL2)
+    via: TCP 5763 · SERIAL2
+    code: [simulation/scripts/demo.sh, simulation/profiles/default.yaml]
+    explain: >-
+      MAVROS gets the telemetry and the mission, and sends mode changes, waypoints, DO_SET_SERVO and the team's
+      status texts. On the real drone this is the serial cable from the Jetson to the Pixhawk's TELEM2 port
+      (/dev/ttyUSB0 at 115200 baud). Because it is the autopilot's own port, ArduPilot forwards the team's texts to
+      every ground station (commit 6d90c07).
   # launcher.sh: FCU_URL="${FCU_URL:-udp://:14552@localhost:14552}" (start_sim.sh by hand, lattice_mock profile)
   - from: ext:mavros
     to: ext:mavproxy
     kind: mavlink
-    label: "MAVLink over UDP 14552: launcher.sh's own sim default (fcu_url udp://:14552@localhost:14552)"
-  # the real drone (launcher.sh hw mode) is not in the simulator; kept in the summaries instead
-  - from: mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py
+    label: "MAVLink over UDP 14552: launcher.sh's own sim default (fcu_url udp://:14552@localhost:14552), the older wiring"
+  - id: tool_link
+    from: mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py
     to: ext:mavproxy
     kind: mavlink
     label: "uploads the mission, waits for GPS and the EKF, arms and starts AUTO (udpin:127.0.0.1:14550)"
+    wire: mav
+    arrow: both
+    status: current
+    title: The demo's robot pilot
+    via: UDP 14550 · 127.0.0.1
+    code: [ros2_ws/src/simulation/sim_bringup/sim_bringup/sim_paths.py]
+    path: 680,262 680,348
+    label_at: 606,316 start stack
+    explain: >-
+      mission_tool (run by demo.sh) waits until the drone is ready, uploads the survey mission, arms and switches to
+      AUTO, like a pilot pressing buttons in Mission Planner. It reads the drone's state from the autopilot component
+      only (commit 9ef3c01), so a team text from MAVROS cannot confuse it.
+  - id: recorder_link
+    from: ext:mavproxy
+    to: mod:ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py
+    kind: mavlink
+    label: "the flight recorder's own copy of the MAVLink (UDP 127.0.0.1:14555 + 10 x instance; demo.sh adds this output)"
+    wire: mav
+    status: current
+    title: The flight recorder's copy
+    via: UDP 14555
+    code: [simulation/scripts/demo.sh, ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py]
+    label_at: 498,294 start
+    explain: >-
+      demo.sh adds one more MAVProxy output just for the recorder. The recorder only listens: it never sends a byte to
+      the autopilot, so it cannot change the flight.
   - from: mod:ros2_ws/src/simulation/sim_demo/sim_demo/demo_panel.py
     to: ext:mavproxy
     kind: mavlink
-    label: "panel buttons UPLOAD MISSION + START and RTL (udpin:127.0.0.1:14553)"
-  # the two doors of the camera (video_cam camera_interface.py <-> siyi_emulator emulator.py / media_server.py)
-  - from: mod:ros2_ws/src/video_cam/video_cam/camera_interface.py
+    label: "the old demo panel's buttons UPLOAD MISSION + START and RTL (udpin:127.0.0.1:14553; the panel is off by default)"
+  # ---------------------------------------------------------------- the camera (legacy photo pipeline)
+  - id: legacy_sdk
+    label_at: 1415,1000 middle stack
+    from: mod:ros2_ws/src/video_cam/video_cam/camera_interface.py
     to: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
     kind: data
-    label: "SIYI SDK packets over UDP 37260 at 192.168.144.25 (shutter, zoom, gimbal); on the drone: the real camera"
-  - from: mod:ros2_ws/src/video_cam/video_cam/camera_interface.py
+    label: "legacy photo pipeline: SIYI SDK packets over UDP 37260 at 192.168.144.25 (shutter, zoom, gimbal); on the drone: the real camera"
+    wire: cam
+    arrow: both
+    status: legacy
+    title: Camera commands (legacy photo pipeline)
+    via: UDP 37260 · SIYI SDK
+    code: [ros2_ws/src/video_cam/video_cam/config.py, ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py]
+    offset: -10
+    explain: >-
+      Last year's camera driver sends the shutter (SDK command 0x0C), gimbal angles, zoom and SD card checks; the
+      emulator answers like the real camera. 192.168.144.25 is a loopback alias on this PC, so the address in the team
+      code does not change.
+  - id: legacy_http
+    label_at: 1415,1068 middle stack
+    from: mod:ros2_ws/src/video_cam/video_cam/camera_interface.py
     to: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/media_server.py
     kind: http
-    label: "photo list and photo download over HTTP port 82 (/cgi-bin/media.cgi/api/v1/getmedialist)"
-  # gz transport (siyi_emulator gz_link.py, sim_models payload_release_node.py)
-  - from: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/gz_link.py
+    label: "legacy photo pipeline: photo list and photo download over HTTP port 82 (/cgi-bin/media.cgi/api/v1/getmedialist)"
+    wire: cam
+    arrow: from
+    status: legacy
+    title: Photo download (legacy photo pipeline)
+    via: HTTP 82 · photos
+    code: [ros2_ws/src/simulation/siyi_emulator/siyi_emulator/media_server.py]
+    offset: 10
+    explain: >-
+      The siyi node lists the camera's media folder and downloads the newest photo, exactly as from the real camera's
+      web server.
+  # ---------------------------------------------------------------- the camera (the team's new video pipeline)
+  - id: zr10_sdk
+    from: ext:zr10_node
+    to: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
+    kind: data
+    label: "SIYI SDK commands over UDP 37260 at 192.168.144.25 (only on a service call); the twin's answers to every zr10_ros2 command are being built"
+    wire: cam
+    arrow: both
+    status: being built
+    title: Camera control (new video pipeline)
+    via: UDP 37260 · SIYI SDK
+    code: [docs/simulation/VIDEO_PIPELINE.md, ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py]
+    explain: >-
+      zr10_node sends SIYI SDK frames (zoom, gimbal speed, centre, photo, autofocus) only when someone calls one of
+      its services; during a mission today nobody does. Field: the real ZR10. Twin: the simulated ZR10 already answers
+      the SIYI SDK; making it answer everything zr10_ros2 sends, and running zr10_node against it, is being built.
+  - id: rtsp
+    from: ext:zr10_stream
+    to: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
+    kind: data
+    label: "live video over RTSP on TCP 8554 (rtsp://192.168.144.25:8554/main.264, H.264); the twin's RTSP server is being built"
+    wire: cam
+    arrow: from
+    status: being built
+    title: The live video (RTSP)
+    via: RTSP · TCP 8554 · /main.264
+    code: [docs/simulation/VIDEO_PIPELINE.md, simulation/jetson/lib/hil_relay.py]
+    explain: >-
+      The team's stream node runs ffmpeg with -rtsp_transport tcp on rtsp://192.168.144.25:8554/main.264, so the
+      video travels inside one TCP connection. Field: the real ZR10's main stream. Twin (being built): a GStreamer
+      RTSP server inside the camera emulator, fed by the Gazebo gimbal camera (H.264 1920 x 1080, 30 frames a second,
+      the ZR10 manual's documented settings; the real camera's exact defaults were not measured).
+  - id: image_raw
+    from: ext:zr10_stream
+    to: topic:/zr10/image_raw
+    kind: publishes
+    label: "sensor_msgs/Image rgb8 1280 x 720, 2 pictures a second (team code)"
+    wire: ros
+    wire_to: detector
+    status: being built
+    title: Pictures for the detector
+    via: /zr10/image_raw
+    code: [docs/simulation/VIDEO_PIPELINE.md]
+    explain: >-
+      The camera side publishes images on a ROS topic and the detection package subscribes to it (the owner's
+      architecture, 2026-10-31). On the field Jetson this runs today; in the twin it runs once the stream is built.
+  - from: ext:team_detector
+    to: topic:/zr10/image_raw
+    kind: subscribes
+    label: "input_mode topic, best effort (team code)"
+  - id: det_files
+    map: false
+    wire_from: detector
+    wire_to: detfiles
+    wire: files
+    status: being built
+    title: The detector's results today
+    via: csv + annotated png
+    explain: >-
+      Today the team's detector writes one CSV file (boxes, confidence, class) and one annotated picture per frame
+      into camera_results/, and publishes no ROS topic. So nothing in the team code passes its detections to the
+      mission brain yet.
+  - id: det_adapter
+    map: false
+    wire_from: detector
+    wire_to: adapter
+    wire: ros
+    status: proposal
+    title: Detections as a topic (proposal)
+    via: /yolo26/detections
+    explain: >-
+      PROPOSAL, not adopted by the team: the detector also publishes its boxes on a ROS topic (vision_msgs
+      Detection2DArray, stamped with the picture's time), so a program can use them. Written in
+      simulation/video/proposals/ (being written).
+  - id: adapter_main
+    map: false
+    wire_from: adapter
+    wire_to: main
+    wire: ros
+    status: proposal
+    title: Detections reach the mission brain (proposal)
+    via: /image_detection · proposal
+    label_at: 508,725 start
+    explain: >-
+      PROPOSAL, not adopted by the team: the adapter turns each box into the message main_controller already
+      understands (interfaces/ImageResult on /image_detection, class "0" person, "1" tent), with a ground position
+      worked out from the drone's position and the gimbal angles at the moment the picture was taken. How detections
+      reach main_controller is still the team's decision.
+  - id: adapter_sdk
+    map: false
+    wire_from: adapter
+    wire_to: emu
+    wire: cam
+    status: proposal
+    title: Point the camera down, read its angles (proposal)
+    via: UDP 37260 · look down, read angles
+    path: 1100,743
+    explain: >-
+      PROPOSAL, not adopted by the team: nothing in the team code points the camera at the ground. The proposal's
+      gimbal_pointing sends "look down" (SDK 0x0E) when the survey starts, and the adapter reads the gimbal angles
+      (0x0D) and zoom (0x18) to place each detection on the ground.
+  # ---------------------------------------------------------------- the simulated world
+  - id: emu_gz
+    label_at: 1559,470 end
+    from: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/gz_link.py
     to: ext:gazebo
     kind: data
     label: "gimbal angles and the photo trigger to Gazebo, rendered photos back (gz transport)"
+    wire: gz
+    arrow: both
+    status: current
+    title: Gimbal and photos in Gazebo
+    via: gimbal, zoom, photo
+    code: [ros2_ws/src/simulation/siyi_emulator/siyi_emulator/gz_link.py]
+    offset: -40
+    explain: >-
+      The emulator turns SDK commands into Gazebo commands (point the gimbal there, take one frame now) and gets the
+      rendered photo back, on Gazebo's own topics /sim/gimbal/{yaw,roll,pitch}/cmd_pos, /sim/camera/photo/trigger and
+      /sim/camera/photo/image.
+  - id: gz_video
+    label_at: 1651,480 start stack
+    map: false
+    wire_from: gazebo
+    wire_to: emu
+    wire: gz
+    status: being built
+    title: Video frames for the RTSP stream
+    via: video frames · (being built)
+    offset: 40
+    explain: >-
+      Being built: the emulator subscribes to the Gazebo gimbal video camera (gz topic /sim/camera/video/image) and
+      encodes it as the RTSP stream at 30 frames a second, with the ZR10 lens and zoom.
   - from: mod:ros2_ws/src/simulation/sim_models/sim_models/payload_release_node.py
     to: ext:gazebo
     kind: data
     label: "reads the servo 11 / 13 positions, sends the detach that drops a payload (gz transport)"
-  # ros_gz_bridge (sim_bringup sim_paths.bridge_entries)
-  - from: ext:ros_gz_bridge
+    id: payload_gz
+    wire: gz
+    arrow: both
+    status: current
+    title: Servo outputs and the drop
+    via: servo 11/13 · detach
+    code: [ros2_ws/src/simulation/sim_models/sim_models/payload_release_node.py]
+    explain: >-
+      ArduPilotPlugin copies SITL outputs 11 and 13 onto Gazebo topics. When one reaches 1400 microseconds (open),
+      payload_release unhooks that payload and Gazebo lets it fall.
+  - id: gz_bridge
+    from: ext:ros_gz_bridge
     to: ext:gazebo
     kind: data
     label: "copies Gazebo topics into ROS 2 (camera, photos, odometry, gimbal angles)"
+    wire: gz
+    arrow: from
+    status: current
+    title: Camera picture out of Gazebo
+    via: camera · odometry · gimbal
+    code: [ros2_ws/src/simulation/sim_bringup/launch/sim.launch.py]
+    explain: >-
+      The bridge copies a few Gazebo topics into ROS 2: the live camera, every photo, the drone's odometry and the
+      gimbal angles.
   - from: ext:ros_gz_bridge
     to: topic:/sim/camera/image
     kind: publishes
@@ -488,6 +964,17 @@ links:
     to: topic:/sim/camera/image
     kind: subscribes
     label: "sensor_msgs/msg/Image (parameter topic, default /sim/camera/image)"
+  - id: bridge_pov
+    map: false
+    wire_from: gzbridge
+    wire_to: pov
+    wire: ros
+    status: current
+    title: The live picture in ROS 2
+    via: /sim/camera/image
+    explain: >-
+      ros_gz_bridge publishes the live camera on /sim/camera/image (1280 x 720, 25 a second); pov_server subscribes
+      to it, and to the gimbal angles and the drone's attitude, which it draws on the picture.
   - from: mod:ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py
     to: topic:/sim/gimbal/joint_states
     kind: subscribes
@@ -512,11 +999,21 @@ links:
     to: topic:/sim/payload/events
     kind: publishes
     label: "std_msgs/msg/String, JSON released / detached / landed (parameter events_topic)"
-  # the camera picture for Mission Planner (pov_server.py, astra_gcs.cs DefaultCameraUrl)
-  - from: mod:ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py
+  # ---------------------------------------------------------------- the ground station
+  - id: pov_mp
+    from: mod:ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py
     to: mod:simulation/windows/mission_planner_plugin/astra_gcs.cs
     kind: http
     label: "drone camera picture as MJPEG video (http://127.0.0.1:8081/pov.mjpg)"
+    wire: web
+    status: current
+    title: The picture in Mission Planner's HUD
+    via: MJPEG · :8081
+    code: [ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py, simulation/windows/mission_planner_plugin/astra_gcs.cs]
+    explain: >-
+      At most 10 pictures a second, 960 pixels wide, with the gimbal angles drawn on them. WSL forwards localhost, so
+      Windows reaches it at the same address. The ASTRA plugin paints it as the HUD background. It reads Gazebo's
+      live camera, not the RTSP stream.
   - from: ext:mission_planner
     to: mod:simulation/windows/mission_planner_plugin/astra_gcs.cs
     kind: runs
@@ -539,7 +1036,7 @@ links:
     to: mod:ros2_ws/src/simulation/sim_models/models/iris_a8mini/model.sdf.xacro
     kind: data
     label: "the drone model (turned into SDF at start and spawned as the entity iris)"
-  # Lattice (lattice_bridge sinks/rest_sink.py, sources/mavlink_source.py, fake_lattice.py, profile lattice_mock)
+  # ---------------------------------------------------------------- Lattice (handed to the team)
   - from: mod:ros2_ws/src/lattice_bridge/lattice_bridge/sinks/rest_sink.py
     to: mod:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py
     kind: http
@@ -548,7 +1045,829 @@ links:
     to: ext:lattice_cloud
     kind: http
     label: "entities as JSON over HTTPS with a token (the real Lattice; not used in the demos)"
-  - from: mod:ros2_ws/src/lattice_bridge/lattice_bridge/sources/mavlink_source.py
+  - id: lattice_link
+    from: mod:ros2_ws/src/lattice_bridge/lattice_bridge/sources/mavlink_source.py
     to: ext:mavproxy
     kind: mavlink
     label: "the drone's telemetry and the team's texts (lattice_mock: a second MAVProxy on SITL TCP 5762 -> UDP 14554)"
+    wire: mav
+    arrow: from
+    status: optional
+    title: The Lattice bridge's copy (team-owned)
+    via: UDP 14554 · lattice_mock
+    code: [simulation/profiles/lattice_mock.yaml]
+    path: 700,272 700,430
+    label_at: 606,412 start stack
+    explain: >-
+      Only with the lattice_mock profile: a second MAVProxy (the "ground radio") on SITL's spare port SERIAL1 (TCP
+      5762) sends the drone's MAVLink to the bridge on UDP 14554. The bridge only listens. This work was handed to the
+      team on 2026-10-31 (docs/lattice/HANDOFF.md).
+  # ---------------------------------------------------------------- runs, logs and the score
+  - id: recorder_files
+    map: false
+    wire_from: recorder
+    wire_to: runfolder
+    wire: files
+    status: current
+    title: Live CSV files
+    via: csv/*.csv (live)
+    label_at: 498,390 start
+    explain: >-
+      Every second the recorder writes telemetry.csv, events.csv and phases.csv into the run folder's csv/ folder. At
+      the end csv_export adds the photo, detection and drop files and run_summary writes run_summary.md.
+  - id: referees_files
+    map: false
+    wire_from: referees
+    wire_to: runfolder
+    wire: files
+    status: current
+    title: The score report
+    via: score_report.md · phases
+    explain: >-
+      phase_monitor writes phases.jsonl as the mission goes on; score_run writes score_report.md and mission_map.png
+      after the landing.
+  # ---------------------------------------------------------------- Jetson in the loop (being built)
+  - id: relay_mav
+    from: mod:simulation/jetson/lib/hil_relay.py
+    to: ext:ardupilot_sitl
+    kind: mavlink
+    label: "Jetson in the loop: MAVROS's MAVLink to SITL SERIAL2 (TCP 5763) through an SSH reverse forward (virtual Jetson: local socket files)"
+    wire: mav
+    arrow: both
+    status: being built
+    title: The Jetson's link through the relay
+    via: SSH -R · mavlink.sock → TCP 5763
+    code: [simulation/jetson/pc/link.sh, simulation/jetson/lib/hil_relay.py]
+    path: 990,490 990,272
+    label_at: 998,330 start stack
+    explain: >-
+      On the real Jetson, the owner's own SSH login (jetson.sh login) carries a reverse forward from the socket file
+      mavlink.sock on the Jetson to SITL SERIAL2 on the PC. For the virtual Jetson, hil_relay.py pc-local makes the
+      same socket files on this PC with no SSH. If SITL is silent for 4 s the relay dials again, and it drops (never
+      delays) MAVROS's bytes while the link is down.
+  - id: relay_cam
+    from: mod:simulation/jetson/lib/hil_relay.py
+    to: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
+    kind: data
+    label: "Jetson in the loop: the camera's SIYI SDK (UDP 37260), RTSP video (TCP 8554) and HTTP photos (TCP 82) through SSH forwards"
+    wire: cam
+    arrow: both
+    status: being built
+    title: The camera through the relay
+    via: SSH -R · UDP 37260 · TCP 8554 · TCP 82
+    code: [simulation/jetson/pc/link.sh, simulation/jetson/lib/hil_relay.py]
+    path: 1420,500 1420,660
+    label_at: 1428,540 start stack
+    explain: >-
+      Inside the container the camera address 192.168.144.25 belongs to the relay. zr10_node's SDK frames (UDP 37260,
+      packed into frames), zr10_stream's RTSP connection (TCP 8554) and the legacy photo downloads (TCP 82) cross
+      to the simulated camera on the PC, through SSH forwards on the real Jetson or local socket files for the virtual
+      Jetson.
+  - id: mavros_relay
+    map: false
+    wire_from: mavros
+    wire_to: relay
+    wire: mav
+    arrow: both
+    status: being built
+    title: MAVROS inside the container
+    via: TCP 127.0.0.1:5763 (container)
+    code: [simulation/jetson/image/entrypoint.sh]
+    label_at: 1078,620 start
+    explain: >-
+      In a Jetson-in-the-loop flight the container runs ./launcher.sh hw with FCU_URL=tcp://127.0.0.1:5763: the very
+      URL the native simulator uses, but there it reaches the relay, which passes the bytes to SITL SERIAL2.
+  - id: tap
+    from: mod:simulation/jetson/pc/ros_tap.py
+    to: mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/phase_monitor.py
+    kind: data
+    label: "Jetson in the loop: a read-only copy of the team's ROS topics to the PC (TCP 127.0.0.1:7461 through SSH -L; virtual: a socket file)"
+    wire: ros
+    wire_from: relay
+    status: being built
+    title: The ROS tap (read-only)
+    via: ROS tap · 7461
+    code: [simulation/jetson/pc/link.sh, simulation/jetson/pc/ros_tap.py]
+    explain: >-
+      The team's topics live inside the container. ros_tap.py copies a short list of them (and the names of the
+      running team nodes) one way, Jetson to PC, so score_run and phase_monitor see them. The PC never publishes into
+      the Jetson's ROS graph.
+  # ---------------------------------------------------------------- the code map itself
+  - id: tracer
+    from: mod:simulation/codemap/trace/astra_trace.py
+    to: mod:simulation/codemap/server.py
+    kind: data
+    label: "call counts as JSON over UDP 127.0.0.1:8091, at most every 100 ms per process (only with ASTRA_TRACE=1)"
+    wire: web
+    status: current
+    title: Call counts from the traced programs
+    via: UDP 127.0.0.1:8091
+    code: [simulation/codemap/server.py, simulation/codemap/trace/astra_trace.py]
+    explain: >-
+      Only with ASTRA_TRACE=1 (demo_traced.sh sets it): every traced Python program and simulator bash script counts
+      the calls of our functions and sends them at most every 100 ms. Sending never waits; a message that cannot go at
+      once is dropped.
+  - from: mod:simulation/codemap/trace/astra_trace.sh
+    to: mod:simulation/codemap/server.py
+    kind: data
+    label: "bash function counts as JSON over UDP 127.0.0.1:8091 (only with ASTRA_TRACE=1)"
+  - id: page
+    map: false
+    wire_from: cmserver
+    wire_to: browser
+    wire: web
+    status: current
+    title: The code map page
+    via: HTTP 127.0.0.1:8090
+    code: [simulation/codemap/server.py]
+    explain: >-
+      server.py serves this page, /codemap.json, the live events (/events, every 200 ms) and the recordings. A browser
+      on Windows works too: WSL forwards localhost.
+  # ---------------------------------------------------------------- the ROS 2 graph (stubs onto the rail)
+  - id: s_mavros
+    map: false
+    wire_from: mavros
+    wire_to: rail
+    wire: ros
+    status: current
+    title: MAVROS on ROS 2
+    explain: >-
+      MAVROS publishes /mavros/state, /mavros/statustext/recv, /mavros/mission/waypoints, /mavros/mission/reached and
+      /mavros/global_position/*, serves /mavros/set_mode, /mavros/cmd/command and /mavros/mission/push, pull and
+      set_current, and sends what arrives on /mavros/statustext/send to the autopilot.
+  - id: s_main
+    map: false
+    wire_from: main
+    wire_to: rail
+    wire: ros
+    status: current
+    title: main_controller on ROS 2
+    explain: >-
+      In: /image_detection, /mavros/mission/reached, /mavros/mission/waypoints. Out: /mavros/set_mode (GUIDED, AUTO,
+      RTL), /addWaypoint, /mavros/mission/set_current, /mavros/cmd/command 183 (DO_SET_SERVO), /mavros/statustext/send.
+  - id: s_wpm
+    map: false
+    wire_from: wpm
+    wire_to: rail
+    wire: ros
+    status: current
+    title: waypoint_manager on ROS 2
+    explain: >-
+      In: /mavros/mission/waypoints, /mavros/state, /mavros/statustext/recv. Serves /addWaypoint, calls
+      /mavros/mission/pull and push, and publishes its mission indices as parameters (buffer_wp, rtl_index ...).
+  - id: s_gps
+    map: false
+    wire_from: gps
+    wire_to: rail
+    wire: ros
+    status: current
+    title: gps_mavros_service_node on ROS 2
+    explain: >-
+      Calls /mavros/set_stream_rate once (every telemetry stream at 1 Hz, like the radio link) and serves
+      /get_drone_data.
+  - id: s_adapter
+    map: false
+    wire_from: adapter
+    wire_to: rail
+    wire: ros
+    status: proposal
+    title: The adapter on ROS 2 (proposal)
+    offset: -14
+    explain: >-
+      PROPOSAL: the adapter reads the drone's position from MAVROS (/mavros/global_position/global, rel_alt,
+      compass_hdg) to place each detection on the ground.
+  - id: s_referees
+    map: false
+    wire_from: referees
+    wire_to: rail
+    wire: ros
+    status: current
+    title: The referees listen
+    explain: >-
+      They only subscribe, so they cannot change the flight: /mavros/state, /mavros/statustext/recv and /send,
+      /mavros/mission/reached, /mavros/global_position/rel_alt, /image_detection, /sim/payload/events.
+  - id: s_trigger
+    map: false
+    wire_from: trigger
+    wire_to: rail
+    wire: ros
+    status: legacy
+    title: mission_camera_trigger on ROS 2 (legacy)
+    offset: -14
+    explain: >-
+      In: /mavros/statustext/recv ("Mission: 3 DigiCamCtrl" starts the photos), /mavros/mission/reached (stop at
+      buffer_wp) and waypoint_manager's parameters.
+  - id: s_newod
+    map: false
+    wire_from: newod
+    wire_to: rail
+    wire: ros
+    status: legacy
+    title: new_od on ROS 2 (legacy)
+    offset: -16
+    explain: >-
+      Out: /image_detection (interfaces/ImageResult, RELIABLE depth 10), one result per photo, which main_controller
+      reads. This is what feeds the mission brain in today's default demo.
+  # ---------------------------------------------------------------- the legacy photo pipeline (greyed)
+  - id: legacy_trigger
+    map: false
+    wire_from: trigger
+    wire_to: siyi
+    wire: ros
+    status: legacy
+    title: One photo a second (legacy)
+    via: /camera/trigger · 1 Hz
+    explain: >-
+      From "Mission: 3 DigiCamCtrl" until the last survey waypoint, mission_camera_trigger publishes /camera/trigger
+      once a second, plus /camera/command to set the camera up. The Mission Planner plugin's TAKE PHOTO and CAMERA
+      DOWN / FORWARD buttons (through mp_actions.sh) use the same two topics.
+  - id: legacy_folder
+    map: false
+    wire_from: siyi
+    wire_to: folder
+    wire: files
+    status: legacy
+    title: Photos saved (legacy)
+    via: "<lat> , <lon>.jpg + .json"
+    label_at: 1140,1082 end
+    explain: >-
+      Each photo is saved in ros2_ws/src/video_cam/mapping_photos/, named after its GPS position, with a JSON sidecar
+      (height, heading, zoom, gimbal angles). Written atomically: first a .tmp file, then a rename.
+  - id: legacy_newod
+    map: false
+    wire_from: folder
+    wire_to: newod
+    wire: files
+    status: legacy
+    title: New photo noticed (legacy)
+    via: inotify + rescan
+    explain: >-
+      new_od notices each new photo, cuts it into 640 x 640 tiles with 15 % overlap and runs YOLO26m on them.
+
+# The Wiring view of web/index.html: zones (dashed areas), boxes (the programs) and the tour. The wires are the
+# links above that have "wire:". Coordinates are pixels of a 1600 x 1330 drawing: at = "x y width height".
+wiring:
+  title: How the programs talk
+  intro: >-
+    The team's code touches the outside world through two doors: MAVLink to the autopilot (through MAVROS) and the
+    camera at 192.168.144.25. The simulator builds a pretend world behind each door, so the same team code runs as on
+    the drone. Orange wires are MAVLink, blue ROS 2, purple Gazebo, pink the camera, teal web pages, brown files.
+    Dashed means being built, dotted means our proposal (not adopted by the team), grey means last year's photo
+    pipeline (legacy).
+  size: 1780 1360
+  kinds:
+    - key: mav
+      label: MAVLink
+      text: >-
+        The autopilot's own language. SITL, MAVProxy, Mission Planner, the demo scripts, the flight recorder, the
+        Lattice bridge and MAVROS all speak it, with the same messages as over the real radio and serial cable.
+    - key: ros
+      label: ROS 2
+      text: >-
+        How the team's programs talk to each other and to MAVROS (topics and services, ROS_DOMAIN_ID 0), plus the
+        simulator's ROS helpers: the bridge, pov_server and the referees.
+    - key: gz
+      label: Gazebo
+      text: >-
+        Gazebo's own messages (gz transport, partition astra_sim) and the physics link to SITL. The team's code never
+        touches these; only the simulator's twins do.
+    - key: cam
+      label: Camera
+      text: >-
+        The SIYI camera at 192.168.144.25: SDK commands on UDP 37260, the RTSP live video on TCP 8554 (new video
+        pipeline) and the HTTP photo API on port 82 (legacy photo pipeline).
+    - key: web
+      label: Web and code map
+      text: >-
+        Plain HTTP and UDP on this PC: the camera picture for Mission Planner (port 8081), the code map page (8090) and
+        its tracers (UDP 8091).
+    - key: files
+      label: Files
+      text: >-
+        Not network messages: files one program writes and another reads (the run folder, the detector's results, last
+        year's photo folder).
+  statuses:
+    - key: current
+      label: works today
+      text: Runs in the twin today.
+    - key: being built
+      label: being built
+      text: Designed, and being built right now by the workflow (the code may not exist yet).
+    - key: proposal
+      label: proposal
+      text: Our proposal for the team; the team has not adopted it. The twin runs it so demos complete, clearly labelled.
+    - key: legacy
+      label: legacy (2025)
+      text: >-
+        Last year's photo pipeline. Still in the repo and still what today's default demo runs, but no longer the field
+        system; it becomes an option that is off by default once the new pipeline works in the twin.
+    - key: optional
+      label: optional
+      text: Not part of a normal demo (the Lattice bridge, handed to the team).
+  zones:
+    - id: windows
+      label: WINDOWS · the pilot's laptop
+      at: 10 10 262 600
+    - id: pc
+      label: THIS PC · WSL2 UBUNTU 22.04 · the simulator
+      at: 282 10 1488 1340
+    - id: jetson
+      label: "THE JETSON'S SOFTWARE · team code, unchanged"
+      note: "today: ./launcher.sh sim on this PC · being built: the astra-hil container (virtual Jetson) · later: the real Jetson over SSH"
+      at: 300 610 1080 610
+    - id: codemap
+      label: CODE MAP · only watches
+      at: 300 1236 1450 104
+  boxes:
+    - id: mp
+      title: Mission Planner
+      node: ext:mission_planner
+      members: [ext:mission_planner, mod:simulation/windows/mission_planner_plugin/astra_gcs.cs]
+      at: 22 44 236 214
+      tag: WINDOWS
+      lines:
+        - "+ ASTRA plugin 1.1"
+        - ""
+        - "HUD: the drone camera (pov_server)"
+        - "ASTRA tab: phases, hiker and tent"
+        - "map markers, simulator buttons"
+        - "old Qt demo panel: off by default"
+      where: Ground station · Windows
+      stands_for: Mission Planner on the ground laptop, with the telemetry radio.
+      explain: >-
+        Mission Planner connects to the simulator the way it connects to the drone over the radio: MAVLink on UDP
+        14550. The ASTRA plugin 1.1 adds the ASTRA tab (phase strip, hiker and tent cards, event log, buttons), map
+        markers and the live drone camera in the HUD. Its simulator buttons TAKE PHOTO, CAMERA DOWN / FORWARD and START
+        OVER run simulation/scripts/mp_actions.sh through wsl.exe.
+    - id: pov
+      title: pov_server
+      node: mod:ros2_ws/src/simulation/sim_demo/sim_demo/pov_server.py
+      at: 380 40 220 74
+      lines:
+        - camera topic → web video
+        - gimbal angles drawn on it
+      where: Camera picture server · simulator only
+      stands_for: A video downlink to the ground. The real drone has none today; this one is for watching the twin.
+      explain: >-
+        Turns the live camera topic into a web video stream (MJPEG) that Mission Planner shows in the HUD, with the
+        gimbal angles and the drone's attitude drawn on it. It only reads, so it cannot change the flight.
+    - id: proxy
+      title: MAVProxy
+      node: ext:mavproxy
+      at: 380 140 220 140
+      lines:
+        - twin of the telemetry radio
+        - copies MAVLink to UDP ports
+        - "14550 scripts + Mission Planner"
+        - "14555 CSV flight recorder"
+        - "(14554 Lattice: a 2nd MAVProxy)"
+      where: MAVLink splitter · twin of the radio
+      stands_for: The telemetry radio pair between the drone and the ground.
+    - id: recorder
+      title: CSV flight recorder
+      node: mod:ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py
+      members:
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/flight_recorder.py
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/run_records.py
+      at: 380 300 220 76
+      lines:
+        - sim_demo flight_recorder
+        - only listens · one per run
+      where: Run logs · simulator only
+      stands_for: Nothing on the drone; it is the twin's flight data recorder.
+      explain: >-
+        Listens to its own copy of the MAVLink (UDP 14555) and writes the run's telemetry, events and phases as CSV
+        files while the drone flies. It never sends anything to the autopilot.
+    - id: runfolder
+      title: The run folder
+      members:
+        - mod:simulation/scripts/logs.sh
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/run_summary.py
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/csv_export.py
+      node: mod:simulation/scripts/logs.sh
+      at: 380 396 220 170
+      tag: FILES
+      lines:
+        - "~/.astra_sim/runs/<run>/"
+        - csv/*.csv (live + at the end)
+        - phases.jsonl, score_report.md
+        - run_summary.md (what ran, errors)
+        - every log of the run
+        - "look: bash simulation/scripts/logs.sh"
+      where: Files · one folder per run
+      stands_for: The flight log you download from the drone after a flight.
+      explain: >-
+        Every demo run writes one folder with its logs, the CSV files, the phases, the score report and the run
+        summary. logs.sh lists the runs and shows a run's summary, errors, logs and CSV files.
+    - id: sitl
+      title: ArduPilot SITL
+      node: ext:ardupilot_sitl
+      at: 720 140 240 150
+      lines:
+        - twin of the Pixhawk
+        - ArduCopter 4.6.3, same firmware
+        - "5760 SERIAL0 · 5763 SERIAL2"
+        - "5762 SERIAL1 spare"
+        - "9002 physics"
+      where: Autopilot · twin of the Pixhawk
+      stands_for: The Pixhawk flight controller.
+    - id: tool
+      title: mission_tool
+      node: mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py
+      at: 720 318 190 60
+      lines:
+        - "demo.sh: upload, arm, AUTO"
+      where: Demo operator · simulator only
+      stands_for: The pilot pressing buttons in Mission Planner.
+    - id: lbridge
+      title: Lattice bridge
+      node: mod:ros2_ws/src/lattice_bridge/lattice_bridge/bridge_node.py
+      members:
+        - mod:ros2_ws/src/lattice_bridge/lattice_bridge/bridge_node.py
+        - mod:ros2_ws/src/lattice_bridge/lattice_bridge/sources/mavlink_source.py
+        - mod:ros2_ws/src/lattice_bridge/lattice_bridge/sinks/rest_sink.py
+      at: 720 398 190 64
+      tag: TEAM-OWNED
+      status: optional
+      lines:
+        - "MAVLink → Lattice entities"
+      where: Optional · handed to the team
+      stands_for: The same program on the ground laptop at the competition.
+      explain: >-
+        Reads the drone's MAVLink and publishes the drone, the targets and the drops as Lattice entities (to the
+        pretend Lattice at http://127.0.0.1:8089 in the simulator). Handed to the team on 2026-10-31; start with
+        docs/lattice/HANDOFF.md.
+    - id: referees
+      title: Referees (listen only)
+      members:
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/score_run.py
+        - mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/phase_monitor.py
+        - mod:ros2_ws/src/simulation/sim_demo/sim_demo/demo_markers.py
+      node: mod:ros2_ws/src/simulation/sim_demo/sim_demo/score_run.py
+      at: 720 482 190 96
+      lines:
+        - "score_run → score report"
+        - "phase_monitor → phases"
+        - "demo_markers → RViz"
+      where: Referees · simulator only
+      stands_for: The judges at the competition field.
+      explain: >-
+        Programs that only listen, so they cannot change the flight. phase_monitor tracks the phase (SEARCH, HOLD,
+        TARGETS, DROP, RTL, LANDED); score_run compares detections, aim points and where each payload landed with the
+        answer key. They still read the photo-path topics today; teaching them the new pipeline's outputs is part of
+        the work going on now.
+    - id: gzbridge
+      title: ros_gz_bridge
+      node: ext:ros_gz_bridge
+      at: 1060 40 220 64
+      lines:
+        - "Gazebo topics → ROS 2"
+      where: Gazebo to ROS 2 · simulator only
+      stands_for: Nothing on the real drone.
+    - id: payload
+      title: payload_release
+      node: mod:ros2_ws/src/simulation/sim_models/sim_models/payload_release_node.py
+      at: 1100 232 200 70
+      lines:
+        - opens at 1400 µs
+        - "servo 11 · servo 13"
+      where: Payload release · simulator only
+      stands_for: The release servos and pulleys under the real drone.
+    - id: gazebo
+      title: Gazebo world
+      node: ext:gazebo
+      at: 1400 30 350 410
+      lines:
+        - twin of the sky, the field, the airframe
+      chips:
+        - Drone · Iris + gimbal camera
+        - Gimbal video camera → RTSP (being built)
+        - Live picture · 1280×720 for pov_server
+        - Photo camera · legacy photos
+        - ArduPilotPlugin · motors, IMU, GPS
+        - World · runway or suas_field
+        - Targets · hiker, tent, decoys
+        - Payload hooks · servo 11 and 13
+      where: Physics and rendering · twin of the outside world
+      stands_for: The air, the field with the hiker and the tent, the airframe, motors, gimbal and payload hooks.
+    - id: relay
+      title: Jetson link (hil_relay.py)
+      node: mod:simulation/jetson/lib/hil_relay.py
+      members:
+        - mod:simulation/jetson/lib/hil_relay.py
+        - mod:simulation/jetson/pc/link.sh
+        - mod:simulation/jetson/pc/ros_tap.py
+      at: 1030 470 320 104
+      tag: BEING BUILT
+      status: being built
+      lines:
+        - "real Jetson: the owner's SSH login"
+        - "virtual Jetson: local socket files"
+        - MAVLink · camera · RTSP · HTTP · ROS tap
+      where: Jetson in the loop · being built
+      stands_for: The serial cable to the Pixhawk and the Ethernet cable to the camera.
+      explain: >-
+        When the team's software runs in the astra-hil container (the virtual Jetson on this PC now, the real Jetson
+        later), this relay gives it its two doors. On the real Jetson everything travels through the SSH login the
+        owner opens himself (jetson.sh login: he types the password in a visible window; no password is ever stored).
+        For the virtual Jetson, hil_relay.py pc-local makes the same socket files with no SSH.
+    - id: emu
+      title: siyi_emulator · the simulated ZR10
+      node: mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
+      members:
+        - mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/emulator.py
+        - mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/node.py
+        - mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/media_server.py
+        - mod:ros2_ws/src/simulation/siyi_emulator/siyi_emulator/gz_link.py
+      at: 1460 640 290 500
+      lines:
+        - "at 192.168.144.25 (an alias on this PC)"
+      chips:
+        - "SDK · UDP 37260 · zr10_node, legacy siyi"
+        - "RTSP · TCP 8554 /main.264 (being built)"
+        - "HTTP · TCP 82 · photos (legacy)"
+        - "SD card · IMG_NNNN.jpg (legacy)"
+        - "Picture · the Gazebo gimbal camera"
+        - "Lens · ZR10 field of view and zoom"
+      where: Camera twin · simulator only
+      stands_for: The SIYI ZR10 gimbal camera at 192.168.144.25.
+      explain: >-
+        Pretends to be the SIYI camera at 192.168.144.25, answering the same SDK packets, so the team's camera code
+        cannot tell the difference. For last year's photo pipeline it renders a photo per shutter command and serves
+        it over HTTP port 82. For the team's new video pipeline it gets an RTSP video server on TCP 8554 (being built).
+    - id: rail
+      title: ROS 2
+      shape: rail
+      at: 728 650 12 510
+      where: The ROS 2 graph · DDS, ROS_DOMAIN_ID 0
+      stands_for: The same topics and services as on the real Jetson.
+      explain: >-
+        The team's programs talk to each other and to MAVROS through ROS 2 topics and services, with the same names,
+        types and quality-of-service settings as on the real Jetson. Short lines onto this rail mean "takes part in the
+        ROS graph"; click one to see its topics.
+    - id: mavros
+      title: MAVROS
+      node: ext:mavros
+      at: 920 650 190 64
+      lines:
+        - "MAVLink ⇄ ROS 2"
+        - the autopilot door
+      where: Team stack · the autopilot door
+      stands_for: MAVROS on the Jetson, on the serial cable to the Pixhawk's TELEM2 (/dev/ttyUSB0:115200).
+    - id: main
+      title: main_controller
+      node: mod:ros2_ws/src/main/src/main_controller.py
+      at: 320 650 360 56
+      lines:
+        - "the mission brain: hold, aim, drop, RTL"
+      where: Team node · the mission brain
+      stands_for: The same node on the Jetson.
+      explain: >-
+        Keeps the best person and the best tent from /image_detection. At the end of the survey it holds in GUIDED
+        until the detector is done, inserts one waypoint per target, flies over each in AUTO, drops with DO_SET_SERVO
+        (channel 13 tent, 11 person) and finally commands RTL.
+    - id: adapter
+      title: Detection adapter + gimbal pointing
+      members: []
+      at: 320 736 360 96
+      tag: PROPOSAL
+      status: proposal
+      lines:
+        - "simulation/video/proposals/ (being written)"
+        - "box + drone pose + gimbal angles → lat/lon"
+        - "→ /image_detection for main_controller"
+      where: Proposal · not adopted by the team
+      stands_for: >-
+        Nothing yet: the team has not decided how detections reach main_controller. This is our labelled proposal.
+      explain: >-
+        Our proposal, written for the team (owner's decision 2026-10-31) and run in the twin so demos complete, always
+        labelled "proposal, not adopted by the team". It points the gimbal down when the survey starts, takes the
+        detector's boxes, works out where each one is on the ground from the drone's position and the gimbal angles at
+        the moment of the picture, and publishes the message main_controller already understands.
+    - id: wpm
+      title: waypoint_manager
+      node: mod:ros2_ws/src/waypoint_mavros/waypoint_mavros/waypoint.py
+      at: 320 856 360 50
+      lines:
+        - mission copy, inserts target waypoints
+      where: Team node · waypoint_mavros
+      stands_for: The same node on the Jetson.
+    - id: gps
+      title: gps_mavros_service_node
+      node: mod:ros2_ws/src/gps_ros2/gps_ros2/gps.py
+      at: 320 922 360 50
+      lines:
+        - all telemetry at 1 Hz
+      where: Team node · gps_ros2
+      stands_for: The same node on the Jetson.
+    - id: trigger
+      title: mission_camera_trigger
+      node: mod:ros2_ws/src/mapping/mapping/do_digi_cam_trigger.py
+      at: 320 1010 360 50
+      tag: LEGACY 2025
+      status: legacy
+      lines:
+        - photos at 1 Hz during the survey
+      where: Legacy (2025) photo pipeline · mapping
+      stands_for: The same node on the Jetson (obsolete for the field).
+    - id: newod
+      title: new_od
+      node: mod:ros2_ws/src/detection/detection/new_od.py
+      at: 320 1084 360 50
+      tag: LEGACY 2025
+      status: legacy
+      lines:
+        - YOLO on every photo → /image_detection
+      where: Legacy (2025) photo pipeline · detection
+      stands_for: The same node on the Jetson (obsolete for the field).
+    - id: zr10node
+      title: zr10_node
+      node: ext:zr10_node
+      at: 1150 664 220 62
+      tag: TEAM CODE · NOT IN REPO
+      lines:
+        - zr10_ros2 · camera control
+      where: Team's new video pipeline · team code, not in this repo
+      stands_for: The same node on the field Jetson (started by hand there today).
+    - id: zr10stream
+      title: zr10_stream
+      node: ext:zr10_stream
+      at: 1150 760 220 62
+      tag: TEAM CODE · NOT IN REPO
+      lines:
+        - "ffmpeg RTSP → /zr10/image_raw"
+      where: Team's new video pipeline · team code, not in this repo
+      stands_for: The same node on the field Jetson (started by hand there today).
+    - id: detector
+      title: Detection package
+      node: ext:team_detector
+      at: 800 760 240 96
+      tag: TEAM CODE
+      lines:
+        - YOLO26 detector (Docker today)
+        - GPU + TensorRT in the mission
+        - "subscribes /zr10/image_raw"
+      where: Team's new video pipeline · team code, not in this repo
+      stands_for: The same detector on the field Jetson.
+    - id: detfiles
+      title: camera_results/
+      at: 800 880 240 58
+      tag: FILES
+      lines:
+        - one CSV + one PNG per picture
+      where: Files · the detector's output today
+      stands_for: The same folder on the field Jetson.
+      explain: >-
+        Where the team's detector writes its results today: csv/frameN.csv (boxes, confidence, class) and
+        annotated_images/annotated_frameN.png. No program reads them during a mission.
+    - id: siyi
+      title: siyi (video_cam)
+      node: mod:ros2_ws/src/video_cam/video_cam/siyi_node.py
+      members:
+        - mod:ros2_ws/src/video_cam/video_cam/siyi_node.py
+        - mod:ros2_ws/src/video_cam/video_cam/camera_interface.py
+      at: 1150 1010 220 56
+      tag: LEGACY 2025
+      status: legacy
+      lines:
+        - takes and downloads the photos
+      where: Legacy (2025) photo pipeline · video_cam
+      stands_for: The same node on the Jetson (obsolete for the field).
+    - id: folder
+      title: photo folder
+      at: 1150 1090 220 44
+      tag: LEGACY 2025
+      status: legacy
+      lines:
+        - video_cam/mapping_photos/
+      where: Legacy (2025) photo pipeline · files
+      stands_for: The same folder on the Jetson.
+      explain: >-
+        Last year's hand-off between the camera node and the detector is a folder, not a topic: each photo is named
+        after its GPS position and has a JSON sidecar.
+    - id: tracers
+      title: Traced programs
+      node: mod:simulation/codemap/trace/astra_trace.py
+      members:
+        - mod:simulation/codemap/trace/astra_trace.py
+        - mod:simulation/codemap/trace/astra_trace.sh
+        - mod:simulation/codemap/trace/sitecustomize.py
+      at: 320 1262 300 56
+      lines:
+        - "only with ASTRA_TRACE=1 · count calls"
+      where: Code map · simulator only
+      stands_for: Nothing on the drone; the tracer is off unless ASTRA_TRACE=1.
+      explain: >-
+        With demo_traced.sh, every Python program and simulator bash script of the run counts the calls of our
+        functions and reports them. Nothing on the drone switches this on.
+    - id: cmserver
+      title: code map server.py
+      node: mod:simulation/codemap/server.py
+      at: 760 1262 280 56
+      lines:
+        - "UDP 8091 in · page :8090"
+      where: Code map · this page's server
+      stands_for: Nothing on the drone.
+    - id: browser
+      title: Web browser
+      at: 1180 1262 320 56
+      lines:
+        - this page · http://127.0.0.1:8090/
+      where: You
+      stands_for: Any browser; on Windows too (WSL forwards localhost).
+      explain: >-
+        Where you are reading this. Boxes flash green while their code runs in a traced simulator flight, live or in a
+        recording.
+  steps:
+    - title: The world and the autopilot lock together
+      wires: [physics, serial0]
+      boxes: [gazebo, sitl, proxy]
+      text: >-
+        sim.launch.py starts Gazebo and ArduPilot SITL. They trade one physics step at a time over UDP 9002: SITL sends
+        the motor outputs, Gazebo answers with position, speed, attitude and IMU readings. Neither can run ahead of the
+        other. SITL then waits for MAVProxy on its main port, TCP 5760.
+    - title: MAVProxy copies the radio link to the ground
+      wires: [serial0, mp_link, tool_link, recorder_link, lattice_link]
+      boxes: [proxy, sitl, mp, tool, recorder, lbridge]
+      text: >-
+        MAVProxy is the twin of the telemetry radio. It copies SITL's main link to UDP ports: 14550 for the demo scripts
+        and for Mission Planner on Windows, 14555 for the CSV flight recorder (demo.sh adds it). The Lattice bridge
+        (handed to the team, optional) gets its copy on UDP 14554 from a second MAVProxy.
+    - title: The Jetson's software plugs into its own port
+      wires: [serial2, s_mavros, s_main, s_wpm, s_gps, s_trigger, s_newod]
+      boxes: [sitl, mavros, rail, main, wpm, gps, trigger, newod]
+      text: >-
+        ./launcher.sh sim starts MAVROS on TCP 5763, SITL's SERIAL2: the real Jetson is wired the same way, with a
+        serial cable to the Pixhawk's TELEM2 port. Then tracker.launch.xml starts the team's nodes, which still include
+        last year's photo nodes (grey).
+    - title: Upload, arm, take off
+      wires: [tool_link, serial0, physics, serial2, s_mavros, s_wpm]
+      boxes: [tool, proxy, sitl, gazebo, mavros, rail, wpm]
+      text: >-
+        mission_tool (run by demo.sh) waits for GPS, the EKF and the pre-arm checks, uploads the survey mission, arms
+        and switches to AUTO, all through MAVProxy. waypoint_manager reads the same mission through MAVROS
+        (/mavros/mission/pull) and works out the indices it needs. SITL spins the motors and Gazebo lifts the drone.
+    - title: The camera streams video (new pipeline, being built in the twin)
+      wires: [gz_video, rtsp, image_raw, zr10_sdk]
+      boxes: [gazebo, emu, zr10stream, detector, zr10node]
+      text: >-
+        The field system: the team's zr10_stream pulls the ZR10's live video over RTSP (TCP 8554, /main.264) and
+        publishes 2 pictures a second on /zr10/image_raw; the detection package subscribes to it. zr10_node can steer
+        the camera with SIYI SDK commands (UDP 37260). In the twin the simulated ZR10 makes the stream from the Gazebo
+        gimbal camera; that part is being built.
+    - title: The detector looks at every picture
+      wires: [image_raw, det_files, det_adapter]
+      boxes: [detector, detfiles, adapter]
+      text: >-
+        Today the team's detector writes one CSV file and one annotated picture per frame, and publishes no topic. Our
+        proposal (dotted, not adopted by the team) makes it also publish its boxes on a topic.
+    - title: Detections reach the mission brain (team decision still open)
+      wires: [adapter_main, adapter_sdk, s_adapter, legacy_trigger, legacy_sdk, legacy_http, legacy_folder, legacy_newod, s_newod, s_main]
+      boxes: [adapter, main, emu, rail, trigger, siyi, folder, newod]
+      text: >-
+        How detections reach main_controller is not decided by the team. Our proposal's adapter turns each box into a
+        ground position (drone pose + gimbal angles at the picture's time) and publishes /image_detection, which
+        main_controller already reads. Today's default demo still feeds it from last year's photo pipeline (grey):
+        photo trigger, siyi, the photo folder, new_od.
+    - title: Hold, then add target waypoints
+      wires: [s_main, s_wpm, s_mavros, serial2, serial0, mp_link]
+      boxes: [main, wpm, mavros, rail, sitl, proxy, mp]
+      text: >-
+        At the hold point main_controller switches to GUIDED and waits for the detector (at most 90 s). Then it calls
+        /addWaypoint; waypoint_manager inserts the targets and pushes the whole list. main_controller goes back to AUTO.
+        Its texts ("Aim tent ...", "Targets: ...") travel through SERIAL2, SITL and MAVProxy to Mission Planner.
+    - title: Drop
+      wires: [s_main, s_mavros, serial2, physics, payload_gz, serial0, mp_link]
+      boxes: [main, mavros, rail, sitl, gazebo, payload, proxy, mp]
+      text: >-
+        Over the tent main_controller sends DO_SET_SERVO (command 183): channel 13 to 1400 microseconds. SITL sets
+        output 13, ArduPilotPlugin copies it into Gazebo, payload_release unhooks the box and it falls. The text "Servo
+        13 -> 1400" puts a drop marker on Mission Planner's map. The hiker's payload uses channel 11 the same way.
+    - title: Watch it in Mission Planner
+      wires: [gz_bridge, bridge_pov, pov_mp, mp_link]
+      boxes: [gazebo, gzbridge, pov, mp, proxy]
+      text: >-
+        All flight long, Gazebo's live camera goes through ros_gz_bridge (/sim/camera/image) to pov_server, which serves
+        it as MJPEG on port 8081 with the gimbal angles drawn on it. The ASTRA plugin paints it into the HUD and turns
+        the status texts into the phase strip, the hiker and tent cards and the map markers.
+    - title: Record, score and look at the logs
+      wires: [recorder_link, recorder_files, s_referees, referees_files]
+      boxes: [proxy, recorder, runfolder, referees, rail]
+      text: >-
+        The flight recorder writes the CSV files live from its own MAVLink copy (UDP 14555). The referees only listen to
+        ROS 2 and write the phases and, after the landing, the score report. At the end the run summary lists what ran
+        and every problem. bash simulation/scripts/logs.sh shows it all.
+    - title: Jetson in the loop (being built)
+      wires: [mavros_relay, relay_mav, relay_cam, tap]
+      boxes: [mavros, relay, sitl, emu, referees]
+      text: >-
+        For a Jetson-in-the-loop flight the team's software runs in the astra-hil container. MAVROS talks to
+        127.0.0.1:5763 inside it; the relay carries the MAVLink to SITL SERIAL2, the camera traffic (SDK, RTSP, HTTP) to
+        the simulated camera, and a read-only copy of the team's topics back to the referees. Only the virtual Jetson
+        on this PC is used for now; the real Jetson uses the owner's SSH login later.
+    - title: Watch the code run
+      wires: [tracer, page]
+      boxes: [tracers, cmserver, browser]
+      text: >-
+        With bash simulation/scripts/demo_traced.sh, every traced program counts the calls of our functions and sends
+        them to server.py on UDP 8091. This page (port 8090) lights up the boxes whose code is running.

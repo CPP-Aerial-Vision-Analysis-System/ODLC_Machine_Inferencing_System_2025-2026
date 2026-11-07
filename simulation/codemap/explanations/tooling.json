@@ -418,7 +418,7 @@
       "explain": "Prints the user id built into an image (its label org.astra.uid, which build_images.sh sets), or nothing."
     },
     "fn:simulation/docker/_host_common.sh::astra_check_image_user": {
-      "explain": "Warns when an image's built-in user id is not yours (for example images copied from another PC): files the containers write into the mounted repo would then belong to that other id, and a Linux X11 desktop could refuse their windows. It reads the org.astra.uid label, or runs 'id -u' in the image when there is no label, and remembers a mismatch in ASTRA_UID_MISMATCH for astra_x11_allow.",
+      "explain": "Warns when an image's built-in user id is not yours (for example images copied from another PC): files the containers write into the mounted repo would then belong to that other id, and a Linux X11 desktop could refuse their windows. It reads the org.astra.uid label, or runs 'id -u' in the image when there is no label. It only says 'rebuild' when a rebuild here would change it: when your id is below 1000 the images always use 1000 (astra_build_uid), so you get a plain explanation instead. A mismatch is remembered in ASTRA_UID_MISMATCH for astra_x11_allow.",
       "inputs": "one or more image names"
     },
     "fn:simulation/docker/_host_common.sh::astra_docker_inputs_hash": {
@@ -446,7 +446,7 @@
       "called_when": "compose_up.sh --sync or --sync-only"
     },
     "fn:simulation/docker/_host_common.sh::astra_copy_differences": {
-      "explain": "Counts how many files astra_sync_copy would copy right now (new or changed in the Windows folder) with a dry 'rsync -n --itemize-changes'; prints 0 when the copy is up to date, when the repo is not on a Windows drive, or when there is nothing to compare. It only looks.",
+      "explain": "Counts how many files astra_sync_copy would copy right now (new or changed in the Windows folder) with a dry 'rsync -n --itemize-changes' and astra_count_copy_changes, which leaves out tool caches and editor/agent folders. Prints 0 when the copy is up to date, when the repo is not on a Windows drive, when there is nothing to compare, or when ASTRA_NO_COPY_CHECK=1 (reading every file's date through the Windows drive costs about 3 s per start). It only looks.",
       "outputs": "a number"
     },
     "fn:simulation/docker/_host_common.sh::astra_prepare_data": {
@@ -495,8 +495,8 @@
       "effects": "removes 192.168.144.25/32 from 'lo'"
     },
     "fn:simulation/docker/_host_common.sh::astra_subnet_conflict": {
-      "explain": "Prints what else already uses 192.168.144.0/24 on this computer, or nothing when it is free: a route of a real network card (other than Docker bridges) and any other Docker network with that subnet. Docker cannot create astra_net then, and the team's code needs exactly these addresses.",
-      "called_when": "compose_up.sh (it stops with advice when something is printed)"
+      "explain": "Prints what else already uses the drone network 192.168.144.0/24 on this computer, or nothing when it is free: a route of a network card that is as narrow as the drone network or narrower and overlaps it (the real drone's network, a VPN; Docker's own br-... bridges and the default route are ignored), and any other Docker network whose subnet overlaps it (Docker's address pool hands out 192.168.144.0/20 once its 172.x networks are used up, and then astra_net cannot be created: 'Pool overlaps with other one on this address space'). The team's code needs exactly these addresses. A WIDER route that only covers the range (a 192.168.0.0/16 VPN) is reported by astra_subnet_wider_route instead, because it does not block the containers.",
+      "called_when": "compose_up.sh (it stops with advice when something is printed) and check_host.sh section 3"
     },
     "fn:simulation/docker/_host_common.sh::astra_native_sim_running": {
       "explain": "True when a NATIVE (not containerised) Gazebo or ArduCopter SITL runs on this computer: a process matching 'arducopter' or 'gz sim' whose /proc/<pid>/cgroup does not mention docker or containerd.",
@@ -706,8 +706,8 @@
       "how_it_fits": "It replaces the old Qt demo panel: Mission Planner becomes the single ground-station screen for both the simulator and the real drone."
     },
     "mod:simulation/windows/mission_planner_plugin/astra_gcs.cs": {
-      "explain": "Makes Mission Planner the ONE ground-station screen of the ASTRA search mission. It adds (1) the drone camera as the HUD background (an MJPEG stream, default http://127.0.0.1:8081/pov.mjpg from sim_demo's pov_server); (2) an 'ASTRA' tab on the DATA screen with the mission phase strip, one plain sentence about what the drone is doing, 8 readouts, a card each for the hiker and the tent, an event log and buttons (ARM + START MISSION, RETURN HOME, and in the simulator TAKE PHOTO, CAMERA DOWN, CAMERA FORWARD, START OVER); and (3) map markers for the chosen targets and the drop points. Every 2 s it writes Documents\\Mission Planner\\astra_plugin_status.json.",
-      "how_it_fits": "It learns everything from what Mission Planner already receives over MAVLink: the autopilot's state, and the STATUSTEXT messages the team's main_controller sends through MAVROS ('Detected tent', 'All N images processed', 'Aim tent <lat>,<lon>', 'Targets: ...', 'Over tent:', 'Servo 13 -> 1400', 'RTL'), plus the optional lattice_reporter's 'TGT p <lat> <lon> <conf> <n>' texts, so it works the same with the real drone over the telemetry radio. Only the camera picture (HTTP) and the simulator buttons (wsl.exe running simulation/scripts/mp_actions.sh) use something else. The flight buttons ask first and then do what Mission Planner's own buttons do (GUIDED, arm, AUTO; or RTL). Settings live in Mission Planner's config.xml (astra_camera_on, astra_camera_url, astra_sim_buttons, astra_wsl_distro, astra_wsl_repo, astra_drop_channels '11:person,13:tent', astra_drop_open_pwm 1400). Written for Mission Planner 1.3.83 in plain C# 5; check it with check_mp_plugin.ps1, install it with install_mp_plugin.ps1."
+      "explain": "The ASTRA Mission Planner plugin, version 1.1: it makes Mission Planner the ONE ground-station screen of the search mission (it replaces the old Qt demo panel, which demo.sh now leaves off unless --panel). It adds (1) the drone camera as the HUD background with no clicks (an MJPEG stream, default http://127.0.0.1:8081/pov.mjpg from sim_demo's pov_server, which draws the gimbal angles on the picture); (2) an 'ASTRA' tab on the DATA screen, kept in FIRST place, with the mission phase strip, one plain sentence about what the drone is doing (or, when no telemetry came for more than 10 s, a plain warning that the numbers are old), 8 readouts, a card each for the hiker and the tent, an event log and buttons (ARM + START MISSION, RETURN HOME, and in the simulator TAKE PHOTO, CAMERA DOWN, CAMERA FORWARD, START OVER); and (3) map markers for the chosen targets and the drop points. Every 2 s it writes Documents\\Mission Planner\\astra_plugin_status.json.",
+      "how_it_fits": "It learns everything from what Mission Planner already receives over MAVLink, so it works the same with the real drone over the telemetry radio: the autopilot's state, and the STATUSTEXT messages the team's main_controller sends through MAVROS ('Detected tent', 'All N images processed', 'Aim tent <lat>,<lon>', 'Targets: ...', 'Over tent:', 'Servo 13 -> 1400', 'RTL') plus the optional Lattice reporter's 'TGT p <lat> <lon> <conf> <n>'. Those texts reach Mission Planner because MAVROS talks to SITL SERIAL2 (TCP 5763), wired like the real Jetson on TELEM2. 'Detected ...' and 'All N images processed' come from the legacy (2025) photo pipeline (new_od and the photo hold), and the TAKE PHOTO button publishes /camera/trigger for the legacy video_cam node; with the new video pipeline (zr10_ros2 + zr10_stream + the detection package) the team has not decided yet which texts the mission sends, so those parts may stay quiet. Only the camera picture (HTTP) and the simulator buttons (wsl.exe running simulation/scripts/mp_actions.sh) use something else. Settings live in Mission Planner's config.xml (astra_camera_on, astra_camera_url, astra_sim_buttons, astra_wsl_distro, astra_wsl_repo, astra_drop_channels '11:person,13:tent', astra_drop_open_pwm 1400). Written for Mission Planner 1.3.83 in plain C# 5; check it with check_mp_plugin.ps1, install it with install_mp_plugin.ps1 (or mission_planner.sh start)."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::Phase": {
       "explain": "The mission phases in flight order, as the strip shows them from left to right: Waiting, Takeoff, Search, Process, Targets, Drop, Return, Landed."
@@ -752,7 +752,7 @@
       "explain": "The plugin's name shown by Mission Planner: 'ASTRA ground station'."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Version": {
-      "explain": "The plugin's version, '1.0' (also written into the status file)."
+      "explain": "The plugin's version, '1.1' (also written into the status file and the 'plugin loaded' line)."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Author": {
       "explain": "The author shown by Mission Planner: 'ASTRA team'."
@@ -761,7 +761,7 @@
       "explain": "Called once when Mission Planner loads the plugin: asks Mission Planner to call Loop 2 times per second (loopratehz = 2) and creates the two empty target records 'person' and 'tent'."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Loaded": {
-      "explain": "Called when Mission Planner's screens exist: builds the ASTRA tab, adds the 'ASTRA camera' HUD menu and the map layer, subscribes to every STATUSTEXT packet from any system and component, logs 'plugin loaded', starts the camera thread and writes the first status file. Every part catches its own errors (kept in lastError), so one failure never stops the others or Mission Planner."
+      "explain": "Called when Mission Planner's screens exist: builds the ASTRA tab, adds the 'ASTRA camera' HUD menu and the map layer, notes the load time (EnsureTab only selects the tab during the first 2 minutes after it), subscribes to every STATUSTEXT packet with TrySubscribe (Tick retries every 10 s if that failed), logs 'ASTRA ground station plugin 1.1 loaded', starts the camera thread and writes the first status file. Every part catches its own errors (kept in lastError), so one failure never stops the others or Mission Planner."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Loop": {
       "explain": "Called by Mission Planner 2 times per second: runs Tick and catches any error."
@@ -787,7 +787,7 @@
       "explain": "The camera stream address: the setting astra_camera_url, default http://127.0.0.1:8081/pov.mjpg."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Tick": {
-      "explain": "The update that runs 2 times per second. It reads new autopilot and companion status texts, decides whether this is the simulator, notices arming (a new flight starts; after Landed the facts are reset) and disarming, and works out the phase: not armed = Waiting or Landed; RTL, LAND, SMART_RTL or a return message = Return; a drop under way or done = Drop; targets chosen = Targets; search done or photos processed = Process; AUTO above 10 m at waypoint 2 or later = Search; otherwise Takeoff. During a flight the phase never steps back. Then it writes the status file every 2 s and asks the window thread to redraw."
+      "explain": "The update that runs 2 times per second. It reads new autopilot and companion status texts, decides whether this is the simulator, measures how old the telemetry is (TelemetryAge), retries the STATUSTEXT subscription every 10 s if it failed, every 2 s asks the window thread to put the ASTRA tab back in first place (EnsureTabAsync), notices arming (a new flight starts; after Landed the facts are reset) and disarming, and works out the phase: not armed = Waiting or Landed; RTL, LAND, SMART_RTL or a return message = Return; a drop under way or done = Drop; targets chosen = Targets; search done or photos processed = Process; AUTO above 10 m at waypoint 2 or later = Search; otherwise Takeoff. During a flight the phase never steps back. Then it writes the status file every 2 s and asks the window thread to redraw."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.DetectSimulator": {
       "explain": "Decides whether the simulator buttons are shown: the setting astra_sim_buttons 'on' or 'off' wins; 'auto' (the default) means yes when the autopilot has the parameter SIM_SPEEDUP, which only SITL has."
@@ -837,7 +837,7 @@
       "explain": "Removes the camera picture from the HUD (bgimage = null), so Mission Planner's normal artificial horizon comes back, and disposes the pictures it kept."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.BuildTab": {
-      "explain": "Builds the ASTRA tab and puts it FIRST (and selected) on the DATA screen's tab row: the phase strip; the status sentence and link line; a 4 x 2 grid of readouts (MODE, HEIGHT, SPEED, BATTERY, GPS, HOME, IN THE AIR, WAYPOINT); the HIKER and TENT cards; the event log (Time, From, Message); the flight buttons; and the hidden row of simulator buttons."
+      "explain": "Builds the ASTRA tab (named 'tabASTRA', so EnsureTab can find it) and puts it FIRST and selected on the DATA screen's tab row: the phase strip; the status sentence and link line; a 4 x 2 grid of readouts (MODE, HEIGHT, SPEED, BATTERY, GPS, HOME, IN THE AIR, WAYPOINT); the HIKER and TENT cards; the event log (Time, From, Message); the flight buttons; and the hidden row of simulator buttons."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.MakeTile": {
       "explain": "Makes one readout tile: a small grey caption on top and a big value below ('-' at first), and remembers the value label under the caption's name."
@@ -852,7 +852,7 @@
       "explain": "Asks the window thread to run UpdateUi (BeginInvoke), because only that thread may change the screen; it does nothing before the tab exists."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.UpdateUi": {
-      "explain": "Redraws the tab from the current state: the phase strip; the status sentence; the link line (telemetry, camera state and picture count, seconds since the last message); the 8 readouts from Mission Planner's CurrentState (battery below 30 % and GPS without a 3D fix in red); both target cards and their colours; the newest event-log lines (at most 300 kept, newest on top); whether the simulator buttons are visible; and the map when it changed."
+      "explain": "Redraws the tab from the current state: the phase strip; the status sentence, or, when no telemetry came for more than 10 s, in amber 'No telemetry for <age>: the simulator or the radio link is off. The numbers below are the last ones received.'; the link line ('Telemetry live' below 5 s, 'Telemetry LOST (last packet <age> ago)', or when the age is unknown 'Telemetry connected' / 'No telemetry link', plus the camera state, the picture count and the seconds since the last message); the 8 readouts from Mission Planner's CurrentState (battery below 30 % and GPS without a 3D fix in red); both target cards and their colours; the newest event-log lines (at most 300 kept, newest on top); whether the simulator buttons are visible; and the map when it changed."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.SetText": {
       "explain": "Changes a label's text only when it is different, so the screen does not flicker."
@@ -884,12 +884,12 @@
       "explain": "The simulator's START OVER button: explains what will happen (a flying drone lands, a fresh drone with both payloads stands at the start, the mission is uploaded again), asks for a yes, and runs the start_over action through RunSimAction."
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.RunSimAction": {
-      "explain": "Runs one simulator button in the background through WSL: wsl.exe -d <astra_wsl_distro, default Ubuntu-22.04> -- bash -lc 'bash <astra_wsl_repo>/simulation/scripts/mp_actions.sh <action>' (from a 32-bit process it uses Sysnative\\wsl.exe), waits up to 15 minutes, and logs ': done' or ': FAILED' together with the script's last output line.",
+      "explain": "Runs one simulator button in the background through WSL: wsl.exe -d <astra_wsl_distro, default Ubuntu-22.04> -- bash -lc 'bash <astra_wsl_repo>/simulation/scripts/mp_actions.sh <action>' (from a 32-bit process it uses Sysnative\\wsl.exe), waits up to 15 minutes, and logs ': done' or ': FAILED' together with the script's last output line. TAKE PHOTO publishes /camera/trigger, which only the legacy (2025) photo pipeline's video_cam node listens to; CAMERA DOWN / FORWARD publish gimbal_set_angles on /camera/command (also a video_cam topic).",
       "inputs": "the action (take_photo, look_down, look_forward or start_over) and a label for the log",
       "effects": "starts a WSL process that publishes on /camera/trigger or /camera/command, or runs start_over.sh"
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.WriteStatus": {
-      "explain": "Writes Documents\\Mission Planner\\astra_plugin_status.json: plugin version, time, phase, whether the tab was built, camera state, picture count and age of the last picture, messages and companion texts seen, whether the STATUSTEXT subscription works, simulator yes/no, photos processed, each target's detections, target position and release time, the number of events, the last event and the last error. Tick calls it every 2 s, so scripts and teammates can check the plugin works without looking at the screen.",
+      "explain": "Writes Documents\\Mission Planner\\astra_plugin_status.json: plugin version, time, phase, whether the tab was built, where the tab is (tab_index), whether it is selected, how often it was put back (tab_reinserts), how old the telemetry is (telemetry_age_s, null when unknown), camera state, picture count and age of the last picture, messages and companion texts seen, whether the STATUSTEXT subscription works, simulator yes/no, photos processed, each target's detections, target position and release time, the number of events, the last event and the last error. Tick calls it every 2 s, so scripts and teammates can check the plugin works without looking at the screen.",
       "effects": "writes one small JSON file"
     },
     "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.Field": {
@@ -922,7 +922,7 @@
     "mod:simulation/profiles/lattice_mock.yaml": {
       "explain": "Tries the Lattice bridge with the simulated drone and NO Lattice account. It adds four extra programs to the normal demo: lattice_ground_radio (a second ground station that plays the field's telemetry radio), fake_lattice (a pretend Lattice with a live map at http://127.0.0.1:8089/), lattice_bridge (the real ground-side bridge, publishing to the pretend Lattice) and lattice_reporter (the Jetson-side reporter that sends one short text such as 'TGT p 36.215133 -96.006219 95 1' per hiker or tent through MAVROS).",
       "effects": "lattice_ground_radio = MAVProxy on the autopilot's spare port SERIAL1 (TCP 5762, system id 254), started by sim_bringup's wait_then_exec once that port listens, output UDP 14554, log <run folder>/lattice/lattice_ground_radio.tlog; fake_lattice journal <run folder>/lattice/fake_lattice_journal.jsonl, answering 4 s past the end; lattice_bridge reads udpin:127.0.0.1:14554 with a made-up token; lattice_reporter starts with the team stack with min_confidence 0.5 and min_move_m 1.5",
-      "how_it_fits": "The team's target and drop texts ('TGT ...', 'Servo 13 -> 1400') come through MAVROS; ArduPilot passes them on to every OTHER port where it heard a ground station, so the ground station on SERIAL1 receives them the way the real radio does (MAVProxy never copies one client's messages to another). On disk on 2026-10-31 it also sets network.fcu_url udp://:14552@localhost:14552 (MAVROS behind MAVProxy, the old wiring) instead of the new SERIAL2 default, because with MAVROS on SERIAL2 ArduPilot also forwards MAVROS's own heartbeat to UDP 14550 and mission_tool could read it as 'STABILIZE, disarmed' and stop the demo (lattice run 1, 2026-10-31). Keep TCP 5762 free during this demo. Nothing leaves the computer and the flight is not affected if a part fails. Use: demo.sh runway --profile lattice_mock, then open http://127.0.0.1:8089/ (docs/lattice/BRIDGE.md)."
+      "how_it_fits": "Since 2026-10-31 the Lattice work belongs to the TEAM: the owner stopped the AI-assisted work and handed it over in commit f139036; the team continues from docs/lattice/HANDOFF.md. The team's target and drop texts ('TGT ...', 'Servo 13 -> 1400') come through MAVROS; ArduPilot passes them on to every OTHER port where it heard a ground station, so the ground station on SERIAL1 receives them the way the real radio does (MAVProxy never copies one client's messages to another). The file (unchanged since f139036) still pins network.fcu_url udp://:14552@localhost:14552 (MAVROS behind MAVProxy) instead of the SERIAL2 default, so during this demo Mission Planner gets none of the team's texts. Its stated reason, mission_tool reading MAVROS's heartbeat as 'STABILIZE, disarmed', was fixed in commit 9ef3c01 (mission_tool now reads the drone's state from the autopilot component only); simplifying the profile (delete fcu_url and the second ground station, give the bridge a plain MAVProxy output) is step 3 of the team's hand-over list in docs/lattice/HANDOFF.md. Keep TCP 5762 free during this demo. Nothing leaves the computer and the flight is not affected if a part fails. Use: demo.sh runway --profile lattice_mock, then open http://127.0.0.1:8089/ (docs/lattice/BRIDGE.md)."
     },
     "mod:simulation/profiles/ardupilot_version.yaml": {
       "explain": "Flies the simulated drone with ANOTHER ArduCopter version than the real Pixhawk's 4.6.3: autopilot sitl_binary, version '4.7.1' (a folder in ~/sitl/versions, fetched first with 'bash simulation/setup/fetch_sitl.sh 4.7.1').",
@@ -1020,6 +1020,143 @@
       "called_when": "for the drive of the Ubuntu-22.04 virtual disk and of Docker Desktop's disk (a warning below 40 GB)",
       "inputs": "a folder path",
       "outputs": "a number of GB, or -1"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_build_uid": {
+      "explain": "Prints the user id build_images.sh builds into the images for THIS user, by the same rule: your own id when your user id AND group id are both 1000 or more (normal accounts), otherwise 1000, the Dockerfile's default (small ids such as 20 or 500 belong to system groups inside the Ubuntu image and would clash).",
+      "called_when": "by astra_check_image_user and check_host.sh, to tell whether a rebuild would change anything"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_count_copy_changes": {
+      "explain": "Reads rsync's --itemize-changes list (lines like '>f+++++++++ path/to/file') and prints how many FILES would be copied, not counting tool caches (.ruff_cache, .pytest_cache, .mypy_cache, .hypothesis ...) and editor/agent folders (.vscode, .claude). Those change all the time but never change what the containers run, so they must not set off the 'the Linux-side copy is OLDER' warning.",
+      "inputs": "rsync's list on standard input",
+      "outputs": "a number ('0' for none)"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_ip_to_int": {
+      "explain": "Turns an IPv4 address A.B.C.D into one whole number (A x 2^24 + B x 2^16 + C x 2^8 + D), so subnets can be compared with simple arithmetic in bash.",
+      "outputs": "a number"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_cidr_overlap": {
+      "explain": "True when a network written as A.B.C.D/N (a bare address counts as /32) shares at least one address with the drone network 192.168.144.0/24 (ASTRA_SUBNET), in either direction: 192.168.144.25/32 (inside it) and 192.168.128.0/17 or 192.168.144.0/20 (around it) overlap; 192.168.145.0/24, IPv6 addresses and junk do not. It compares both addresses under the shorter of the two masks.",
+      "called_when": "by astra_subnet_conflict and astra_subnet_wider_route"
+    },
+    "fn:simulation/docker/_host_common.sh::astra_subnet_wider_route": {
+      "explain": "Prints a route of this computer that is WIDER than the drone network and covers it (for example '192.168.0.0/16 dev tun0', a VPN), or nothing. The containers still start (the Docker network's own /24 route is more exact and wins), but while they run this computer cannot reach the 192.168.144.x part of that wider network. Docker's own bridges (br-...) and the default route are ignored.",
+      "called_when": "by check_host.sh section 3 (a warning, not a failure)"
+    },
+    "mod:.devcontainer/devcontainer.json": {
+      "explain": "The VS Code 'Reopen in Container' set-up of the team's normal development container, 'ASTRA ODLC dev': VS Code builds docker/Dockerfile's 'dev' target itself, mounts the repo, works as the user ubuntu, sends windows to an X server on the host (DISPLAY=host.docker.internal:0.0), gives ROS 2 1 GB of shared memory, keeps the bash history and the ccache in Docker volumes, and adds the C++, CMake, Python and Ruff extensions.",
+      "how_it_fits": "The team's own dev container, unchanged by the simulator work; VS Code asks whether to open it or the simulator one (.devcontainer/sim/devcontainer.json). It has no header comment of its own."
+    },
+    "mod:.devcontainer/sim/devcontainer.json": {
+      "explain": "The VS Code 'Reopen in Container' set-up for the SIMULATOR image astra-sim ('ASTRA simulator (Gazebo + SITL)'): Gazebo, RViz and the windows open on the Windows desktop through WSLg and draw with the graphics card (/dev/dxg, Mesa d3d12; CUDA when the NVIDIA toolkit is there), the camera address can be added inside (NET_ADMIN), and the colcon build goes into the same Docker volumes as the compose 'sim' container and run_sim_container.sh. Before starting (initializeCommand) it stops with a clear message when the image is not built yet (require_image.sh) and creates ~/.astra_docker and, since 2026-10-31, ros2_ws/build, install and log, which Docker would otherwise create owned by root.",
+      "how_it_fits": "The image is built by simulation/docker/build_images.sh sim (no login needed). Problems before the container starts: run simulation/docker/check_host.sh (docs/simulation/DOCKER.md). On a Linux desktop the WSLg lines are swapped for --device=/dev/dri (or use run_sim_container.sh)."
+    },
+    "pkg:.devcontainer": {
+      "explain": "VS Code's dev container settings: devcontainer.json (the team's normal 'dev' container) and sim/devcontainer.json (the simulator image astra-sim). VS Code asks which one to open."
+    },
+    "mod:.gitattributes": {
+      "explain": "Git's line-ending rules for this repo (rewritten on 2026-10-31, commit 0e49505): every text file is checked out with Linux (LF) line ends on every computer, also on Windows where Git for Windows defaults to core.autocrlf=true; the Windows launchers (.bat, .cmd, .ps1) keep Windows (CRLF) line ends; pictures, PDFs and model weights are never converted; .devcontainer files keep 'merge=ours'. Files committed with CRLF stay as they are (text=auto), so nobody sees surprise changes.",
+      "how_it_fits": "Why: a hidden carriage return breaks bash scripts ($'\\r': command not found) and '#!/usr/bin/env python3' lines. An older Windows clone keeps its CRLF files until rewritten: simulation/docker/check_host.sh finds them and --fix-line-endings repairs them; simulation/docker/test/test_line_endings.py guards the rules."
+    },
+    "fn:simulation/docker/test/test_check_host.py::git": {
+      "explain": "Test helper: runs git in a folder quietly (the test fails on an error) and returns its output."
+    },
+    "fn:simulation/docker/test/test_check_host.py::sandbox": {
+      "explain": "Test fixture: a temporary home folder and data folder, stand-in 'docker' and 'ip' commands on PATH (their answers set by STUB_* variables), and a small git checkout with LF files and ros2_ws/src, so check_host.sh can be run without Docker; skipped when git is missing."
+    },
+    "fn:simulation/docker/test/test_check_host.py::inputs_hash": {
+      "explain": "Test helper: the fingerprint build_images.sh would store for this repo's docker/ files (astra_docker_inputs_hash from _host_common.sh), to make a stand-in image look up to date or stale."
+    },
+    "fn:simulation/docker/test/test_check_host.py::doctor": {
+      "explain": "Test helper: runs check_host.sh on the sandbox checkout with extra STUB_* settings for the stand-in commands and returns (exit code, all output)."
+    },
+    "fn:simulation/docker/test/test_check_host.py::fail_lines": {
+      "explain": "Test helper: the lines of the doctor's output that contain '[FAIL]'."
+    },
+    "fn:simulation/docker/test/test_check_host.py::modified_in_worktree": {
+      "explain": "Test helper: the files 'git status' shows as modified in the working tree, to prove --fix-line-endings leaves no surprise changes."
+    },
+    "fn:simulation/docker/test/test_check_host.py::helpers": {
+      "explain": "Test helper: runs a piece of bash with _host_common.sh loaded and returns its output (used for the subnet arithmetic, the copy-change counter and the user-id checks)."
+    },
+    "fn:simulation/docker/test/test_line_endings.py::git": {
+      "explain": "Test helper: runs git in the repository and returns its output; skips the test when git or a usable checkout is missing."
+    },
+    "fn:simulation/docker/test/test_line_endings.py::attrs": {
+      "explain": "Test helper: the 'text' and 'eol' attributes git gives a path (git check-attr), as a small dictionary."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.TrySubscribe": {
+      "explain": "Subscribes to every STATUSTEXT packet from any system and component (0, 0 = all) with Mission Planner's SubscribeToPacketType, so the team code's texts, which arrive from MAVROS as component 191 and which Mission Planner files under that component instead of the autopilot, still reach OnStatusText. It notes the time of the try; a negative answer or an error is kept in the status file as '... (will retry)'.",
+      "called_when": "once from Loaded, then from Tick every 10 s while there is no subscription",
+      "effects": "sets statustextSubscription (>= 0 when it worked)"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.TelemetryAge": {
+      "explain": "How many seconds ago Mission Planner got the last good MAVLink packet from the drone (MAV.lastvalidpacket), or -1 when it never got one or the clocks look confused (more than 5 s in the future or more than 6 hours old). Needed because with a UDP connection Mission Planner keeps showing the last values ('Ready to Arm', 'GPS: rtk Fixed') after the simulator or the radio stopped.",
+      "called_when": "by Tick, 2 times per second",
+      "outputs": "seconds, or -1 for unknown"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.FormatAge": {
+      "explain": "Writes an age for people: below 120 seconds as whole seconds ('45 s'), otherwise as whole minutes ('7 min'). Used in the 'No telemetry for ...' sentence and the 'Telemetry LOST (last packet ... ago)' link line."
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.EnsureTabAsync": {
+      "explain": "Asks the window thread to run EnsureTab (BeginInvoke), because only that thread may change the screen; it does nothing before the DATA screen and the tab exist.",
+      "called_when": "by Tick every 2 s"
+    },
+    "fn:simulation/windows/mission_planner_plugin/astra_gcs.cs::AstraPlugin.EnsureTab": {
+      "explain": "Keeps the ASTRA tab in first place. Mission Planner rebuilds the DATA screen's tabs from its saved list ('tabcontrolactions' in config.xml) when the screen loads and after 'Customize', and drops tabs it does not know, such as this one. When the tab is missing or moved it is put back at position 0. It is selected only during the first 2 minutes after loading and only if Mission Planner just fell back to its default first tab ('Quick'), or if it was already selected; otherwise the pilot's own choice of tab is restored. The first time this happens it logs 'Mission Planner rebuilt its tabs: the ASTRA tab is back in first place'. Where the tab is, whether it is selected and how often it was put back go into the status file.",
+      "effects": "moves the tab; sets tabIndexSeen, tabSelectedSeen, tabReinserts; errors go to lastError"
+    },
+    "fn:simulation/scripts/demo_traced.sh::usage_error": {
+      "explain": "Stops demo_traced.sh with exit code 2 and a pointer to --help when its own options are typed wrong (--record-dir without a folder, a port that is not a number). It uses _common.sh's die_usage when that exists and plain die otherwise, so it works with an older _common.sh too."
+    },
+    "mod:docs/simulation/DOCKER.md": {
+      "explain": "The guide to the simulator's Docker containers: step 0 is the doctor (check_host.ps1 on Windows, then check_host.sh in Ubuntu), then a reproducible set-up for another Windows or Linux PC, building or copying the images (no Docker login needed), running the current scripts (compose_up.sh, run_sim_container.sh, run_jetson_container.sh, the VS Code dev container), every known error message with its fix (Troubleshooting), and what is checked on the host versus what still needs a container flight to be validated.",
+      "how_it_fits": "Listed in docs/README.md; the scripts' messages point to its Troubleshooting section."
+    },
+    "mod:.github/workflows/lint-and-format.yml": {
+      "explain": "GitHub Actions check run on every push and pull request: installs ruff and runs 'ruff check ros2_ws/src' (the only check in this repo that can fail a change: the rules are in ruff.toml) and, as advice only, 'ruff format --check ros2_ws/src'.",
+      "how_it_fits": "Keep 'ruff check ros2_ws/src' clean before pushing (AGENTS.md rule 10)."
+    },
+    "mod:.github/workflows/ros2-build.yml": {
+      "explain": "GitHub Actions job that installs the ROS dependencies with rosdep, runs 'colcon build' and 'colcon test' for the workspace. It is set to continue on error, so it reports problems but does not block a change."
+    },
+    "mod:.github/workflows/validation.yml": {
+      "explain": "A PLACEHOLDER GitHub Actions workflow for future end-to-end tests with ArduPilot SITL and Gazebo (the sitl / sim Docker targets). It only runs when someone presses 'Run workflow' by hand (workflow_dispatch), so it never blocks anyone today."
+    },
+    "mod:.gitignore": {
+      "explain": "The repo's list of files git must ignore: build outputs (ros2_ws/build, install, log), caches, photos and detector output, flight logs, model weights (*.pt, *.onnx, *.engine, *.trt) and machine-specific notes such as LOCAL_NOTES.md. The repo is public, so data and personal files must never be committed (AGENTS.md rule 8)."
+    },
+    "mod:COLCON_IGNORE": {
+      "explain": "An empty marker file in the repo root: the ROS build tool colcon never looks into this folder, so builds must be started inside ros2_ws (cd ros2_ws && colcon build)."
+    },
+    "mod:ruff.toml": {
+      "explain": "The settings of ruff, the Python checker the CI runs: it checks only our own code (build outputs, virtual environments and the vendored ultralytics_ros are left out), Python 3.10, lines up to 100 characters, and the rule groups E9, F63, F7 and F82 (code that cannot run, such as syntax errors and undefined names)."
+    },
+    "mod:requirements_jetson.txt": {
+      "explain": "The team's authoritative list of Python packages for the Jetson (Orin Nano, JetPack 6.2 / L4T R36.4.7, Python 3.10, CUDA 12.6): NVIDIA's Jetson builds of torch 2.8.0 and torchvision 0.23.0, numpy below 2, opencv-python, ultralytics, sahi, watchdog and the rest, installed with 'python3 -m pip install --user -r requirements_jetson.txt'.",
+      "how_it_fits": "requirements_jetson.lock.txt pins every package exactly; docker/requirements-*.txt follow these versions for the containers."
+    },
+    "mod:requirements_jetson.lock.txt": {
+      "explain": "The exact lock of every Python package installed on the Jetson (generated 2026-06-23 on JetPack 6.2 / L4T R36.4.7, Python 3.10, CUDA 12.6), with the command that restores exactly that set from NVIDIA's Jetson package index."
+    },
+    "mod:GtihubLearning.md": {
+      "explain": "A teammate's short study note about how git stores files (commit -> tree -> blob). Notes only; nothing uses it."
+    },
+    "mod:HowTos.md": {
+      "explain": "A four-line team note on how to SSH into the Jetson ('ssh <user>@<address>'; 'hostname -I' shows the address). Notes only."
+    },
+    "mod:things to test.md": {
+      "explain": "A short team to-do note: measure how many images per minute the camera node takes by photographing a running stopwatch. Notes only."
+    },
+    "mod:drone_ui_functions_plan.md": {
+      "explain": "An older planning document for a drone user-interface: an analysis of the ROS 2 packages and nodes, their parameters, and the functions a UI would offer. Marked stale in AGENTS.md: it does not describe today's code."
+    },
+    "pkg:docs": {
+      "explain": "The repo's documentation folder: README.md is the documentation index (every doc of the repo, where it is, what it is for and who it is for), HANDOFF.md the ordered work list and its evidence, and the sub-folders simulation/ (the guides to the Gazebo digital twin), lattice/ (the Lattice work, handed to the team on 2026-10-31: start at lattice/HANDOFF.md) and jetson/ (the Jetson-in-the-loop design and guides, being built).",
+      "how_it_fits": "When a doc is added, moved or renamed, or a command, option, port or topic it names changes, the docs and the index are updated in the same change and simulation/scripts/check_docs.py is run (AGENTS.md rule 13)."
+    },
+    "pkg:docs/simulation": {
+      "explain": "The guides to the Gazebo digital twin, for teammates: the architecture, the worlds, the pluggable ArduPilot, Docker, Mission Planner, the plug-in slots and how to swap parts, every command and error message, logs and data, the new video pipeline's simulator side (being built), troubleshooting, what changed, Google Earth, and the code map (CODE_MAP.md).",
+      "how_it_fits": "All of them are listed in docs/README.md, the documentation index."
     }
   }
 }

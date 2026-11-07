@@ -7,15 +7,21 @@
  *      "just ran" log, react to a click (panel), a double-click (open a system), search + Enter (jump to a
  *      function), arrow keys, Backspace (up), Overview, "Show tests", the scrubber and the legend, and it must
  *      NEVER call fetch() or EventSource (an artifact has no network).
- *   2. LOCALHOST mode: /codemap.json answers 404, so the page must fall back to sample_codemap.json, show the
+ *   2. the WIRING view (the "Wiring" button, drawn from the sample's "wiring" part = the real systems.yaml layout):
+ *      every box and wire drawn, legacy / proposal / being-built styles, a click on a box and on a wire (panel with
+ *      the ports and the files they were checked in), the kind buttons, the "follow a mission" tour (Play, Next,
+ *      Back, Show everything), keys, live glow and RUNNING from the replay, "open in the code map", back to the
+ *      block diagrams, and a link ending in #wiring.
+ *   3. LOCALHOST mode: /codemap.json answers 404, so the page must fall back to sample_codemap.json, show the
  *      SAMPLE DATA chip, connect to /events (a fake EventSource) and glow on a "calls" event.
  * It cannot show what the page LOOKS like (colours, overlaps, fonts): that still needs a real browser.
  *
- *   3. (optional) --codemap PATH: boot any code map, for example the real codemap.json, open every system, a
- *      package and a file inside it, search + Enter and the overview, with no errors and no network.
- *   4. (optional) --artifact PATH: take the data embedded in a built dist/astra_code_map.html (the real code map
+ *   4. (optional) --codemap PATH: boot any code map, for example the real codemap.json, open every system, a
+ *      package and a file inside it, search + Enter, the overview and the Wiring view (every box and wire clicked
+ *      once), with no errors and no network.
+ *   5. (optional) --artifact PATH: take the data embedded in a built dist/astra_code_map.html (the real code map
  *      and the real recorded run), check every recorded id is a block of the map, and replay it at four places
- *      of the run: blocks must glow and count, with no errors and no network.
+ *      of the run: blocks must glow and count, the Wiring view must work, with no errors and no network.
  *                               node simulation/codemap/web/dom_smoke.js --artifact simulation/codemap/dist/astra_code_map.html
  * Run (node 18+, no packages):  node simulation/codemap/web/dom_smoke.js [--dagre path/to/dagre.min.js]
  *                               node simulation/codemap/web/dom_smoke.js --codemap simulation/codemap/codemap.json
@@ -195,7 +201,7 @@ function makePage(opts) {
     clearTimeout() {}, clearInterval() {},
     matchMedia: () => ({ matches: false, addEventListener() {} }),
     localStorage: { _m: new Map(), getItem(k) { return this._m.has(k) ? this._m.get(k) : null; }, setItem(k, v) { this._m.set(k, String(v)); } },
-    navigator: {}, location: { hash: '' }, getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    navigator: {}, location: { hash: opts.hash || '' }, getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener() {},
     fetch: (url) => { net.push('fetch ' + url); return opts.fetch ? opts.fetch(url) : Promise.reject(new Error('no network in this test')); },
     EventSource: function (url) { net.push('EventSource ' + url); const es = { url: url, readyState: 0, listeners: {}, addEventListener(t, fn) { (this.listeners[t] = this.listeners[t] || []).push(fn); }, close() { this.readyState = 2; } }; win.lastES = es; return es; },
@@ -336,6 +342,115 @@ async function artifactMode() {
   check(p.errors.length === 0, 'artifact: no errors (' + p.errors.slice(0, 3).join(' | ') + ')');
 }
 
+// The Wiring view (the "Wiring" button): boxes and wires from the sample's "wiring" part (the REAL systems.yaml
+// layout), a click on a box and on a wire, the kind buttons, the "follow a mission" tour, keys, live lights from the
+// replay, "open in the code map", and back to the block diagrams.
+async function wiringMode() {
+  const W = sample.wiring;
+  check(!!(W && W.boxes && W.wires), 'wiring: the sample map has a wiring section (run web/make_sample.py)');
+  if (!W) return;
+  const trace = recordingText.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const p = makePage({ codemap: sample, trace: trace, dagre: dagre });
+  await flush(); await flush();
+  p.pump(50);
+  check(!p.$('btn-wiring').disabled, 'wiring: the Wiring button can be pressed');
+  check(p.$('wbar').hidden, 'wiring: the tour bar is hidden in the block diagrams');
+  p.$('btn-wiring').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(100);
+  const vp = p.$('viewport');
+  const boxes = vp.querySelectorAll('.wbox'), wires = vp.querySelectorAll('.wwire').filter((w) => w.hasAttribute('tabindex'));
+  check(boxes.length === W.boxes.length, 'wiring: one box per program (' + boxes.length + ' of ' + W.boxes.length + ')');
+  check(wires.length === W.wires.length, 'wiring: one wire per systems.yaml wire (' + wires.length + ' of ' + W.wires.length + ')');
+  check(vp.querySelectorAll('.wzone').length === W.zones.length, 'wiring: the zones are drawn');
+  check(vp.querySelectorAll('.node').length === 0, 'wiring: no code blocks drawn in this view');
+  check(!p.$('wbar').hidden && p.$('app').classList.contains('is-wiring'), 'wiring: the tour bar shows and the drill-down tools hide');
+  check(p.$('btn-wiring').getAttribute('aria-pressed') === 'true' && /Wiring/.test(p.text('crumbs')), 'wiring: button pressed, breadcrumb says Wiring');
+  check(p.text('panel-title') === W.title, 'wiring: the panel says how to read it (' + p.text('panel-title') + ')');
+  check(p.$('w-steps').childNodes.length === W.steps.length && p.$('w-legend').childNodes.length === 6, 'wiring: step chips and six kind buttons');
+  check(vp.querySelectorAll('.wwire.st-legacy').length > 0 && vp.querySelectorAll('.wbox.st-legacy').length >= 4, 'wiring: the legacy photo pipeline is drawn greyed');
+  check(vp.querySelectorAll('.wwire.st-proposal').length > 0 && vp.querySelectorAll('.wwire.st-being-built').length > 0, 'wiring: proposal and being-built wires are marked');
+  // a box
+  const box = (id) => vp.querySelectorAll('.wbox').find((b) => b.getAttribute('data-wbox') === id) || null;
+  const wire = (id) => vp.querySelectorAll('.wwire').find((w) => w.getAttribute('data-wwire') === id && w.hasAttribute('tabindex')) || null;
+  const sitl = box('sitl');
+  p.tap(sitl);
+  p.pump(50);
+  check(p.text('panel-title') === 'ArduPilot SITL', 'wiring click: a box opens its details (' + p.text('panel-title') + ')');
+  check(sitl.classList.contains('on') && sitl.classList.contains('sel') && vp.querySelector('.wiring-root').classList.contains('w-focus'), 'wiring click: the box and its wires light, the rest dims');
+  check(/TCP 5763/.test(p.text('panel-body')) && /TCP 5760/.test(p.text('panel-body')), 'wiring click: the box lists its wires with their ports');
+  // a wire
+  p.tap(wire('serial2'));
+  p.pump(50);
+  check(/SERIAL2/.test(p.text('panel-title')) && /TCP 5763/.test(p.text('panel-body')), 'wiring click: a wire shows its transport and port (' + p.text('panel-title') + ')');
+  check(/demo\.sh/.test(p.text('panel-body')), 'wiring click: a wire names the files where its port was checked');
+  check(box('mavros').classList.contains('on') && box('sitl').classList.contains('on'), 'wiring click: both ends of the wire light');
+  // a kind of message
+  const cam = p.$('w-legend').querySelectorAll('button').find((b) => b.getAttribute('data-kind') === 'cam');
+  cam.dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(50);
+  const lit = vp.querySelectorAll('.wwire.on').filter((w) => w.hasAttribute('tabindex'));
+  check(cam.getAttribute('aria-pressed') === 'true' && lit.length > 0 && lit.every((w) => w.classList.contains('k-cam')), 'wiring legend: a kind button lights every camera wire and nothing else (' + lit.length + ')');
+  cam.dispatchEvent(p.doc.mkEvent('click'));
+  check(cam.getAttribute('aria-pressed') === 'false' && p.text('panel-title') === W.title, 'wiring legend: pressing it again shows everything');
+  // the tour
+  p.$('w-play').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(50);
+  check(/step 1 of/.test(p.text('panel-body')) && p.$('w-steps').querySelectorAll('button')[0].getAttribute('aria-current') === 'step', 'wiring tour: Play shows step 1');
+  check(p.text('w-play') === 'Pause', 'wiring tour: the button says Pause while it plays');
+  p.pump(6700);
+  check(/step 2 of/.test(p.text('panel-body')), 'wiring tour: it moves on to step 2 by itself');
+  p.$('w-next').dispatchEvent(p.doc.mkEvent('click'));
+  check(/step 3 of/.test(p.text('panel-body')) && p.text('w-play') === 'Play the mission', 'wiring tour: Next goes on and stops the playing');
+  p.pump(7000);
+  check(/step 3 of/.test(p.text('panel-body')), 'wiring tour: once stopped it stays on its step');
+  p.$('w-prev').dispatchEvent(p.doc.mkEvent('click'));
+  check(/step 2 of/.test(p.text('panel-body')), 'wiring tour: Back goes one step back');
+  const litStep = vp.querySelectorAll('.wwire.on').filter((w) => w.hasAttribute('tabindex')).map((w) => w.getAttribute('data-wwire')).sort().join();
+  check(litStep === W.steps[1].wires.slice().sort().join(), 'wiring tour: step 2 lights exactly its wires');
+  p.$('w-reset').dispatchEvent(p.doc.mkEvent('click'));
+  check(p.text('panel-title') === W.title && !vp.querySelector('.wiring-root').classList.contains('w-focus'), 'wiring tour: Show everything clears the lights');
+  // keys
+  const mav = box('mavros');
+  mav.focus();
+  p.key(mav, 'Enter');
+  check(p.text('panel-title') === 'MAVROS', 'wiring keys: Enter on a box shows its details');
+  p.key(mav, 'ArrowUp');
+  check(p.doc.activeElement && p.doc.activeElement !== mav && p.doc.activeElement.classList.contains('wbox'), 'wiring keys: an arrow moves to the next box that way');
+  p.key(p.doc.activeElement, 'Escape');
+  check(p.text('panel-title') === W.title, 'wiring keys: Esc clears');
+  // live lights from the replay: boxes glow when their programs' code runs and say RUNNING when they run
+  let maxGlow = 0, running = false;
+  for (let i = 0; i < 40; i++) {
+    p.pump(250);
+    for (const b of vp.querySelectorAll('.wbox')) {
+      const g = b.querySelector('.wglow'); const v = Number(g && g.style.opacity || 0); if (v > maxGlow) maxGlow = v;
+      if (b.classList.contains('is-run')) running = true;
+    }
+  }
+  check(maxGlow > 0.1, 'wiring live: a box glows while its code runs in the replay (' + maxGlow.toFixed(2) + ')');
+  check(running, 'wiring live: a running program shows RUNNING on its box');
+  // "Open in the code map" leaves the Wiring view for the block diagrams
+  p.tap(box('gazebo'));
+  p.pump(50);
+  const open = p.$('panel-body').querySelectorAll('button').find((b) => b.getAttribute('data-go') === 'ext:gazebo');
+  check(!!open, 'wiring panel: a box offers "open in the code map"');
+  if (open) { open.dispatchEvent(p.doc.mkEvent('click')); p.pump(300); }
+  check(p.$('wbar').hidden && !p.$('app').classList.contains('is-wiring') && !!p.node('ext:gazebo'), 'wiring panel: it opens the block diagram with that block');
+  p.$('btn-wiring').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(50);
+  p.$('btn-drill').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(300);
+  check(p.nodes().length > 0 && vp.querySelectorAll('.wbox').length === 0 && p.$('wbar').hidden, 'wiring: Drill down brings the block diagrams back');
+  check(p.net.length === 0, 'wiring: no network use (' + p.net.join(', ') + ')');
+  check(p.errors.length === 0, 'wiring: no errors (' + p.errors.slice(0, 3).join(' | ') + ')');
+  // a page opened with #wiring starts in the Wiring view
+  const q = makePage({ codemap: sample, trace: [], dagre: dagre, hash: '#wiring' });
+  await flush(); await flush();
+  q.pump(50);
+  check(q.$('viewport').querySelectorAll('.wbox').length === W.boxes.length, 'wiring: a link ending in #wiring opens the Wiring view');
+  check(q.errors.length === 0, 'wiring #link: no errors (' + q.errors.slice(0, 3).join(' | ') + ')');
+}
+
 async function localMode() {
   const fetch = (url) => {
     if (url === '/codemap.json') return Promise.resolve({ ok: false, status: 404, json: () => Promise.reject(new Error('404')), text: () => Promise.resolve('') });
@@ -373,6 +488,26 @@ async function localMode() {
   check(p.net.indexOf('fetch /recordings') >= 0 && p.net.some((x) => x.indexOf('fetch /recordings/2026') === 0), 'localhost: Replay tab lists and loads a recording');
   check(p.$('btn-play').classList.contains('is-playing'), 'localhost: the chosen recording plays');
   check(p.errors.length === 0, 'localhost: no errors (' + p.errors.slice(0, 3).join(' | ') + ')');
+}
+
+// Open the Wiring view of an already booted page, click every box and every wire once, play the first tour step.
+function checkWiring(p, W, what) {
+  p.$('btn-wiring').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(200);
+  const vp = p.$('viewport');
+  const boxes = vp.querySelectorAll('.wbox'), wires = vp.querySelectorAll('.wwire').filter((w) => w.hasAttribute('tabindex'));
+  check(boxes.length === W.boxes.length && wires.length === W.wires.length, what + ': Wiring view draws every box and wire (' + boxes.length + ' boxes, ' + wires.length + ' wires)');
+  let bad = 0;
+  for (const b of boxes) { p.tap(b); p.pump(20); if (p.text('panel-title') !== (W.boxes.find((x) => x.id === b.getAttribute('data-wbox')) || {}).title) bad++; }
+  for (const w of wires) { p.tap(w); p.pump(20); if (p.text('panel-title') !== (W.wires.find((x) => x.id === w.getAttribute('data-wwire')) || {}).title) bad++; }
+  check(bad === 0, what + ': every box and wire opens its own details (' + bad + ' did not)');
+  p.$('w-play').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(50);
+  check(/step 1 of/.test(p.text('panel-body')), what + ': the tour starts');
+  p.$('w-reset').dispatchEvent(p.doc.mkEvent('click'));
+  p.$('btn-drill').dispatchEvent(p.doc.mkEvent('click'));
+  p.pump(200);
+  check(vp.querySelectorAll('.wbox').length === 0 && p.nodes().length > 0, what + ': back to the block diagrams');
 }
 
 // --codemap PATH: boot ANY code map (for example the real codemap.json) in artifact mode and walk it: open every
@@ -415,6 +550,7 @@ async function anyCodemap(cmPath) {
   p.$('btn-overview').dispatchEvent(p.doc.mkEvent('click'));
   p.pump(400);
   check(p.nodes().length > 0, 'any map: overview drawn (' + p.nodes().length + ' blocks, ' + p.$('viewport').querySelectorAll('.cluster').length + ' system boxes)');
+  if (cm.wiring) checkWiring(p, cm.wiring, 'any map');
   check(p.net.length === 0, 'any map: no network use');
   check(p.errors.length === 0, 'any map: no errors (' + p.errors.slice(0, 3).join(' | ') + ')');
 }
@@ -465,6 +601,8 @@ async function artifactData(htmlPath) {
   check(seen.team, 'artifact data: the team flight software counts calls at some point of the run');
   check(seen.gazebo, 'artifact data: the simulated world shows running programs at some point of the run');
   check(/\d+:\d\d \/ \d+:\d\d/.test(p.text('rep-time')), 'artifact data: replay clock shown (' + p.text('rep-time') + ')');
+  check(!!cm.wiring, 'artifact data: the embedded map carries the Wiring view');
+  if (cm.wiring) checkWiring(p, cm.wiring, 'artifact data');
   check(p.net.length === 0, 'artifact data: no network use at all (' + p.net.join(', ') + ')');
   check(p.errors.length === 0, 'artifact data: no errors (' + p.errors.slice(0, 3).join(' | ') + ')');
 }
@@ -483,6 +621,7 @@ async function artifactData(htmlPath) {
     process.exit(failures ? 1 : 0);
   }
   await artifactMode();
+  await wiringMode();
   await localMode();
   console.log((failures ? failures + ' FAILED, ' : 'all ') + passes + (failures ? ' passed' : ' checks passed') + ' (layout: ' + (dagre ? 'dagre' : 'built-in simple layout') + ')');
   process.exit(failures ? 1 : 0);

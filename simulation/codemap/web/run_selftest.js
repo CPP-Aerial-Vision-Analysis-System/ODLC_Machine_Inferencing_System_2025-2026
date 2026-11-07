@@ -3,9 +3,11 @@
  * It cuts the two inline scripts out of index.html, checks that both parse as JavaScript (like `node --check`),
  * runs the pure-logic script (id="astra-core") inside node and calls its built-in self-test
  * (AstraCore.selfTest): id parsing, the code-map index, building every kind of diagram level, both layouts,
- * the green glow fade, replay stepping, event parsing, search and formatting. When sample_codemap.json and
+ * the green glow fade, replay stepping, event parsing, search and formatting, and the Wiring view's logic (wire
+ * routes with right angles only, label placement, the model, what lights up). When sample_codemap.json and
  * sample_recording.jsonl sit next to index.html, every view of the sample map is built and laid out and every
- * recorded call is checked against the map.
+ * recorded call is checked against the map, and the sample's Wiring view (the real systems.yaml layout) is read and
+ * every wire routed.
  *
  * Run (Windows or Linux, node 18 or newer, no packages needed):
  *     node simulation/codemap/web/run_selftest.js

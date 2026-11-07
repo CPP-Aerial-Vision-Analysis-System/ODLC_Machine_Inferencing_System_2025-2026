@@ -3,7 +3,9 @@
 #   python3 simulation/codemap/extract.py --check        -> codemap.json (the map of every file and function)
 #   bash simulation/scripts/demo_traced.sh               -> recordings/<time>.jsonl (a traced flight)
 #   python3 simulation/codemap/build_artifact.py         -> dist/astra_code_map.html (one file to share)
-codemap.json
+# The leading "/" matters: only THIS folder's generated codemap.json is ignored, never the hand-written
+# explanations/codemap.json (the plain-words texts for the code map's own code), which must be committed.
+/codemap.json
 dist/
 recordings/
 __pycache__/

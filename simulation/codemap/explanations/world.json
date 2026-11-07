@@ -2677,7 +2677,7 @@
    "called_when": "by the OpaqueFunction that generate_launch_description adds, after the launch arguments are known",
    "inputs": "the launch context (resolved arguments)",
    "outputs": "the list of launch actions (processes, nodes, log lines, environment settings)",
-   "effects": "starts the gz sim server (its exit stops everything) and the Gazebo window (layout: the world's own <gui>, config/gazebo_gui.config, or with gui_camera:=window/off config/gazebo_gui_no_camera.config; gui_env NAME=value extras for the window only), plus with gui_camera:=window a second small Gazebo window that shows only the live camera (config/gazebo_camera_window.config); the spawn of entity 'iris', SITL (waits for UDP 9002+10I), MAVProxy (waits for TCP 5760+10I), siyi_emulator (camera_model, camera_ip, SD card ~/.astra_sim/sd_card_I<I>), payload_release, parameter_bridge + odom_tf, sim_demo's demo_nodes.launch.py, pov_server (port 8081), RViz and gz_follow; writes ~/.astra_sim/generated/ (drone SDF, bridge_I<I>.yaml) and ~/.astra_sim/state/current_launch.yaml; may emit Shutdown on a fatal error"
+   "effects": "starts the gz sim server (its exit stops everything) and the Gazebo window. The window's layout: the world's own <gui>, config/gazebo_gui.config, gui_config:=default (Gazebo's stock layout) or your file; with gui_camera:=window or off the same layout minus its camera panel (config/gazebo_gui_no_camera.config for ours, else a copy made by sim_paths.layout_without_camera_panels in ~/.astra_sim/generated/gazebo_gui_without_camera.config); gui_env NAME=value extras for the window(s) only. With gui_camera:=window also a second small Gazebo window (process gz_camera_window) that shows only the live camera (config/gazebo_camera_window.config). Then: the spawn of entity 'iris', SITL (waits for UDP 9002+10I), MAVProxy (waits for TCP 5760+10I), siyi_emulator (camera_model, camera_ip, SD card ~/.astra_sim/sd_card_I<I>), payload_release, parameter_bridge + odom_tf, sim_demo's demo_nodes.launch.py, pov_server (port 8081), RViz and gz_follow; writes ~/.astra_sim/generated/ (drone SDF, bridge_I<I>.yaml) and ~/.astra_sim/state/current_launch.yaml; may emit Shutdown on a fatal error"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/launch/sim.launch.py::_launch_setup.say": {
    "explain": "Adds a log line that starts with '[sim] ' to the action list, so the message is printed in the launch terminal when the launch runs.",
@@ -2818,7 +2818,7 @@
    "outputs": "index or -1"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle": {
-   "explain": "A pymavlink connection to the simulated drone plus the little state the tool needs: the newest message of each type, collected STATUSTEXT lines, the autopilot's system/component id, and helpers for armed, mode, altitude, commands and mode switches."
+   "explain": "A pymavlink connection to the simulated drone plus the little state the tool needs: the newest message of each type FROM THE AUTOPILOT COMPONENT ONLY, the STATUSTEXT lines of every component of the drone, the autopilot's system/component id (found at connect time), and helpers for armed, mode, altitude, commands and mode switches."
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle.__init__": {
    "explain": "Opens the MAVLink connection (default udpin:127.0.0.1:14550, our system id 245, component 190, ardupilotmega dialect) and waits up to the timeout for an ArduPilot heartbeat; then remembers the autopilot's system and component id. Raises RuntimeError with a hint when no heartbeat comes.",
@@ -2830,16 +2830,16 @@
    "outputs": "HEARTBEAT message or None"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle.pump": {
-   "explain": "Reads incoming MAVLink for the given seconds (at least once): it keeps the newest message of each type from the autopilot, collects STATUSTEXT texts, and returns early with the first message whose type is in 'types' if that list is given.",
+   "explain": "Reads incoming MAVLink for the given seconds (at least once). From the drone's system it collects every STATUSTEXT text, whatever the component (the team code's texts come from MAVROS, component 191); but it keeps 'the newest message of each type', and returns early with a message whose type is in 'types', ONLY when the message comes from the autopilot component found at connect time. Why (fixed on 2026-10-31, commit 9ef3c01): since MAVROS talks to SITL SERIAL2 like the real Jetson on TELEM2, ArduPilot forwards MAVROS's own HEARTBEAT ('disarmed, mode 0' = STABILIZE) to this link too, and keeping it as the newest heartbeat once stopped a demo 12 s into the flight.",
    "inputs": "seconds, optional message types",
-   "outputs": "the matching message or None"
+   "outputs": "the matching autopilot message or None"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle.armed": {
-   "explain": "True when the newest heartbeat has the 'safety armed' bit set, which means the motors are armed.",
+   "explain": "True when the autopilot's newest heartbeat (never MAVROS's, see pump) has the 'safety armed' bit set, which means the motors are armed.",
    "outputs": "True / False"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle.mode": {
-   "explain": "The current flight mode name (GUIDED, AUTO, RTL ...) from the newest heartbeat's custom_mode number, using pymavlink's ArduCopter mode table; '?' before any heartbeat.",
+   "explain": "The current flight mode name (GUIDED, AUTO, RTL ...) from the autopilot's newest heartbeat custom_mode number (MAVROS's heartbeat is never used, see pump), with pymavlink's ArduCopter mode table; '?' before any heartbeat.",
    "outputs": "mode name"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/mission_tool.py::Vehicle.rel_alt_m": {
@@ -3021,43 +3021,43 @@
    "called_when": "5 s timer"
   },
   "mod:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py": {
-   "explain": "Takes one photo with the simulated camera. The team way (default) publishes true on /camera/trigger so the team's video_cam takes and downloads the photo into its photo folder ('<lat> , <lon>.jpg'); the direct way (--direct, or automatically when nobody listens) sends the SIYI SDK take-photo packet 55 66 01 01 00 00 00 0c 00 34 ce to the emulator at UDP 192.168.144.25:37260 and downloads the new file from its media web server on port 82 into ~/.astra_sim/photos. Exit 0 = new photo (path printed), 1 = none in time.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper): obsolete for the field since 2026-10-31, kept for the legacy option. Takes one photo with the simulated camera. The team way (default) publishes true on /camera/trigger so the team's video_cam takes and downloads the photo into its photo folder ('<lat> , <lon>.jpg'); the direct way (--direct, or automatically when nobody listens) sends the SIYI SDK take-photo packet 55 66 01 01 00 00 00 0c 00 34 ce to the emulator at UDP 192.168.144.25:37260 and downloads the new file from its media web server on port 82 into ~/.astra_sim/photos. Exit 0 = new photo (path printed), 1 = none in time.",
    "how_it_fits": "simulation/scripts/take_photo.sh runs it; it is a test button for the camera chain (video_cam -> siyi_emulator -> Gazebo photo camera)."
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::siyi_packet": {
-   "explain": "Builds one SIYI SDK frame: bytes 55 66, the 'need answer' flag, data length and sequence number (2 bytes each, little-endian), the command id, the data, then a CRC-16/XMODEM checksum of everything before it. With command 0x0C and one data byte 00 it gives exactly the team's take-photo bytes 55 66 01 01 00 00 00 0c 00 34 ce.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Builds one SIYI SDK frame: bytes 55 66, the 'need answer' flag, data length and sequence number (2 bytes each, little-endian), the command id, the data, then a CRC-16/XMODEM checksum of everything before it. With command 0x0C and one data byte 00 it gives exactly the team's take-photo bytes 55 66 01 01 00 00 00 0c 00 34 ce.",
    "inputs": "command id, data bytes, sequence, need_ack",
    "outputs": "packet bytes"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::_http_json": {
-   "explain": "Downloads a URL and reads it as JSON; any network or JSON problem gives None.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Downloads a URL and reads it as JSON; any network or JSON problem gives None.",
    "inputs": "URL, timeout",
    "outputs": "dict or None"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::emulator_media_list": {
-   "explain": "Asks the camera's media server the same way video_cam does: GET .../cgi-bin/media.cgi/api/v1/getdirectories?media_type=0 on port 82, then getmedialist for the LAST folder (start 0, count 9999). Returns the folder and its file list, or ('', []) when the server does not answer.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Asks the camera's media server the same way video_cam does: GET .../cgi-bin/media.cgi/api/v1/getdirectories?media_type=0 on port 82, then getmedialist for the LAST folder (start 0, count 9999). Returns the folder and its file list, or ('', []) when the server does not answer.",
    "inputs": "camera IP",
    "outputs": "(folder, list of file records)",
    "effects": "HTTP requests to <camera_ip>:82"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::take_direct": {
-   "explain": "The direct way: remembers the files already on the emulated SD card, sends the take-photo SDK packet by UDP to <camera_ip>:37260, then every 0.5 s re-reads the media list until a new file appears, and downloads that file into the output folder.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). The direct way: remembers the files already on the emulated SD card, sends the take-photo SDK packet by UDP to <camera_ip>:37260, then every 0.5 s re-reads the media list until a new file appears, and downloads that file into the output folder.",
    "inputs": "camera IP, timeout, output folder",
    "outputs": "path of the saved photo or None",
    "effects": "sends a UDP SDK packet; HTTP download; writes a .jpg"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::take_via_team_topic": {
-   "explain": "The team way: creates the ROS node 'photo_trigger', waits up to 4 s for a subscriber on /camera/trigger (the team's siyi node); if there is none it returns (False, None). Otherwise it publishes std_msgs/Bool true once and waits for a new photo file to appear in the team photo folder.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). The team way: creates the ROS node 'photo_trigger', waits up to 4 s for a subscriber on /camera/trigger (the team's siyi node); if there is none it returns (False, None). Otherwise it publishes std_msgs/Bool true once and waits for a new photo file to appear in the team photo folder.",
    "inputs": "timeout, photo folder",
    "outputs": "(somebody listened, new file path or None)",
    "effects": "publishes /camera/trigger"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::take_via_team_topic.files": {
-   "explain": "Returns the set of finished image file names (.jpg/.jpeg/.png, no '.tmp.') in the photo folder; an unreadable folder gives an empty set.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Returns the set of finished image file names (.jpg/.jpeg/.png, no '.tmp.') in the photo folder; an unreadable folder gives an empty set.",
    "outputs": "set of names"
   },
   "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/photo_trigger.py::main": {
-   "explain": "Reads --direct, --camera-ip (192.168.144.25), --timeout (30 s), --photo-dir and --out-dir. Without --direct it tries the team topic first; when nobody listens it switches to the direct way and saves into ~/.astra_sim/photos. Prints 'NEW PHOTO: <path>' and returns 0, or explains what to check and returns 1.",
+   "explain": "Legacy (2025) photo pipeline (simulator helper). Reads --direct, --camera-ip (192.168.144.25), --timeout (30 s), --photo-dir and --out-dir. Without --direct it tries the team topic first; when nobody listens it switches to the direct way and saves into ~/.astra_sim/photos. Prints 'NEW PHOTO: <path>' and returns 0, or explains what to check and returns 1.",
    "called_when": "ros2 run sim_bringup photo_trigger (take_photo.sh)",
    "outputs": "exit code"
   },
@@ -3347,7 +3347,7 @@
    "how_it_fits": "Test runner for teammates after changing sim_bringup or simulation/scripts (needs 03_build.sh first; it sources sim_env.sh)."
   },
   "mod:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py": {
-   "explain": "Unit tests for mission_tool's mission-file reader without an autopilot: QGC WPL 110 parsing, the checks against what the team code expects (TAKEOFF, DO_DIGICAM_CONTROL, two survey waypoints after it, RETURN_TO_LAUNCH last) and the 1e7 scaling of MISSION_ITEM_INT coordinates.",
+   "explain": "Unit tests for mission_tool without an autopilot: the mission-file reader (QGC WPL 110 parsing, the checks against what the team code expects: TAKEOFF, DO_DIGICAM_CONTROL, two survey waypoints after it, RETURN_TO_LAUNCH last; the 1e7 scaling of MISSION_ITEM_INT coordinates), and since 2026-10-31 three regression tests of Vehicle.pump with fake messages: MAVROS's heartbeat (component 191, 'disarmed, mode 0') must not replace the autopilot's armed AUTO state, the team's status texts from component 191 are still collected, and pump returns only messages from the autopilot.",
    "how_it_fits": "pytest suite of sim_bringup (no ROS needed)."
   },
   "mod:ros2_ws/src/simulation/sim_bringup/test/test_phase_monitor.py": {
@@ -3588,6 +3588,42 @@
   "mod:ros2_ws/src/simulation/sim_worlds/models/sim_worlds_tent/materials/textures/tent_yellow.jpg": {
    "explain": "The yellow tent-fabric texture of the pop-up dome tent (the SUAS tent target); the worlds pick one of the six colours for each tent they place.",
    "how_it_fits": "GENERATED by write_shared_models in sim_worlds/worldgen/builder.py (run by build_runway.py and build_suas_field.py; pictures are only repainted with force) and referenced by the model's model.sdf and the world SDFs. Never edit it by hand: change the generator and re-run it."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/sim_bringup/sim_paths.py::layout_without_camera_panels": {
+   "explain": "Makes a copy of a Gazebo window layout with every camera panel taken out: every <plugin> whose filename contains 'ImageDisplay' is dropped and everything else (start view, light, background, follow-camera settings, the other panels and their order) is kept. It reads either a layout file (.config: a <window> element and <plugin> elements side by side) or, with from_world=True, a whole world file, whose own <gui> section is then the layout (with no <window> element, so the window gets the same size as when Gazebo reads the world itself). XML comments are not copied.",
+   "called_when": "by sim.launch.py with gui_camera:=window or gui_camera:=off, when the main window would use the world's own <gui>, Gazebo's stock layout (gui_config:=default) or your own layout file",
+   "inputs": "the layout or world text, and from_world",
+   "outputs": "(layout text for 'gz sim -g --gui-config <file>', number of camera panels removed); the text is None for no text, broken XML, or a world without <gui>"
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Msg": {
+   "explain": "A tiny stand-in for a pymavlink message: a type, a source component (the system is always 1), and base_mode, custom_mode and text for heartbeats and status texts."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Msg.__init__": {
+   "explain": "Stores the message type, component, base_mode, custom_mode and text."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Msg.get_type": {
+   "explain": "Returns the message type, like pymavlink's get_type()."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Msg.get_srcSystem": {
+   "explain": "Always system 1, the simulated drone."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Msg.get_srcComponent": {
+   "explain": "The source component: 1 = the autopilot, 191 = MAVROS in these tests."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Link": {
+   "explain": "A stand-in for the MAVLink connection: hands out a fixed list of messages one by one, then nothing, and knows the three mode numbers the tests need."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Link.__init__": {
+   "explain": "Keeps a copy of the messages to hand out."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Link.recv_match": {
+   "explain": "Returns the next message of the list, or None when it is empty (like a quiet link)."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_Link.mode_mapping": {
+   "explain": "The mode table pymavlink would give: STABILIZE 0, AUTO 3, GUIDED 4."
+  },
+  "fn:ros2_ws/src/simulation/sim_bringup/test/test_mission_tool.py::_vehicle": {
+   "explain": "Makes a mission_tool Vehicle without opening any network connection (its __init__ is skipped) on a _Link with the given messages, already 'connected' to the autopilot as system 1, component 1."
   }
  }
 }

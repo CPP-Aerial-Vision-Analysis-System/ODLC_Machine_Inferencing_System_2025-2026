@@ -3,7 +3,7 @@
  "entries": {
   "pkg:ros2_ws/src/main": {
    "explain": "The 'main' ROS 2 package holds the mission brain of the drone: src/main_controller.py (ROS node main_controller) and the three small helper files it imports (target_geolocation.py = drop-aiming math, processing_hold.py = when the 'wait for the detector' hover ends, timed_steps.py = waits that never freeze the node). It also holds THE flight launch file launch/tracker.launch.xml, which starts all six team nodes, and a bench tool (capture_detect_drop.py). It is an ament_cmake package; CMakeLists.txt installs the Python scripts.",
-   "how_it_fits": "It is the last link of the chain camera -> detector -> brain -> autopilot. ArduPilot flies the survey on its own; main_controller listens to the detector on /image_detection, follows the mission through MAVROS (/mavros/mission/waypoints, /mavros/mission/reached), reads the mission landmarks from waypoint_manager's parameters, and at the end takes over: GUIDED hover, new target waypoints through /addWaypoint, AUTO, MAV_CMD_DO_SET_SERVO drops on servo outputs 13 (tent) and 11 (person) through /mavros/cmd/command, then RTL. Every step is told to the ground station as STATUSTEXT on /mavros/statustext/send, and the Gazebo simulator reads those same texts to show the mission phase and to score the aim. ./launcher.sh starts it on the Jetson and, unchanged, in the simulator."
+   "how_it_fits": "It is the last link of the chain camera -> detector -> brain -> autopilot. ArduPilot flies the survey on its own; main_controller listens to the detector on /image_detection, follows the mission through MAVROS (/mavros/mission/waypoints, /mavros/mission/reached), reads the mission landmarks from waypoint_manager's parameters, and at the end takes over: GUIDED hover, new target waypoints through /addWaypoint, AUTO, MAV_CMD_DO_SET_SERVO drops on servo outputs 13 (tent) and 11 (person) through /mavros/cmd/command, then RTL. Every step is told to the ground station as STATUSTEXT on /mavros/statustext/send, and the Gazebo simulator reads those same texts to show the mission phase and to score the aim. ./launcher.sh starts it on the Jetson and, unchanged, in the simulator. Status 2026-10-31: main_controller is still fed by the legacy (2025) photo detector new_od; How detections of the new video pipeline will reach main_controller is not decided by the team yet (a labelled proposal is being written in simulation/video/proposals/, not adopted by the team)."
   },
   "pkg:ros2_ws/src/waypoint_mavros": {
    "explain": "This package runs the ROS node waypoint_manager (waypoint_mavros/waypoint.py, command 'waypoint'). It keeps a copy of the autopilot's mission, publishes the mission's landmark positions as ROS parameters, and serves /addWaypoint so main_controller can add target waypoints. Its rules for keeping the copy fresh are in mission_sync.py (pure Python, unit-tested). It also contains killnode.py, a dead and dangerous shutdown node that must never be run.",
@@ -201,7 +201,7 @@
   },
   "mod:ros2_ws/src/main/launch/tracker.launch.xml": {
    "explain": "THE flight launch file. It starts the six team nodes, each printing to the screen: waypoint_mavros/waypoint (waypoint_manager), gps_ros2/gpstest (gps_mavros_service_node), detection/new_od, video_cam/siyi, mapping/trigger (mission_camera_trigger) and main/main_controller.py. It sets use_sim_time (default false) for all of them and starts image_view only when debug:=true. The other arguments (yolo_model, conf_thres, ...) belong to a commented-out ultralytics tracker and change nothing.",
-   "how_it_fits": "launcher.sh runs it once MAVROS is up ('ros2 launch main tracker.launch.xml'). In the simulator, sim_bringup's team_stack.launch.py includes this same file unchanged and only adds parameters that new_od reads, so the simulator tests exactly the flight launch. The six nodes it starts are the ones the simulator's stack_check waits for (the node names themselves are set in each node's code). Commented-out lines: wp_sender test clients, object_detection_sahi, killnode, the mapping stitcher."
+   "how_it_fits": "launcher.sh runs it once MAVROS is up ('ros2 launch main tracker.launch.xml'). In the simulator, sim_bringup's team_stack.launch.py includes this same file unchanged and only adds parameters that new_od reads, so the simulator tests exactly the flight launch. The six nodes it starts are the ones the simulator's stack_check waits for (the node names themselves are set in each node's code). Commented-out lines: wp_sender test clients, object_detection_sahi, killnode, the mapping stitcher. Status 2026-10-31: it still starts the legacy (2025) photo nodes (video_cam siyi, mapping trigger, new_od); the team has not changed it. On the field Jetson the new video pipeline (zr10_ros2's zr10_node, the zr10_stream launch, the detector) is started by hand next to it; a proposed field launch file without the photo nodes is being written in simulation/video/proposals/ (not adopted by the team)."
   },
   "mod:ros2_ws/src/main/msg/ImageResult.msg": {
    "explain": "An old, DEAD copy of the detection message. It lacks the latitude/longitude fields the live version has, and main's CMakeLists.txt only copies it (no message type is generated from it).",
@@ -299,7 +299,7 @@
   },
   "mod:ros2_ws/src/main/src/main_controller.py": {
    "explain": "The mission brain (ROS node main_controller). During the survey it remembers the best person and the best tent the detector reports and works out where on the ground each one is. At the last waypoint before RTL it hovers in GUIDED until every photo has a detector answer (at most 90 s), then inserts one waypoint over each target (tent first, then person) before RTL, flies there in AUTO, hovers 6 s over each, opens that target's release servo for 3 s, and finally sends the drone home (RTL).",
-   "how_it_fits": "Inputs: /image_detection (interfaces/ImageResult from new_od, RELIABLE depth 10), /mavros/mission/waypoints and /mavros/mission/reached from MAVROS, and waypoint_manager's mission indices (read from /waypoint_manager/get_parameters whenever /parameter_events says they changed). Outputs: /addWaypoint (waypoint_manager), /mavros/mission/set_current, /mavros/set_mode (GUIDED / AUTO / RTL), /mavros/cmd/command (MAV_CMD_DO_SET_SERVO 183: channel 13 tent, 11 person, 1400 us open, 500 us closed) and STATUSTEXT on /mavros/statustext/send. To aim it reads each photo's .json sidecar (written by video_cam) in <ws>/src/video_cam/mapping_photos. The simulator's phase monitor and scorer parse its STATUSTEXT texts, so their wording must not change. Target waypoints fly at ALT = 49 m above home (about 160 ft; the code comment '~55ft' is out of date)."
+   "how_it_fits": "Inputs: /image_detection (interfaces/ImageResult from new_od, RELIABLE depth 10), /mavros/mission/waypoints and /mavros/mission/reached from MAVROS, and waypoint_manager's mission indices (read from /waypoint_manager/get_parameters whenever /parameter_events says they changed). Outputs: /addWaypoint (waypoint_manager), /mavros/mission/set_current, /mavros/set_mode (GUIDED / AUTO / RTL), /mavros/cmd/command (MAV_CMD_DO_SET_SERVO 183: channel 13 tent, 11 person, 1400 us open, 500 us closed) and STATUSTEXT on /mavros/statustext/send. To aim it reads each photo's .json sidecar (written by video_cam) in <ws>/src/video_cam/mapping_photos. The simulator's phase monitor and scorer parse its STATUSTEXT texts, so their wording must not change. Target waypoints fly at ALT = 49 m above home (about 160 ft; the code comment '~55ft' is out of date). Status 2026-10-31: its detections still come from new_od, the legacy (2025) photo pipeline's detector (and its aim uses the photo sidecars). How detections of the new video pipeline will reach main_controller is not decided by the team yet (a labelled proposal is being written in simulation/video/proposals/, not adopted by the team)."
   },
   "fn:ros2_ws/src/main/src/main_controller.py::Detection_Object": {
    "explain": "A small record for the best detection of one target class so far: type ('person' or 'tent'), confidence (0 = nothing found yet), lat / long (the AIM point the drone will fly to and drop on), image_name (the photo it was seen in) and aim_note (how the aim point was worked out, for the log)."
@@ -403,7 +403,8 @@
    "explain": "Handles the detector's answer for one photo. It records the photo name as processed (for the hold check). For each box with class '0' (person) or '1' (tent) and a finite score higher than the best so far, it works out the aim point with locate_detection and, if it is usable, stores the new best confidence, aim point, photo name and note and sends STATUSTEXT 'Detected <class>'. A photo with no boxes gives the STATUSTEXT 'No objects detected.'.",
    "called_when": "On every /image_detection message (one per photo, about one per second during the survey).",
    "inputs": "msg: interfaces/ImageResult.",
-   "effects": "STATUSTEXT messages; a box without a usable position is ignored with a warning (the old code would have sent the drone to 0,0)."
+   "effects": "STATUSTEXT messages; a box without a usable position is ignored with a warning (the old code would have sent the drone to 0,0).",
+   "how_it_fits": "Fed today by new_od, the legacy (2025) photo pipeline's detector (or the simulator's truth_detector stand-in). How detections of the new video pipeline will reach main_controller is not decided by the team yet (a labelled proposal is being written in simulation/video/proposals/, not adopted by the team)."
   },
   "fn:ros2_ws/src/main/src/main_controller.py::MainController.change_mode": {
    "explain": "Asks the autopilot to switch flight mode ('GUIDED', 'AUTO' or 'RTL') by calling /mavros/set_mode with custom_mode. It does not wait for the answer (call_async); _on_mode_result logs it later.",
@@ -1077,6 +1078,47 @@
   "fn:ros2_ws/src/wp_sender/wp_sender/waypoint_sender.py::main": {
    "explain": "The 'send_wp' command: inserts a test waypoint (lat 10.5, lon 30.2, alt 4.2, index 0), prints the answer, deletes index 0, prints that answer, and exits.",
    "effects": "Each call makes waypoint_manager upload the whole mission to the autopilot."
+  },
+  "pkg:ros2_ws/src/mainCPP": {
+   "explain": "DEAD, not launched: the C++ package 'maincpp' (package.xml still says 'TODO: Package description'). It builds a stale C++ port of main_controller under the SAME node name 'main_controller' as the real Python one, and the dangerous tool siyi_wipe_sd, which formats the camera's SD card.",
+   "how_it_fits": "Nothing in the flight launch or the simulator uses it. Never run siyi_wipe_sd on a development machine (AGENTS.md rule 11)."
+  },
+  "mod:ros2_ws/src/mainCPP/CMakeLists.txt": {
+   "explain": "Build rules of the dead maincpp package: two C++ programs, main_controller (from src/main_controller.cpp) and siyi_wipe_sd, installed into lib/maincpp."
+  },
+  "mod:ros2_ws/src/mainCPP/CMakeLists.txt.bak.20260801-141401": {
+   "explain": "An old copy (backup of 2026-08-01) of the maincpp build rules, from when the program was main.cpp and siyi_wipe_sd did not exist yet. Nothing uses it."
+  },
+  "mod:ros2_ws/src/mainCPP/package.xml": {
+   "explain": "The package description of the dead C++ package 'maincpp' (description still 'TODO')."
+  },
+  "mod:ros2_ws/src/mainCPP/src/main.cpp": {
+   "explain": "An early C++ attempt at the mission node (class Main, ROS node 'main'). Not built any more: CMakeLists.txt builds main_controller.cpp instead."
+  },
+  "mod:ros2_ws/src/mainCPP/src/main_controller.cpp": {
+   "explain": "A stale C++ port of the team's Python main_controller (class MainController with mission phases, ROS node name 'main_controller'). DEAD: never launched, and it would clash with the real Python node of the same name."
+  },
+  "mod:ros2_ws/src/mainCPP/src/siyi_wipe_sd.cpp": {
+   "explain": "A DANGEROUS bench tool: it erases the SIYI camera's whole SD card with SDK command 0x48 (FORMAT SD CARD) over UDP, because the camera's media HTTP API cannot delete single files. Per AGENTS.md it can format the card when RC output 12 is 1800 us or more while disarmed.",
+   "how_it_fits": "Never run it on a development machine (AGENTS.md rule 11). Not launched by anything."
+  },
+  "pkg:ros2_ws/src/gps_cpp": {
+   "explain": "DEAD learning stub: a tiny C++ package 'gps_cpp' with one program, gps_node, written while learning ROS 2 in C++. The real GPS stream-rate node is the Python gps_ros2."
+  },
+  "mod:ros2_ws/src/gps_cpp/CMakeLists.txt": {
+   "explain": "Build rules of the gps_cpp learning stub: one program gps_node from src/gps.cpp."
+  },
+  "mod:ros2_ws/src/gps_cpp/package.xml": {
+   "explain": "The package description of the gps_cpp learning stub (description still 'TODO')."
+  },
+  "mod:ros2_ws/src/gps_cpp/src/gps.cpp": {
+   "explain": "The gps_cpp learning stub's C++ node (class GPSMavrosServiceNode, ROS node name 'gps_mavros_service_node', the same as the real Python node) that listens to MAVROS's state. Not launched; it would clash with the real node's name."
+  },
+  "pkg:LearnC++ROS2": {
+   "explain": "A team study folder for learning C++ with ROS 2 (oneohone.md). Notes only; nothing builds or runs it."
+  },
+  "mod:LearnC++ROS2/oneohone.md": {
+   "explain": "Step-by-step study notes for writing a first C++ ROS 2 package inside the dev container (source the workspace, check the dependencies, build). Notes only."
   }
  }
 }

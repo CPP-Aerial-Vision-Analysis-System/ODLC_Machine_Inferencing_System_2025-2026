@@ -3,7 +3,7 @@
  "entries": {
   "pkg:ros2_ws/src/lattice_bridge": {
    "explain": "The ROS 2 package lattice_bridge (ament_python, version 0.1.0) shows the ASTRA mission on Anduril Lattice, a shared map that people open in a web browser: our drone, the hiker and tent the camera finds, the search areas, the flight boundary and the payload drop points. It holds a pure-Python core library (entity builders and a contract checker, target clustering, the short TGT radio message, a JSONL recorder) and three opt-in programs: lattice_reporter (runs on the Jetson), bridge (runs on the ground laptop) and fake_lattice (a pretend Lattice with a live map page on this computer).",
-   "how_it_fits": "An extra that can never disturb the flight: launcher.sh and tracker.launch.xml never start any of it. The data path is: new_od publishes /image_detection -> lattice_reporter projects each box onto the ground with main's own target_geolocation.py and publishes short texts like 'TGT p 36.214935 -96.006203 95 12' on /mavros/statustext/send -> MAVROS and ArduPilot carry them down the MAVLink radio -> the ground bridge reads the MAVLink stream with pymavlink (GLOBAL_POSITION_INT, HEARTBEAT, SYS_STATUS, STATUSTEXT ...), builds Lattice entities and sends each with HTTP PUT /api/v1/entities to a Lattice (in the simulator the fake one at http://127.0.0.1:8089) or writes it to a JSONL file. It also reads the sim_worlds config/truth YAML files for the areas and can replay a recorded run folder from ~/.astra_sim/runs/. The simulator profile simulation/profiles/lattice_mock.yaml starts, with the simulator, a second ground station lattice_ground_radio (MAVProxy on the autopilot's spare port TCP 5762, forwarding to UDP 14554, playing the real telemetry radio), fake_lattice and bridge, and lattice_reporter with the team stack. Per docs/lattice/BRIDGE.md (2026-10-31) this whole chain ran end to end in the Gazebo twin (run 20261031-094837_runway), but never on the Jetson, over a real radio, or against a real Lattice (ext:lattice_cloud): no account or token exists yet."
+   "how_it_fits": "Since 2026-10-31 the Lattice work belongs to the TEAM: the owner stopped the AI-assisted work and handed it over in commit f139036; the team continues from docs/lattice/HANDOFF.md. An extra that can never disturb the flight: launcher.sh and tracker.launch.xml never start any of it. The data path: the detector's /image_detection (today new_od, the legacy (2025) photo pipeline's detector) -> lattice_reporter projects each box onto the ground with main's own target_geolocation.py and publishes short texts like 'TGT p 36.214935 -96.006203 95 12' on /mavros/statustext/send -> MAVROS and ArduPilot carry them down the MAVLink radio -> the ground bridge reads the MAVLink stream with pymavlink (GLOBAL_POSITION_INT, HEARTBEAT, SYS_STATUS, STATUSTEXT ...), builds Lattice entities and sends each with HTTP PUT /api/v1/entities to a Lattice (in the simulator the fake one at http://127.0.0.1:8089) or writes it to a JSONL file. It also reads the sim_worlds config/truth YAML files for the areas and can replay a recorded run folder. The profile simulation/profiles/lattice_mock.yaml starts, with the simulator, a second ground station lattice_ground_radio (MAVProxy on SITL TCP 5762 -> UDP 14554), fake_lattice and bridge, and lattice_reporter with the team stack. Proven end to end in the Gazebo twin (run 20261031-094837_runway: 293 of 293 requests accepted, one track per real target), never on the Jetson, over a real radio or against a real Lattice (ext:lattice_cloud): no token yet. How the reporter will get detections from the new video pipeline is part of the team's open work."
   },
   "pkg:ros2_ws/src/lattice_bridge/lattice_bridge/sinks": {
    "explain": "The 'sinks' Python sub-package of the bridge: the places a finished Lattice request can go. base.py holds the contract (BaseSink and the retryable / fatal errors), rest_sink.py sends to a Lattice over HTTP (PUT /api/v1/entities), jsonl_sink.py records every request in a file, and mock_sink.py keeps everything in memory for tests; __init__.py holds the older two-call Sink protocol.",
@@ -557,10 +557,10 @@
    "explain": "Switches the journal off after a write error, saying so once on stderr; the server keeps answering."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice._note_locked": {
-   "explain": "Builds the journal record (result, HTTP status, entityId, isLive, sourceUpdateTime, the entity itself for accepted or discarded requests, an optional message) for callers that already hold the lock."
+   "explain": "Builds the journal record (result, HTTP status, entityId, isLive, sourceUpdateTime, the entity itself for accepted or discarded requests, an optional message) for callers that already hold the lock, and writes it stamped with the request's arrival time ('received') when given."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice._write_journal": {
-   "explain": "Appends one JSON line {t: <server time>, ...record} to the journal and flushes it at once, so the record survives a killed server (call with the lock held). Never raises."
+   "explain": "Appends one JSON line {t: <time>, ...record} to the journal and flushes it at once, so the record survives a killed server (call with the lock held). 't' is the request's arrival time when given, otherwise the time of writing. A write error switches the journal off (_journal_failed); it never raises."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.check_auth": {
    "explain": "True when the request carries 'authorization: Bearer <token>' matching the required token (in open mode any non-empty bearer token) and, when a sandbox token is set, the matching anduril-sandbox-authorization header."
@@ -578,8 +578,8 @@
    "explain": "Records one request's outcome in the journal (thread safe; does nothing when there is no journal)."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.publish": {
-   "explain": "Applies one published entity the way Lattice does: a body that is not an object, or an entity failing find_problems, gets 400 with the reason; one whose sourceUpdateTime is not newer than the held one is discarded but still answered 200; otherwise it goes into the history and onto the picture (or off it for isLive false), is written to the journal, and is answered 200 {}.",
-   "called_when": "By _Handler.do_PUT for each authorised PUT /api/v1/entities."
+   "explain": "Applies one published entity the way Lattice does: a body that is not an object, or an entity failing find_problems, gets 400 with the reason; one whose sourceUpdateTime is not newer than the held one is discarded but still answered 200; otherwise it goes into the history and onto the picture (or off it for isLive false), is written to the journal (stamped with the arrival time when given), and is answered 200 {}. After stop() closed the journal it answers 503 'the pretend Lattice has stopped' and takes nothing (counted as too_late), so nothing is ever accepted without a journal line.",
+   "called_when": "By _Handler._answer_put for each authorised PUT /api/v1/entities (and by tests)."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.render_page": {
    "explain": "Builds the live map page: an SVG drawn to scale (east to the right, north up) with search areas (filled), the flight boundary (dashed), the drone (blue triangle), person (green) and tent (orange) circles and drop points (red diamonds), every name HTML-escaped so an entity name cannot inject markup; plus a table with each entity's age and the counters. The page reloads itself every 2 s."
@@ -595,10 +595,10 @@
    "explain": "A request-handler class created inside start() so that its 'fake' attribute points at THIS FakeLattice; all behaviour comes from _Handler."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.stats": {
-   "explain": "The counters (requests, accepted, discarded_older, went_offline, refused_auth, refused_contract, refused_malformed, injected_failures, gets) plus how many entities are on the picture and in the history."
+   "explain": "The counters (requests, accepted, discarded_older, went_offline, refused_auth, refused_contract, refused_malformed, refused_path, injected_failures, too_late, gets) plus how many entities are on the picture and in the history."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.stop": {
-   "explain": "Shuts the HTTP server down, waits for its thread (up to 5 s) and closes the journal after a last 'stopped' line holding the counters and the ids still on the picture. Safe to call twice."
+   "explain": "Stops listening (waits up to 5 s for the server thread), then gives PUT requests that are still being answered up to STOP_WAIT_S (2 s) to finish, so their journal lines come BEFORE the last 'stopped' line; that line holds the counters, the ids still on the picture and, if any, how many requests were unfinished (those are answered 503 and not taken). Then the journal is closed. Safe to call twice; a stopped server can be started again."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::FakeLattice.url": {
    "explain": "The address to give the bridge as its endpoint, for example 'http://127.0.0.1:8089'."
@@ -622,7 +622,7 @@
    "explain": "POST /control: reads a JSON object such as {'down': true} and passes it to FakeLattice.configure; bad JSON gets 400, any other path 404."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::_Handler.do_PUT": {
-   "explain": "PUT /api/v1/entities: counts the request, reads the body first, applies any injected delay or failure, checks the token (401), parses the JSON (400) and calls FakeLattice.publish; any other path gets 404."
+   "explain": "PUT /api/v1/entities: notes the arrival time (the journal's 't' is when the request ARRIVED, not when its line was written, which matters when a delay is injected), counts the request and marks it 'in flight', lets _answer_put answer it, and then marks it finished, so stop() can wait for running requests."
   },
   "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::_Handler.log_message": {
    "explain": "Keeps the console quiet: no line per request, which would drown the bridge's own log."
@@ -2160,6 +2160,43 @@
   "pkg:ros2_ws/src/lattice_bridge/test": {
    "explain": "The test folder of lattice_bridge: 33 test_*.py files plus conftest.py and three helpers (support.py, support_net.py, scenario_data.py), the golden/ reference entities with their README, and data/scenario_truth.yaml. Together they check every library module, the three programs (bridge, fake_lattice, lattice_reporter's logic and settings file) and the docs, with fakes and real local sockets but no simulator, radio, internet or Lattice account. A few tests skip themselves when something optional is missing: the MAVLink tests need pymavlink, and the cross-check against main_controller's own aiming needs a sourced ROS 2 (rclpy, interfaces, mavros_msgs, cv_bridge).",
    "how_it_fits": "Run from ros2_ws/src/lattice_bridge with 'python3 -m pytest -q -p no:cacheprovider test' (no ROS or build needed), or after colcon build with LATTICE_BRIDGE_USE_INSTALLED=1 from ros2_ws, as the package README (section 8) shows. Each file has one module-level entry in this map, not one per test."
+  },
+  "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::_Handler._answer_put": {
+   "explain": "Answers one PUT, in this order, with exactly one journal line per outcome stamped with the arrival time: read the body first (answering with the body unread could reset the connection; a missing or too large body -> 400/413), check the path (anything but /api/v1/entities -> 404), apply an injected delay or failure (with Retry-After), check the token (401), parse the JSON (400), then FakeLattice.publish decides (200, 400 for a broken entity, or 503 when the server has already stopped).",
+   "called_when": "by do_PUT for every PUT request",
+   "effects": "counters, journal lines, the HTTP answer"
+  },
+  "fn:ros2_ws/src/lattice_bridge/lattice_bridge/fake_lattice.py::_Handler._refuse_body": {
+   "explain": "Sends the 400 (unreadable length) or 413 (body above MAX_BODY_BYTES) that _read_body decided on, with {'message': 'the body is missing or too large'}; the body itself is never read."
+  },
+  "pkg:docs/lattice": {
+   "explain": "The Lattice documents. Since 2026-10-31 the Lattice work belongs to the TEAM: the owner stopped the AI-assisted work and handed it over in commit f139036; the team continues from docs/lattice/HANDOFF.md. Start with HANDOFF.md (what is built and proven, where the work stopped, what to do next), then README.md (the front door), BRIDGE.md (how to run it), DATA_CONTRACT.md (exactly what is sent) and LATTICE_PLAN.md (the plan and the open decisions)."
+  },
+  "mod:docs/lattice/HANDOFF.md": {
+   "explain": "The hand-over note of 2026-10-31 for the team members who take over the Lattice work (the owner stopped the AI-assisted work; everything is committed in f139036). It says in plain words what is built (core library, bridge, REST sink, fake Lattice, Jetson reporter, the lattice_mock profile, the docs), what is proven in the Gazebo twin and what is not (no real Lattice server, no real Jetson or radio), where the work stopped (an unreviewed last change to fake_lattice.py's journal timing; why lattice_mock pins MAVROS behind MAVProxy; phase 8 'several ground stations' never started), the next steps in order, the commands to check everything still works (1937 passed, 9 skipped on Windows at hand-over) and the safety rules (no token in the repo, the bridge only listens, the reporter is off on the real drone).",
+   "how_it_fits": "The starting point for Lattice, listed as such in docs/README.md; the team owns it now."
+  },
+  "mod:docs/lattice/README.md": {
+   "explain": "The front door of the Lattice work: what Lattice is in two sentences, which file to read for what, how far the work got phase by phase (as of 2026-10-31), copy-paste commands to check it, and the safety promise. It points first to HANDOFF.md for whoever takes over.",
+   "how_it_fits": "Part of the documents handed to the team on 2026-10-31."
+  },
+  "mod:docs/lattice/BRIDGE.md": {
+   "explain": "How to run the Lattice bridge step by step, for a student who has never seen it: try it with the simulator and the pretend Lattice (no account, nothing leaves the computer), the Jetson-side target reporter, replaying a recorded flight, checking a setup with --dry-run, the settings, keeping tokens safe, what happens when something breaks, exit codes, troubleshooting, and exactly what was and was not proven on 2026-10-31 (with run folders and numbers).",
+   "how_it_fits": "Part of the documents handed to the team on 2026-10-31."
+  },
+  "mod:docs/lattice/DATA_CONTRACT.md": {
+   "explain": "The exact contract between ASTRA and Anduril Lattice: the five kinds of entity we publish, every field of each (where the value comes from and why), the enum words, the altitude and time rules, the TGT radio message, how repeated sightings become one entity, and what still needs confirming before the sandbox phase. Checked against the live Lattice documentation on 2026-10-24; constants.py and the test/golden/*.json files are the code side.",
+   "how_it_fits": "Part of the documents handed to the team on 2026-10-31."
+  },
+  "mod:docs/lattice/LATTICE_PLAN.md": {
+   "explain": "The engineering plan for Lattice: what we publish, where the bridge runs (the key decision), the package design, testing in the Gazebo twin without an account, the phases with 'done when' checks, the risks and the open decisions. Phases 1 and 2 are built (phase 2 ran end to end in the twin on 2026-10-31); the later phases, including phase 8 (several ground stations), are not.",
+   "how_it_fits": "Part of the documents handed to the team on 2026-10-31."
+  },
+  "fn:ros2_ws/src/lattice_bridge/test/conftest.py::_plain_logger_class": {
+   "explain": "Test helper: undoes the ROS launch library's change of Python's logger class (it makes every new logger a LaunchLogger that does not pass messages on), so the tests can read the bridge's log lines. Does nothing when ROS is not loaded."
+  },
+  "fn:ros2_ws/src/lattice_bridge/test/conftest.py::_lattice_loggers_reach_the_root": {
+   "explain": "Automatic fixture run before every Lattice test: makes new loggers plain again and lets every lattice_bridge logger pass its messages up to the root logger, where pytest's log capture sees them."
   }
  }
 }
