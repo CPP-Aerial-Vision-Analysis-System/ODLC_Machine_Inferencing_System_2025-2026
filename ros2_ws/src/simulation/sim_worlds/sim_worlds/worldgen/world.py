@@ -146,12 +146,14 @@ def gui_xml(camera_pose, follow_target='iris', follow_offset=(-12.0, 0.0, 6.0), 
     return ''.join(out)
 
 
-def header(world_name, home, purpose_lines, gui):
+def header(world_name, home, purpose_lines, gui, sun_direction=None):
     """Start of the world file up to (and including) the sun.
 
     world_name: <world name>. home: geo.Home (the GPS origin). purpose_lines: list of comment lines that
-    explain the file (the PURPOSE paragraph). gui: text from gui_xml().
+    explain the file (the PURPOSE paragraph). gui: text from gui_xml(). sun_direction: (x, y, z) unit vector the
+    sunlight travels along, ENU (default: a mid-September late-morning sun from the south-east).
     """
+    sd = sun_direction or (-0.321, 0.557, -0.766)
     comment = '\n'.join(f'  {xml_comment(ln)}' if ln else '' for ln in purpose_lines)
     return f'''<?xml version="1.0" ?>
 <!--
@@ -200,7 +202,7 @@ def header(world_name, home, purpose_lines, gui):
       <pose>0 0 100 0 0 0</pose>
       <diffuse>1.0 0.96 0.88 1</diffuse>
       <specular>0.35 0.33 0.30 1</specular>
-      <direction>-0.321 0.557 -0.766</direction>
+      <direction>{sd[0]:.3f} {sd[1]:.3f} {sd[2]:.3f}</direction>
     </light>
 '''
 

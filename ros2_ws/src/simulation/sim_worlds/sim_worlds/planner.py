@@ -23,7 +23,10 @@ class SurveySettings:
     (ArduPilot then uses its WPNAV_SPEED parameter). max_speed_mps: upper limit for the automatic speed.
     hfov_rad / width_px / height_px: the photo camera. overshoot_m: metres flown past each lane end.
     lead_in_s: seconds of flight added BEFORE the first lane, on its extension outside the area (0 = the first
-    lane starts at the area edge, last year's layout). Why: when the mission's DO_DIGICAM_CONTROL starts the
+    lane starts at the area edge, last year's layout). agl_basis_m: height ABOVE THE GROUND that the photo footprint
+    (lane spacing, speed) is computed for; None = altitude_m (flat ground at the home height). On real, sloped
+    ground the mission still flies altitude_m above home, but the footprint must be the one over the HIGHEST
+    ground under the lanes, where the camera is closest. Why: when the mission's DO_DIGICAM_CONTROL starts the
     photos, the team's video_cam first racks the zoom and focuses (about 15 s; its lens worker drops every
     photo request meanwhile), so without a lead-in the first ~80 m of lane 1 get no photos at all. The first
     lane waypoint moves lead_in_s x lane speed metres back; the mission keeps exactly the same items and indices.
@@ -40,6 +43,7 @@ class SurveySettings:
     height_px: int = survey.PHOTO_HEIGHT_PX
     overshoot_m: float = 0.0
     lead_in_s: float = 0.0
+    agl_basis_m: float = None
 
 
 def lead_in_point(start, nxt, distance_m):
@@ -60,10 +64,12 @@ def plan_survey_mission(home, rect, settings, hold_xy=None):
     Returns (items, plan, speed_mps): mission items (list of mission.MissionItem), the survey.SurveyPlan, and
     the lane speed written into the mission (None when no DO_CHANGE_SPEED item was written).
     """
-    plan = survey.plan_lanes(rect, settings.altitude_m, settings.sidelap, settings.hfov_rad, settings.width_px,
+    basis = settings.agl_basis_m or settings.altitude_m
+    plan = survey.plan_lanes(rect, basis, settings.sidelap, settings.hfov_rad, settings.width_px,
                              settings.height_px, start_xy=(0.0, 0.0), overshoot_m=settings.overshoot_m)
+    plan.altitude_m = settings.altitude_m              # the flight height; the footprint above used `basis`
     if settings.speed_mps is None:
-        speed = survey.survey_speed(settings.altitude_m, settings.frontlap, settings.photo_interval_s,
+        speed = survey.survey_speed(basis, settings.frontlap, settings.photo_interval_s,
                                     settings.max_speed_mps, hfov_rad=settings.hfov_rad,
                                     width_px=settings.width_px, height_px=settings.height_px)
     elif settings.speed_mps == 0:

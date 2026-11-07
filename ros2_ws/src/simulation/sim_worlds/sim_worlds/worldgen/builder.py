@@ -242,6 +242,7 @@ class WorldBuilder:
         self.gui_camera = world.look_at((-40.0, -60.0, 45.0), (20.0, 60.0, 0.0))
         self.follow_offset = (-12.0, 0.0, 6.0)
         self.survey = None
+        self.sun_direction = None            #: (x, y, z) of the sunlight, None = the default sun of world.header()
         self.extra_missions = []
         self.extra_truth = {}
         self.used_assets = set()
@@ -357,7 +358,7 @@ class WorldBuilder:
     def world_sdf(self, purpose_lines):
         """The complete world file text."""
         gui = world.gui_xml(self.gui_camera, follow_offset=self.follow_offset)
-        text = [world.header(self.name, self.home, purpose_lines, gui), '\n    <!-- ground, pad, runway -->\n']
+        text = [world.header(self.name, self.home, purpose_lines, gui, self.sun_direction), '\n    <!-- ground, pad, runway -->\n']
         for name, uri, xyz, rpy in self.includes:
             text.append(sdf.include_xml(name, uri, xyz, rpy) + '\n')
         if self.patches:

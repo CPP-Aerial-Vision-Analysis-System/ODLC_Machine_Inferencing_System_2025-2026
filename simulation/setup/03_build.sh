@@ -26,12 +26,16 @@
 #                                  more is faster on a big desktop)
 #                --add-to-bashrc   load setup/sim_env.sh in every new terminal
 #  NEXT STEP:    bash ~/ODLC_Machine_Inferencing_System_2025-2026/simulation/scripts/demo.sh runway
+#  Exit codes:   0 = built (warnings may be printed), 1 = failed (the reason and the fix are printed),
+#                2 = the command was typed wrong. Every message: docs/simulation/ERRORS.md ("03_build").
 # =============================================================================
 set -eo pipefail
 say()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
-warn() { printf '\033[1;33m !! %s\033[0m\n' "$*" >&2; }
-die()  { printf '\033[1;31m XX %s\033[0m\n' "$*" >&2; exit 1; }
+# Every warning and error says what failed, the likely cause and the fix, tagged [03_build] (docs/simulation/ERRORS.md).
+warn() { printf '\033[1;33m !! [03_build] WARNING: %s\033[0m\n' "$*" >&2; }
+die()  { printf '\033[1;31m XX [03_build] ERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+die_usage() { printf '\033[1;31m XX [03_build] ERROR: %s. Fix: see the options with  bash "%s" --help\033[0m\n' "$*" "$0" >&2; exit 2; }
 
 SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC_REPO="$(cd "$SETUP_DIR/../.." && pwd)"
@@ -39,27 +43,35 @@ DEST=""
 SYNC=1; MODELS=1; CLEAN=0; BASHRC=0; PACKAGES=""; WORKERS=4
 while [ $# -gt 0 ]; do
   case "$1" in
-    --dest) shift; DEST="${1:?--dest needs a folder}" ;;
-    --workers) shift; WORKERS="${1:?--workers needs a number}" ;;
+    --dest) shift; [ -n "${1:-}" ] || die_usage "--dest needs a folder"; DEST="$1" ;;
+    --workers) shift; case "${1:-}" in ''|*[!0-9]*) die_usage "--workers needs a whole number, e.g. --workers 4" ;; esac
+               WORKERS="$1" ;;
     --no-sync) SYNC=0 ;;
     --no-models) MODELS=0 ;;
     --clean) CLEAN=1 ;;
-    --packages) shift; PACKAGES="${1:?--packages needs a list}" ;;
+    --packages) shift; [ -n "${1:-}" ] || die_usage "--packages needs a list, e.g. --packages \"sim_demo sim_bringup\""
+                PACKAGES="$1" ;;
     --add-to-bashrc) BASHRC=1 ;;
     -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
-    *) die "unknown option $1 (see --help)" ;;
+    *) die_usage "unknown option \"$1\"" ;;
   esac
   shift
 done
-[ "$(id -u)" -ne 0 ] || die "Run this WITHOUT sudo (it builds in your home folder):  bash $0"
-[ -f /opt/ros/humble/setup.bash ] || die "ROS 2 Humble is missing: run step 1 first (sudo bash 01_install_humble.sh)."
+[ "$(id -u)" -ne 0 ] || die "this build must not run as root.
+    Likely cause: it was started with sudo (or as the root user). The build belongs in your own home folder.
+    Fix: run it again WITHOUT sudo:  bash \"$0\""
+[ -f /opt/ros/humble/setup.bash ] || die "ROS 2 Humble is not installed (/opt/ros/humble/setup.bash is missing).
+    Likely cause: setup step 1 has not run on this PC yet (or it failed).
+    Fix: sudo bash \"$SETUP_DIR/01_install_humble.sh\"   then run this build again"
 
 # ---- where to build --------------------------------------------------------------------------
 case "$SRC_REPO" in
   /mnt/*) DEST="${DEST:-$HOME/ODLC_Machine_Inferencing_System_2025-2026}" ;;
   *)      DEST="${DEST:-$SRC_REPO}" ;;
 esac
-case "$DEST" in *" "*) die "The build folder must not contain spaces: \"$DEST\"" ;; esac
+case "$DEST" in *" "*) die "the build folder \"$DEST\" contains a space.
+    Likely cause: --dest points to a folder with a space, or this Linux checkout lives in one. Gazebo and colcon fail there.
+    Fix: give a folder without spaces, e.g.  bash \"$0\" --dest \"\$HOME/ODLC_Machine_Inferencing_System_2025-2026\"" ;; esac
 export ASTRA_SIM_HOME="${ASTRA_SIM_HOME:-$HOME/.astra_sim}"
 mkdir -p "$ASTRA_SIM_HOME/logs"
 LOG="$ASTRA_SIM_HOME/logs/build_$(date +%Y%m%d-%H%M%S).log"
@@ -81,7 +93,9 @@ if [ "$SYNC" = 1 ] && [ "$SRC_REPO" != "$DEST" ]; then
 else
   say "[1/4] Building in place: $DEST"
 fi
-[ -d "$DEST/ros2_ws/src" ] || die "No ros2_ws/src in $DEST"
+[ -d "$DEST/ros2_ws/src" ] || die "there is no ros2_ws/src in $DEST, so there is nothing to build.
+    Likely cause: --no-sync on a copy that was never made, or --dest points to the wrong folder.
+    Fix: run it without --no-sync (it copies the repo first), or give the right folder with --dest"
 
 # ---- 2. build --------------------------------------------------------------------------------
 say "[2/4] Building ros2_ws with colcon (a few minutes the first time; log: $LOG)"
@@ -104,10 +118,14 @@ colcon build "${COLCON_ARGS[@]}" 2>&1 | tee "$LOG" | grep -E '^(Starting|Finishe
 BUILD_RC=${PIPESTATUS[0]}
 set -e
 if [ "$BUILD_RC" -ne 0 ]; then
-  warn "colcon reported failures (exit $BUILD_RC). The packages that failed are listed above; details in $LOG"
-  warn "The simulator still starts as long as sim_bringup was built (missing parts are replaced or skipped)."
+  warn "colcon reported failures (exit $BUILD_RC): the packages that failed are listed above (\"Failed\")." \
+       "Consequence: the simulator still starts as long as sim_bringup was built, but those packages are missing or old." \
+       "Fix: read the first error in  $LOG  (search for 'error' or 'Failed'), fix it, and build again; one package:" \
+       "bash \"$0\" --packages \"NAME\""
 fi
-[ -f "$DEST/ros2_ws/install/sim_bringup/share/sim_bringup/package.xml" ] || die "sim_bringup was not built: nothing can start. See $LOG"
+[ -f "$DEST/ros2_ws/install/sim_bringup/share/sim_bringup/package.xml" ] || die "sim_bringup was not built, so nothing can start.
+    Likely cause: a compile or Python error in a package sim_bringup needs (the 'Failed' lines above), or colcon missing.
+    Fix: read the first error in  $LOG , fix it, then build again (a clean build: bash \"$0\" --clean)"
 BUILT=""
 for d in "$DEST/ros2_ws/install"/*/; do
   name="$(basename "$d")"
@@ -121,9 +139,29 @@ if [ "$MODELS" = 1 ]; then
   FETCH="$DEST/ros2_ws/src/simulation/sim_worlds/scripts/fetch_models.sh"
   if [ -f "$FETCH" ]; then
     info "Gazebo Fuel models (trees, rocks, people ...) via sim_worlds/scripts/fetch_models.sh"
-    timeout 1800 bash "$FETCH" || warn "some Fuel models could not be downloaded (internet?); the worlds still load, with fewer details"
+    timeout 1800 bash "$FETCH" || warn "some Gazebo Fuel models could not be downloaded. Likely cause: no internet, or" \
+      "the Fuel server is slow. Consequence: the worlds still load, with fewer details (trees, rocks, people)." \
+      "Fix: run this build again later with internet"
   else
     info "sim_worlds/scripts/fetch_models.sh not found: skipping the Fuel models"
+  fi
+  # the real-terrain world (suas_field_real): its Gazebo models (terrain tiles, ground pictures, trees, buildings)
+  # are made from the site pack that is in the repo. About 1 minute the first time, then nothing (--if-needed).
+  RF_SRC="$DEST/ros2_ws/src/simulation/sim_worlds"
+  if [ -f "$RF_SRC/scripts/build_real_field.py" ] && [ -f "$RF_SRC/sim_worlds/realfield/assets_build.py" ] \
+     && [ -d "$RF_SRC/data/suas_field_real" ]; then
+    RF_LOG="$ASTRA_SIM_HOME/logs/real_field_assets_$(date +%Y%m%d-%H%M%S).log"
+    mkdir -p "$ASTRA_SIM_HOME/logs"
+    info "real-terrain world: making / checking its Gazebo models (build_real_field.py assets; log $RF_LOG)"
+    if ( set +u; source /opt/ros/humble/setup.bash && source "$DEST/ros2_ws/install/setup.bash" \
+           && cd "$RF_SRC" && nice -n 10 timeout 1800 python3 scripts/build_real_field.py assets --install --if-needed ) \
+         > "$RF_LOG" 2>&1; then
+      tail -1 "$RF_LOG" | sed 's/^/    /'
+    else
+      warn "the real-terrain world's models could not be made. Likely cause: numpy or Pillow missing for python3, or" \
+           "too little disk space. Consequence: only the world suas_field_real is affected (runway and suas_field" \
+           "do not need them). Fix: read the end of $RF_LOG, then build again"
+    fi
   fi
   MODEL_DIR="$ASTRA_SIM_HOME/models"
   mkdir -p "$MODEL_DIR" "$HOME/.config"
@@ -135,8 +173,10 @@ if [ "$MODELS" = 1 ]; then
           python3 -c "from ultralytics import YOLO; YOLO('yolo26m.pt'); print('yolo26m.pt ready')"); then
       info "saved $MODEL_DIR/yolo26m.pt"
     else
-      warn "could not download yolo26m.pt: the team's real detector will not work in the simulator."
-      warn "Run this script again with internet, or use the demo with --detector truth."
+      warn "could not download the detector weights yolo26m.pt. Likely cause: no internet, or the ultralytics Python" \
+           "package is missing (setup step 1 installs it). Consequence: the team's real detector cannot run in the" \
+           "simulator. Fix: run this build again with internet, or fly with the answer-key detector:" \
+           "bash simulation/scripts/demo.sh runway --detector truth"
     fi
   fi
 else
