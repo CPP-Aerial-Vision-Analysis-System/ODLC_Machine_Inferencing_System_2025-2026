@@ -29,12 +29,30 @@ CANOPY_GRID_M = 3.0
 CANOPY_TEX_PX = 512
 
 
+def _smooth_noise(rng, rows, cols, gr, gc):
+    """Smooth random field (rows x cols, values 0..1): a gr x gc grid of random values, linearly interpolated
+    (wraps around the columns so the crown has no seam). numpy only."""
+    g = rng.random((gr + 1, gc + 1))
+    g[:, -1] = g[:, 0]
+    ys = np.linspace(0, gr, rows)
+    xs = np.linspace(0, gc, cols)
+    y0 = np.minimum(ys.astype(int), gr - 1)
+    x0 = np.minimum(xs.astype(int), gc - 1)
+    fy = (ys - y0)[:, None]
+    fx = (xs - x0)[None, :]
+    a = g[y0][:, x0] * (1 - fx) + g[y0][:, x0 + 1] * fx
+    b = g[y0 + 1][:, x0] * (1 - fx) + g[y0 + 1][:, x0 + 1] * fx
+    return a * (1 - fy) + b * fy
+
+
 def _ring_surface(profile_z, profile_r, segs, rng, lump):
     """A closed-at-the-top surface of revolution: rings at heights profile_z with radii profile_r (unit crown),
     lumpy radius noise. Returns pos (N, 3), nrm (N, 3), uv (N, 2) (u around, v = 0 at the top), idx."""
     rings = len(profile_z)
     ph = np.linspace(0, 2 * math.pi, segs + 1)
-    noise = 1.0 + lump * (rng.random((rings, segs + 1)) - 0.5)
+    coarse = _smooth_noise(rng, rings, segs + 1, 3, 4)               # big lobes (a branch, a clump)
+    fine = rng.random((rings, segs + 1))                              # leaf-cluster bumps
+    noise = 1.0 + lump * (0.65 * (coarse - 0.5) + 0.35 * (fine - 0.5)) * 2.0
     noise[:, -1] = noise[:, 0]
     R = np.asarray(profile_r)[:, None] * noise
     Z = np.repeat(np.asarray(profile_z)[:, None], segs + 1, axis=1)
@@ -78,18 +96,18 @@ def crown_shape(kind, detail, seed):
     """Unit crown (x, y within +-0.5 = crown diameter 1, z 0..1 = tree height 1). detail: 'near' or 'far'."""
     rng = np.random.default_rng(seed)
     if kind == 'cedar':
-        rings, segs = (7, 8) if detail == 'near' else (4, 6)
+        rings, segs = (9, 12) if detail == 'near' else (4, 6)
         zn = np.linspace(0.0, 1.0, rings)
         z = 0.06 + 0.94 * zn
         r = 0.5 * np.power(np.clip(1.0 - zn, 0.0, 1.0), 0.85) * (0.88 + 0.12 * np.sin(np.pi * np.clip(zn * 1.6, 0, 1)))
         r[-1] = 0.0
-        return _ring_surface(z, r, segs, rng, 0.22)
-    rings, segs = (7, 10) if detail == 'near' else (5, 6)
+        return _ring_surface(z, r, segs, rng, 0.30)
+    rings, segs = (11, 16) if detail == 'near' else (5, 6)
     th = np.linspace(0.0, math.pi, rings)
     z = 0.62 + 0.38 * np.cos(th)                                   # crown from 0.24 to 1.0 of the height
     r = 0.5 * np.sin(th)
     r[0] = r[-1] = 0.0
-    return _ring_surface(z, r, segs, rng, 0.30)
+    return _ring_surface(z, r, segs, rng, 0.42)
 
 
 def trunk_shape(kind, segs=6):
@@ -112,10 +130,27 @@ def _tone(rgb_hex):
     return np.array([r, g, b], dtype=np.float32)
 
 
+# Leaf tones used when the pack has no per-crown colour (the committed pack has none): late-summer greens of
+# the Oklahoma post-oak / elm / hackberry woodland (warm olive to mid green) and the darker blue-green of eastern
+# red-cedar. The average sits near the measured mean tree colour of the 2023 photo (62, 87, 63) once the
+# shaded side of each crown is counted in.
+FALLBACK_TONES = {
+    'deciduous': [(82, 108, 60), (70, 96, 54), (58, 80, 50), (94, 110, 62)],
+    'cedar': [(42, 66, 52), (36, 58, 46), (48, 72, 56), (32, 50, 42)],
+}
+
+
 def leaf_tones(trees):
-    """Per kind, 4 tone colours (luminance quartiles of the real crown colours) and a function tree -> cell."""
+    """Per kind, 4 tone colours and a function tree -> (row, col) cell of the atlas. If the trees carry their real
+    crown colours (crown_rgb, from the 2023 photo) the tones are the luminance quartiles of those and each tree
+    uses the tone closest to its own crown; if not, the fixed palette above is used and each tree picks a tone by
+    a stable hash of its id (so a re-build gives the same forest)."""
+    have = any(t.get('crown_rgb') for t in trees)
     tones, bounds = {}, {}
-    for row, kind in enumerate(('deciduous', 'cedar')):
+    for kind in ('deciduous', 'cedar'):
+        if not have:
+            tones[kind] = [np.array(c, dtype=np.float32) for c in FALLBACK_TONES[kind]]
+            continue
         cols = np.array([_tone(t.get('crown_rgb') or '3e573f') for t in trees if t['kind'] == kind] or
                         [[62, 87, 63]], dtype=np.float32)
         lum = cols.mean(axis=1)
@@ -131,28 +166,35 @@ def leaf_tones(trees):
 
     def cell(t):
         kind = 'cedar' if t['kind'] == 'cedar' else 'deciduous'
+        row = 0 if kind == 'deciduous' else 1
+        if not have:
+            return row, (int(t.get('id', 0)) * 2654435761 >> 7) % 4
         lum = float(_tone(t.get('crown_rgb') or '3e573f').mean())
-        q = int(np.searchsorted(bounds[kind], lum))
-        return (0 if kind == 'deciduous' else 1), min(q, 3)
+        return row, min(int(np.searchsorted(bounds[kind], lum)), 3)
     return tones, cell
 
 
 def leaf_atlas(tones, seed=2026):
-    """The crown picture: 4 x 2 cells of procedural leaf-clump texture (made here, no licence issue)."""
+    """The crown picture: 4 x 2 cells of procedural foliage texture (made here, no licence issue): leaf-sized
+    speckle, a few small dark gaps, lighter on top and darker underneath (the shading a real crown has). The
+    pattern repeats seamlessly around the crown (u) so there is no seam line."""
     rng = np.random.default_rng(seed)
     img = np.zeros((ATLAS_ROWS * CELL_PX, ATLAS_COLS * CELL_PX, 3), dtype=np.float32)
-    from PIL import Image
+    vv = np.linspace(0.0, 1.0, CELL_PX)[:, None]                          # 0 = top of the crown, 1 = bottom
     for row, kind in enumerate(('deciduous', 'cedar')):
         for col in range(ATLAS_COLS):
-            base = np.clip(tones[kind][col] * (1.18 if kind == 'deciduous' else 1.10), 0, 255)
+            base = np.clip(tones[kind][col], 0, 255)
             tex = np.zeros((CELL_PX, CELL_PX), dtype=np.float32)
-            for octave, amp in ((8, 0.55), (24, 0.30), (64, 0.15)):
-                small = rng.random((octave, octave)).astype(np.float32)
-                tex += amp * np.asarray(Image.fromarray(small).resize((CELL_PX, CELL_PX), Image.BICUBIC))
+            for grid, amp in ((6, 0.30), (20, 0.30), (64, 0.28), (160, 0.12)):
+                tex += amp * _smooth_noise(rng, CELL_PX, CELL_PX, grid, grid)
             tex = (tex - tex.mean()) / (tex.std() + 1e-6)
-            gaps = np.clip(-tex - 1.1, 0, None)                       # dark gaps between leaf clumps
-            shade = np.clip(1.0 + 0.22 * tex - 0.55 * gaps, 0.35, 1.45)
-            img[row * CELL_PX:(row + 1) * CELL_PX, col * CELL_PX:(col + 1) * CELL_PX] = base * shade[..., None]
+            gaps = np.clip(-tex - 1.6, 0, None)                             # a few small shadow holes
+            shade = (1.0 + 0.20 * tex - 0.45 * gaps) * (1.14 - 0.40 * vv)
+            hue = 1.0 + 0.05 * (_smooth_noise(rng, CELL_PX, CELL_PX, 5, 5) - 0.5)   # a little yellow/green drift
+            rgb = base[None, None, :] * np.clip(shade, 0.30, 1.40)[..., None]
+            rgb[..., 0] *= hue
+            rgb[..., 2] /= hue
+            img[row * CELL_PX:(row + 1) * CELL_PX, col * CELL_PX:(col + 1) * CELL_PX] = rgb
     return np.clip(np.round(img), 0, 255).astype(np.uint8)
 
 
